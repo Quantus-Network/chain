@@ -40,44 +40,44 @@ const P2P_ALPN: [u8; 6] = *b"libp2p";
 
 /// Create a TLS server configuration for litep2p with post-quantum key exchange.
 pub fn make_server_config(
-    keypair: &Keypair,
+	keypair: &Keypair,
 ) -> Result<rustls::ServerConfig, certificate::GenError> {
-    let (certificate, private_key) = certificate::generate(keypair)?;
+	let (certificate, private_key) = certificate::generate(keypair)?;
 
-    // Use post-quantum provider with ML-KEM hybrid key exchange
-    let provider = rustls_post_quantum::provider();
+	// Use post-quantum provider with ML-KEM hybrid key exchange
+	let provider = rustls_post_quantum::provider();
 
-    let mut crypto = rustls::ServerConfig::builder_with_provider(Arc::new(provider))
-        .with_protocol_versions(verifier::PROTOCOL_VERSIONS)
-        .expect("Protocol versions are valid; qed")
-        .with_client_cert_verifier(Arc::new(verifier::Libp2pCertificateVerifier::new()))
-        .with_single_cert(vec![certificate], PrivateKeyDer::Pkcs8(private_key))
-        .expect("Server cert key DER is valid; qed");
-    crypto.alpn_protocols = vec![P2P_ALPN.to_vec()];
+	let mut crypto = rustls::ServerConfig::builder_with_provider(Arc::new(provider))
+		.with_protocol_versions(verifier::PROTOCOL_VERSIONS)
+		.expect("Protocol versions are valid; qed")
+		.with_client_cert_verifier(Arc::new(verifier::Libp2pCertificateVerifier::new()))
+		.with_single_cert(vec![certificate], PrivateKeyDer::Pkcs8(private_key))
+		.expect("Server cert key DER is valid; qed");
+	crypto.alpn_protocols = vec![P2P_ALPN.to_vec()];
 
-    Ok(crypto)
+	Ok(crypto)
 }
 
 /// Create a TLS client configuration for libp2p with post-quantum key exchange.
 pub fn make_client_config(
-    keypair: &Keypair,
-    remote_peer_id: Option<PeerId>,
+	keypair: &Keypair,
+	remote_peer_id: Option<PeerId>,
 ) -> Result<rustls::ClientConfig, certificate::GenError> {
-    let (certificate, private_key) = certificate::generate(keypair)?;
+	let (certificate, private_key) = certificate::generate(keypair)?;
 
-    // Use post-quantum provider with ML-KEM hybrid key exchange
-    let provider = rustls_post_quantum::provider();
+	// Use post-quantum provider with ML-KEM hybrid key exchange
+	let provider = rustls_post_quantum::provider();
 
-    let mut crypto = rustls::ClientConfig::builder_with_provider(Arc::new(provider))
-        .with_protocol_versions(verifier::PROTOCOL_VERSIONS)
-        .expect("Protocol versions are valid; qed")
-        .dangerous()
-        .with_custom_certificate_verifier(Arc::new(
-            verifier::Libp2pCertificateVerifier::with_remote_peer_id(remote_peer_id),
-        ))
-        .with_client_auth_cert(vec![certificate], PrivateKeyDer::Pkcs8(private_key))
-        .expect("Client cert key DER is valid; qed");
-    crypto.alpn_protocols = vec![P2P_ALPN.to_vec()];
+	let mut crypto = rustls::ClientConfig::builder_with_provider(Arc::new(provider))
+		.with_protocol_versions(verifier::PROTOCOL_VERSIONS)
+		.expect("Protocol versions are valid; qed")
+		.dangerous()
+		.with_custom_certificate_verifier(Arc::new(
+			verifier::Libp2pCertificateVerifier::with_remote_peer_id(remote_peer_id),
+		))
+		.with_client_auth_cert(vec![certificate], PrivateKeyDer::Pkcs8(private_key))
+		.expect("Client cert key DER is valid; qed");
+	crypto.alpn_protocols = vec![P2P_ALPN.to_vec()];
 
-    Ok(crypto)
+	Ok(crypto)
 }

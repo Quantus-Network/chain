@@ -77,13 +77,13 @@ mod protocol;
 
 use crate::error::{self, ParseError};
 pub use crate::multistream_select::{
-    dialer_select::{dialer_select_proto, DialerSelectFuture, HandshakeResult, WebRtcDialerState},
-    listener_select::{
-        listener_select_proto, webrtc_listener_negotiate, ListenerSelectFuture,
-        ListenerSelectResult,
-    },
-    negotiated::{Negotiated, NegotiatedComplete, NegotiationError},
-    protocol::{HeaderLine, Message, Protocol, ProtocolError, PROTO_MULTISTREAM_1_0},
+	dialer_select::{dialer_select_proto, DialerSelectFuture, HandshakeResult, WebRtcDialerState},
+	listener_select::{
+		listener_select_proto, webrtc_listener_negotiate, ListenerSelectFuture,
+		ListenerSelectResult,
+	},
+	negotiated::{Negotiated, NegotiatedComplete, NegotiationError},
+	protocol::{HeaderLine, Message, Protocol, ProtocolError, PROTO_MULTISTREAM_1_0},
 };
 
 use bytes::Bytes;
@@ -93,107 +93,107 @@ const LOG_TARGET: &str = "litep2p::multistream-select";
 /// Supported multistream-select versions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Version {
-    /// Version 1 of the multistream-select protocol. See [1] and [2].
-    ///
-    /// [1]: https://github.com/libp2p/specs/blob/master/connections/README.md#protocol-negotiation
-    /// [2]: https://github.com/multiformats/multistream-select
-    V1,
-    /// A "lazy" variant of version 1 that is identical on the wire but whereby
-    /// the dialer delays flushing protocol negotiation data in order to combine
-    /// it with initial application data, thus performing 0-RTT negotiation.
-    ///
-    /// This strategy is only applicable for the node with the role of "dialer"
-    /// in the negotiation and only if the dialer supports just a single
-    /// application protocol. In that case the dialer immedidately "settles"
-    /// on that protocol, buffering the negotiation messages to be sent
-    /// with the first round of application protocol data (or an attempt
-    /// is made to read from the `Negotiated` I/O stream).
-    ///
-    /// A listener will behave identically to `V1`. This ensures interoperability with `V1`.
-    /// Notably, it will immediately send the multistream header as well as the protocol
-    /// confirmation, resulting in multiple frames being sent on the underlying transport.
-    /// Nevertheless, if the listener supports the protocol that the dialer optimistically
-    /// settled on, it can be a 0-RTT negotiation.
-    ///
-    /// > **Note**: `V1Lazy` is specific to `rust-libp2p`. The wire protocol is identical to `V1`
-    /// > and generally interoperable with peers only supporting `V1`. Nevertheless, there is a
-    /// > pitfall that is rarely encountered: When nesting multiple protocol negotiations, the
-    /// > listener should either be known to support all of the dialer's optimistically chosen
-    /// > protocols or there is must be no intermediate protocol without a payload and none of
-    /// > the protocol payloads must have the potential for being mistaken for a multistream-select
-    /// > protocol message. This avoids rare edge-cases whereby the listener may not recognize
-    /// > upgrade boundaries and erroneously process a request despite not supporting one of
-    /// > the intermediate protocols that the dialer committed to. See [1] and [2].
-    ///
-    /// [1]: https://github.com/multiformats/go-multistream/issues/20
-    /// [2]: https://github.com/libp2p/rust-libp2p/pull/1212
-    V1Lazy,
-    // Draft: https://github.com/libp2p/specs/pull/95
-    // V2,
+	/// Version 1 of the multistream-select protocol. See [1] and [2].
+	///
+	/// [1]: https://github.com/libp2p/specs/blob/master/connections/README.md#protocol-negotiation
+	/// [2]: https://github.com/multiformats/multistream-select
+	V1,
+	/// A "lazy" variant of version 1 that is identical on the wire but whereby
+	/// the dialer delays flushing protocol negotiation data in order to combine
+	/// it with initial application data, thus performing 0-RTT negotiation.
+	///
+	/// This strategy is only applicable for the node with the role of "dialer"
+	/// in the negotiation and only if the dialer supports just a single
+	/// application protocol. In that case the dialer immedidately "settles"
+	/// on that protocol, buffering the negotiation messages to be sent
+	/// with the first round of application protocol data (or an attempt
+	/// is made to read from the `Negotiated` I/O stream).
+	///
+	/// A listener will behave identically to `V1`. This ensures interoperability with `V1`.
+	/// Notably, it will immediately send the multistream header as well as the protocol
+	/// confirmation, resulting in multiple frames being sent on the underlying transport.
+	/// Nevertheless, if the listener supports the protocol that the dialer optimistically
+	/// settled on, it can be a 0-RTT negotiation.
+	///
+	/// > **Note**: `V1Lazy` is specific to `rust-libp2p`. The wire protocol is identical to `V1`
+	/// > and generally interoperable with peers only supporting `V1`. Nevertheless, there is a
+	/// > pitfall that is rarely encountered: When nesting multiple protocol negotiations, the
+	/// > listener should either be known to support all of the dialer's optimistically chosen
+	/// > protocols or there is must be no intermediate protocol without a payload and none of
+	/// > the protocol payloads must have the potential for being mistaken for a multistream-select
+	/// > protocol message. This avoids rare edge-cases whereby the listener may not recognize
+	/// > upgrade boundaries and erroneously process a request despite not supporting one of
+	/// > the intermediate protocols that the dialer committed to. See [1] and [2].
+	///
+	/// [1]: https://github.com/multiformats/go-multistream/issues/20
+	/// [2]: https://github.com/libp2p/rust-libp2p/pull/1212
+	V1Lazy,
+	// Draft: https://github.com/libp2p/specs/pull/95
+	// V2,
 }
 
 impl Default for Version {
-    fn default() -> Self {
-        Version::V1
-    }
+	fn default() -> Self {
+		Version::V1
+	}
 }
 
 // This function is only used in the WebRTC transport. It expects one or more multistream-select
 // messages in `remaining` and returns a list of protocols that were decoded from them.
 fn drain_trailing_protocols(
-    mut remaining: Bytes,
+	mut remaining: Bytes,
 ) -> Result<Vec<Protocol>, error::NegotiationError> {
-    let mut protocols = vec![];
+	let mut protocols = vec![];
 
-    loop {
-        if remaining.is_empty() {
-            break;
-        }
+	loop {
+		if remaining.is_empty() {
+			break;
+		}
 
-        let (len, tail) = unsigned_varint::decode::usize(&remaining).map_err(|error| {
-            tracing::debug!(
+		let (len, tail) = unsigned_varint::decode::usize(&remaining).map_err(|error| {
+			tracing::debug!(
                     target: LOG_TARGET,
                     ?error,
                     message = ?remaining,
                     "Failed to decode length-prefix in multistream message");
-            error::NegotiationError::ParseError(ParseError::InvalidData)
-        })?;
+			error::NegotiationError::ParseError(ParseError::InvalidData)
+		})?;
 
-        if len > tail.len() {
-            tracing::debug!(
-                target: LOG_TARGET,
-                message = ?tail,
-                length_prefix = len,
-                actual_length = tail.len(),
-                "Truncated multistream message",
-            );
+		if len > tail.len() {
+			tracing::debug!(
+				target: LOG_TARGET,
+				message = ?tail,
+				length_prefix = len,
+				actual_length = tail.len(),
+				"Truncated multistream message",
+			);
 
-            return Err(error::NegotiationError::ParseError(ParseError::InvalidData));
-        }
+			return Err(error::NegotiationError::ParseError(ParseError::InvalidData));
+		}
 
-        let len_size = remaining.len() - tail.len();
-        let payload = remaining.slice(len_size..len_size + len);
-        let res = Message::decode(payload);
+		let len_size = remaining.len() - tail.len();
+		let payload = remaining.slice(len_size..len_size + len);
+		let res = Message::decode(payload);
 
-        match res {
-            Ok(Message::Header(HeaderLine::V1)) => protocols.push(PROTO_MULTISTREAM_1_0),
-            Ok(Message::Protocol(protocol)) => protocols.push(protocol),
-            Ok(Message::Protocols(_)) =>
-                return Err(error::NegotiationError::ParseError(ParseError::InvalidData)),
-            Err(error) => {
-                tracing::debug!(
-                    target: LOG_TARGET,
-                    ?error,
-                    message = ?tail[..len],
-                    "Failed to decode multistream message",
-                );
-                return Err(error::NegotiationError::ParseError(ParseError::InvalidData));
-            }
-            _ => return Err(error::NegotiationError::StateMismatch),
-        }
+		match res {
+			Ok(Message::Header(HeaderLine::V1)) => protocols.push(PROTO_MULTISTREAM_1_0),
+			Ok(Message::Protocol(protocol)) => protocols.push(protocol),
+			Ok(Message::Protocols(_)) =>
+				return Err(error::NegotiationError::ParseError(ParseError::InvalidData)),
+			Err(error) => {
+				tracing::debug!(
+					target: LOG_TARGET,
+					?error,
+					message = ?tail[..len],
+					"Failed to decode multistream message",
+				);
+				return Err(error::NegotiationError::ParseError(ParseError::InvalidData));
+			},
+			_ => return Err(error::NegotiationError::StateMismatch),
+		}
 
-        remaining = remaining.slice(len_size + len..);
-    }
+		remaining = remaining.slice(len_size + len..);
+	}
 
-    Ok(protocols)
+	Ok(protocols)
 }

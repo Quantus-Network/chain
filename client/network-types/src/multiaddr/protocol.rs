@@ -18,7 +18,7 @@
 
 use crate::multihash::Multihash;
 use litep2p::types::multiaddr::Protocol as LiteP2pProtocol;
-use multiaddr::{Protocol as LibP2pProtocol, PeerId as MultiAddrPeerId};
+use multiaddr::{PeerId as MultiAddrPeerId, Protocol as LibP2pProtocol};
 use std::{
 	borrow::Cow,
 	fmt::{self, Debug, Display},
@@ -245,29 +245,32 @@ impl<'a> From<Protocol<'a>> for LibP2pProtocol<'a> {
 			Protocol::Onion(str, port) => LibP2pProtocol::Onion(str, port),
 			Protocol::Onion3(str, port) => LibP2pProtocol::Onion3((str.into_owned(), port).into()),
 			Protocol::P2p(multihash) => {
-				LibP2pProtocol::P2p(MultiAddrPeerId::from_multihash(multihash.into()).unwrap_or_else(|mh| {
-					// This is better than making conversion fallible and complicating the
-					// client code.
-					log::error!(
-						target: LOG_TARGET,
-						"Received multiaddr with p2p multihash which is not a valid \
-						 peer_id. Using the multihash directly as identity."
-					);
-					// Create a peer ID from the invalid multihash - this will at least preserve
-					// some uniqueness for debugging. The underlying multiaddr will be invalid
-					// but this path should rarely be hit in practice.
-					let bytes = mh.to_bytes();
-					MultiAddrPeerId::from_bytes(&bytes).unwrap_or_else(|_| {
-						// Last resort: generate from random bytes using identity hash
-						use rand::RngCore;
-						let mut random_bytes = [0u8; 32];
-						rand::thread_rng().fill_bytes(&mut random_bytes);
-						// Use identity multihash (code 0x00) with 32 random bytes
-						let identity_mh = multihash::Multihash::<64>::wrap(0x00, &random_bytes)
-							.expect("identity hash with 32 bytes always fits");
-						MultiAddrPeerId::from_multihash(identity_mh).expect("identity multihash is valid peer id")
-					})
-				}))
+				LibP2pProtocol::P2p(
+					MultiAddrPeerId::from_multihash(multihash.into()).unwrap_or_else(|mh| {
+						// This is better than making conversion fallible and complicating the
+						// client code.
+						log::error!(
+							target: LOG_TARGET,
+							"Received multiaddr with p2p multihash which is not a valid \
+							 peer_id. Using the multihash directly as identity."
+						);
+						// Create a peer ID from the invalid multihash - this will at least preserve
+						// some uniqueness for debugging. The underlying multiaddr will be invalid
+						// but this path should rarely be hit in practice.
+						let bytes = mh.to_bytes();
+						MultiAddrPeerId::from_bytes(&bytes).unwrap_or_else(|_| {
+							// Last resort: generate from random bytes using identity hash
+							use rand::RngCore;
+							let mut random_bytes = [0u8; 32];
+							rand::thread_rng().fill_bytes(&mut random_bytes);
+							// Use identity multihash (code 0x00) with 32 random bytes
+							let identity_mh = multihash::Multihash::<64>::wrap(0x00, &random_bytes)
+								.expect("identity hash with 32 bytes always fits");
+							MultiAddrPeerId::from_multihash(identity_mh)
+								.expect("identity multihash is valid peer id")
+						})
+					}),
+				)
 			},
 			Protocol::P2pCircuit => LibP2pProtocol::P2pCircuit,
 			Protocol::Quic => LibP2pProtocol::Quic,

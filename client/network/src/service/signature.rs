@@ -21,10 +21,7 @@
 
 //! Signature-related code for litep2p network backend.
 
-use litep2p::crypto::{
-	PublicKey as Litep2pPublicKey,
-	dilithium::Keypair as DilithiumKeypair,
-};
+use litep2p::crypto::{dilithium::Keypair as DilithiumKeypair, PublicKey as Litep2pPublicKey};
 
 /// Error during signing of a message.
 #[derive(Debug, thiserror::Error)]

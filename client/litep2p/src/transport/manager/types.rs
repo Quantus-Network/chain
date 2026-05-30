@@ -23,37 +23,37 @@ use crate::transport::manager::{address::AddressStore, peer_state::PeerState};
 /// Supported protocols.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum SupportedTransport {
-    /// TCP.
-    Tcp,
+	/// TCP.
+	Tcp,
 
-    /// QUIC.
-    #[cfg(feature = "quic")]
-    Quic,
+	/// QUIC.
+	#[cfg(feature = "quic")]
+	Quic,
 
-    /// WebRTC
-    #[cfg(feature = "webrtc")]
-    WebRtc,
+	/// WebRTC
+	#[cfg(feature = "webrtc")]
+	WebRtc,
 
-    /// WebSocket
-    #[cfg(feature = "websocket")]
-    WebSocket,
+	/// WebSocket
+	#[cfg(feature = "websocket")]
+	WebSocket,
 }
 
 /// Peer context.
 #[derive(Debug)]
 pub struct PeerContext {
-    /// Peer state.
-    pub state: PeerState,
+	/// Peer state.
+	pub state: PeerState,
 
-    /// Known addresses of peer.
-    pub addresses: AddressStore,
+	/// Known addresses of peer.
+	pub addresses: AddressStore,
 }
 
 impl Default for PeerContext {
-    fn default() -> Self {
-        Self {
-            state: PeerState::Disconnected { dial_record: None },
-            addresses: AddressStore::new(),
-        }
-    }
+	fn default() -> Self {
+		Self {
+			state: PeerState::Disconnected { dial_record: None },
+			addresses: AddressStore::new(),
+		}
+	}
 }

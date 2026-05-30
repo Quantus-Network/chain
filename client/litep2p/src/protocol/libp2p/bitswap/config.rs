@@ -19,10 +19,10 @@
 // DEALINGS IN THE SOFTWARE.
 
 use crate::{
-    codec::ProtocolCodec,
-    protocol::libp2p::bitswap::{BitswapCommand, BitswapEvent, BitswapHandle},
-    types::protocol::ProtocolName,
-    DEFAULT_CHANNEL_SIZE,
+	codec::ProtocolCodec,
+	protocol::libp2p::bitswap::{BitswapCommand, BitswapEvent, BitswapHandle},
+	types::protocol::ProtocolName,
+	DEFAULT_CHANNEL_SIZE,
 };
 
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -41,33 +41,33 @@ pub const MAX_BATCH_SIZE: usize = 2 * 1024 * 1024;
 /// Bitswap configuration.
 #[derive(Debug)]
 pub struct Config {
-    /// Protocol name.
-    pub(crate) protocol: ProtocolName,
+	/// Protocol name.
+	pub(crate) protocol: ProtocolName,
 
-    /// Protocol codec.
-    pub(crate) codec: ProtocolCodec,
+	/// Protocol codec.
+	pub(crate) codec: ProtocolCodec,
 
-    /// TX channel for sending events to the user protocol.
-    pub(super) event_tx: Sender<BitswapEvent>,
+	/// TX channel for sending events to the user protocol.
+	pub(super) event_tx: Sender<BitswapEvent>,
 
-    /// RX channel for receiving commands from the user.
-    pub(super) cmd_rx: Receiver<BitswapCommand>,
+	/// RX channel for receiving commands from the user.
+	pub(super) cmd_rx: Receiver<BitswapCommand>,
 }
 
 impl Config {
-    /// Create new [`Config`].
-    pub fn new() -> (Self, BitswapHandle) {
-        let (event_tx, event_rx) = channel(DEFAULT_CHANNEL_SIZE);
-        let (cmd_tx, cmd_rx) = channel(DEFAULT_CHANNEL_SIZE);
+	/// Create new [`Config`].
+	pub fn new() -> (Self, BitswapHandle) {
+		let (event_tx, event_rx) = channel(DEFAULT_CHANNEL_SIZE);
+		let (cmd_tx, cmd_rx) = channel(DEFAULT_CHANNEL_SIZE);
 
-        (
-            Self {
-                cmd_rx,
-                event_tx,
-                protocol: ProtocolName::from(PROTOCOL_NAME),
-                codec: ProtocolCodec::UnsignedVarint(Some(MAX_MESSAGE_SIZE)),
-            },
-            BitswapHandle::new(event_rx, cmd_tx),
-        )
-    }
+		(
+			Self {
+				cmd_rx,
+				event_tx,
+				protocol: ProtocolName::from(PROTOCOL_NAME),
+				codec: ProtocolCodec::UnsignedVarint(Some(MAX_MESSAGE_SIZE)),
+			},
+			BitswapHandle::new(event_rx, cmd_tx),
+		)
+	}
 }

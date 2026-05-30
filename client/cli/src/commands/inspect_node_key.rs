@@ -20,7 +20,7 @@
 
 use crate::Error;
 use clap::Parser;
-use litep2p::crypto::{PublicKey, dilithium::PublicKey as DilithiumPublicKey};
+use litep2p::crypto::{dilithium::PublicKey as DilithiumPublicKey, PublicKey};
 use qp_rusty_crystals_dilithium::ml_dsa_87::Keypair;
 use std::{
 	fs,

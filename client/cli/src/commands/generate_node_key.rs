@@ -20,7 +20,7 @@
 
 use crate::{build_network_key_dir_or_default, Error, NODE_KEY_DILITHIUM_FILE};
 use clap::{Args, Parser};
-use litep2p::crypto::{PublicKey, dilithium::PublicKey as DilithiumPublicKey};
+use litep2p::crypto::{dilithium::PublicKey as DilithiumPublicKey, PublicKey};
 use qp_rusty_crystals_dilithium::{ml_dsa_87::Keypair, SensitiveBytes32};
 use sc_service::BasePath;
 use sp_core::blake2_256;

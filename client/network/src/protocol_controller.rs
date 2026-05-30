@@ -44,8 +44,8 @@
 use crate::peer_store::{PeerStoreProvider, ProtocolHandle as ProtocolHandleT};
 
 use futures::{channel::oneshot, future::Either, FutureExt, StreamExt};
-use sc_network_types::PeerId;
 use log::{debug, error, trace, warn};
+use sc_network_types::PeerId;
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
 use sp_arithmetic::traits::SaturatedConversion;
 use std::{
@@ -812,9 +812,7 @@ impl ProtocolController {
 			.keys()
 			.cloned()
 			.collect::<HashSet<PeerId>>()
-			.union(
-				&self.nodes.keys().cloned().collect::<HashSet<PeerId>>(),
-			)
+			.union(&self.nodes.keys().cloned().collect::<HashSet<PeerId>>())
 			.cloned()
 			.collect();
 

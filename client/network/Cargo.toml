@@ -37,8 +37,8 @@ fnv = { workspace = true }
 futures = { workspace = true }
 futures-timer = { workspace = true }
 ip_network = { workspace = true }
-litep2p = { path = "../litep2p", features = ["quic", "websocket"] }
 linked_hash_set = { workspace = true }
+litep2p = { path = "../litep2p", features = ["quic", "websocket"] }
 log = { workspace = true, default-features = true }
 mockall = { workspace = true }
 parking_lot = { workspace = true, default-features = true }

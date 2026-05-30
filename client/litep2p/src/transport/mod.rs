@@ -66,172 +66,166 @@ pub(crate) const DIAL_DEADLINE_MULTIPLIER: u32 = 2;
 /// Connection endpoint.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Endpoint {
-    /// Successfully established outbound connection.
-    Dialer {
-        /// Address that was dialed.
-        address: Multiaddr,
+	/// Successfully established outbound connection.
+	Dialer {
+		/// Address that was dialed.
+		address: Multiaddr,
 
-        /// Connection ID.
-        connection_id: ConnectionId,
-    },
+		/// Connection ID.
+		connection_id: ConnectionId,
+	},
 
-    /// Successfully established inbound connection.
-    Listener {
-        /// Local connection address.
-        address: Multiaddr,
+	/// Successfully established inbound connection.
+	Listener {
+		/// Local connection address.
+		address: Multiaddr,
 
-        /// Connection ID.
-        connection_id: ConnectionId,
-    },
+		/// Connection ID.
+		connection_id: ConnectionId,
+	},
 }
 
 impl Endpoint {
-    /// Get `Multiaddr` of the [`Endpoint`].
-    pub fn address(&self) -> &Multiaddr {
-        match self {
-            Self::Dialer { address, .. } => address,
-            Self::Listener { address, .. } => address,
-        }
-    }
+	/// Get `Multiaddr` of the [`Endpoint`].
+	pub fn address(&self) -> &Multiaddr {
+		match self {
+			Self::Dialer { address, .. } => address,
+			Self::Listener { address, .. } => address,
+		}
+	}
 
-    /// Crate dialer.
-    pub(crate) fn dialer(address: Multiaddr, connection_id: ConnectionId) -> Self {
-        Endpoint::Dialer {
-            address,
-            connection_id,
-        }
-    }
+	/// Crate dialer.
+	pub(crate) fn dialer(address: Multiaddr, connection_id: ConnectionId) -> Self {
+		Endpoint::Dialer { address, connection_id }
+	}
 
-    /// Create listener.
-    pub(crate) fn listener(address: Multiaddr, connection_id: ConnectionId) -> Self {
-        Endpoint::Listener {
-            address,
-            connection_id,
-        }
-    }
+	/// Create listener.
+	pub(crate) fn listener(address: Multiaddr, connection_id: ConnectionId) -> Self {
+		Endpoint::Listener { address, connection_id }
+	}
 
-    /// Get `ConnectionId` of the `Endpoint`.
-    pub fn connection_id(&self) -> ConnectionId {
-        match self {
-            Self::Dialer { connection_id, .. } => *connection_id,
-            Self::Listener { connection_id, .. } => *connection_id,
-        }
-    }
+	/// Get `ConnectionId` of the `Endpoint`.
+	pub fn connection_id(&self) -> ConnectionId {
+		match self {
+			Self::Dialer { connection_id, .. } => *connection_id,
+			Self::Listener { connection_id, .. } => *connection_id,
+		}
+	}
 
-    /// Is this a listener endpoint?
-    pub fn is_listener(&self) -> bool {
-        std::matches!(self, Self::Listener { .. })
-    }
+	/// Is this a listener endpoint?
+	pub fn is_listener(&self) -> bool {
+		std::matches!(self, Self::Listener { .. })
+	}
 }
 
 /// Transport event.
 #[derive(Debug)]
 pub(crate) enum TransportEvent {
-    /// Fully negotiated connection established to remote peer.
-    ConnectionEstablished {
-        /// Peer ID.
-        peer: PeerId,
+	/// Fully negotiated connection established to remote peer.
+	ConnectionEstablished {
+		/// Peer ID.
+		peer: PeerId,
 
-        /// Endpoint.
-        endpoint: Endpoint,
-    },
+		/// Endpoint.
+		endpoint: Endpoint,
+	},
 
-    PendingInboundConnection {
-        /// Connection ID.
-        connection_id: ConnectionId,
-    },
+	PendingInboundConnection {
+		/// Connection ID.
+		connection_id: ConnectionId,
+	},
 
-    /// Connection opened to remote but not yet negotiated.
-    ConnectionOpened {
-        /// Connection ID.
-        connection_id: ConnectionId,
+	/// Connection opened to remote but not yet negotiated.
+	ConnectionOpened {
+		/// Connection ID.
+		connection_id: ConnectionId,
 
-        /// Address that was dialed.
-        address: Multiaddr,
+		/// Address that was dialed.
+		address: Multiaddr,
 
-        /// Errors from unsuccessful dial attempts.
-        errors: Vec<(Multiaddr, DialError)>,
-    },
+		/// Errors from unsuccessful dial attempts.
+		errors: Vec<(Multiaddr, DialError)>,
+	},
 
-    /// Connection closed to remote peer.
-    #[allow(unused)]
-    ConnectionClosed {
-        /// Peer ID.
-        peer: PeerId,
+	/// Connection closed to remote peer.
+	#[allow(unused)]
+	ConnectionClosed {
+		/// Peer ID.
+		peer: PeerId,
 
-        /// Connection ID.
-        connection_id: ConnectionId,
-    },
+		/// Connection ID.
+		connection_id: ConnectionId,
+	},
 
-    /// Failed to dial remote peer.
-    DialFailure {
-        /// Connection ID.
-        connection_id: ConnectionId,
+	/// Failed to dial remote peer.
+	DialFailure {
+		/// Connection ID.
+		connection_id: ConnectionId,
 
-        /// Dialed address.
-        address: Multiaddr,
+		/// Dialed address.
+		address: Multiaddr,
 
-        /// Error.
-        error: DialError,
-    },
+		/// Error.
+		error: DialError,
+	},
 
-    /// Open failure for an unnegotiated set of connections.
-    OpenFailure {
-        /// Connection ID.
-        connection_id: ConnectionId,
+	/// Open failure for an unnegotiated set of connections.
+	OpenFailure {
+		/// Connection ID.
+		connection_id: ConnectionId,
 
-        /// Errors.
-        errors: Vec<(Multiaddr, DialError)>,
-    },
+		/// Errors.
+		errors: Vec<(Multiaddr, DialError)>,
+	},
 }
 
 pub(crate) trait TransportBuilder {
-    type Config: Debug;
-    type Transport: Transport;
+	type Config: Debug;
+	type Transport: Transport;
 
-    /// Create new [`Transport`] object.
-    fn new(
-        context: TransportHandle,
-        config: Self::Config,
-        resolver: Arc<TokioResolver>,
-    ) -> crate::Result<(Self, Vec<Multiaddr>)>
-    where
-        Self: Sized;
+	/// Create new [`Transport`] object.
+	fn new(
+		context: TransportHandle,
+		config: Self::Config,
+		resolver: Arc<TokioResolver>,
+	) -> crate::Result<(Self, Vec<Multiaddr>)>
+	where
+		Self: Sized;
 }
 
 pub(crate) trait Transport: Stream + Unpin + Send {
-    /// Dial `address` and negotiate connection.
-    fn dial(&mut self, connection_id: ConnectionId, address: Multiaddr) -> crate::Result<()>;
+	/// Dial `address` and negotiate connection.
+	fn dial(&mut self, connection_id: ConnectionId, address: Multiaddr) -> crate::Result<()>;
 
-    /// Accept negotiated connection.
-    ///
-    /// Returns a future that completes when the connection has been fully established
-    /// and all installed protocols have been notified via their event channels.
-    /// This ensures that by the time the caller receives a ConnectionEstablished event,
-    /// protocols are ready to handle substream operations.
-    fn accept(
-        &mut self,
-        connection_id: ConnectionId,
-    ) -> crate::Result<BoxFuture<'static, crate::Result<()>>>;
+	/// Accept negotiated connection.
+	///
+	/// Returns a future that completes when the connection has been fully established
+	/// and all installed protocols have been notified via their event channels.
+	/// This ensures that by the time the caller receives a ConnectionEstablished event,
+	/// protocols are ready to handle substream operations.
+	fn accept(
+		&mut self,
+		connection_id: ConnectionId,
+	) -> crate::Result<BoxFuture<'static, crate::Result<()>>>;
 
-    /// Accept pending connection.
-    fn accept_pending(&mut self, connection_id: ConnectionId) -> crate::Result<()>;
+	/// Accept pending connection.
+	fn accept_pending(&mut self, connection_id: ConnectionId) -> crate::Result<()>;
 
-    /// Reject pending connection.
-    fn reject_pending(&mut self, connection_id: ConnectionId) -> crate::Result<()>;
+	/// Reject pending connection.
+	fn reject_pending(&mut self, connection_id: ConnectionId) -> crate::Result<()>;
 
-    /// Reject negotiated connection.
-    fn reject(&mut self, connection_id: ConnectionId) -> crate::Result<()>;
+	/// Reject negotiated connection.
+	fn reject(&mut self, connection_id: ConnectionId) -> crate::Result<()>;
 
-    /// Attempt to open connection to remote peer over one or more addresses.
-    fn open(&mut self, connection_id: ConnectionId, addresses: Vec<Multiaddr>)
-        -> crate::Result<()>;
+	/// Attempt to open connection to remote peer over one or more addresses.
+	fn open(&mut self, connection_id: ConnectionId, addresses: Vec<Multiaddr>)
+		-> crate::Result<()>;
 
-    /// Negotiate opened connection.
-    fn negotiate(&mut self, connection_id: ConnectionId) -> crate::Result<()>;
+	/// Negotiate opened connection.
+	fn negotiate(&mut self, connection_id: ConnectionId) -> crate::Result<()>;
 
-    /// Cancel opening connections.
-    ///
-    /// This is a no-op for connections that have already succeeded/canceled.
-    fn cancel(&mut self, connection_id: ConnectionId);
+	/// Cancel opening connections.
+	///
+	/// This is a no-op for connections that have already succeeded/canceled.
+	fn cancel(&mut self, connection_id: ConnectionId);
 }

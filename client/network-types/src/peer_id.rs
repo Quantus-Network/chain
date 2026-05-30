@@ -80,9 +80,8 @@ impl PeerId {
 	pub fn from_multihash(multihash: Multihash) -> Result<PeerId, Multihash> {
 		match Code::try_from(multihash.code()) {
 			Ok(Code::Sha2_256) => Ok(PeerId { multihash }),
-			Ok(Code::Identity) if multihash.digest().len() <= MAX_INLINE_KEY_LENGTH => {
-				Ok(PeerId { multihash })
-			},
+			Ok(Code::Identity) if multihash.digest().len() <= MAX_INLINE_KEY_LENGTH =>
+				Ok(PeerId { multihash }),
 			_ => Err(multihash),
 		}
 	}
@@ -243,9 +242,8 @@ mod tests {
 	#[test]
 	fn from_dilithium() {
 		let keypair = litep2p::crypto::dilithium::Keypair::generate();
-		let original_peer_id = litep2p::PeerId::from_public_key(
-			&litep2p::crypto::PublicKey::from(keypair.public()),
-		);
+		let original_peer_id =
+			litep2p::PeerId::from_public_key(&litep2p::crypto::PublicKey::from(keypair.public()));
 
 		let peer_id: PeerId = original_peer_id.into();
 		assert_eq!(original_peer_id.to_bytes(), peer_id.to_bytes());
@@ -261,9 +259,8 @@ mod tests {
 	#[test]
 	fn peer_id_roundtrip() {
 		let keypair = litep2p::crypto::dilithium::Keypair::generate();
-		let litep2p_peer_id = litep2p::PeerId::from_public_key(
-			&litep2p::crypto::PublicKey::from(keypair.public()),
-		);
+		let litep2p_peer_id =
+			litep2p::PeerId::from_public_key(&litep2p::crypto::PublicKey::from(keypair.public()));
 
 		// litep2p -> substrate -> litep2p
 		let substrate_peer_id: PeerId = litep2p_peer_id.into();

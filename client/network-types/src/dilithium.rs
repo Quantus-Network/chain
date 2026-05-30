@@ -118,7 +118,10 @@ impl Keypair {
 		let mut hedge = [0u8; 32];
 		rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut hedge);
 
-		internal_kp.sign(msg, None, Some(hedge)).expect("Signing should not fail").to_vec()
+		internal_kp
+			.sign(msg, None, Some(hedge))
+			.expect("Signing should not fail")
+			.to_vec()
 	}
 
 	/// Get the public key of this keypair.

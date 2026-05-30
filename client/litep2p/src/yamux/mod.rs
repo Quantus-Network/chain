@@ -26,8 +26,8 @@
 mod control;
 
 pub use yamux::{
-    Config, Connection, ConnectionError, FrameDecodeError, HeaderDecodeError, Mode, Packet, Result,
-    Stream, StreamId,
+	Config, Connection, ConnectionError, FrameDecodeError, HeaderDecodeError, Mode, Packet, Result,
+	Stream, StreamId,
 };
 
 // Switching to the "poll" based yamux API is a massive breaking change for litep2p.

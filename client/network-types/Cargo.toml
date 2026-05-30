@@ -1,13 +1,16 @@
 [package]
-name = "sc-network-types"
-version = "0.20.3"
-authors = ["Parity Technologies <admin@parity.io>", "Quantus Network Developers <hello@quantus.com>"]
-edition = "2021"
+authors = [
+	"Parity Technologies <admin@parity.io>",
+	"Quantus Network Developers <hello@quantus.com>",
+]
 description = "Substrate network types with Dilithium support"
-homepage = "https://quantus.com/"
 documentation = "https://docs.rs/sc-network-types"
+edition = "2021"
+homepage = "https://quantus.com/"
 license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+name = "sc-network-types"
 repository = "https://github.com/quantus-network/chain"
+version = "0.20.3"
 
 [lib]
 name = "sc_network_types"

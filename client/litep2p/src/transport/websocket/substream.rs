@@ -24,80 +24,76 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::compat::Compat;
 
 use std::{
-    io,
-    pin::Pin,
-    task::{Context, Poll},
+	io,
+	pin::Pin,
+	task::{Context, Poll},
 };
 
 /// Substream that holds the inner substream provided by the transport.
 #[derive(Debug)]
 pub struct Substream {
-    /// Underlying socket.
-    io: Compat<crate::yamux::Stream>,
+	/// Underlying socket.
+	io: Compat<crate::yamux::Stream>,
 
-    /// Bandwidth sink.
-    bandwidth_sink: BandwidthSink,
+	/// Bandwidth sink.
+	bandwidth_sink: BandwidthSink,
 
-    /// Connection permit if this substream keeps connection alive.
-    _lifetime_permit: Option<Permit>,
+	/// Connection permit if this substream keeps connection alive.
+	_lifetime_permit: Option<Permit>,
 }
 
 impl Substream {
-    /// Create new [`Substream`].
-    pub fn new(
-        io: Compat<crate::yamux::Stream>,
-        bandwidth_sink: BandwidthSink,
-        _lifetime_permit: Option<Permit>,
-    ) -> Self {
-        Self {
-            io,
-            bandwidth_sink,
-            _lifetime_permit,
-        }
-    }
+	/// Create new [`Substream`].
+	pub fn new(
+		io: Compat<crate::yamux::Stream>,
+		bandwidth_sink: BandwidthSink,
+		_lifetime_permit: Option<Permit>,
+	) -> Self {
+		Self { io, bandwidth_sink, _lifetime_permit }
+	}
 }
 
 impl AsyncRead for Substream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        let len = buf.filled().len();
-        match futures::ready!(Pin::new(&mut self.io).poll_read(cx, buf)) {
-            Err(error) => Poll::Ready(Err(error)),
-            Ok(res) => {
-                let inbound_size = buf.filled().len().saturating_sub(len);
-                self.bandwidth_sink.increase_inbound(inbound_size);
-                Poll::Ready(Ok(res))
-            }
-        }
-    }
+	fn poll_read(
+		mut self: Pin<&mut Self>,
+		cx: &mut Context<'_>,
+		buf: &mut tokio::io::ReadBuf<'_>,
+	) -> Poll<io::Result<()>> {
+		let len = buf.filled().len();
+		match futures::ready!(Pin::new(&mut self.io).poll_read(cx, buf)) {
+			Err(error) => Poll::Ready(Err(error)),
+			Ok(res) => {
+				let inbound_size = buf.filled().len().saturating_sub(len);
+				self.bandwidth_sink.increase_inbound(inbound_size);
+				Poll::Ready(Ok(res))
+			},
+		}
+	}
 }
 
 impl AsyncWrite for Substream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<Result<usize, io::Error>> {
-        match futures::ready!(Pin::new(&mut self.io).poll_write(cx, buf)) {
-            Err(error) => Poll::Ready(Err(error)),
-            Ok(nwritten) => {
-                self.bandwidth_sink.increase_outbound(nwritten);
-                Poll::Ready(Ok(nwritten))
-            }
-        }
-    }
+	fn poll_write(
+		mut self: Pin<&mut Self>,
+		cx: &mut Context<'_>,
+		buf: &[u8],
+	) -> Poll<Result<usize, io::Error>> {
+		match futures::ready!(Pin::new(&mut self.io).poll_write(cx, buf)) {
+			Err(error) => Poll::Ready(Err(error)),
+			Ok(nwritten) => {
+				self.bandwidth_sink.increase_outbound(nwritten);
+				Poll::Ready(Ok(nwritten))
+			},
+		}
+	}
 
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        Pin::new(&mut self.io).poll_flush(cx)
-    }
+	fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+		Pin::new(&mut self.io).poll_flush(cx)
+	}
 
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), io::Error>> {
-        Pin::new(&mut self.io).poll_shutdown(cx)
-    }
+	fn poll_shutdown(
+		mut self: Pin<&mut Self>,
+		cx: &mut Context<'_>,
+	) -> Poll<Result<(), io::Error>> {
+		Pin::new(&mut self.io).poll_shutdown(cx)
+	}
 }

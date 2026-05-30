@@ -21,123 +21,123 @@
 //! Bitswap handle for communicating with the bitswap protocol implementation.
 
 use crate::{
-    protocol::libp2p::bitswap::{BlockPresenceType, WantType},
-    PeerId,
+	protocol::libp2p::bitswap::{BlockPresenceType, WantType},
+	PeerId,
 };
 
 use cid::Cid;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use std::{
-    pin::Pin,
-    task::{Context, Poll},
+	pin::Pin,
+	task::{Context, Poll},
 };
 
 /// Events emitted by the bitswap protocol.
 #[derive(Debug)]
 pub enum BitswapEvent {
-    /// Bitswap request.
-    Request {
-        /// Peer ID.
-        peer: PeerId,
+	/// Bitswap request.
+	Request {
+		/// Peer ID.
+		peer: PeerId,
 
-        /// Requested CIDs.
-        cids: Vec<(Cid, WantType)>,
-    },
+		/// Requested CIDs.
+		cids: Vec<(Cid, WantType)>,
+	},
 
-    /// Bitswap response.
-    Response {
-        /// Peer ID.
-        peer: PeerId,
+	/// Bitswap response.
+	Response {
+		/// Peer ID.
+		peer: PeerId,
 
-        /// Response entries: vector of CIDs with either block data or block presence.
-        responses: Vec<ResponseType>,
-    },
+		/// Response entries: vector of CIDs with either block data or block presence.
+		responses: Vec<ResponseType>,
+	},
 }
 
 /// Response type for received bitswap request.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "fuzz", derive(serde::Serialize, serde::Deserialize))]
 pub enum ResponseType {
-    /// Block.
-    Block {
-        /// CID.
-        cid: Cid,
+	/// Block.
+	Block {
+		/// CID.
+		cid: Cid,
 
-        /// Found block.
-        block: Vec<u8>,
-    },
+		/// Found block.
+		block: Vec<u8>,
+	},
 
-    /// Presense.
-    Presence {
-        /// CID.
-        cid: Cid,
+	/// Presense.
+	Presence {
+		/// CID.
+		cid: Cid,
 
-        /// Whether the requested block exists or not.
-        presence: BlockPresenceType,
-    },
+		/// Whether the requested block exists or not.
+		presence: BlockPresenceType,
+	},
 }
 
 /// Commands sent from the user to `Bitswap`.
 #[derive(Debug)]
 #[cfg_attr(feature = "fuzz", derive(serde::Serialize, serde::Deserialize))]
 pub enum BitswapCommand {
-    /// Send bitswap request.
-    SendRequest {
-        /// Peer ID.
-        peer: PeerId,
+	/// Send bitswap request.
+	SendRequest {
+		/// Peer ID.
+		peer: PeerId,
 
-        /// Requested CIDs.
-        cids: Vec<(Cid, WantType)>,
-    },
+		/// Requested CIDs.
+		cids: Vec<(Cid, WantType)>,
+	},
 
-    /// Send bitswap response.
-    SendResponse {
-        /// Peer ID.
-        peer: PeerId,
+	/// Send bitswap response.
+	SendResponse {
+		/// Peer ID.
+		peer: PeerId,
 
-        /// CIDs.
-        responses: Vec<ResponseType>,
-    },
+		/// CIDs.
+		responses: Vec<ResponseType>,
+	},
 }
 
 /// Handle for communicating with the bitswap protocol.
 pub struct BitswapHandle {
-    /// RX channel for receiving bitswap events.
-    event_rx: Receiver<BitswapEvent>,
+	/// RX channel for receiving bitswap events.
+	event_rx: Receiver<BitswapEvent>,
 
-    /// TX channel for sending commads to `Bitswap`.
-    cmd_tx: Sender<BitswapCommand>,
+	/// TX channel for sending commads to `Bitswap`.
+	cmd_tx: Sender<BitswapCommand>,
 }
 
 impl BitswapHandle {
-    /// Create new [`BitswapHandle`].
-    pub(super) fn new(event_rx: Receiver<BitswapEvent>, cmd_tx: Sender<BitswapCommand>) -> Self {
-        Self { event_rx, cmd_tx }
-    }
+	/// Create new [`BitswapHandle`].
+	pub(super) fn new(event_rx: Receiver<BitswapEvent>, cmd_tx: Sender<BitswapCommand>) -> Self {
+		Self { event_rx, cmd_tx }
+	}
 
-    /// Send `request` to `peer`.
-    pub async fn send_request(&self, peer: PeerId, cids: Vec<(Cid, WantType)>) {
-        let _ = self.cmd_tx.send(BitswapCommand::SendRequest { peer, cids }).await;
-    }
+	/// Send `request` to `peer`.
+	pub async fn send_request(&self, peer: PeerId, cids: Vec<(Cid, WantType)>) {
+		let _ = self.cmd_tx.send(BitswapCommand::SendRequest { peer, cids }).await;
+	}
 
-    /// Send `response` to `peer`.
-    pub async fn send_response(&self, peer: PeerId, responses: Vec<ResponseType>) {
-        let _ = self.cmd_tx.send(BitswapCommand::SendResponse { peer, responses }).await;
-    }
+	/// Send `response` to `peer`.
+	pub async fn send_response(&self, peer: PeerId, responses: Vec<ResponseType>) {
+		let _ = self.cmd_tx.send(BitswapCommand::SendResponse { peer, responses }).await;
+	}
 
-    #[cfg(feature = "fuzz")]
-    /// Expose functionality for fuzzing
-    pub async fn fuzz_send_message(&mut self, command: BitswapCommand) -> crate::Result<()> {
-        let _ = self.cmd_tx.try_send(command);
-        Ok(())
-    }
+	#[cfg(feature = "fuzz")]
+	/// Expose functionality for fuzzing
+	pub async fn fuzz_send_message(&mut self, command: BitswapCommand) -> crate::Result<()> {
+		let _ = self.cmd_tx.try_send(command);
+		Ok(())
+	}
 }
 
 impl futures::Stream for BitswapHandle {
-    type Item = BitswapEvent;
+	type Item = BitswapEvent;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.event_rx).poll_recv(cx)
-    }
+	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+		Pin::new(&mut self.event_rx).poll_recv(cx)
+	}
 }

@@ -22,7 +22,13 @@
 use crate::{
 	litep2p::shim::request_response::metrics::RequestResponseMetrics,
 	peer_store::PeerStoreProvider,
-	service::{metrics::Metrics, traits::{IfDisconnected, OutboundFailure, RequestFailure, RequestResponseConfig as RequestResponseConfigT}},
+	service::{
+		metrics::Metrics,
+		traits::{
+			IfDisconnected, OutboundFailure, RequestFailure,
+			RequestResponseConfig as RequestResponseConfigT,
+		},
+	},
 	ProtocolName,
 };
 

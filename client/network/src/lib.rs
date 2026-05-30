@@ -251,7 +251,8 @@
 // - discovery (libp2p Kademlia - litep2p has its own in litep2p/discovery.rs)
 // - protocol (libp2p notifications - litep2p has its own in litep2p/shim/notification/)
 // - transport (libp2p transport - litep2p has its own transport)
-// - request_responses (libp2p request-response - litep2p has its own in litep2p/shim/request_response/)
+// - request_responses (libp2p request-response - litep2p has its own in
+//   litep2p/shim/request_response/)
 
 pub mod litep2p;
 
@@ -273,12 +274,14 @@ pub mod utils;
 // Re-export request-response types from litep2p shim - this provides the `request_responses` module
 /// Request-response protocol types re-exported from the litep2p shim.
 pub mod request_responses {
-	pub use crate::litep2p::shim::request_response::{
-		IncomingRequest, OutboundRequest, OutgoingResponse, RequestResponseConfig,
-		RequestResponseProtocol,
+	pub use crate::{
+		litep2p::shim::request_response::{
+			IncomingRequest, OutboundRequest, OutgoingResponse, RequestResponseConfig,
+			RequestResponseProtocol,
+		},
+		service::traits::{IfDisconnected, OutboundFailure, RequestFailure},
 	};
-	pub use crate::service::traits::{IfDisconnected, RequestFailure, OutboundFailure};
-	
+
 	/// Type alias for compatibility with sc-service which expects this name.
 	pub type ProtocolConfig = RequestResponseConfig;
 }

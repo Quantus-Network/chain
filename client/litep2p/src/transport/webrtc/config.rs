@@ -25,22 +25,22 @@ use multiaddr::Multiaddr;
 /// WebRTC transport configuration.
 #[derive(Debug)]
 pub struct Config {
-    /// WebRTC listening address.
-    pub listen_addresses: Vec<Multiaddr>,
+	/// WebRTC listening address.
+	pub listen_addresses: Vec<Multiaddr>,
 
-    /// Connection datagram buffer size.
-    ///
-    /// How many datagrams can the buffer between `WebRtcTransport` and a connection handler hold.
-    pub datagram_buffer_size: usize,
+	/// Connection datagram buffer size.
+	///
+	/// How many datagrams can the buffer between `WebRtcTransport` and a connection handler hold.
+	pub datagram_buffer_size: usize,
 }
 
 impl Default for Config {
-    fn default() -> Self {
-        Self {
-            listen_addresses: vec!["/ip4/127.0.0.1/udp/8888/webrtc-direct"
-                .parse()
-                .expect("valid multiaddress")],
-            datagram_buffer_size: 2048,
-        }
-    }
+	fn default() -> Self {
+		Self {
+			listen_addresses: vec!["/ip4/127.0.0.1/udp/8888/webrtc-direct"
+				.parse()
+				.expect("valid multiaddress")],
+			datagram_buffer_size: 2048,
+		}
+	}
 }

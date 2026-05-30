@@ -1,10 +1,10 @@
 [package]
-name = "litep2p"
 description = "Post-quantum peer-to-peer networking library for Quantus Network"
-version = "0.13.3"
 edition = "2021"
 license = "MIT"
+name = "litep2p"
 repository = "https://github.com/Quantus-Network/chain"
+version = "0.13.3"
 
 [build-dependencies]
 prost-build = "0.14"
@@ -23,23 +23,24 @@ ip_network = { workspace = true }
 libc = "0.2.158"
 mockall = { workspace = true }
 multiaddr = { workspace = true }
-multihash = { workspace = true, features = ["std", "multihash-impl", "identity", "sha2", "sha3", "blake2b"] }
+multihash = { workspace = true, features = ["blake2b", "identity", "multihash-impl", "sha2", "sha3", "std"] }
 network-interface = "2.0.1"
 parking_lot = { workspace = true }
 pin-project = { workspace = true }
 prost = "0.13.5"
-rand = { workspace = true, features = ["std", "std_rng", "getrandom"] }
+rand = { workspace = true, features = ["getrandom", "std", "std_rng"] }
 serde = { workspace = true }
 sha2 = { workspace = true }
 simple-dns = "0.11.0"
 smallvec = { workspace = true }
 # Noise protocol with post-quantum pqxx pattern (ML-KEM 768 / FIPS 203)
 clatter = { workspace = true }
+enum-display = "0.1.4"
 socket2 = { version = "0.5.9", features = ["all"] }
 thiserror = "2.0.12"
-tokio = { workspace = true, features = ["rt", "net", "io-util", "time", "macros", "sync", "parking_lot"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "parking_lot", "rt", "sync", "time"] }
 tokio-stream = { workspace = true }
-tokio-util = { workspace = true, features = ["compat", "io", "codec"] }
+tokio-util = { workspace = true, features = ["codec", "compat", "io"] }
 tracing = { workspace = true, features = ["log"] }
 uint = "0.10.0"
 unsigned-varint = { version = "0.8.0", features = ["codec"] }
@@ -48,7 +49,6 @@ x509-parser = { workspace = true }
 yamux = { workspace = true }
 yasna = { workspace = true }
 zeroize = { workspace = true }
-enum-display = "0.1.4"
 
 # Post-quantum cryptography
 qp-rusty-crystals-dilithium = { workspace = true }
@@ -57,10 +57,10 @@ qp-rusty-crystals-dilithium = { workspace = true }
 tokio-tungstenite = { version = "0.27.0", features = ["rustls-tls-native-roots", "url"], optional = true }
 
 # QUIC with post-quantum TLS
-quinn = { workspace = true, features = ["rustls-aws-lc-rs", "runtime-tokio"], optional = true }
+quinn = { workspace = true, features = ["runtime-tokio", "rustls-aws-lc-rs"], optional = true }
 rcgen = { workspace = true, features = ["aws_lc_rs"], optional = true }
 ring = { workspace = true, optional = true }
-rustls = { workspace = true, features = ["std", "aws-lc-rs"], optional = true }
+rustls = { workspace = true, features = ["aws-lc-rs", "std"], optional = true }
 rustls-post-quantum = { workspace = true, optional = true }
 webpki = { workspace = true, optional = true }
 
@@ -71,17 +71,31 @@ str0m = { version = "0.11.1", optional = true }
 serde_millis = { version = "0.1", optional = true }
 
 [dev-dependencies]
+futures_ringbuf = "0.4.0"
+hex-literal = "1.0.0"
 quickcheck = "1.0.3"
 serde_json = { workspace = true, features = ["std"] }
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
-futures_ringbuf = "0.4.0"
-hex-literal = "1.0.0"
 
 [features]
-default = ["websocket", "quic"]
-websocket = ["dep:tokio-tungstenite"]
-quic = ["dep:webpki", "dep:quinn", "dep:rustls", "dep:rustls-post-quantum", "dep:ring", "dep:rcgen"]
+default = ["quic", "websocket"]
+fuzz = [
+	"bytes/serde",
+	"cid/serde",
+	"dep:serde_millis",
+	"multihash/serde",
+	"serde/derive",
+	"serde/rc",
+]
+quic = [
+	"dep:quinn",
+	"dep:rcgen",
+	"dep:ring",
+	"dep:rustls",
+	"dep:rustls-post-quantum",
+	"dep:webpki",
+]
 webrtc = ["dep:str0m"]
-fuzz = ["serde/derive", "serde/rc", "bytes/serde", "dep:serde_millis", "cid/serde", "multihash/serde"]
+websocket = ["dep:tokio-tungstenite"]
 # Compatibility feature - RSA support removed in favor of post-quantum Dilithium
 rsa = []

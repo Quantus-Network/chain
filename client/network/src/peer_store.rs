@@ -21,12 +21,12 @@
 
 use crate::service::{metrics::PeerStoreMetrics, traits::PeerStore as PeerStoreT};
 
-use sc_network_types::PeerId;
 use log::trace;
 use parking_lot::Mutex;
 use partial_sort::PartialSort;
 use prometheus_endpoint::Registry;
 use sc_network_common::{role::ObservedRole, types::ReputationChange};
+use sc_network_types::PeerId;
 use std::{
 	cmp::{Ord, Ordering, PartialOrd},
 	collections::{hash_map::Entry, HashMap, HashSet},
@@ -143,9 +143,7 @@ impl PeerStoreProvider for PeerStoreHandle {
 		count: usize,
 		ignored: HashSet<sc_network_types::PeerId>,
 	) -> Vec<sc_network_types::PeerId> {
-		self.inner
-			.lock()
-			.outgoing_candidates(count, ignored)
+		self.inner.lock().outgoing_candidates(count, ignored)
 	}
 
 	fn add_known_peer(&self, peer_id: sc_network_types::PeerId) {

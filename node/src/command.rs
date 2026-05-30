@@ -587,9 +587,7 @@ pub fn run() -> sc_cli::Result<()> {
 				let allow_mining_without_peers = config.force_authoring;
 
 				log::info!("Using litep2p network backend (with Dilithium)");
-				service::new_full::<
-					sc_network::litep2p::Litep2pNetworkBackend,
-				>(
+				service::new_full::<sc_network::litep2p::Litep2pNetworkBackend>(
 					config,
 					rewards_account,
 					cli.miner_listen_port,

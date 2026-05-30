@@ -22,11 +22,13 @@
 //! See the documentation of [`Params`].
 
 pub use crate::{
-	litep2p::DEFAULT_KADEMLIA_REPLICATION_FACTOR,
-	peer_store::PeerStoreProvider,
-	litep2p::shim::notification::{
-		config::{NotificationProtocolConfig, ProtocolControlHandle as ProtocolHandlePair},
+	litep2p::{
+		shim::notification::config::{
+			NotificationProtocolConfig, ProtocolControlHandle as ProtocolHandlePair,
+		},
+		DEFAULT_KADEMLIA_REPLICATION_FACTOR,
 	},
+	peer_store::PeerStoreProvider,
 	service::{
 		metrics::NotificationMetrics,
 		traits::{NotificationConfig, NotificationService, PeerStore},
@@ -385,10 +387,9 @@ impl NodeKeyConfig {
 		match self {
 			Dilithium(Secret::New) => Ok(litep2p::crypto::dilithium::Keypair::generate()),
 
-			Dilithium(Secret::Input(mut k)) => {
+			Dilithium(Secret::Input(mut k)) =>
 				litep2p::crypto::dilithium::Keypair::try_from_bytes(&mut k)
-					.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{e:?}")))
-			}
+					.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{e:?}"))),
 
 			Dilithium(Secret::File(f)) => get_secret(
 				f,

@@ -20,8 +20,8 @@
 
 use crate::{
 	config::{
-		FullNetworkConfiguration, NodeKeyConfig, NotificationHandshake, Params,
-		SetConfig, TransportConfig,
+		FullNetworkConfiguration, NodeKeyConfig, NotificationHandshake, Params, SetConfig,
+		TransportConfig,
 	},
 	error::Error,
 	event::{DhtEvent, Event},
