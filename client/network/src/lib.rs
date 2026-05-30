@@ -271,6 +271,7 @@ pub mod types;
 pub mod utils;
 
 // Re-export request-response types from litep2p shim - this provides the `request_responses` module
+/// Request-response protocol types re-exported from the litep2p shim.
 pub mod request_responses {
 	pub use crate::litep2p::shim::request_response::{
 		IncomingRequest, OutboundRequest, OutgoingResponse, RequestResponseConfig,
@@ -305,20 +306,8 @@ pub use service::{
 };
 pub use types::ProtocolName;
 
-/// Log target for `sc-network`.
-const LOG_TARGET: &str = "sub-libp2p";
-
-/// The maximum allowed number of established connections per peer.
-///
-/// Typically, and by design of the network behaviours in this crate,
-/// there is a single established connection per peer. However, to
-/// avoid unnecessary and nondeterministic connection closure in
-/// case of (possibly repeated) simultaneous dialing attempts between
-/// two peers, the per-peer connection limit is not set to 1 but 2.
-const MAX_CONNECTIONS_PER_PEER: usize = 2;
-
 /// The maximum number of concurrent established connections that were incoming.
-const MAX_CONNECTIONS_ESTABLISHED_INCOMING: u32 = 10_000;
+pub const MAX_CONNECTIONS_ESTABLISHED_INCOMING: u32 = 10_000;
 
 /// Maximum response size limit.
 pub const MAX_RESPONSE_SIZE: u64 = 16 * 1024 * 1024;
@@ -331,9 +320,4 @@ static TRANSPORT_TIMEOUT: OnceLock<Duration> = OnceLock::new();
 /// This is applied to both syncer and syncee.
 pub fn set_transport_timeout(timeout: Duration) {
 	TRANSPORT_TIMEOUT.set(timeout).ok();
-}
-
-/// Returns the timeout for transport operations.
-pub(crate) fn transport_timeout() -> Duration {
-	TRANSPORT_TIMEOUT.get().copied().unwrap_or(Duration::from_secs(30))
 }

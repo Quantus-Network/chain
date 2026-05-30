@@ -29,6 +29,7 @@ use litep2p::crypto::{
 /// Error during signing of a message.
 #[derive(Debug, thiserror::Error)]
 pub enum SigningError {
+	/// Signing operation failed.
 	#[error("Signing failed")]
 	SigningFailed,
 }
@@ -36,8 +37,10 @@ pub enum SigningError {
 /// Error during decoding of key material.
 #[derive(Debug, thiserror::Error)]
 pub enum DecodingError {
+	/// Invalid key data.
 	#[error("Invalid key data")]
 	InvalidKey,
+	/// Unknown key type.
 	#[error("Unknown key type")]
 	UnknownKeyType,
 }

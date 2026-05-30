@@ -21,7 +21,7 @@
 //! This module provides shared types and traits used by the litep2p network backend.
 //! The libp2p backend has been removed - only litep2p is supported.
 
-use sc_network_types::{multiaddr::Multiaddr, PeerId};
+use sc_network_types::multiaddr::Multiaddr;
 use std::collections::HashSet;
 
 pub mod metrics;

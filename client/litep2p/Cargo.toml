@@ -83,6 +83,7 @@ hex-literal = "1.0.0"
 default = ["websocket", "quic"]
 websocket = ["dep:tokio-tungstenite"]
 quic = ["dep:webpki", "dep:quinn", "dep:rustls", "dep:rustls-pki-types", "dep:rustls-post-quantum", "dep:ring", "dep:rcgen"]
+webrtc = ["dep:str0m"]
 fuzz = ["serde/derive", "serde/rc", "bytes/serde", "dep:serde_millis", "cid/serde", "multihash/serde"]
 # Compatibility feature - RSA support removed in favor of post-quantum Dilithium
 rsa = []

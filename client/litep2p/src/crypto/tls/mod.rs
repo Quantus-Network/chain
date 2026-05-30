@@ -30,7 +30,7 @@
 
 use crate::{crypto::dilithium::Keypair, PeerId};
 
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::pki_types::PrivateKeyDer;
 use std::sync::Arc;
 
 pub mod certificate;
