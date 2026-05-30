@@ -807,7 +807,7 @@ mod tests {
 		// Build backends such that the first peer is known to all other peers.
 		let backends = (0..10)
 			.map(|i| {
-				let keypair = litep2p::crypto::ed25519::Keypair::generate();
+				let keypair = litep2p::crypto::dilithium::Keypair::generate();
 				let peer_id: PeerId = keypair.public().to_peer_id().into();
 
 				let listen_addresses = Arc::new(RwLock::new(HashSet::new()));

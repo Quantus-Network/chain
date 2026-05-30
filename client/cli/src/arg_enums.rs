@@ -312,14 +312,11 @@ impl Into<sc_network::config::SyncMode> for SyncMode {
 pub enum NetworkBackendType {
 	/// Use litep2p for P2P networking (default, with Dilithium).
 	Litep2p,
-	/// Use libp2p for P2P networking (stable, with Dilithium).
-	Libp2p,
 }
 
 impl Into<sc_network::config::NetworkBackendType> for NetworkBackendType {
 	fn into(self) -> sc_network::config::NetworkBackendType {
 		match self {
-			Self::Libp2p => sc_network::config::NetworkBackendType::Libp2p,
 			Self::Litep2p => sc_network::config::NetworkBackendType::Litep2p,
 		}
 	}

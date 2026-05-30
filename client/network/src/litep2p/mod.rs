@@ -20,7 +20,7 @@
 
 use crate::{
 	config::{
-		FullNetworkConfiguration, IncomingRequest, NodeKeyConfig, NotificationHandshake, Params,
+		FullNetworkConfiguration, NodeKeyConfig, NotificationHandshake, Params,
 		SetConfig, TransportConfig,
 	},
 	error::Error,
@@ -35,7 +35,7 @@ use crate::{
 				config::{NotificationProtocolConfig, ProtocolControlHandle},
 				peerset::PeersetCommand,
 			},
-			request_response::{RequestResponseConfig, RequestResponseProtocol},
+			request_response::{IncomingRequest, RequestResponseConfig, RequestResponseProtocol},
 		},
 	},
 	peer_store::PeerStoreProvider,
@@ -97,7 +97,10 @@ use std::{
 mod discovery;
 mod peerstore;
 mod service;
-mod shim;
+pub mod shim;
+
+/// Default Kademlia replication factor.
+pub const DEFAULT_KADEMLIA_REPLICATION_FACTOR: usize = 20;
 
 /// Timeout for connection waiting new substreams.
 const KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(10);

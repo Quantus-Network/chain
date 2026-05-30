@@ -16,8 +16,6 @@ path = "src/lib.rs"
 [dependencies]
 bs58 = "0.5.1"
 bytes = { workspace = true }
-libp2p-identity = { workspace = true }
-libp2p-kad = { version = "0.46.2", default-features = false }
 litep2p = { workspace = true }
 log = { workspace = true }
 multiaddr = "0.18.1"

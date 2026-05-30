@@ -44,7 +44,7 @@
 use crate::peer_store::{PeerStoreProvider, ProtocolHandle as ProtocolHandleT};
 
 use futures::{channel::oneshot, future::Either, FutureExt, StreamExt};
-use libp2p::PeerId;
+use sc_network_types::PeerId;
 use log::{debug, error, trace, warn};
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
 use sp_arithmetic::traits::SaturatedConversion;
@@ -452,12 +452,12 @@ impl ProtocolController {
 	/// Report peer disconnect event to `PeerStore` for it to update peer's reputation accordingly.
 	/// Should only be called if the remote node disconnected us, not the other way around.
 	fn report_disconnect(&mut self, peer_id: PeerId) {
-		self.peer_store.report_disconnect(peer_id.into());
+		self.peer_store.report_disconnect(peer_id);
 	}
 
 	/// Ask `Peerset` if the peer has a reputation value not sufficient for connection with it.
 	fn is_banned(&self, peer_id: &PeerId) -> bool {
-		self.peer_store.is_banned(&peer_id.into())
+		self.peer_store.is_banned(peer_id)
 	}
 
 	/// Add the peer to the set of reserved peers. [`ProtocolController`] will try to always
@@ -785,7 +785,7 @@ impl ProtocolController {
 		self.reserved_nodes
 			.iter_mut()
 			.filter_map(|(peer_id, state)| {
-				(!state.is_connected() && !self.peer_store.is_banned(&peer_id.into())).then(|| {
+				(!state.is_connected() && !self.peer_store.is_banned(peer_id)).then(|| {
 					*state = PeerState::Connected(Direction::Outbound);
 					peer_id
 				})
@@ -810,10 +810,10 @@ impl ProtocolController {
 		let ignored = self
 			.reserved_nodes
 			.keys()
-			.map(From::from)
-			.collect::<HashSet<sc_network_types::PeerId>>()
+			.cloned()
+			.collect::<HashSet<PeerId>>()
 			.union(
-				&self.nodes.keys().map(From::from).collect::<HashSet<sc_network_types::PeerId>>(),
+				&self.nodes.keys().cloned().collect::<HashSet<PeerId>>(),
 			)
 			.cloned()
 			.collect();

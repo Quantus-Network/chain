@@ -27,14 +27,15 @@ use crate::{
 	network_state::NetworkState,
 	peer_store::PeerStoreProvider,
 	service::out_events,
-	Event, IfDisconnected, NetworkDHTProvider, NetworkEventStream, NetworkPeers, NetworkRequest,
-	NetworkSigner, NetworkStateInfo, NetworkStatus, NetworkStatusProvider, OutboundFailure,
-	ProtocolName, RequestFailure, Signature,
+	service::traits::{IfDisconnected, OutboundFailure, RequestFailure},
+	Event, NetworkDHTProvider, NetworkEventStream, NetworkPeers, NetworkRequest,
+	NetworkSigner, NetworkStateInfo, NetworkStatus, NetworkStatusProvider,
+	ProtocolName, Signature,
 };
 
 use codec::DecodeAll;
 use futures::{channel::oneshot, stream::BoxStream};
-use libp2p::identity::SigningError;
+use crate::service::signature::SigningError;
 use litep2p::{
 	addresses::PublicAddresses, crypto::dilithium::Keypair,
 	types::multiaddr::Multiaddr as LiteP2pMultiaddr,
@@ -250,7 +251,7 @@ impl NetworkSigner for Litep2pNetworkService {
 		let bytes = self.keypair.sign(msg.as_ref());
 
 		Ok(Signature {
-			public_key: crate::service::signature::PublicKey::Litep2p(
+			public_key: crate::service::signature::PublicKey::from(
 				litep2p::crypto::PublicKey::from(public_key),
 			),
 			bytes,

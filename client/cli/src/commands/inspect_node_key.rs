@@ -20,7 +20,7 @@
 
 use crate::Error;
 use clap::Parser;
-use libp2p_identity::PublicKey;
+use litep2p::crypto::{PublicKey, dilithium::PublicKey as DilithiumPublicKey};
 use qp_rusty_crystals_dilithium::ml_dsa_87::Keypair;
 use std::{
 	fs,
@@ -73,9 +73,12 @@ impl InspectNodeKeyCmd {
 		let key = Keypair::from_bytes(file_data.as_slice())
 			.map_err(|_| "failed to decode secret as hex")?;
 
-		let keypair = PublicKey::from(key.public);
+		let dilithium_pk = DilithiumPublicKey::try_from_bytes(&key.public.to_bytes())
+			.expect("Valid Dilithium public key");
+		let public_key = PublicKey::from(dilithium_pk);
+		let peer_id = litep2p::PeerId::from_public_key(&public_key);
 
-		println!("{}", keypair.to_peer_id());
+		println!("{}", peer_id);
 
 		Ok(())
 	}

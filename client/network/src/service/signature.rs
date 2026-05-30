@@ -1,6 +1,7 @@
 // This file is part of Substrate.
 //
 // Copyright (C) Parity Technologies (UK) Ltd.
+// Copyright (C) Quantus Network Developers
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 //
 // This program is free software: you can redistribute it and/or modify
@@ -18,82 +19,122 @@
 //
 // If you read this, you are very thorough, congratulations.
 
-//! Signature-related code
+//! Signature-related code for litep2p network backend.
 
-pub use libp2p::identity::{DecodingError, SigningError};
+use litep2p::crypto::{
+	PublicKey as Litep2pPublicKey,
+	dilithium::Keypair as DilithiumKeypair,
+};
 
-/// Public key (libp2p-identity, supports Dilithium via feature).
-pub enum PublicKey {
-	/// Libp2p public key (ed25519 or Dilithium from libp2p-identity).
-	Libp2p(libp2p::identity::PublicKey),
-	/// Litep2p public key (Dilithium only in this fork).
-	Litep2p(litep2p::crypto::PublicKey),
+/// Error during signing of a message.
+#[derive(Debug, thiserror::Error)]
+pub enum SigningError {
+	#[error("Signing failed")]
+	SigningFailed,
 }
+
+/// Error during decoding of key material.
+#[derive(Debug, thiserror::Error)]
+pub enum DecodingError {
+	#[error("Invalid key data")]
+	InvalidKey,
+	#[error("Unknown key type")]
+	UnknownKeyType,
+}
+
+/// Public key (litep2p, supports Dilithium).
+pub struct PublicKey(Litep2pPublicKey);
 
 impl PublicKey {
 	/// Protobuf-encode [`PublicKey`].
 	pub fn encode_protobuf(&self) -> Vec<u8> {
-		match self {
-			Self::Libp2p(public) => public.encode_protobuf(),
-			Self::Litep2p(public) => public.to_protobuf_encoding(),
-		}
+		self.0.to_protobuf_encoding()
 	}
 
 	/// Get `PeerId` of the [`PublicKey`].
 	pub fn to_peer_id(&self) -> sc_network_types::PeerId {
-		match self {
-			Self::Libp2p(public) => public.to_peer_id().into(),
-			Self::Litep2p(public) => {
-				let litep2p_peer_id: litep2p::PeerId = public.to_peer_id();
-				litep2p_peer_id.into()
-			},
-		}
+		let litep2p_peer_id: litep2p::PeerId = self.0.to_peer_id();
+		litep2p_peer_id.into()
 	}
 
 	/// Try to decode public key from protobuf.
-	pub fn try_decode_protobuf(bytes: &[u8]) -> Result<Self, libp2p::identity::DecodingError> {
-		libp2p::identity::PublicKey::try_decode_protobuf(bytes).map(PublicKey::Libp2p)
+	pub fn try_decode_protobuf(bytes: &[u8]) -> Result<Self, DecodingError> {
+		Litep2pPublicKey::from_protobuf_encoding(bytes)
+			.map(PublicKey)
+			.map_err(|_| DecodingError::InvalidKey)
 	}
 
 	/// Verify a signature.
 	pub fn verify(&self, msg: &[u8], sig: &[u8]) -> bool {
-		match self {
-			Self::Libp2p(public) => public.verify(msg, sig),
-			Self::Litep2p(public) => public.verify(msg, sig),
-		}
+		self.0.verify(msg, sig)
 	}
 }
 
-/// Keypair (libp2p-identity, supports Dilithium via feature).
+impl From<Litep2pPublicKey> for PublicKey {
+	fn from(key: Litep2pPublicKey) -> Self {
+		PublicKey(key)
+	}
+}
+
+/// Keypair (litep2p, supports Dilithium).
 pub enum Keypair {
-	/// Libp2p keypair (ed25519 or Dilithium from libp2p-identity).
-	Libp2p(libp2p::identity::Keypair),
+	/// Dilithium keypair (post-quantum).
+	Dilithium(DilithiumKeypair),
 }
 
 impl Keypair {
-	/// Generate ed25519 keypair.
+	/// Generate ed25519 keypair (stub for API compatibility, but we use Dilithium).
+	#[deprecated(note = "This network uses Dilithium. Use generate_dilithium() instead.")]
 	pub fn generate_ed25519() -> Self {
-		Keypair::Libp2p(libp2p::identity::Keypair::generate_ed25519())
+		// For API compatibility, generate a Dilithium keypair instead
+		Self::generate_dilithium()
+	}
+
+	/// Generate Dilithium keypair (post-quantum).
+	pub fn generate_dilithium() -> Self {
+		Keypair::Dilithium(DilithiumKeypair::generate())
 	}
 
 	/// Get [`Keypair`]'s public key.
 	pub fn public(&self) -> PublicKey {
 		match self {
-			Keypair::Libp2p(keypair) => PublicKey::Libp2p(keypair.public()),
+			Keypair::Dilithium(kp) => PublicKey(Litep2pPublicKey::from(kp.public().clone())),
 		}
 	}
 
 	/// Sign a message.
 	pub fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, SigningError> {
 		match self {
-			Keypair::Libp2p(keypair) => keypair.sign(msg),
+			Keypair::Dilithium(kp) => Ok(kp.sign(msg)),
 		}
 	}
 
-	/// Encode the secret key (for comparison in tests / CLI).
+	/// Get the secret key bytes.
 	pub fn secret(&self) -> Option<Vec<u8>> {
 		match self {
-			Keypair::Libp2p(keypair) => keypair.secret(),
+			Keypair::Dilithium(kp) => Some(kp.to_bytes()),
+		}
+	}
+
+	/// Get the Dilithium secret bytes (for serialization).
+	pub fn dilithium_to_bytes(&self) -> Vec<u8> {
+		match self {
+			Keypair::Dilithium(kp) => kp.to_bytes(),
+		}
+	}
+
+	/// Create a Dilithium keypair from bytes.
+	pub fn dilithium_from_bytes(bytes: &[u8]) -> Result<Self, DecodingError> {
+		let mut bytes_mut = bytes.to_vec();
+		DilithiumKeypair::try_from_bytes(&mut bytes_mut)
+			.map(Keypair::Dilithium)
+			.map_err(|_| DecodingError::InvalidKey)
+	}
+
+	/// Convert to litep2p keypair for the network backend.
+	pub fn to_litep2p_keypair(&self) -> litep2p::crypto::Keypair {
+		match self {
+			Keypair::Dilithium(kp) => litep2p::crypto::Keypair::from(kp.clone()),
 		}
 	}
 }
@@ -120,13 +161,8 @@ impl Signature {
 		message: impl AsRef<[u8]>,
 		keypair: &Keypair,
 	) -> Result<Self, SigningError> {
-		match keypair {
-			Keypair::Libp2p(keypair) => {
-				let public_key = keypair.public();
-				let bytes = keypair.sign(message.as_ref())?;
-
-				Ok(Signature { public_key: PublicKey::Libp2p(public_key), bytes })
-			},
-		}
+		let public_key = keypair.public();
+		let bytes = keypair.sign(message.as_ref())?;
+		Ok(Signature { public_key, bytes })
 	}
 }

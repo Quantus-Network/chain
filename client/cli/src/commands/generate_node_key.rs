@@ -20,7 +20,7 @@
 
 use crate::{build_network_key_dir_or_default, Error, NODE_KEY_DILITHIUM_FILE};
 use clap::{Args, Parser};
-use libp2p_identity::PublicKey;
+use litep2p::crypto::{PublicKey, dilithium::PublicKey as DilithiumPublicKey};
 use qp_rusty_crystals_dilithium::{ml_dsa_87::Keypair, SensitiveBytes32};
 use sc_service::BasePath;
 use sp_core::blake2_256;
@@ -153,9 +153,12 @@ fn generate_key(
 		},
 	}
 
-	let k = PublicKey::from(keypair.public);
+	let dilithium_pk = DilithiumPublicKey::try_from_bytes(&keypair.public.to_bytes())
+		.expect("Valid Dilithium public key");
+	let public_key = PublicKey::from(dilithium_pk);
+	let peer_id = litep2p::PeerId::from_public_key(&public_key);
 
-	eprintln!("{}", k.to_peer_id());
+	eprintln!("{}", peer_id);
 
 	Ok(())
 }

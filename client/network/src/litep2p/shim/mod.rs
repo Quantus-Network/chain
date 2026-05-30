@@ -19,5 +19,5 @@
 //! Shims for fitting `litep2p` APIs to `sc-network` APIs.
 
 pub(crate) mod bitswap;
-pub(crate) mod notification;
-pub(crate) mod request_response;
+pub mod notification;
+pub mod request_response;
