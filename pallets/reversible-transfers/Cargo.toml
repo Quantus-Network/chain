@@ -21,7 +21,6 @@ pallet-assets.workspace = true
 pallet-assets-holder.workspace = true
 pallet-balances.workspace = true
 pallet-recovery.workspace = true
-qp-high-security = { path = "../../primitives/high-security", default-features = false }
 qp-scheduler.workspace = true
 qp-wormhole.workspace = true
 scale-info = { features = ["derive"], workspace = true }
@@ -55,7 +54,6 @@ std = [
 	"pallet-scheduler/std",
 	"pallet-timestamp/std",
 	"pallet-utility/std",
-	"qp-high-security/std",
 	"qp-scheduler/std",
 	"qp-wormhole/std",
 	"scale-info/std",

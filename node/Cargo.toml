@@ -40,8 +40,6 @@ pallet-zk-tree.default-features = true
 pallet-zk-tree.workspace = true
 prometheus.workspace = true
 qp-dilithium-crypto = { workspace = true }
-qp-poseidon.workspace = true
-qp-rusty-crystals-dilithium.workspace = true
 qp-rusty-crystals-hdwallet.workspace = true
 qp-wormhole.workspace = true
 qpow-math.workspace = true

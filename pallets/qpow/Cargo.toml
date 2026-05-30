@@ -23,12 +23,10 @@ frame-support.workspace = true
 frame-system.workspace = true
 hex.workspace = true
 log.workspace = true
-num-traits.workspace = true
 pallet-timestamp.workspace = true
 qp-poseidon-core.workspace = true
 qpow-math.workspace = true
 scale-info = { workspace = true, default-features = false, features = ["derive"] }
-sp-arithmetic.workspace = true
 sp-core.workspace = true
 sp-io.workspace = true
 sp-runtime.workspace = true
@@ -50,12 +48,10 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"log/std",
-	"num-traits/std",
 	"pallet-timestamp/std",
 	"primitive-types/std",
 	"qpow-math/std",
 	"scale-info/std",
-	"sp-arithmetic/std",
 	"sp-core/std",
 	"sp-io/std",
 	"sp-runtime/std",
