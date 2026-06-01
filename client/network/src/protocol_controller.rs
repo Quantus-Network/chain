@@ -858,8 +858,8 @@ mod tests {
 		peer_store::{PeerStoreProvider, ProtocolHandle as ProtocolHandleT},
 		ReputationChange,
 	};
-	use libp2p::PeerId;
 	use sc_network_common::role::ObservedRole;
+	use sc_network_types::PeerId;
 	use sc_utils::mpsc::{tracing_unbounded, TryRecvError};
 	use std::collections::HashSet;
 
