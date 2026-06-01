@@ -65,8 +65,11 @@ impl PeerId {
 	}
 
 	/// Try to extract `PeerId` from `Multiaddr`.
+	///
+	/// Returns the `PeerId` if the address ends with `/p2p/<peer-id>`,
+	/// otherwise returns `None`.
 	pub fn try_from_multiaddr(address: &Multiaddr) -> Option<PeerId> {
-		match address.iter().find(|protocol| std::matches!(protocol, Protocol::P2p(_))) {
+		match address.iter().last() {
 			Some(Protocol::P2p(multihash)) => Some(Self { multihash }),
 			_ => None,
 		}
