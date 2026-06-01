@@ -1194,7 +1194,6 @@ impl<B: BlockT + 'static, H: ExHashT> NetworkBackend<B, H> for Litep2pNetworkBac
 									NegotiationError::IoError(_) => "io-error",
 									NegotiationError::WebSocket(_) => "webscoket-error",
 									NegotiationError::BadSignature => "bad-signature",
-									NegotiationError::Quic(_) => "quic-error",
 								}
 							};
 

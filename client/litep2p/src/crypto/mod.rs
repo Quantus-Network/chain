@@ -29,8 +29,6 @@ use crate::{error::ParseError, peer_id::*};
 pub mod dilithium;
 
 pub(crate) mod noise;
-#[cfg(feature = "quic")]
-pub(crate) mod tls;
 pub(crate) mod keys_proto {
 	include!(concat!(env!("OUT_DIR"), "/keys_proto.rs"));
 }

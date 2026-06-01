@@ -29,11 +29,7 @@ use multiaddr::Multiaddr;
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
 pub(crate) mod common;
-#[cfg(feature = "quic")]
-pub mod quic;
 pub mod tcp;
-#[cfg(feature = "webrtc")]
-pub mod webrtc;
 #[cfg(feature = "websocket")]
 pub mod websocket;
 

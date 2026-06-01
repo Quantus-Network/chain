@@ -131,7 +131,6 @@ unsigned-varint = { version = "0.7.2" }
 uuid = { version = "1.7.0", features = ["serde", "v4"] }
 void = { version = "1.0.2" }
 wasm-timer = { version = "0.2.5" }
-webpki = { version = "0.22.4" }
 x509-parser = { version = "0.17.0" }
 yamux = { version = "0.13.9" }
 yasna = { version = "0.5.0" }
@@ -197,11 +196,6 @@ pallet-transaction-payment-rpc-runtime-api = { version = "45.0.0", default-featu
 pallet-treasury = { path = "pallets/treasury", default-features = false }
 pallet-utility = { version = "45.0.0", default-features = false }
 prometheus-endpoint = { version = "0.17.7", default-features = false, package = "substrate-prometheus-endpoint" }
-quinn = { version = "0.11.9", default-features = false }
-rcgen = { version = "0.14.5", default-features = false }
-ring = { version = "0.17.14" }
-rustls = { version = "0.23.32", default-features = false }
-rustls-post-quantum = { version = "0.2.4" }
 sc-basic-authorship = { version = "0.53.0", default-features = false }
 sc-block-builder = { version = "0.48.0", default-features = true }
 sc-cli = { version = "0.57.0", default-features = false }

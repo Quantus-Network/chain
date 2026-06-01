@@ -56,17 +56,6 @@ qp-rusty-crystals-dilithium = { workspace = true }
 # Websocket
 tokio-tungstenite = { version = "0.27.0", features = ["rustls-tls-native-roots", "url"], optional = true }
 
-# QUIC with post-quantum TLS
-quinn = { workspace = true, features = ["runtime-tokio", "rustls-aws-lc-rs"], optional = true }
-rcgen = { workspace = true, features = ["aws_lc_rs"], optional = true }
-ring = { workspace = true, optional = true }
-rustls = { workspace = true, features = ["aws-lc-rs", "std"], optional = true }
-rustls-post-quantum = { workspace = true, optional = true }
-webpki = { workspace = true, optional = true }
-
-# WebRTC
-str0m = { version = "0.11.1", optional = true }
-
 # Fuzzing
 serde_millis = { version = "0.1", optional = true }
 
@@ -78,7 +67,7 @@ serde_json = { workspace = true, features = ["std"] }
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 
 [features]
-default = ["quic", "websocket"]
+default = ["websocket"]
 fuzz = [
 	"bytes/serde",
 	"cid/serde",
@@ -87,15 +76,6 @@ fuzz = [
 	"serde/derive",
 	"serde/rc",
 ]
-quic = [
-	"dep:quinn",
-	"dep:rcgen",
-	"dep:ring",
-	"dep:rustls",
-	"dep:rustls-post-quantum",
-	"dep:webpki",
-]
-webrtc = ["dep:str0m"]
 websocket = ["dep:tokio-tungstenite"]
 # Compatibility feature - RSA support removed in favor of post-quantum Dilithium
 rsa = []
