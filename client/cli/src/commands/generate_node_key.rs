@@ -22,13 +22,12 @@ use crate::{build_network_key_dir_or_default, Error, NODE_KEY_DILITHIUM_FILE};
 use clap::{Args, Parser};
 use litep2p::crypto::{dilithium::PublicKey as DilithiumPublicKey, PublicKey};
 use qp_rusty_crystals_dilithium::{ml_dsa_87::Keypair, SensitiveBytes32};
+use rand::RngCore;
 use sc_service::BasePath;
-use sp_core::blake2_256;
 use std::{
 	fs,
 	io::{self, Write},
 	path::PathBuf,
-	time::{SystemTime, UNIX_EPOCH},
 };
 
 /// Common arguments accross all generate key commands, subkey and node.
@@ -92,22 +91,7 @@ impl GenerateNodeKeyCmd {
 	}
 }
 
-// Function to get current timestamp, hash it, and return hex string
-fn hash_current_time_to_hex() -> [u8; 32] {
-	// Get current timestamp (milliseconds since Unix epoch)
-	let timestamp = SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.expect("Time went backwards")
-		.as_millis() as u64;
-
-	// Convert timestamp to bytes and hash with BLAKE2-256
-	blake2_256(&timestamp.to_le_bytes())
-}
-
 // Utility function for generating a key based on the provided CLI arguments
-//
-// `file`  - Name of file to save secret key to
-// `bin`
 fn generate_key(
 	file: &Option<PathBuf>,
 	bin: bool,
@@ -116,8 +100,10 @@ fn generate_key(
 	default_base_path: bool,
 	executable_name: Option<&String>,
 ) -> Result<(), Error> {
-	let mut hashed_timestamp = hash_current_time_to_hex();
-	let entropy = SensitiveBytes32::from(&mut hashed_timestamp);
+	// Generate keypair from cryptographically secure random seed
+	let mut seed = [0u8; 32];
+	rand::rngs::OsRng.fill_bytes(&mut seed);
+	let entropy = SensitiveBytes32::from(&mut seed);
 	let keypair = Keypair::generate(entropy);
 
 	let file_data = if bin {

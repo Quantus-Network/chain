@@ -146,7 +146,7 @@ mod tests {
 	use super::*;
 	use clap::ValueEnum;
 	use core::str::FromStr;
-	use libp2p_identity::Keypair;
+	use litep2p::crypto::dilithium::Keypair;
 	use std::fs::{self, File};
 	use tempfile::TempDir;
 
@@ -156,8 +156,7 @@ mod tests {
 			NodeKeyType::value_variants().iter().try_for_each(|t| {
 				let node_key_type = *t;
 				let sk = match node_key_type {
-					NodeKeyType::Dilithium =>
-						Keypair::generate_dilithium().secret().unwrap().to_vec(),
+					NodeKeyType::Dilithium => Keypair::generate().secret().to_bytes().to_vec(),
 				};
 				let hex_sk = hex::encode(sk.clone());
 				let params = NodeKeyParams {
@@ -185,7 +184,7 @@ mod tests {
 
 	#[test]
 	fn test_node_key_config_file() {
-		fn check_key(file: PathBuf, key: &libp2p_identity::Keypair) {
+		fn check_key(file: PathBuf, key: &Keypair) {
 			let params = NodeKeyParams {
 				node_key_type: NodeKeyType::Dilithium,
 				node_key: None,
@@ -196,22 +195,20 @@ mod tests {
 			let node_key = params
 				.node_key(&PathBuf::from("not-used"), Role::Authority, false)
 				.expect("Creates node key config")
-				.into_keypair()
+				.into_litep2p_keypair()
 				.expect("Creates node key pair");
 
-			if node_key.secret().unwrap() != key.secret().unwrap() {
-				panic!("Invalid key")
-			}
+			assert_eq!(node_key.secret().to_bytes(), key.secret().to_bytes());
 		}
 
 		let tmp = tempfile::Builder::new().prefix("alice").tempdir().expect("Creates tempfile");
 		let file = tmp.path().join("mysecret").to_path_buf();
-		let key = Keypair::generate_dilithium();
+		let key = Keypair::generate();
 
-		fs::write(&file, &key.dilithium_to_bytes()).expect("Writes secret key");
+		fs::write(&file, hex::encode(key.to_bytes())).expect("Writes secret key");
 		check_key(file.clone(), &key);
 
-		fs::write(&file, &key.dilithium_to_bytes()).expect("Writes secret key");
+		fs::write(&file, hex::encode(key.to_bytes())).expect("Writes secret key");
 		check_key(file.clone(), &key);
 	}
 
