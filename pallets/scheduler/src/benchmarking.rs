@@ -39,7 +39,7 @@ type SystemOrigin<T> = <T as frame_system::Config>::RuntimeOrigin;
 
 fn assert_last_event<T: Config>(generic_event: <T as frame_system::Config>::RuntimeEvent) {
 	let events = frame_system::Pallet::<T>::events();
-	let system_event: <T as frame_system::Config>::RuntimeEvent = generic_event.into();
+	let system_event: <T as frame_system::Config>::RuntimeEvent = generic_event;
 	// compare to the last event record
 	let EventRecord { event, .. } = &events[events.len() - 1];
 	assert_eq!(event, &system_event);
@@ -115,12 +115,10 @@ fn make_call<T: Config>(maybe_lookup_len: Option<u32>) -> BoundedCallOf<T> {
 		}
 		if maybe_lookup_len.is_some() {
 			len += 1;
+		} else if len > 0 {
+			len -= 1;
 		} else {
-			if len > 0 {
-				len -= 1;
-			} else {
-				break c;
-			}
+			break c;
 		}
 	}
 }
@@ -258,7 +256,7 @@ benchmarks! {
 			"didn't remove from schedule if more than 1 task scheduled for `when`"
 		);
 		ensure!(
-			s > 1 || Agenda::<T>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 0,
+			s > 1 || Agenda::<T>::get(BlockNumberOrTimestamp::BlockNumber(when)).is_empty(),
 			"remove from schedule if only 1 task scheduled for `when`"
 		);
 	}
@@ -296,7 +294,7 @@ benchmarks! {
 			"didn't remove from schedule if more than 1 task scheduled for `when`"
 		);
 		ensure!(
-			s > 1 || Agenda::<T>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 0,
+			s > 1 || Agenda::<T>::get(BlockNumberOrTimestamp::BlockNumber(when)).is_empty(),
 			"remove from schedule if only 1 task scheduled for `when`"
 		);
 	}
@@ -311,7 +309,7 @@ benchmarks! {
 		let period: BlockNumberOrTimestampOf<T> = BlockNumberOrTimestamp::BlockNumber(1u32.into());
 		let root: <T as Config>::PalletsOrigin = frame_system::RawOrigin::Root.into();
 		let retry_config = RetryConfig { total_retries: 10, remaining: 10, period };
-		Retries::<T>::insert(address, retry_config.clone());
+		Retries::<T>::insert(address, retry_config);
 		let (when, index) = address;
 		let task = Agenda::<T>::get(when)[index as usize].clone().unwrap();
 		let mut weight_counter = WeightMeter::with_limit(T::MaximumWeight::get());

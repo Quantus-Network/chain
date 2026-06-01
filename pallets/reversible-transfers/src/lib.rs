@@ -592,7 +592,7 @@ pub mod pallet {
 				// Release succeeded - now remove metadata and cancel scheduler
 				PendingTransfers::<T>::remove(tx_id);
 
-				if let Some(id) = Self::make_schedule_id(tx_id).ok() {
+				if let Ok(id) = Self::make_schedule_id(tx_id) {
 					if let Err(e) = T::Scheduler::cancel_named(id) {
 						log::warn!(
 							"Failed to cancel scheduled task for tx {:?}: {:?} (funds already released)",

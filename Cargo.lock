@@ -6682,7 +6682,7 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "primitive-types 0.13.1",
- "qp-poseidon-core 1.5.0",
+ "qp-poseidon-core 2.0.2",
  "qpow-math",
  "scale-info",
  "sp-arithmetic",
@@ -6900,7 +6900,7 @@ dependencies = [
  "qp-dilithium-crypto",
  "qp-header",
  "qp-plonky2",
- "qp-poseidon-core 1.5.0",
+ "qp-poseidon-core 2.0.2",
  "qp-wormhole",
  "qp-wormhole-circuit",
  "qp-wormhole-circuit-builder",
@@ -6924,7 +6924,7 @@ dependencies = [
  "frame-system",
  "log",
  "parity-scale-codec",
- "qp-poseidon-core 1.5.0",
+ "qp-poseidon-core 2.0.2",
  "scale-info",
  "serde",
  "sp-api",
@@ -8116,7 +8116,7 @@ dependencies = [
  "env_logger",
  "log",
  "parity-scale-codec",
- "qp-poseidon-core 1.5.0",
+ "qp-poseidon-core 2.0.2",
  "qp-rusty-crystals-dilithium",
  "qp-rusty-crystals-hdwallet",
  "scale-info",
@@ -8135,7 +8135,7 @@ dependencies = [
  "p3-field",
  "p3-goldilocks",
  "parity-scale-codec",
- "qp-poseidon-core 1.5.0",
+ "qp-poseidon-core 2.0.2",
  "scale-info",
  "serde",
  "serde_json",
@@ -8281,7 +8281,9 @@ dependencies = [
 
 [[package]]
 name = "qp-poseidon-core"
-version = "1.5.0"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "882fbe1c3054d60ba863333f5c2d2cf30432204e16c014fcfd5dbae0a73217ee"
 dependencies = [
  "p3-field",
  "p3-goldilocks",
@@ -8334,7 +8336,7 @@ name = "qp-wormhole"
 version = "0.1.0"
 dependencies = [
  "parity-scale-codec",
- "qp-poseidon-core 1.5.0",
+ "qp-poseidon-core 2.0.2",
  "sp-consensus-qpow",
  "sp-core",
  "sp-runtime",
@@ -8442,7 +8444,7 @@ dependencies = [
  "log",
  "primitive-types 0.13.1",
  "proptest",
- "qp-poseidon-core 1.5.0",
+ "qp-poseidon-core 2.0.2",
 ]
 
 [[package]]
@@ -8572,7 +8574,7 @@ dependencies = [
  "qp-dilithium-crypto",
  "qp-header",
  "qp-high-security",
- "qp-poseidon-core 1.5.0",
+ "qp-poseidon-core 2.0.2",
  "qp-scheduler",
  "qp-wormhole",
  "qp-wormhole-verifier",
