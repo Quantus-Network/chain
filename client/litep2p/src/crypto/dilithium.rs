@@ -40,14 +40,12 @@ pub const SEED_BYTES: usize = 32;
 
 /// A Dilithium ML-DSA-87 keypair.
 ///
-/// Internally stores the 32-byte seed and the public key.
-/// The full secret key is derived on-demand when signing.
+/// Internally stores only the 32-byte seed.
+/// The public key and secret key are derived on-demand.
 #[derive(Clone)]
 pub struct Keypair {
 	/// The seed used to generate the keypair (32 bytes).
 	seed: [u8; SEED_BYTES],
-	/// The public key.
-	public: ml_dsa_87::PublicKey,
 }
 
 impl Keypair {
@@ -56,45 +54,34 @@ impl Keypair {
 		Keypair::from(SecretKey::generate())
 	}
 
+	/// Derive the internal keypair from the seed.
+	fn derive_internal(&self) -> ml_dsa_87::Keypair {
+		let mut seed_copy = self.seed;
+		let sensitive_seed = SensitiveBytes32::from(&mut seed_copy);
+		ml_dsa_87::Keypair::generate(sensitive_seed)
+	}
+
 	/// Convert the keypair into a byte array.
 	///
-	/// Returns the 32-byte seed concatenated with the public key bytes.
-	/// Format: [seed (32 bytes)][public key (2592 bytes)]
+	/// Returns the 32-byte seed only. The public key is deterministically
+	/// derived from the seed, so storing it separately is unnecessary.
 	pub fn to_bytes(&self) -> Vec<u8> {
-		let mut bytes = Vec::with_capacity(SEED_BYTES + PUBLIC_KEY_BYTES);
-		bytes.extend_from_slice(&self.seed);
-		bytes.extend_from_slice(&self.public.to_bytes());
-		bytes
+		self.seed.to_vec()
 	}
 
 	/// Try to parse a keypair from bytes, zeroing the input on success.
 	///
 	/// Accepts either:
-	/// - 32 bytes (seed only) - public key will be regenerated
-	/// - 32 + 2592 bytes (seed + public key)
+	/// - 32 bytes (seed only)
+	/// - 32 + 2592 bytes (seed + public key) - public key bytes are ignored,
+	///   the key is regenerated from seed for consistency
 	pub fn try_from_bytes(kp: &mut [u8]) -> Result<Keypair, Error> {
-		if kp.len() == SEED_BYTES {
-			// Seed only - regenerate the keypair
-			let mut seed = [0u8; SEED_BYTES];
-			seed.copy_from_slice(kp);
-			kp.zeroize();
-
-			let sensitive_seed = SensitiveBytes32::from(&mut seed.clone());
-			let internal_kp = ml_dsa_87::Keypair::generate(sensitive_seed);
-
-			Ok(Keypair { seed, public: internal_kp.public })
-		} else if kp.len() == SEED_BYTES + PUBLIC_KEY_BYTES {
-			// Full keypair
+		if kp.len() == SEED_BYTES || kp.len() == SEED_BYTES + PUBLIC_KEY_BYTES {
 			let mut seed = [0u8; SEED_BYTES];
 			seed.copy_from_slice(&kp[..SEED_BYTES]);
-
-			let public = ml_dsa_87::PublicKey::from_bytes(&kp[SEED_BYTES..]).map_err(|e| {
-				Error::Other(format!("Failed to parse Dilithium public key: {e:?}"))
-			})?;
-
 			kp.zeroize();
 
-			Ok(Keypair { seed, public })
+			Ok(Keypair { seed })
 		} else {
 			Err(Error::Other(format!(
 				"Invalid Dilithium keypair length: expected {} or {} bytes, got {}",
@@ -107,10 +94,7 @@ impl Keypair {
 
 	/// Sign a message using the private key of this keypair.
 	pub fn sign(&self, msg: &[u8]) -> Vec<u8> {
-		// Regenerate the full keypair from seed for signing
-		let mut seed_copy = self.seed;
-		let sensitive_seed = SensitiveBytes32::from(&mut seed_copy);
-		let internal_kp = ml_dsa_87::Keypair::generate(sensitive_seed);
+		let internal_kp = self.derive_internal();
 
 		// Sign without context, with hedged randomness for side-channel protection
 		let mut hedge = [0u8; 32];
@@ -124,7 +108,7 @@ impl Keypair {
 
 	/// Get the public key of this keypair.
 	pub fn public(&self) -> PublicKey {
-		PublicKey(self.public.clone())
+		PublicKey(self.derive_internal().public)
 	}
 
 	/// Get the secret key (seed) of this keypair.
@@ -135,7 +119,7 @@ impl Keypair {
 
 impl fmt::Debug for Keypair {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		f.debug_struct("Keypair").field("public", &self.public).finish_non_exhaustive()
+		f.debug_struct("Keypair").field("public", &self.public()).finish_non_exhaustive()
 	}
 }
 
@@ -149,11 +133,7 @@ impl From<Keypair> for SecretKey {
 /// Promote a Dilithium secret key (seed) into a keypair.
 impl From<SecretKey> for Keypair {
 	fn from(sk: SecretKey) -> Keypair {
-		let mut seed_copy = sk.0;
-		let sensitive_seed = SensitiveBytes32::from(&mut seed_copy);
-		let internal_kp = ml_dsa_87::Keypair::generate(sensitive_seed);
-
-		Keypair { seed: sk.0, public: internal_kp.public }
+		Keypair { seed: sk.0 }
 	}
 }
 
@@ -325,5 +305,24 @@ mod tests {
 		// Verify we got valid bytes
 		assert!(!sk_bytes.iter().all(|b| *b == 0));
 		// Drop happens automatically
+	}
+
+	#[test]
+	fn dilithium_keypair_ignores_corrupted_public_key() {
+		// Create a keypair and get its seed
+		let kp1 = Keypair::generate();
+		let seed = kp1.seed;
+
+		// Create corrupted "old format" data: seed + garbage public key
+		let mut corrupted = Vec::with_capacity(SEED_BYTES + PUBLIC_KEY_BYTES);
+		corrupted.extend_from_slice(&seed);
+		// Fill with garbage instead of real public key
+		corrupted.extend_from_slice(&[0xAB; PUBLIC_KEY_BYTES]);
+
+		// Parse should succeed and derive correct public key from seed
+		let kp2 = Keypair::try_from_bytes(&mut corrupted).unwrap();
+
+		// Public keys should match (derived from seed, not from corrupted bytes)
+		assert_eq!(kp1.public(), kp2.public());
 	}
 }
