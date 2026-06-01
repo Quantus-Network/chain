@@ -28,16 +28,16 @@ pub type MockUncheckedExtrinsic<T, Signature = (), Extra = ()> = generic::Unchec
 >;
 
 pub type MockBlock<T> = generic::Block<
-	qp_header::Header<u64, sp_runtime::traits::BlakeTwo256, sp_runtime::traits::BlakeTwo256>,
+	qp_header::Header<u64, sp_runtime::traits::BlakeTwo256>,
 	MockUncheckedExtrinsic<T>,
 >;
 
 pub type MockBlockU32<T> = generic::Block<
-	qp_header::Header<u32, sp_runtime::traits::BlakeTwo256, sp_runtime::traits::BlakeTwo256>,
+	qp_header::Header<u32, sp_runtime::traits::BlakeTwo256>,
 	MockUncheckedExtrinsic<T>,
 >;
 
 pub type MockBlockU128<T> = generic::Block<
-	qp_header::Header<u128, sp_runtime::traits::BlakeTwo256, sp_runtime::traits::BlakeTwo256>,
+	qp_header::Header<u128, sp_runtime::traits::BlakeTwo256>,
 	MockUncheckedExtrinsic<T>,
 >;
