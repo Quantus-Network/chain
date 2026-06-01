@@ -155,12 +155,6 @@ impl TransportManagerHandle {
 					self.supported_transport.contains(&SupportedTransport::WebSocket),
 				_ => false,
 			},
-			#[cfg(feature = "quic")]
-			Some(Protocol::Udp(_)) => match (iter.next(), iter.next(), iter.next()) {
-				(Some(Protocol::QuicV1), Some(Protocol::P2p(_)), None) =>
-					self.supported_transport.contains(&SupportedTransport::Quic),
-				_ => false,
-			},
 			_ => false,
 		}
 	}
@@ -530,44 +524,6 @@ mod tests {
 
 		let address =
             "/dns4/google.com/tcp/24928/wss/p2p/12D3KooWKrUnV42yDR7G6DewmgHtFaVCJWLjQRi2G9t5eJD3BvTy/p2p-circuit"
-                .parse()
-                .unwrap();
-		assert!(!handle.supported_transport(&address));
-	}
-
-	#[cfg(feature = "quic")]
-	#[tokio::test]
-	async fn quic_supported() {
-		let (mut handle, _rx) = make_transport_manager_handle();
-		handle.supported_transport.insert(SupportedTransport::Quic);
-
-		let address =
-            "/dns4/google.com/udp/24928/quic-v1/p2p/12D3KooWKrUnV42yDR7G6DewmgHtFaVCJWLjQRi2G9t5eJD3BvTy"
-                .parse()
-                .unwrap();
-		assert!(handle.supported_transport(&address));
-	}
-
-	#[cfg(feature = "quic")]
-	#[tokio::test]
-	async fn quic_unsupported() {
-		let (handle, _rx) = make_transport_manager_handle();
-
-		let address =
-            "/dns4/google.com/udp/24928/quic-v1/p2p/12D3KooWKrUnV42yDR7G6DewmgHtFaVCJWLjQRi2G9t5eJD3BvTy"
-                .parse()
-                .unwrap();
-		assert!(!handle.supported_transport(&address));
-	}
-
-	#[cfg(feature = "quic")]
-	#[tokio::test]
-	async fn quic_non_terminal_unsupported() {
-		let (mut handle, _rx) = make_transport_manager_handle();
-		handle.supported_transport.insert(SupportedTransport::Quic);
-
-		let address =
-            "/dns4/google.com/udp/24928/quic-v1/p2p/12D3KooWKrUnV42yDR7G6DewmgHtFaVCJWLjQRi2G9t5eJD3BvTy/p2p-circuit"
                 .parse()
                 .unwrap();
 		assert!(!handle.supported_transport(&address));

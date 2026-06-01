@@ -36,10 +36,6 @@ use crate::{
 	PeerId,
 };
 
-#[cfg(feature = "quic")]
-use crate::transport::quic::config::Config as QuicConfig;
-#[cfg(feature = "webrtc")]
-use crate::transport::webrtc::config::Config as WebRtcConfig;
 #[cfg(feature = "websocket")]
 use crate::transport::websocket::config::Config as WebSocketConfig;
 
@@ -70,14 +66,6 @@ impl From<Role> for crate::yamux::Mode {
 pub struct ConfigBuilder {
 	/// TCP transport configuration.
 	tcp: Option<TcpConfig>,
-
-	/// QUIC transport config.
-	#[cfg(feature = "quic")]
-	quic: Option<QuicConfig>,
-
-	/// WebRTC transport config.
-	#[cfg(feature = "webrtc")]
-	webrtc: Option<WebRtcConfig>,
 
 	/// WebSocket transport config.
 	#[cfg(feature = "websocket")]
@@ -140,10 +128,6 @@ impl ConfigBuilder {
 	pub fn new() -> Self {
 		Self {
 			tcp: None,
-			#[cfg(feature = "quic")]
-			quic: None,
-			#[cfg(feature = "webrtc")]
-			webrtc: None,
 			#[cfg(feature = "websocket")]
 			websocket: None,
 			keypair: None,
@@ -167,20 +151,6 @@ impl ConfigBuilder {
 	/// Add TCP transport configuration, enabling the transport.
 	pub fn with_tcp(mut self, config: TcpConfig) -> Self {
 		self.tcp = Some(config);
-		self
-	}
-
-	/// Add QUIC transport configuration, enabling the transport.
-	#[cfg(feature = "quic")]
-	pub fn with_quic(mut self, config: QuicConfig) -> Self {
-		self.quic = Some(config);
-		self
-	}
-
-	/// Add WebRTC transport configuration, enabling the transport.
-	#[cfg(feature = "webrtc")]
-	pub fn with_webrtc(mut self, config: WebRtcConfig) -> Self {
-		self.webrtc = Some(config);
 		self
 	}
 
@@ -301,10 +271,6 @@ impl ConfigBuilder {
 			keypair,
 			tcp: self.tcp.take(),
 			mdns: self.mdns.take(),
-			#[cfg(feature = "quic")]
-			quic: self.quic.take(),
-			#[cfg(feature = "webrtc")]
-			webrtc: self.webrtc.take(),
 			#[cfg(feature = "websocket")]
 			websocket: self.websocket.take(),
 			ping: self.ping.take(),
@@ -328,14 +294,6 @@ impl ConfigBuilder {
 pub struct Litep2pConfig {
 	// TCP transport configuration.
 	pub(crate) tcp: Option<TcpConfig>,
-
-	/// QUIC transport config.
-	#[cfg(feature = "quic")]
-	pub(crate) quic: Option<QuicConfig>,
-
-	/// WebRTC transport config.
-	#[cfg(feature = "webrtc")]
-	pub(crate) webrtc: Option<WebRtcConfig>,
 
 	/// WebSocket transport config.
 	#[cfg(feature = "websocket")]

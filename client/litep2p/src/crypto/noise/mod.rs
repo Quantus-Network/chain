@@ -153,47 +153,6 @@ impl NoiseContext {
 		Self::assemble(session, kem_keypair, keypair, role)
 	}
 
-	/// Create new [`NoiseContext`] with prologue (for WebRTC).
-	#[cfg(feature = "webrtc")]
-	pub fn with_prologue(id_keys: &Keypair, prologue: Vec<u8>) -> Result<Self, NegotiationError> {
-		let kem_keypair = protocol::Keypair::new();
-		let session = ClatterSession::new(&prologue, true, &kem_keypair)?;
-		Self::assemble(session, kem_keypair, id_keys, Role::Dialer)
-	}
-
-	/// Get remote peer ID from the received Noise payload (for WebRTC).
-	#[cfg(feature = "webrtc")]
-	pub fn get_remote_peer_id(&mut self, reply: &[u8]) -> Result<PeerId, NegotiationError> {
-		if reply.len() < 2 {
-			tracing::error!(target: LOG_TARGET, "reply too short to contain length prefix");
-			return Err(NegotiationError::ParseError(ParseError::InvalidReplyLength));
-		}
-
-		let (len_slice, reply) = reply.split_at(2);
-		let len = u16::from_be_bytes(
-			len_slice
-				.try_into()
-				.map_err(|_| NegotiationError::ParseError(ParseError::InvalidPublicKey))?,
-		) as usize;
-
-		let mut buffer = vec![0u8; len];
-
-		let NoiseState::Handshake(ref mut session) = self.noise else {
-			tracing::error!(target: LOG_TARGET, "invalid state to read the handshake message");
-			debug_assert!(false);
-			return Err(NegotiationError::StateMismatch);
-		};
-
-		let res = session.read_message(reply, &mut buffer)?;
-		buffer.truncate(res);
-
-		let payload = handshake_schema::NoiseHandshakePayload::decode(buffer.as_slice())
-			.map_err(|err| NegotiationError::ParseError(err.into()))?;
-
-		let identity = payload.identity_key.ok_or(NegotiationError::PeerIdMissing)?;
-		Ok(PeerId::from_public_key_protobuf(&identity))
-	}
-
 	/// Get first message (pqXX message 1: -> e).
 	///
 	/// For initiator: sends ephemeral KEM public key

@@ -47,10 +47,6 @@ use crate::{
 	},
 };
 
-#[cfg(feature = "quic")]
-use crate::transport::quic::QuicTransport;
-#[cfg(feature = "webrtc")]
-use crate::transport::webrtc::WebRtcTransport;
 #[cfg(feature = "websocket")]
 use crate::transport::websocket::WebSocketTransport;
 
@@ -346,36 +342,6 @@ impl Litep2p {
 			transport_manager.register_transport(SupportedTransport::Tcp, Box::new(transport));
 		}
 
-		// enable quic transport if the config exists
-		#[cfg(feature = "quic")]
-		if let Some(config) = litep2p_config.quic.take() {
-			let handle = transport_manager.transport_handle(Arc::clone(&litep2p_config.executor));
-			let (transport, transport_listen_addresses) =
-				<QuicTransport as TransportBuilder>::new(handle, config, resolver.clone())?;
-
-			for address in transport_listen_addresses {
-				transport_manager.register_listen_address(address.clone());
-				listen_addresses.push(address.with(Protocol::P2p(*local_peer_id.as_ref())));
-			}
-
-			transport_manager.register_transport(SupportedTransport::Quic, Box::new(transport));
-		}
-
-		// enable webrtc transport if the config exists
-		#[cfg(feature = "webrtc")]
-		if let Some(config) = litep2p_config.webrtc.take() {
-			let handle = transport_manager.transport_handle(Arc::clone(&litep2p_config.executor));
-			let (transport, transport_listen_addresses) =
-				<WebRtcTransport as TransportBuilder>::new(handle, config, resolver.clone())?;
-
-			for address in transport_listen_addresses {
-				transport_manager.register_listen_address(address.clone());
-				listen_addresses.push(address.with(Protocol::P2p(*local_peer_id.as_ref())));
-			}
-
-			transport_manager.register_transport(SupportedTransport::WebRtc, Box::new(transport));
-		}
-
 		// enable websocket transport if the config exists
 		#[cfg(feature = "websocket")]
 		if let Some(mut config) = litep2p_config.websocket.take() {
@@ -439,21 +405,11 @@ impl Litep2p {
 			.tcp
 			.is_some()
 			.then(|| supported_transports.insert(SupportedTransport::Tcp));
-		#[cfg(feature = "quic")]
-		config
-			.quic
-			.is_some()
-			.then(|| supported_transports.insert(SupportedTransport::Quic));
 		#[cfg(feature = "websocket")]
 		config
 			.websocket
 			.is_some()
 			.then(|| supported_transports.insert(SupportedTransport::WebSocket));
-		#[cfg(feature = "webrtc")]
-		config
-			.webrtc
-			.is_some()
-			.then(|| supported_transports.insert(SupportedTransport::WebRtc));
 
 		supported_transports
 	}

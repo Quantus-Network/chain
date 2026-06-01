@@ -82,9 +82,6 @@ pub enum Error {
 	DnsAddressResolutionFailed,
 	#[error("Transport error: `{0}`")]
 	TransportError(String),
-	#[cfg(feature = "quic")]
-	#[error("Failed to generate certificate: `{0}`")]
-	CertificateGeneration(#[from] crate::crypto::tls::certificate::GenError),
 	#[error("Invalid data")]
 	InvalidData,
 	#[error("Input rejected")]
@@ -96,9 +93,6 @@ pub enum Error {
 	InsufficientPeers,
 	#[error("Substream doens't exist")]
 	SubstreamDoesntExist,
-	#[cfg(feature = "webrtc")]
-	#[error("`str0m` error: `{0}`")]
-	WebRtc(#[from] str0m::RtcError),
 	#[error("Remote peer disconnected")]
 	Disconnected,
 	#[error("Channel does not exist")]
@@ -111,9 +105,6 @@ pub enum Error {
 	NoAddressAvailable(PeerId),
 	#[error("Connection closed")]
 	ConnectionClosed,
-	#[cfg(feature = "quic")]
-	#[error("Quinn error: `{0}`")]
-	Quinn(quinn::ConnectionError),
 	#[error("Invalid certificate")]
 	InvalidCertificate,
 	#[error("Peer ID mismatch: expected `{0}`, got `{1}`")]
@@ -308,10 +299,6 @@ pub enum NegotiationError {
 	/// address.
 	#[error("Peer ID mismatch: expected `{0}`, got `{1}`")]
 	PeerIdMismatch(PeerId, PeerId),
-	/// Error specific to the QUIC transport.
-	#[cfg(feature = "quic")]
-	#[error("QUIC error: `{0}`")]
-	Quic(#[from] QuicError),
 	/// Error specific to the WebSocket transport.
 	#[cfg(feature = "websocket")]
 	#[error("WebSocket error: `{0}`")]
@@ -327,8 +314,6 @@ impl PartialEq for NegotiationError {
 			(Self::IoError(lhs), Self::IoError(rhs)) => lhs == rhs,
 			(Self::PeerIdMismatch(lhs, lhs_1), Self::PeerIdMismatch(rhs, rhs_1)) =>
 				lhs == rhs && lhs_1 == rhs_1,
-			#[cfg(feature = "quic")]
-			(Self::Quic(lhs), Self::Quic(rhs)) => lhs == rhs,
 			#[cfg(feature = "websocket")]
 			(Self::WebSocket(lhs), Self::WebSocket(rhs)) =>
 				core::mem::discriminant(lhs) == core::mem::discriminant(rhs),
@@ -396,21 +381,6 @@ pub enum ImmediateDialError {
 	/// The channel is clogged.
 	#[error("Connection channel clogged")]
 	ChannelClogged,
-}
-
-/// Error during the QUIC transport negotiation.
-#[cfg(feature = "quic")]
-#[derive(Debug, thiserror::Error, PartialEq)]
-pub enum QuicError {
-	/// The provided certificate is invalid.
-	#[error("Invalid certificate")]
-	InvalidCertificate,
-	/// The connection was lost.
-	#[error("Failed to negotiate QUIC: `{0}`")]
-	ConnectionError(#[from] quinn::ConnectionError),
-	/// The connection could not be established.
-	#[error("Failed to connect to peer: `{0}`")]
-	ConnectError(#[from] quinn::ConnectError),
 }
 
 /// Error during DNS resolution.
@@ -495,33 +465,6 @@ impl From<ParseError> for Error {
 impl From<MultihashGeneric<64>> for AddressError {
 	fn from(hash: MultihashGeneric<64>) -> Self {
 		AddressError::InvalidPeerId(hash)
-	}
-}
-
-#[cfg(feature = "quic")]
-impl From<quinn::ConnectionError> for Error {
-	fn from(error: quinn::ConnectionError) -> Self {
-		match error {
-			quinn::ConnectionError::TimedOut => Error::Timeout,
-			error => Error::Quinn(error),
-		}
-	}
-}
-
-#[cfg(feature = "quic")]
-impl From<quinn::ConnectionError> for DialError {
-	fn from(error: quinn::ConnectionError) -> Self {
-		match error {
-			quinn::ConnectionError::TimedOut => DialError::Timeout,
-			error => DialError::NegotiationError(NegotiationError::Quic(error.into())),
-		}
-	}
-}
-
-#[cfg(feature = "quic")]
-impl From<quinn::ConnectError> for DialError {
-	fn from(error: quinn::ConnectError) -> Self {
-		DialError::NegotiationError(NegotiationError::Quic(error.into()))
 	}
 }
 

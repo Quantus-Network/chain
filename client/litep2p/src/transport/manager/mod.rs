@@ -500,12 +500,6 @@ impl TransportManager {
 		let mut transports = HashMap::<SupportedTransport, Vec<Multiaddr>>::new();
 
 		for address in addresses.iter().cloned() {
-			#[cfg(feature = "quic")]
-			if address.iter().any(|p| std::matches!(&p, Protocol::QuicV1)) {
-				transports.entry(SupportedTransport::Quic).or_default().push(address);
-				continue;
-			}
-
 			#[cfg(feature = "websocket")]
 			if address.iter().any(|p| std::matches!(&p, Protocol::Ws(_) | Protocol::Wss(_))) {
 				transports.entry(SupportedTransport::WebSocket).or_default().push(address);
@@ -632,17 +626,6 @@ impl TransportManager {
 				Some(Protocol::Ws(_)) | Some(Protocol::Wss(_)) => SupportedTransport::WebSocket,
 				Some(Protocol::P2p(_)) => SupportedTransport::Tcp,
 				_ => return Err(Error::TransportNotSupported(address_record.address().clone())),
-			},
-			#[cfg(feature = "quic")]
-			Protocol::Udp(_) => match protocol_stack
-				.next()
-				.ok_or_else(|| Error::TransportNotSupported(address_record.address().clone()))?
-			{
-				Protocol::QuicV1 => SupportedTransport::Quic,
-				_ => {
-					tracing::debug!(target: LOG_TARGET, address = ?address_record.address(), "expected `quic-v1`");
-					return Err(Error::TransportNotSupported(address_record.address().clone()));
-				},
 			},
 			protocol => {
 				tracing::error!(
@@ -1460,172 +1443,6 @@ mod tests {
 		(dial_address, connection_id)
 	}
 
-	#[tokio::test]
-	#[cfg(feature = "websocket")]
-	#[cfg(feature = "quic")]
-	async fn transport_events() {
-		struct MockTransport {
-			rx: tokio::sync::mpsc::Receiver<TransportEvent>,
-		}
-
-		impl MockTransport {
-			fn new(rx: tokio::sync::mpsc::Receiver<TransportEvent>) -> Self {
-				Self { rx }
-			}
-		}
-
-		impl Transport for MockTransport {
-			fn dial(
-				&mut self,
-				_connection_id: ConnectionId,
-				_address: Multiaddr,
-			) -> crate::Result<()> {
-				Ok(())
-			}
-
-			fn accept(
-				&mut self,
-				_connection_id: ConnectionId,
-			) -> crate::Result<BoxFuture<'static, crate::Result<()>>> {
-				Ok(Box::pin(async { Ok(()) }))
-			}
-
-			fn accept_pending(&mut self, _connection_id: ConnectionId) -> crate::Result<()> {
-				Ok(())
-			}
-
-			fn reject_pending(&mut self, _connection_id: ConnectionId) -> crate::Result<()> {
-				Ok(())
-			}
-
-			fn reject(&mut self, _connection_id: ConnectionId) -> crate::Result<()> {
-				Ok(())
-			}
-
-			fn open(
-				&mut self,
-				_connection_id: ConnectionId,
-				_addresses: Vec<Multiaddr>,
-			) -> crate::Result<()> {
-				Ok(())
-			}
-
-			fn negotiate(&mut self, _connection_id: ConnectionId) -> crate::Result<()> {
-				Ok(())
-			}
-
-			fn cancel(&mut self, _connection_id: ConnectionId) {}
-		}
-
-		impl Stream for MockTransport {
-			type Item = TransportEvent;
-			fn poll_next(
-				mut self: Pin<&mut Self>,
-				cx: &mut Context<'_>,
-			) -> Poll<Option<Self::Item>> {
-				self.rx.poll_recv(cx)
-			}
-		}
-
-		let mut transports = TransportContext::new();
-
-		let (tx_tcp, rx) = tokio::sync::mpsc::channel(8);
-		let transport = MockTransport::new(rx);
-		transports.register_transport(SupportedTransport::Tcp, Box::new(transport));
-
-		let (tx_ws, rx) = tokio::sync::mpsc::channel(8);
-		let transport = MockTransport::new(rx);
-		transports.register_transport(SupportedTransport::WebSocket, Box::new(transport));
-
-		let (tx_quic, rx) = tokio::sync::mpsc::channel(8);
-		let transport = MockTransport::new(rx);
-		transports.register_transport(SupportedTransport::Quic, Box::new(transport));
-
-		assert_eq!(transports.index, 0);
-		assert_eq!(transports.transports.len(), 3);
-		// No items.
-		futures::future::poll_fn(|cx| match transports.poll_next_unpin(cx) {
-			std::task::Poll::Ready(_) => panic!("didn't expect event from `TransportService`"),
-			std::task::Poll::Pending => std::task::Poll::Ready(()),
-		})
-		.await;
-		assert_eq!(transports.index, 0);
-
-		// Websocket events.
-		tx_ws
-			.send(TransportEvent::PendingInboundConnection { connection_id: ConnectionId::from(1) })
-			.await
-			.expect("channel to be open");
-
-		let event = futures::future::poll_fn(|cx| transports.poll_next_unpin(cx))
-			.await
-			.expect("expected event");
-		assert_eq!(event.0, SupportedTransport::WebSocket);
-		assert!(std::matches!(event.1, TransportEvent::PendingInboundConnection { .. }));
-		assert_eq!(transports.index, 2);
-
-		// TCP events.
-		tx_tcp
-			.send(TransportEvent::PendingInboundConnection { connection_id: ConnectionId::from(2) })
-			.await
-			.expect("channel to be open");
-
-		let event = futures::future::poll_fn(|cx| transports.poll_next_unpin(cx))
-			.await
-			.expect("expected event");
-		assert_eq!(event.0, SupportedTransport::Tcp);
-		assert!(std::matches!(event.1, TransportEvent::PendingInboundConnection { .. }));
-		assert_eq!(transports.index, 1);
-
-		// QUIC events
-		tx_quic
-			.send(TransportEvent::PendingInboundConnection { connection_id: ConnectionId::from(3) })
-			.await
-			.expect("channel to be open");
-
-		let event = futures::future::poll_fn(|cx| transports.poll_next_unpin(cx))
-			.await
-			.expect("expected event");
-		assert_eq!(event.0, SupportedTransport::Quic);
-		assert!(std::matches!(event.1, TransportEvent::PendingInboundConnection { .. }));
-		assert_eq!(transports.index, 0);
-
-		// All three transports produce events.
-		tx_ws
-			.send(TransportEvent::PendingInboundConnection { connection_id: ConnectionId::from(4) })
-			.await
-			.expect("channel to be open");
-		tx_tcp
-			.send(TransportEvent::PendingInboundConnection { connection_id: ConnectionId::from(5) })
-			.await
-			.expect("channel to be open");
-		tx_quic
-			.send(TransportEvent::PendingInboundConnection { connection_id: ConnectionId::from(6) })
-			.await
-			.expect("channel to be open");
-
-		let event = futures::future::poll_fn(|cx| transports.poll_next_unpin(cx))
-			.await
-			.expect("expected event");
-		assert_eq!(event.0, SupportedTransport::Tcp);
-		assert!(std::matches!(event.1, TransportEvent::PendingInboundConnection { .. }));
-		assert_eq!(transports.index, 1);
-
-		let event = futures::future::poll_fn(|cx| transports.poll_next_unpin(cx))
-			.await
-			.expect("expected event");
-		assert_eq!(event.0, SupportedTransport::WebSocket);
-		assert!(std::matches!(event.1, TransportEvent::PendingInboundConnection { .. }));
-		assert_eq!(transports.index, 2);
-
-		let event = futures::future::poll_fn(|cx| transports.poll_next_unpin(cx))
-			.await
-			.expect("expected event");
-		assert_eq!(event.0, SupportedTransport::Quic);
-		assert!(std::matches!(event.1, TransportEvent::PendingInboundConnection { .. }));
-		assert_eq!(transports.index, 0);
-	}
-
 	#[test]
 	#[should_panic]
 	#[cfg(debug_assertions)]
@@ -1881,8 +1698,6 @@ mod tests {
 
 		let mut transports = HashSet::new();
 		transports.insert(SupportedTransport::Tcp);
-		#[cfg(feature = "quic")]
-		transports.insert(SupportedTransport::Quic);
 
 		let manager = TransportManagerBuilder::new().with_supported_transports(transports).build();
 
@@ -1902,15 +1717,12 @@ mod tests {
 			.with(Protocol::P2p(Multihash::from_bytes(&PeerId::random().to_bytes()).unwrap()));
 		assert!(handle.supported_transport(&address));
 
-		// quic
+		// quic - not supported
 		let address = Multiaddr::empty()
 			.with(Protocol::Ip4(Ipv4Addr::new(127, 0, 0, 1)))
 			.with(Protocol::Udp(8888))
 			.with(Protocol::QuicV1)
 			.with(Protocol::P2p(Multihash::from_bytes(&PeerId::random().to_bytes()).unwrap()));
-		#[cfg(feature = "quic")]
-		assert!(handle.supported_transport(&address));
-		#[cfg(not(feature = "quic"))]
 		assert!(!handle.supported_transport(&address));
 
 		// websocket

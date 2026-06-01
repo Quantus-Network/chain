@@ -42,7 +42,7 @@ use futures::{stream::FuturesUnordered, Stream, StreamExt};
 use multiaddr::Multiaddr;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
-#[cfg(any(feature = "quic", feature = "webrtc", feature = "websocket"))]
+#[cfg(feature = "websocket")]
 use std::sync::atomic::Ordering;
 use std::{
 	collections::HashMap,
@@ -288,7 +288,7 @@ impl ProtocolSet {
 	}
 
 	/// Get next substream ID.
-	#[cfg(any(feature = "quic", feature = "webrtc", feature = "websocket"))]
+	#[cfg(feature = "websocket")]
 	pub fn next_substream_id(&self) -> SubstreamId {
 		SubstreamId::from(self.next_substream_id.fetch_add(1usize, Ordering::Relaxed))
 	}
