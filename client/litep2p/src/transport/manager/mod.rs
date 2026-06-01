@@ -1422,8 +1422,10 @@ mod tests {
 	use crate::{
 		crypto::dilithium::Keypair,
 		executor::DefaultExecutor,
-		transport::{dummy::DummyTransport, KEEP_ALIVE_TIMEOUT},
+		transport::dummy::DummyTransport,
 	};
+	#[cfg(debug_assertions)]
+	use crate::transport::KEEP_ALIVE_TIMEOUT;
 	#[cfg(feature = "websocket")]
 	use std::borrow::Cow;
 	use std::{

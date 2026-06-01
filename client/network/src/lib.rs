@@ -256,9 +256,6 @@
 
 pub mod litep2p;
 
-#[cfg(test)]
-mod mock;
-
 pub mod config;
 pub mod error;
 pub mod event;

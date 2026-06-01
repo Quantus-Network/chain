@@ -67,7 +67,13 @@ async fn make_litep2p() -> (Litep2p, RequestResponseHandle) {
 
 // connect two `litep2p` instances together
 async fn connect_peers(litep2p1: &mut Litep2p, litep2p2: &mut Litep2p) {
-	let address = litep2p2.listen_addresses().next().unwrap().clone();
+	// Prefer loopback address (127.0.0.1) to avoid network interface issues in tests
+	let address = litep2p2
+		.listen_addresses()
+		.find(|addr| addr.to_string().contains("127.0.0.1"))
+		.or_else(|| litep2p2.listen_addresses().next())
+		.unwrap()
+		.clone();
 	litep2p1.dial_address(address).await.unwrap();
 
 	let mut litep2p1_connected = false;
@@ -175,10 +181,14 @@ async fn send_request_to_disconnected_peer_and_dial() {
 	let peer1 = *litep2p1.local_peer_id();
 	let peer2 = *litep2p2.local_peer_id();
 
-	litep2p1.add_known_address(
-		peer2,
-		std::iter::once(litep2p2.listen_addresses().next().expect("listen address").clone()),
-	);
+	// Prefer loopback address to avoid network interface issues in tests
+	let listen_addr = litep2p2
+		.listen_addresses()
+		.find(|addr| addr.to_string().contains("127.0.0.1"))
+		.or_else(|| litep2p2.listen_addresses().next())
+		.expect("listen address")
+		.clone();
+	litep2p1.add_known_address(peer2, std::iter::once(listen_addr));
 
 	let (outbound_tx1, outbound_rx1) = tracing_unbounded("outbound-request", 1000);
 	let senders = HashMap::from_iter([(ProtocolName::from("/protocol/1"), outbound_tx1.clone())]);

@@ -19,6 +19,9 @@
 //! Fuzz test emulates network events and peer connection handling by `Peerset`
 //! and `PeerStore` to discover possible inconsistencies in peer management.
 
+// This entire module only runs in debug builds
+#![cfg(debug_assertions)]
+
 use crate::{
 	litep2p::{
 		peerstore::Peerstore,
@@ -46,7 +49,6 @@ use std::{
 };
 
 #[tokio::test]
-#[cfg(debug_assertions)]
 async fn run() {
 	sp_tracing::try_init_simple();
 
@@ -55,7 +57,6 @@ async fn run() {
 	}
 }
 
-#[cfg(debug_assertions)]
 async fn test_once() {
 	// PRNG to use.
 	let mut rng = rand::thread_rng();

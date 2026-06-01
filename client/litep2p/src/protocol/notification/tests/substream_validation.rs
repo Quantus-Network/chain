@@ -27,7 +27,7 @@ use crate::{
 			negotiation::HandshakeEvent,
 			tests::{add_peer, make_notification_protocol},
 			types::{Direction, NotificationEvent, ValidationResult},
-			InboundState, OutboundState, PeerContext, PeerState,
+			InboundState, OutboundState, PeerState,
 		},
 		InnerTransportEvent, ProtocolCommand,
 	},
@@ -36,11 +36,13 @@ use crate::{
 	types::{protocol::ProtocolName, ConnectionId, SubstreamId},
 	PeerId,
 };
+#[cfg(debug_assertions)]
+use crate::protocol::notification::PeerContext;
 
 use bytes::BytesMut;
 use futures::StreamExt;
 use multiaddr::Multiaddr;
-use tokio::sync::{mpsc::channel, oneshot};
+use tokio::sync::mpsc::channel;
 
 use std::task::Poll;
 
@@ -425,6 +427,8 @@ async fn open_substream_accepted() {
 #[should_panic]
 #[cfg(debug_assertions)]
 async fn open_substream_rejected() {
+	use tokio::sync::oneshot;
+
 	let (mut notif, _handle, _sender, _tx) = make_notification_protocol();
 	let (peer, _service, _receiver) = add_peer();
 	let (shutdown, _rx) = oneshot::channel();
