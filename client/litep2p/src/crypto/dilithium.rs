@@ -118,7 +118,9 @@ impl Keypair {
 
 impl fmt::Debug for Keypair {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		f.debug_struct("Keypair").field("public", &self.public()).finish_non_exhaustive()
+		f.debug_struct("Keypair")
+			.field("public", &self.public())
+			.finish_non_exhaustive()
 	}
 }
 
