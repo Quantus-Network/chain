@@ -51,7 +51,6 @@ primitive-types.workspace = true
 qp-dilithium-crypto.workspace = true
 qp-header = { workspace = true, features = ["serde"] }
 qp-high-security = { path = "../primitives/high-security", default-features = false }
-qp-poseidon = { workspace = true, features = ["serde"] }
 qp-scheduler.workspace = true
 qp-wormhole.workspace = true
 qp-wormhole-verifier = { workspace = true, default-features = false }
@@ -122,7 +121,6 @@ std = [
 	"qp-dilithium-crypto/std",
 	"qp-header/std",
 	"qp-high-security/std",
-	"qp-poseidon/std",
 	"qp-scheduler/std",
 	"scale-info/std",
 	"serde_json/std",

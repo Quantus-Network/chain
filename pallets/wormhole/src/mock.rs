@@ -4,7 +4,6 @@ use frame_support::{
 	traits::{ConstU128, ConstU32, Everything},
 };
 use frame_system::mocking::MockUncheckedExtrinsic;
-use qp_poseidon::PoseidonHasher;
 use sp_core::H256;
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
@@ -28,7 +27,7 @@ pub type Balance = u128;
 pub const UNIT: Balance = 1_000_000_000_000;
 pub type AccountId = sp_core::crypto::AccountId32;
 pub type Block<T> = sp_runtime::generic::Block<
-	qp_header::Header<u64, PoseidonHasher, sp_runtime::traits::BlakeTwo256>,
+	qp_header::Header<u64, BlakeTwo256>,
 	MockUncheckedExtrinsic<T, qp_dilithium_crypto::DilithiumSignatureScheme>,
 >;
 
@@ -143,7 +142,7 @@ impl pallet_wormhole::Config for Test {
 }
 
 // Helper function to build a genesis configuration
-pub fn new_test_ext() -> sp_state_machine::TestExternalities<PoseidonHasher> {
+pub fn new_test_ext() -> sp_state_machine::TestExternalities<BlakeTwo256> {
 	let t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 	t.into()
 }
@@ -157,7 +156,7 @@ pub fn new_test_ext() -> sp_state_machine::TestExternalities<PoseidonHasher> {
 /// `Wormhole::on_initialize(1)` to process the endowments.
 pub fn new_test_ext_with_endowments(
 	endowments: Vec<(AccountId, Balance)>,
-) -> sp_state_machine::TestExternalities<PoseidonHasher> {
+) -> sp_state_machine::TestExternalities<BlakeTwo256> {
 	use sp_runtime::BuildStorage;
 
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
