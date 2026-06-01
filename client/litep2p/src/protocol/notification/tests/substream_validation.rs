@@ -18,6 +18,8 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
+#[cfg(debug_assertions)]
+use crate::protocol::notification::PeerContext;
 use crate::{
 	error::{Error, SubstreamError},
 	mock::substream::MockSubstream,
@@ -36,8 +38,6 @@ use crate::{
 	types::{protocol::ProtocolName, ConnectionId, SubstreamId},
 	PeerId,
 };
-#[cfg(debug_assertions)]
-use crate::protocol::notification::PeerContext;
 
 use bytes::BytesMut;
 use futures::StreamExt;

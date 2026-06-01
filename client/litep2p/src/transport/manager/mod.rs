@@ -1419,13 +1419,11 @@ mod tests {
 	use multihash::Multihash;
 
 	use super::*;
-	use crate::{
-		crypto::dilithium::Keypair,
-		executor::DefaultExecutor,
-		transport::dummy::DummyTransport,
-	};
 	#[cfg(debug_assertions)]
 	use crate::transport::KEEP_ALIVE_TIMEOUT;
+	use crate::{
+		crypto::dilithium::Keypair, executor::DefaultExecutor, transport::dummy::DummyTransport,
+	};
 	#[cfg(feature = "websocket")]
 	use std::borrow::Cow;
 	use std::{
