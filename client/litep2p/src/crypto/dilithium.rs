@@ -69,27 +69,26 @@ impl Keypair {
 		self.seed.to_vec()
 	}
 
+	/// Create a keypair from a 32-byte seed, zeroing the input.
+	pub fn from_seed(mut seed: [u8; SEED_BYTES]) -> Keypair {
+		let kp = Keypair { seed };
+		seed.zeroize();
+		kp
+	}
+
 	/// Try to parse a keypair from bytes, zeroing the input on success.
 	///
-	/// Accepts either:
-	/// - 32 bytes (seed only)
-	/// - 32 + 2592 bytes (seed + public key) - public key bytes are ignored,
-	///   the key is regenerated from seed for consistency
+	/// Expects exactly 32 bytes (seed).
 	pub fn try_from_bytes(kp: &mut [u8]) -> Result<Keypair, Error> {
-		if kp.len() == SEED_BYTES || kp.len() == SEED_BYTES + PUBLIC_KEY_BYTES {
-			let mut seed = [0u8; SEED_BYTES];
-			seed.copy_from_slice(&kp[..SEED_BYTES]);
-			kp.zeroize();
-
-			Ok(Keypair { seed })
-		} else {
-			Err(Error::Other(format!(
-				"Invalid Dilithium keypair length: expected {} or {} bytes, got {}",
+		let seed: [u8; SEED_BYTES] = kp.try_into().map_err(|_| {
+			Error::Other(format!(
+				"Invalid Dilithium seed length: expected {} bytes, got {}",
 				SEED_BYTES,
-				SEED_BYTES + PUBLIC_KEY_BYTES,
 				kp.len()
-			)))
-		}
+			))
+		})?;
+		kp.zeroize();
+		Ok(Keypair { seed })
 	}
 
 	/// Sign a message using the private key of this keypair.
@@ -305,24 +304,5 @@ mod tests {
 		// Verify we got valid bytes
 		assert!(!sk_bytes.iter().all(|b| *b == 0));
 		// Drop happens automatically
-	}
-
-	#[test]
-	fn dilithium_keypair_ignores_corrupted_public_key() {
-		// Create a keypair and get its seed
-		let kp1 = Keypair::generate();
-		let seed = kp1.seed;
-
-		// Create corrupted "old format" data: seed + garbage public key
-		let mut corrupted = Vec::with_capacity(SEED_BYTES + PUBLIC_KEY_BYTES);
-		corrupted.extend_from_slice(&seed);
-		// Fill with garbage instead of real public key
-		corrupted.extend_from_slice(&[0xAB; PUBLIC_KEY_BYTES]);
-
-		// Parse should succeed and derive correct public key from seed
-		let kp2 = Keypair::try_from_bytes(&mut corrupted).unwrap();
-
-		// Public keys should match (derived from seed, not from corrupted bytes)
-		assert_eq!(kp1.public(), kp2.public());
 	}
 }

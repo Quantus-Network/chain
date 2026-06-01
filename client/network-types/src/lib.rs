@@ -19,7 +19,6 @@
 
 //! Substrate network types with post-quantum Dilithium support.
 
-pub mod dilithium;
 pub mod kad;
 pub mod multiaddr;
 pub mod multihash;

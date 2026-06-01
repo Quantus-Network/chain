@@ -9951,12 +9951,10 @@ dependencies = [
  "log",
  "multiaddr 0.18.2",
  "multihash 0.19.3",
- "qp-rusty-crystals-dilithium",
  "quickcheck",
  "rand 0.8.5",
  "serde_with",
  "thiserror 1.0.69",
- "zeroize",
 ]
 
 [[package]]
