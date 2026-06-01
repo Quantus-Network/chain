@@ -99,6 +99,20 @@ pub enum RequestFailure {
 	Network(OutboundFailure),
 }
 
+impl std::fmt::Display for RequestFailure {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			RequestFailure::NotConnected => write!(f, "Not connected"),
+			RequestFailure::UnknownProtocol => write!(f, "Unknown protocol"),
+			RequestFailure::Refused => write!(f, "Refused"),
+			RequestFailure::Obsolete => write!(f, "Obsolete"),
+			RequestFailure::Network(e) => write!(f, "Network error: {:?}", e),
+		}
+	}
+}
+
+impl std::error::Error for RequestFailure {}
+
 /// If disconnected - describes what happens when trying to send to a disconnected peer.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum IfDisconnected {

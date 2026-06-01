@@ -29,9 +29,13 @@ pub use crate::{
 		DEFAULT_KADEMLIA_REPLICATION_FACTOR,
 	},
 	peer_store::PeerStoreProvider,
+	// Re-export request-response types for compatibility with polkadot-node-network-protocol
+	request_responses::{IncomingRequest, OutgoingResponse, RequestResponseConfig},
 	service::{
 		metrics::NotificationMetrics,
-		traits::{NotificationConfig, NotificationService, PeerStore},
+		traits::{
+			NotificationConfig, NotificationService, OutboundFailure, PeerStore, RequestFailure,
+		},
 	},
 	types::ProtocolName,
 };

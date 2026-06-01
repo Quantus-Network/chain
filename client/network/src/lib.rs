@@ -284,7 +284,7 @@ pub mod request_responses {
 }
 
 pub use event::{DhtEvent, Event};
-pub use request_responses::{IfDisconnected, RequestFailure};
+pub use request_responses::{IfDisconnected, OutboundFailure, RequestFailure};
 pub use sc_network_common::{
 	role::{ObservedRole, Roles},
 	types::ReputationChange,
