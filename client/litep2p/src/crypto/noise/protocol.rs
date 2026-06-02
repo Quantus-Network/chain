@@ -49,12 +49,14 @@ use crate::error::NegotiationError;
 /// 1. `_rng` is boxed, giving it a stable heap address
 /// 2. We never move or drop `_rng` while `handshake` exists
 /// 3. `ClatterSession` is not Clone/Copy, preventing aliasing
-/// 4. Struct fields drop in declaration order: `handshake` drops before `_rng`
+/// 4. `handshake` is declared before `_rng`, so it drops first (fields drop in declaration
+///    order), ending the borrow before the RNG is freed
 pub struct ClatterSession {
+	/// The handshake state. The 'static lifetime is a lie - it actually borrows from `_rng`.
+	/// Declared before `_rng` so it is dropped first, while the borrowed RNG is still alive.
+	handshake: PqHandshake<'static, MlKem768, MlKem768, ChaChaPoly, Sha256, rand::rngs::StdRng>,
 	/// The RNG - must be boxed for stable address. Kept alive for the handshake's lifetime.
 	_rng: Box<rand::rngs::StdRng>,
-	/// The handshake state. The 'static lifetime is a lie - it actually borrows from `_rng`.
-	handshake: PqHandshake<'static, MlKem768, MlKem768, ChaChaPoly, Sha256, rand::rngs::StdRng>,
 }
 
 impl std::fmt::Debug for ClatterSession {
@@ -91,7 +93,8 @@ impl ClatterSession {
 		// This is sound because:
 		// 1. The Box gives a stable heap address that won't move
 		// 2. We store the Box in the same struct, so it lives as long as the handshake
-		// 3. Struct fields drop in declaration order: handshake drops before _rng
+		// 3. `handshake` is declared before `_rng`, so it drops first (fields drop in
+		//    declaration order), ending the borrow before the RNG is freed
 		// 4. We never expose &mut _rng or allow moving it
 		let rng_ref: &'static mut rand::rngs::StdRng = unsafe { &mut *rng_ptr };
 
@@ -109,7 +112,7 @@ impl ClatterSession {
 			NegotiationError::Clatter(format!("Failed to create pqXX handshake: {:?}", e))
 		})?;
 
-		Ok(Self { _rng: rng, handshake })
+		Ok(Self { handshake, _rng: rng })
 	}
 
 	/// Write a handshake message.
