@@ -83,8 +83,8 @@ pub struct MiningRequest {
 	pub job_id: String,
 	/// Hex encoded header hash (32 bytes -> 64 chars, no 0x prefix)
 	pub mining_hash: String,
-	/// Distance threshold (U512 as decimal string)
-	pub distance_threshold: String,
+	/// Difficulty (U512 as decimal string). Must be non-zero.
+	pub difficulty: String,
 }
 
 /// Response payload for job submission (`/mine`) and cancellation (`/cancel`).
