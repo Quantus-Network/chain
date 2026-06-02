@@ -39,22 +39,29 @@ use zeroize::Zeroize;
 use crate::error::NegotiationError;
 
 /// Clatter session that manages the pqXX handshake state with ML-KEM 768.
+///
+/// This struct owns both the RNG and handshake with proper lifetime management.
+/// The RNG is boxed for a stable address, allowing the handshake to borrow it.
+///
+/// # Safety
+/// This uses a self-referential pattern: the handshake borrows from the boxed RNG.
+/// This is sound because:
+/// 1. `_rng` is boxed, giving it a stable heap address
+/// 2. We never move or drop `_rng` while `handshake` exists
+/// 3. `ClatterSession` is not Clone/Copy, preventing aliasing
+/// 4. Struct fields drop in declaration order: `handshake` drops before `_rng`
 pub struct ClatterSession {
-	rng: Box<rand::rngs::StdRng>,
-	handshake:
-		Option<PqHandshake<'static, MlKem768, MlKem768, ChaChaPoly, Sha256, rand::rngs::StdRng>>,
-	static_keypair:
-		Option<clatter::KeyPair<<MlKem768 as Kem>::PubKey, <MlKem768 as Kem>::SecretKey>>,
-	prologue: Vec<u8>,
-	is_initiator: bool,
+	/// The RNG - must be boxed for stable address. Kept alive for the handshake's lifetime.
+	_rng: Box<rand::rngs::StdRng>,
+	/// The handshake state. The 'static lifetime is a lie - it actually borrows from `_rng`.
+	handshake: PqHandshake<'static, MlKem768, MlKem768, ChaChaPoly, Sha256, rand::rngs::StdRng>,
 }
 
 impl std::fmt::Debug for ClatterSession {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		f.debug_struct("ClatterSession")
-			.field("is_initiator", &self.is_initiator)
-			.field("prologue_len", &self.prologue.len())
-			.field("handshake_initialized", &self.handshake.is_some())
+			.field("is_initiator", &self.handshake.is_initiator())
+			.field("is_finished", &self.handshake.is_finished())
 			.finish()
 	}
 }
@@ -73,47 +80,36 @@ impl ClatterSession {
 	) -> Result<Self, NegotiationError> {
 		let kem_secret = <MlKem768 as Kem>::SecretKey::from_slice(static_keypair.secret.as_ref());
 		let kem_public = <MlKem768 as Kem>::PubKey::from_slice(static_keypair.public.as_ref());
-
 		let clatter_keypair = clatter::KeyPair { public: kem_public, secret: kem_secret };
 
-		Ok(Self {
-			rng: Box::new(rand::rngs::StdRng::from_entropy()),
-			handshake: None,
-			static_keypair: Some(clatter_keypair),
-			prologue: prologue.to_vec(),
+		let mut rng = Box::new(rand::rngs::StdRng::from_entropy());
+
+		// Get a raw pointer to the RNG
+		let rng_ptr = rng.as_mut() as *mut rand::rngs::StdRng;
+
+		// SAFETY: We're creating a reference that borrows from the boxed RNG.
+		// This is sound because:
+		// 1. The Box gives a stable heap address that won't move
+		// 2. We store the Box in the same struct, so it lives as long as the handshake
+		// 3. Struct fields drop in declaration order: handshake drops before _rng
+		// 4. We never expose &mut _rng or allow moving it
+		let rng_ref: &'static mut rand::rngs::StdRng = unsafe { &mut *rng_ptr };
+
+		let handshake = PqHandshake::<MlKem768, MlKem768, ChaChaPoly, Sha256, _>::new(
+			noise_pqxx(),
+			prologue,
 			is_initiator,
-		})
-	}
+			Some(clatter_keypair),
+			None, // No pre-shared ephemeral key
+			None, // No remote static key (XX pattern)
+			None, // No remote ephemeral key
+			rng_ref,
+		)
+		.map_err(|e| {
+			NegotiationError::Clatter(format!("Failed to create pqXX handshake: {:?}", e))
+		})?;
 
-	/// Ensure the handshake is initialized.
-	fn ensure_handshake_initialized(&mut self) -> Result<(), NegotiationError> {
-		if self.handshake.is_none() {
-			let rng_ptr = self.rng.as_mut() as *mut rand::rngs::StdRng;
-
-			// SAFETY: We're creating a 'static reference to the RNG.
-			// This is safe because:
-			// 1. The RNG is stored in a Box, so it has a stable address
-			// 2. The handshake will not outlive the session struct
-			// 3. We only create one handshake per session
-			let rng_ref: &'static mut rand::rngs::StdRng = unsafe { &mut *rng_ptr };
-
-			let handshake = PqHandshake::<MlKem768, MlKem768, ChaChaPoly, Sha256, _>::new(
-				noise_pqxx(),
-				&self.prologue,
-				self.is_initiator,
-				self.static_keypair.clone(),
-				None, // No pre-shared key
-				None, // No remote static key (XX pattern)
-				None, // No remote ephemeral key
-				rng_ref,
-			)
-			.map_err(|e| {
-				NegotiationError::Clatter(format!("Failed to create pqXX handshake: {:?}", e))
-			})?;
-
-			self.handshake = Some(handshake);
-		}
-		Ok(())
+		Ok(Self { _rng: rng, handshake })
 	}
 
 	/// Write a handshake message.
@@ -122,14 +118,7 @@ impl ClatterSession {
 		payload: &[u8],
 		message: &mut [u8],
 	) -> Result<usize, NegotiationError> {
-		self.ensure_handshake_initialized()?;
-
-		let handshake = self
-			.handshake
-			.as_mut()
-			.ok_or_else(|| NegotiationError::Clatter("Handshake not initialized".to_string()))?;
-
-		handshake
+		self.handshake
 			.write_message(payload, message)
 			.map_err(|e| NegotiationError::Clatter(format!("pqXX write failed: {:?}", e)))
 	}
@@ -140,33 +129,19 @@ impl ClatterSession {
 		message: &[u8],
 		payload: &mut [u8],
 	) -> Result<usize, NegotiationError> {
-		self.ensure_handshake_initialized()?;
-
-		let handshake = self
-			.handshake
-			.as_mut()
-			.ok_or_else(|| NegotiationError::Clatter("Handshake not initialized".to_string()))?;
-
-		handshake
+		self.handshake
 			.read_message(message, payload)
 			.map_err(|e| NegotiationError::Clatter(format!("pqXX read failed: {:?}", e)))
 	}
 
 	/// Get the remote's static public key.
 	pub fn get_remote_static(&self) -> Option<Vec<u8>> {
-		self.handshake.as_ref()?.get_remote_static().map(|k| k.as_slice().to_vec())
+		self.handshake.get_remote_static().map(|k| k.as_slice().to_vec())
 	}
 
 	/// Convert to transport state after handshake completion.
-	pub fn into_transport_mode(mut self) -> Result<ClatterTransport, NegotiationError> {
-		self.ensure_handshake_initialized()?;
-
-		let handshake = self
-			.handshake
-			.take()
-			.ok_or_else(|| NegotiationError::Clatter("Handshake not initialized".to_string()))?;
-
-		let transport = handshake.finalize().map_err(|e| {
+	pub fn into_transport_mode(self) -> Result<ClatterTransport, NegotiationError> {
+		let transport = self.handshake.finalize().map_err(|e| {
 			NegotiationError::Clatter(format!("Failed to finalize pqXX handshake: {:?}", e))
 		})?;
 
@@ -277,15 +252,11 @@ mod tests {
 	/// Test helpers for ClatterSession
 	impl ClatterSession {
 		fn is_initiator(&self) -> bool {
-			if let Some(handshake) = &self.handshake {
-				handshake.is_initiator()
-			} else {
-				self.is_initiator
-			}
+			self.handshake.is_initiator()
 		}
 
 		fn is_finished(&self) -> bool {
-			self.handshake.as_ref().map_or(false, |h| h.is_finished())
+			self.handshake.is_finished()
 		}
 	}
 
