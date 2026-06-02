@@ -365,6 +365,7 @@ mod tests {
 	use multiaddr::Protocol;
 
 	#[tokio::test]
+	#[ignore] // mDNS requires multicast networking which may not work in CI environments
 	async fn mdns_works() {
 		let _ = tracing_subscriber::fmt()
 			.with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
