@@ -132,22 +132,32 @@ impl PeerId {
 		Some(peer_id.into())
 	}
 
-	/// Stub for Ed25519 compatibility - always returns `None`.
+	/// Stub for Ed25519 compatibility - always panics.
 	///
 	/// This network uses Dilithium (post-quantum) instead of Ed25519.
-	/// This method exists only for API compatibility with crates like `sc-mixnet`.
+	/// If you see this panic, the calling code (likely `sc-mixnet`) needs to be
+	/// updated to use Dilithium identities instead of Ed25519.
 	#[deprecated(note = "This network uses Dilithium, not Ed25519. Use into_dilithium() instead.")]
 	pub fn into_ed25519(&self) -> Option<[u8; 32]> {
-		None
+		panic!(
+			"into_ed25519() called but this network uses Dilithium (post-quantum) identities. \
+			 Ed25519-based features like sc-mixnet are not compatible with this network. \
+			 The mixnet crate needs to be updated to support Dilithium peer IDs."
+		);
 	}
 
-	/// Stub for Ed25519 compatibility - always returns `None`.
+	/// Stub for Ed25519 compatibility - always panics.
 	///
 	/// This network uses Dilithium (post-quantum) instead of Ed25519.
-	/// This method exists only for API compatibility with crates like `sc-mixnet`.
+	/// If you see this panic, the calling code (likely `sc-mixnet`) needs to be
+	/// updated to use Dilithium identities instead of Ed25519.
 	#[deprecated(note = "This network uses Dilithium, not Ed25519. Use from_dilithium() instead.")]
 	pub fn from_ed25519(_bytes: &[u8; 32]) -> Option<PeerId> {
-		None
+		panic!(
+			"from_ed25519() called but this network uses Dilithium (post-quantum) identities. \
+			 Ed25519-based features like sc-mixnet are not compatible with this network. \
+			 The mixnet crate needs to be updated to support Dilithium peer IDs."
+		);
 	}
 }
 
