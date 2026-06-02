@@ -1,0 +1,88 @@
+[package]
+description = "Post-quantum peer-to-peer networking library for Quantus Network"
+edition = "2021"
+license = "MIT"
+name = "litep2p"
+repository = "https://github.com/Quantus-Network/chain"
+version = "0.13.3"
+
+[build-dependencies]
+prost-build = "0.14"
+
+[dependencies]
+async-trait = { workspace = true }
+bs58 = "0.5.1"
+bytes = { workspace = true }
+cid = "0.11.1"
+
+futures = { workspace = true }
+futures-timer = { workspace = true }
+hickory-resolver = { workspace = true }
+indexmap = { version = "2.9.0", features = ["std"] }
+ip_network = { workspace = true }
+libc = "0.2.158"
+mockall = { workspace = true }
+multiaddr = { workspace = true }
+multihash = { workspace = true, features = ["blake2b", "identity", "multihash-impl", "sha2", "sha3", "std"] }
+network-interface = "2.0.1"
+parking_lot = { workspace = true }
+pin-project = { workspace = true }
+prost = "0.13.5"
+rand = { workspace = true, features = ["getrandom", "std", "std_rng"] }
+serde = { workspace = true }
+sha2 = { workspace = true }
+simple-dns = "0.11.0"
+smallvec = { workspace = true }
+# Noise protocol with post-quantum pqxx pattern (ML-KEM 768 / FIPS 203)
+clatter = { workspace = true }
+enum-display = "0.1.4"
+socket2 = { version = "0.5.9", features = ["all"] }
+thiserror = "2.0.12"
+tokio = { workspace = true, features = ["io-util", "macros", "net", "parking_lot", "rt", "sync", "time"] }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true, features = ["codec", "compat", "io"] }
+tracing = { workspace = true, features = ["log"] }
+uint = "0.10.0"
+unsigned-varint = { version = "0.8.0", features = ["codec"] }
+url = "2.5.4"
+x509-parser = { workspace = true }
+yamux = { workspace = true }
+yasna = { workspace = true }
+zeroize = { workspace = true }
+
+# Post-quantum cryptography
+qp-rusty-crystals-dilithium = { workspace = true }
+
+# Websocket
+tokio-tungstenite = { version = "0.27.0", features = ["rustls-tls-native-roots", "url"], optional = true }
+
+# Fuzzing
+serde_millis = { version = "0.1", optional = true }
+
+[dev-dependencies]
+futures_ringbuf = "0.4.0"
+hex-literal = "1.0.0"
+quickcheck = "1.0.3"
+serde_json = { workspace = true, features = ["std"] }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+
+[features]
+default = ["websocket"]
+fuzz = [
+	"bytes/serde",
+	"cid/serde",
+	"dep:serde_millis",
+	"multihash/serde",
+	"serde/derive",
+	"serde/rc",
+]
+websocket = ["dep:tokio-tungstenite"]
+# Compatibility feature - RSA support removed in favor of post-quantum Dilithium
+rsa = []
+
+[lints.clippy]
+# Warn on expect/panic in library code - remote input paths must not panic
+# Using warn instead of deny to allow gradual cleanup; critical paths are already panic-free
+expect_used = "warn"
+panic = "warn"
+unwrap_used = "warn"

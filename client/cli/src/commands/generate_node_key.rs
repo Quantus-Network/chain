@@ -20,15 +20,12 @@
 
 use crate::{build_network_key_dir_or_default, Error, NODE_KEY_DILITHIUM_FILE};
 use clap::{Args, Parser};
-use libp2p_identity::PublicKey;
-use qp_rusty_crystals_dilithium::{ml_dsa_87::Keypair, SensitiveBytes32};
+use litep2p::crypto::{dilithium::Keypair, PublicKey};
 use sc_service::BasePath;
-use sp_core::blake2_256;
 use std::{
 	fs,
 	io::{self, Write},
 	path::PathBuf,
-	time::{SystemTime, UNIX_EPOCH},
 };
 
 /// Common arguments accross all generate key commands, subkey and node.
@@ -92,22 +89,7 @@ impl GenerateNodeKeyCmd {
 	}
 }
 
-// Function to get current timestamp, hash it, and return hex string
-fn hash_current_time_to_hex() -> [u8; 32] {
-	// Get current timestamp (milliseconds since Unix epoch)
-	let timestamp = SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.expect("Time went backwards")
-		.as_millis() as u64;
-
-	// Convert timestamp to bytes and hash with BLAKE2-256
-	blake2_256(&timestamp.to_le_bytes())
-}
-
 // Utility function for generating a key based on the provided CLI arguments
-//
-// `file`  - Name of file to save secret key to
-// `bin`
 fn generate_key(
 	file: &Option<PathBuf>,
 	bin: bool,
@@ -116,10 +98,10 @@ fn generate_key(
 	default_base_path: bool,
 	executable_name: Option<&String>,
 ) -> Result<(), Error> {
-	let mut hashed_timestamp = hash_current_time_to_hex();
-	let entropy = SensitiveBytes32::from(&mut hashed_timestamp);
-	let keypair = Keypair::generate(entropy);
+	// Generate keypair - litep2p::crypto::dilithium::Keypair stores only the 32-byte seed
+	let keypair = Keypair::generate();
 
+	// to_bytes() returns the 32-byte seed, which is what the node expects
 	let file_data = if bin {
 		keypair.to_bytes().to_vec()
 	} else {
@@ -153,9 +135,10 @@ fn generate_key(
 		},
 	}
 
-	let k = PublicKey::from(keypair.public);
+	let public_key = PublicKey::from(keypair.public().clone());
+	let peer_id = litep2p::PeerId::from_public_key(&public_key);
 
-	eprintln!("{}", k.to_peer_id());
+	eprintln!("{}", peer_id);
 
 	Ok(())
 }
@@ -176,7 +159,11 @@ pub mod tests {
 		assert!(generate.run("test", &String::from("test")).is_ok());
 		let mut buf = String::new();
 		assert!(file.read_to_string(&mut buf).is_ok());
-		assert!(Keypair::from_bytes(array_bytes::hex2bytes(&buf).unwrap().as_slice()).is_ok());
+		// The file should contain a 32-byte seed (64 hex chars)
+		let bytes = array_bytes::hex2bytes(&buf).unwrap();
+		assert_eq!(bytes.len(), 32, "Expected 32-byte seed, got {} bytes", bytes.len());
+		let mut seed_bytes = bytes.clone();
+		assert!(Keypair::try_from_bytes(&mut seed_bytes).is_ok());
 	}
 
 	#[test]
@@ -192,7 +179,8 @@ pub mod tests {
 			GenerateNodeKeyCmd::parse_from(&["generate-node-key", "--base-path", &base_path]);
 		assert!(generate.run("test_id", &String::from("test")).is_ok());
 		let buf = fs::read_to_string(key_path.as_path()).unwrap();
-		assert!(array_bytes::hex2bytes(&buf).is_ok());
+		let bytes = array_bytes::hex2bytes(&buf).unwrap();
+		assert_eq!(bytes.len(), 32, "Expected 32-byte seed, got {} bytes", bytes.len());
 
 		assert!(generate.run("test_id", &String::from("test")).is_err());
 		let new_buf = fs::read_to_string(key_path).unwrap();

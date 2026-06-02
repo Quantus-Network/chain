@@ -37,9 +37,8 @@ fnv = { workspace = true }
 futures = { workspace = true }
 futures-timer = { workspace = true }
 ip_network = { workspace = true }
-libp2p = { features = ["dns", "identify", "kad", "macros", "mdns", "noise", "ping", "request-response", "tcp", "tokio", "websocket", "yamux"], workspace = true }
-libp2p-identity = { workspace = true, features = ["dilithium"] }
 linked_hash_set = { workspace = true }
+litep2p = { path = "../litep2p", features = ["websocket"] }
 log = { workspace = true, default-features = true }
 mockall = { workspace = true }
 parking_lot = { workspace = true, default-features = true }
@@ -80,6 +79,7 @@ zeroize = { workspace = true, default-features = true }
 [dev-dependencies]
 assert_matches = { workspace = true }
 multistream-select = { workspace = true }
+sp-tracing = { workspace = true }
 tempfile = { workspace = true }
 tokio = { features = ["macros", "rt-multi-thread"], workspace = true, default-features = true }
 tokio-util = { features = ["compat"], workspace = true }

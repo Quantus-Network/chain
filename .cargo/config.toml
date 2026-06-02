@@ -4,3 +4,5 @@
 # On Linux (CI/Docker) this is handled by the system clang package.
 DYLD_LIBRARY_PATH = { value = "/opt/homebrew/opt/llvm/lib", condition = { os = ["macos"] }, force = false }
 LIBCLANG_PATH = { value = "/opt/homebrew/opt/llvm/lib", condition = { os = ["macos"] }, force = false }
+# ML-KEM 768 + Dilithium keys are large (~10KB combined), need larger stack for debug builds
+RUST_MIN_STACK = "8388608"

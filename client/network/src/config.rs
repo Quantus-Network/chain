@@ -22,18 +22,27 @@
 //! See the documentation of [`Params`].
 
 pub use crate::{
-	discovery::DEFAULT_KADEMLIA_REPLICATION_FACTOR,
-	peer_store::PeerStoreProvider,
-	protocol::{notification_service, NotificationsSink, ProtocolHandlePair},
-	request_responses::{
-		IncomingRequest, OutgoingResponse, ProtocolConfig as RequestResponseConfig,
+	litep2p::{
+		shim::notification::config::{
+			NotificationProtocolConfig, ProtocolControlHandle as ProtocolHandlePair,
+		},
+		DEFAULT_KADEMLIA_REPLICATION_FACTOR,
 	},
+	peer_store::PeerStoreProvider,
+	// Re-export request-response types for compatibility with polkadot-node-network-protocol
+	request_responses::{IncomingRequest, OutgoingResponse, RequestResponseConfig},
 	service::{
 		metrics::NotificationMetrics,
-		traits::{NotificationConfig, NotificationService, PeerStore},
+		traits::{
+			NotificationConfig, NotificationService, OutboundFailure, PeerStore, RequestFailure,
+		},
 	},
 	types::ProtocolName,
 };
+
+/// Type alias for compatibility with sc-service.
+/// `NonDefaultSetConfig` was the libp2p name for notification protocol configuration.
+pub type NonDefaultSetConfig = NotificationProtocolConfig;
 
 pub use sc_network_types::build_multiaddr;
 use sc_network_types::{
@@ -42,7 +51,6 @@ use sc_network_types::{
 };
 
 use crate::service::signature::Keypair;
-use libp2p::identity as libp2p_identity;
 
 use crate::service::{ensure_addresses_consistent_with_transport, traits::NetworkBackend};
 use codec::Encode;
@@ -375,17 +383,17 @@ impl NodeKeyConfig {
 		NodeKeyConfig::Dilithium(Secret::New)
 	}
 
-	/// Evaluate a `NodeKeyConfig` to obtain an identity `Keypair` (libp2p-identity, supports
-	/// Dilithium).
-	pub fn into_keypair(self) -> io::Result<Keypair> {
+	/// Evaluate a `NodeKeyConfig` to obtain a litep2p `Keypair`.
+	///
+	/// This is used by the litep2p network backend.
+	pub fn into_litep2p_keypair(self) -> io::Result<litep2p::crypto::dilithium::Keypair> {
 		use NodeKeyConfig::*;
 		match self {
-			Dilithium(Secret::New) =>
-				Ok(Keypair::Libp2p(libp2p_identity::Keypair::generate_dilithium())),
+			Dilithium(Secret::New) => Ok(litep2p::crypto::dilithium::Keypair::generate()),
 
-			Dilithium(Secret::Input(k)) => libp2p_identity::Keypair::dilithium_from_bytes(&k)
-				.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-				.map(Keypair::Libp2p),
+			Dilithium(Secret::Input(mut k)) =>
+				litep2p::crypto::dilithium::Keypair::try_from_bytes(&mut k)
+					.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{e:?}"))),
 
 			Dilithium(Secret::File(f)) => get_secret(
 				f,
@@ -398,13 +406,41 @@ impl NodeKeyConfig {
 					} else {
 						b.to_vec()
 					};
-					libp2p_identity::Keypair::dilithium_from_bytes(&mut bytes)
-						.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+					litep2p::crypto::dilithium::Keypair::try_from_bytes(&mut bytes)
+						.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{e:?}")))
 				},
-				|| libp2p_identity::Keypair::generate_dilithium(),
+				|| litep2p::crypto::dilithium::Keypair::generate(),
+				|kp| kp.to_bytes(),
+			),
+		}
+	}
+
+	/// Evaluate a `NodeKeyConfig` to obtain an identity `Keypair` (litep2p, Dilithium).
+	pub fn into_keypair(self) -> io::Result<Keypair> {
+		use NodeKeyConfig::*;
+		match self {
+			Dilithium(Secret::New) => Ok(Keypair::generate_dilithium()),
+
+			Dilithium(Secret::Input(k)) => Keypair::dilithium_from_bytes(&k)
+				.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{:?}", e))),
+
+			Dilithium(Secret::File(f)) => get_secret(
+				f,
+				|b| {
+					let bytes = if is_hex_data(b) {
+						array_bytes::hex2bytes(std::str::from_utf8(b).map_err(|_| {
+							io::Error::new(io::ErrorKind::InvalidData, "Failed to decode hex data")
+						})?)
+						.map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid hex"))?
+					} else {
+						b.to_vec()
+					};
+					Keypair::dilithium_from_bytes(&bytes)
+						.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{:?}", e)))
+				},
+				Keypair::generate_dilithium,
 				|kp| kp.dilithium_to_bytes(),
-			)
-			.map(Keypair::Libp2p),
+			),
 		}
 	}
 }
@@ -499,135 +535,8 @@ impl Default for SetConfig {
 	}
 }
 
-/// Extension to [`SetConfig`] for sets that aren't the default set.
-///
-/// > **Note**: As new fields might be added in the future, please consider using the `new` method
-/// >			and modifiers instead of creating this struct manually.
-#[derive(Debug)]
-pub struct NonDefaultSetConfig {
-	/// Name of the notifications protocols of this set. A substream on this set will be
-	/// considered established once this protocol is open.
-	///
-	/// > **Note**: This field isn't present for the default set, as this is handled internally
-	/// > by the networking code.
-	protocol_name: ProtocolName,
-
-	/// If the remote reports that it doesn't support the protocol indicated in the
-	/// `notifications_protocol` field, then each of these fallback names will be tried one by
-	/// one.
-	///
-	/// If a fallback is used, it will be reported in
-	/// `sc_network::protocol::event::Event::NotificationStreamOpened::negotiated_fallback`
-	fallback_names: Vec<ProtocolName>,
-
-	/// Handshake of the protocol
-	///
-	/// NOTE: Currently custom handshakes are not fully supported. See issue #5685 for more
-	/// details. This field is temporarily used to allow moving the hardcoded block announcement
-	/// protocol out of `protocol.rs`.
-	handshake: Option<NotificationHandshake>,
-
-	/// Maximum allowed size of single notifications.
-	max_notification_size: u64,
-
-	/// Base configuration.
-	set_config: SetConfig,
-
-	/// Notification handle.
-	///
-	/// Notification handle is created during `NonDefaultSetConfig` creation and its other half,
-	/// `Box<dyn NotificationService>` is given to the protocol created the config and
-	/// `ProtocolHandle` is given to `Notifications` when it initializes itself. This handle allows
-	/// `Notifications ` to communicate with the protocol directly without relaying events through
-	/// `sc-network.`
-	protocol_handle_pair: ProtocolHandlePair,
-}
-
-impl NonDefaultSetConfig {
-	/// Creates a new [`NonDefaultSetConfig`]. Zero slots and accepts only reserved nodes.
-	/// Also returns an object which allows the protocol to communicate with `Notifications`.
-	pub fn new(
-		protocol_name: ProtocolName,
-		fallback_names: Vec<ProtocolName>,
-		max_notification_size: u64,
-		handshake: Option<NotificationHandshake>,
-		set_config: SetConfig,
-	) -> (Self, Box<dyn NotificationService>) {
-		let (protocol_handle_pair, notification_service) =
-			notification_service(protocol_name.clone());
-		(
-			Self {
-				protocol_name,
-				max_notification_size,
-				fallback_names,
-				handshake,
-				set_config,
-				protocol_handle_pair,
-			},
-			notification_service,
-		)
-	}
-
-	/// Get reference to protocol name.
-	pub fn protocol_name(&self) -> &ProtocolName {
-		&self.protocol_name
-	}
-
-	/// Get reference to fallback protocol names.
-	pub fn fallback_names(&self) -> impl Iterator<Item = &ProtocolName> {
-		self.fallback_names.iter()
-	}
-
-	/// Get reference to handshake.
-	pub fn handshake(&self) -> &Option<NotificationHandshake> {
-		&self.handshake
-	}
-
-	/// Get maximum notification size.
-	pub fn max_notification_size(&self) -> u64 {
-		self.max_notification_size
-	}
-
-	/// Get reference to `SetConfig`.
-	pub fn set_config(&self) -> &SetConfig {
-		&self.set_config
-	}
-
-	/// Take `ProtocolHandlePair` from `NonDefaultSetConfig`
-	pub fn take_protocol_handle(self) -> ProtocolHandlePair {
-		self.protocol_handle_pair
-	}
-
-	/// Modifies the configuration to allow non-reserved nodes.
-	pub fn allow_non_reserved(&mut self, in_peers: u32, out_peers: u32) {
-		self.set_config.in_peers = in_peers;
-		self.set_config.out_peers = out_peers;
-		self.set_config.non_reserved_mode = NonReservedPeerMode::Accept;
-	}
-
-	/// Add a node to the list of reserved nodes.
-	pub fn add_reserved(&mut self, peer: MultiaddrWithPeerId) {
-		self.set_config.reserved_nodes.push(peer);
-	}
-
-	/// Add a list of protocol names used for backward compatibility.
-	///
-	/// See the explanations in [`NonDefaultSetConfig::fallback_names`].
-	pub fn add_fallback_names(&mut self, fallback_names: Vec<ProtocolName>) {
-		self.fallback_names.extend(fallback_names);
-	}
-}
-
-impl NotificationConfig for NonDefaultSetConfig {
-	fn set_config(&self) -> &SetConfig {
-		&self.set_config
-	}
-
-	/// Get reference to protocol name.
-	fn protocol_name(&self) -> &ProtocolName {
-		&self.protocol_name
-	}
-}
+// NOTE: NonDefaultSetConfig has been removed as it was part of the libp2p backend.
+// Use litep2p's NotificationProtocolConfig directly instead.
 
 /// Network service configuration.
 #[derive(Clone, Debug)]
@@ -743,7 +652,7 @@ impl NetworkConfiguration {
 			kademlia_replication_factor: NonZeroUsize::new(DEFAULT_KADEMLIA_REPLICATION_FACTOR)
 				.expect("value is a constant; constant is non-zero; qed."),
 			ipfs_server: false,
-			network_backend: NetworkBackendType::Libp2p,
+			network_backend: NetworkBackendType::Litep2p,
 			disable_peer_address_filtering: false,
 		}
 	}
@@ -974,17 +883,9 @@ impl<B: BlockT + 'static, H: ExHashT, N: NetworkBackend<B, H>> FullNetworkConfig
 pub enum NetworkBackendType {
 	/// Use litep2p for P2P networking.
 	///
-	/// This is the preferred option for Substrate-based chains.
+	/// This is the only option for Quantus Network, using Dilithium (post-quantum) identity.
 	#[default]
 	Litep2p,
-
-	/// Use libp2p for P2P networking.
-	///
-	/// The libp2p is still used for compatibility reasons until the
-	/// ecosystem switches entirely to litep2p. The backend will enter
-	/// a "best-effort" maintenance mode, where only critical issues will
-	/// get fixed. If you are unsure, please use `NetworkBackendType::Litep2p`.
-	Libp2p,
 }
 
 #[cfg(test)]
@@ -997,9 +898,7 @@ mod tests {
 	}
 
 	fn secret_bytes(kp: &Keypair) -> Vec<u8> {
-		match kp {
-			Keypair::Libp2p(k) => k.dilithium_to_bytes(),
-		}
+		kp.dilithium_to_bytes()
 	}
 
 	#[test]
@@ -1014,7 +913,7 @@ mod tests {
 
 	#[test]
 	fn test_secret_input() {
-		let kp0 = libp2p::identity::Keypair::generate_dilithium();
+		let kp0 = Keypair::generate_dilithium();
 		let sk = kp0.dilithium_to_bytes();
 		let kp1 = NodeKeyConfig::Dilithium(Secret::Input(sk.clone())).into_keypair().unwrap();
 		let kp2 = NodeKeyConfig::Dilithium(Secret::Input(sk)).into_keypair().unwrap();

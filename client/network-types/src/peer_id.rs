@@ -1,6 +1,7 @@
 // This file is part of Substrate.
 
 // Copyright (C) Parity Technologies (UK) Ltd.
+// Copyright (C) Quantus Network Developers
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -27,6 +28,8 @@ use std::{fmt, hash::Hash, str::FromStr};
 
 /// Public keys with byte-lengths smaller than `MAX_INLINE_KEY_LENGTH` will be
 /// automatically used as the peer id using an identity multihash.
+///
+/// Note: Dilithium public keys are 2592 bytes, so they will always be hashed.
 const MAX_INLINE_KEY_LENGTH: usize = 42;
 
 /// Identifier of a peer of the network.
@@ -62,8 +65,11 @@ impl PeerId {
 	}
 
 	/// Try to extract `PeerId` from `Multiaddr`.
+	///
+	/// Returns the `PeerId` if the address ends with `/p2p/<peer-id>`,
+	/// otherwise returns `None`.
 	pub fn try_from_multiaddr(address: &Multiaddr) -> Option<PeerId> {
-		match address.iter().find(|protocol| std::matches!(protocol, Protocol::P2p(_))) {
+		match address.iter().last() {
 			Some(Protocol::P2p(multihash)) => Some(Self { multihash }),
 			_ => None,
 		}
@@ -99,26 +105,59 @@ impl PeerId {
 		bs58::encode(self.to_bytes()).into_string()
 	}
 
-	/// Convert `PeerId` into ed25519 public key bytes.
-	pub fn into_ed25519(&self) -> Option<[u8; 32]> {
+	/// Try to extract the Dilithium public key from this `PeerId`.
+	///
+	/// Returns `None` if the peer ID doesn't contain an identity hash
+	/// or if the public key is not a Dilithium key.
+	pub fn into_dilithium(&self) -> Option<Vec<u8>> {
 		let hash = &self.multihash;
 		// https://www.ietf.org/archive/id/draft-multiformats-multihash-07.html#name-the-multihash-identifier-re
 		if hash.code() != 0 {
-			// Hash is not identity
+			// Hash is not identity - for Dilithium keys (2592 bytes), they are always hashed
+			// so we cannot extract the public key directly
 			return None;
 		}
 
-		let public = libp2p_identity::PublicKey::try_decode_protobuf(hash.digest()).ok()?;
-		public.try_into_ed25519().ok().map(|public| public.to_bytes())
+		// Try to decode as protobuf-encoded public key
+		let public = litep2p::crypto::PublicKey::from_protobuf_encoding(hash.digest()).ok()?;
+		Some(public.to_bytes())
 	}
 
-	/// Get `PeerId` from ed25519 public key bytes.
-	pub fn from_ed25519(bytes: &[u8; 32]) -> Option<PeerId> {
-		let public = libp2p_identity::ed25519::PublicKey::try_from_bytes(bytes).ok()?;
-		let public: libp2p_identity::PublicKey = public.into();
-		let peer_id: libp2p_identity::PeerId = public.into();
+	/// Get `PeerId` from Dilithium public key bytes.
+	pub fn from_dilithium(bytes: &[u8]) -> Option<PeerId> {
+		let public = litep2p::crypto::dilithium::PublicKey::try_from_bytes(bytes).ok()?;
+		let public = litep2p::crypto::PublicKey::from(public);
+		let peer_id = litep2p::PeerId::from_public_key(&public);
 
 		Some(peer_id.into())
+	}
+
+	/// Stub for Ed25519 compatibility - always panics.
+	///
+	/// This network uses Dilithium (post-quantum) instead of Ed25519.
+	/// If you see this panic, the calling code (likely `sc-mixnet`) needs to be
+	/// updated to use Dilithium identities instead of Ed25519.
+	#[deprecated(note = "This network uses Dilithium, not Ed25519. Use into_dilithium() instead.")]
+	pub fn into_ed25519(&self) -> Option<[u8; 32]> {
+		panic!(
+			"into_ed25519() called but this network uses Dilithium (post-quantum) identities. \
+			 Ed25519-based features like sc-mixnet are not compatible with this network. \
+			 The mixnet crate needs to be updated to support Dilithium peer IDs."
+		);
+	}
+
+	/// Stub for Ed25519 compatibility - always panics.
+	///
+	/// This network uses Dilithium (post-quantum) instead of Ed25519.
+	/// If you see this panic, the calling code (likely `sc-mixnet`) needs to be
+	/// updated to use Dilithium identities instead of Ed25519.
+	#[deprecated(note = "This network uses Dilithium, not Ed25519. Use from_dilithium() instead.")]
+	pub fn from_ed25519(_bytes: &[u8; 32]) -> Option<PeerId> {
+		panic!(
+			"from_ed25519() called but this network uses Dilithium (post-quantum) identities. \
+			 Ed25519-based features like sc-mixnet are not compatible with this network. \
+			 The mixnet crate needs to be updated to support Dilithium peer IDs."
+		);
 	}
 }
 
@@ -131,30 +170,6 @@ impl AsRef<Multihash> for PeerId {
 impl From<PeerId> for Multihash {
 	fn from(peer_id: PeerId) -> Self {
 		peer_id.multihash
-	}
-}
-
-impl From<libp2p_identity::PeerId> for PeerId {
-	fn from(peer_id: libp2p_identity::PeerId) -> Self {
-		PeerId { multihash: Multihash::from_bytes(&peer_id.to_bytes()).expect("to succeed") }
-	}
-}
-
-impl From<PeerId> for libp2p_identity::PeerId {
-	fn from(peer_id: PeerId) -> Self {
-		libp2p_identity::PeerId::from_bytes(&peer_id.to_bytes()).expect("to succeed")
-	}
-}
-
-impl From<&libp2p_identity::PeerId> for PeerId {
-	fn from(peer_id: &libp2p_identity::PeerId) -> Self {
-		PeerId { multihash: Multihash::from_bytes(&peer_id.to_bytes()).expect("to succeed") }
-	}
-}
-
-impl From<&PeerId> for libp2p_identity::PeerId {
-	fn from(peer_id: &PeerId) -> Self {
-		libp2p_identity::PeerId::from_bytes(&peer_id.to_bytes()).expect("to succeed")
 	}
 }
 
@@ -238,16 +253,31 @@ mod tests {
 	}
 
 	#[test]
-	fn from_ed25519() {
-		let keypair = litep2p::crypto::ed25519::Keypair::generate();
-		let original_peer_id = litep2p::PeerId::from_public_key(
-			&litep2p::crypto::PublicKey::Ed25519(keypair.public()),
-		);
+	fn from_dilithium() {
+		let keypair = litep2p::crypto::dilithium::Keypair::generate();
+		let original_peer_id =
+			litep2p::PeerId::from_public_key(&litep2p::crypto::PublicKey::from(keypair.public()));
 
 		let peer_id: PeerId = original_peer_id.into();
 		assert_eq!(original_peer_id.to_bytes(), peer_id.to_bytes());
 
-		let key = peer_id.into_ed25519().unwrap();
-		assert_eq!(PeerId::from_ed25519(&key).unwrap(), original_peer_id.into());
+		// Note: Dilithium keys are too large for identity hash, so into_dilithium
+		// will return None for hashed peer IDs
+		// We can verify round-trip through from_dilithium instead
+		let pk_bytes = keypair.public().to_bytes();
+		let reconstructed = PeerId::from_dilithium(&pk_bytes).unwrap();
+		assert_eq!(peer_id, reconstructed);
+	}
+
+	#[test]
+	fn peer_id_roundtrip() {
+		let keypair = litep2p::crypto::dilithium::Keypair::generate();
+		let litep2p_peer_id =
+			litep2p::PeerId::from_public_key(&litep2p::crypto::PublicKey::from(keypair.public()));
+
+		// litep2p -> substrate -> litep2p
+		let substrate_peer_id: PeerId = litep2p_peer_id.into();
+		let back_to_litep2p: litep2p::PeerId = substrate_peer_id.into();
+		assert_eq!(litep2p_peer_id, back_to_litep2p);
 	}
 }

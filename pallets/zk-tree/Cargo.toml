@@ -12,7 +12,6 @@ version = "0.1.0"
 codec = { workspace = true, default-features = false, features = ["derive"] }
 frame-support.workspace = true
 frame-system.workspace = true
-log.workspace = true
 qp-poseidon-core = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false, features = ["derive"] }
 serde = { workspace = true, optional = true }
@@ -33,7 +32,6 @@ std = [
 	"codec/std",
 	"frame-support/std",
 	"frame-system/std",
-	"log/std",
 	"qp-poseidon-core/std",
 	"scale-info/std",
 	"serde/std",

@@ -18,7 +18,7 @@ use quantus_runtime::Block;
 use quantus_runtime::EXISTENTIAL_DEPOSIT;
 use rand::Rng;
 use sc_cli::SubstrateCli;
-use sc_network::config::{NetworkBackendType, NodeKeyConfig, Secret};
+use sc_network::config::{NodeKeyConfig, Secret};
 use sc_service::{BlocksPruning, PartialComponents, PruningMode};
 use sp_core::{
 	crypto::{AccountId32, Ss58AddressFormat, Ss58Codec},
@@ -511,7 +511,8 @@ pub fn run() -> sc_cli::Result<()> {
 
 				config.network.node_key = NodeKeyConfig::Dilithium(Secret::File(key_path));
 
-				config.network.network_backend = NetworkBackendType::Libp2p;
+				// Network backend is set via --network-backend flag (handled by sc_cli)
+				// Both libp2p and litep2p backends use Dilithium for node identity
 
 				let rewards_account = match cli.rewards_inner_hash {
 					Some(ref inner_hash) => {
@@ -585,12 +586,8 @@ pub fn run() -> sc_cli::Result<()> {
 				// Allow mining without peers if --dev or --force-authoring is set
 				let allow_mining_without_peers = config.force_authoring;
 
-				service::new_full::<
-					sc_network::NetworkWorker<
-						quantus_runtime::opaque::Block,
-						<quantus_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
-					>,
-				>(
+				log::info!("Using litep2p network backend (with Dilithium)");
+				service::new_full::<sc_network::litep2p::Litep2pNetworkBackend>(
 					config,
 					rewards_account,
 					cli.miner_listen_port,

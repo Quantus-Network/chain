@@ -1,12 +1,15 @@
 [package]
-authors = ["Parity Technologies <admin@parity.io>"]
-description = "Substrate network types"
+authors = [
+	"Parity Technologies <admin@parity.io>",
+	"Quantus Network Developers <hello@quantus.com>",
+]
+description = "Substrate network types with Dilithium support"
 documentation = "https://docs.rs/sc-network-types"
 edition = "2021"
-homepage = "https://paritytech.github.io/polkadot-sdk/"
+homepage = "https://quantus.com/"
 license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
 name = "sc-network-types"
-repository = "https://github.com/paritytech/polkadot-sdk.git"
+repository = "https://github.com/quantus-network/chain"
 version = "0.20.3"
 
 [lib]
@@ -16,18 +19,13 @@ path = "src/lib.rs"
 [dependencies]
 bs58 = "0.5.1"
 bytes = { workspace = true }
-ed25519-dalek = "2.1"
-libp2p-identity = { workspace = true, features = ["ed25519", "peerid", "rand"] }
-libp2p-kad = { version = "0.46.2", default-features = false }
-litep2p = { version = "0.13.3", features = ["rsa", "websocket"] }
+litep2p = { workspace = true }
 log = { workspace = true }
 multiaddr = "0.18.1"
 multihash = { version = "0.19.1", default-features = false }
 rand = { workspace = true }
-serde = { workspace = true }
 serde_with = { version = "3.12.0", default-features = false, features = ["hex", "macros"] }
 thiserror = { workspace = true }
-zeroize = { workspace = true }
 
 [dev-dependencies]
 quickcheck = "1.0.3"

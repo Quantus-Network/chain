@@ -20,12 +20,9 @@ pallet-zk-tree.workspace = true
 qp-header = { workspace = true, features = ["serde"] }
 qp-wormhole.workspace = true
 qp-wormhole-verifier = { workspace = true, default-features = false }
-scale-info = { workspace = true, default-features = false, features = [
-	"derive",
-] }
+scale-info = { workspace = true, default-features = false, features = ["derive"] }
 sp-core.workspace = true
 sp-io.workspace = true
-sp-metadata-ir.workspace = true
 sp-runtime.workspace = true
 
 [build-dependencies]

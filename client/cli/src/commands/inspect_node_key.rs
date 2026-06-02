@@ -20,8 +20,7 @@
 
 use crate::Error;
 use clap::Parser;
-use libp2p_identity::PublicKey;
-use qp_rusty_crystals_dilithium::ml_dsa_87::Keypair;
+use litep2p::crypto::{dilithium::Keypair, PublicKey};
 use std::{
 	fs,
 	io::{self, Read},
@@ -70,12 +69,14 @@ impl InspectNodeKeyCmd {
 				.map_err(|_| "failed to decode secret as hex")?;
 		}
 
-		let key = Keypair::from_bytes(file_data.as_slice())
-			.map_err(|_| "failed to decode secret as hex")?;
+		// The file should contain a 32-byte seed
+		let keypair = Keypair::try_from_bytes(&mut file_data)
+			.map_err(|e| Error::Input(format!("failed to decode key: {:?}", e)))?;
 
-		let keypair = PublicKey::from(key.public);
+		let public_key = PublicKey::from(keypair.public().clone());
+		let peer_id = litep2p::PeerId::from_public_key(&public_key);
 
-		println!("{}", keypair.to_peer_id());
+		println!("{}", peer_id);
 
 		Ok(())
 	}
@@ -97,5 +98,30 @@ mod tests {
 
 		let cmd = InspectNodeKeyCmd::parse_from(&["inspect-node-key", "--file", path]);
 		assert!(cmd.run().is_ok());
+	}
+
+	/// Test that generated keys can be loaded by the node's into_litep2p_keypair function.
+	/// This ensures CLI-generated keys are compatible with the node's key loading.
+	#[test]
+	fn generate_key_compatible_with_node_loader() {
+		let path = tempfile::tempdir().unwrap().keep().join("node-id").into_os_string();
+		let path_str = path.to_str().unwrap();
+
+		// Generate a key using the CLI
+		let cmd = GenerateNodeKeyCmd::parse_from(&["generate-node-key", "--file", path_str]);
+		assert!(cmd.run("test", &String::from("test")).is_ok());
+
+		// Read the file and verify it can be loaded as a litep2p keypair
+		// This simulates what the node does in into_litep2p_keypair
+		let hex_data = std::fs::read_to_string(path_str).unwrap();
+		let mut bytes = array_bytes::hex2bytes(hex_data.trim()).unwrap();
+
+		// This is the same call the node makes
+		let keypair = Keypair::try_from_bytes(&mut bytes)
+			.expect("Generated key should be loadable by the node");
+
+		// Verify we can derive the same peer ID
+		let public_key = PublicKey::from(keypair.public().clone());
+		let _peer_id = litep2p::PeerId::from_public_key(&public_key);
 	}
 }

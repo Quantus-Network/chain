@@ -244,30 +244,47 @@
 //!
 //! More precise usage details are still being worked on and will likely change in the future.
 
-mod behaviour;
-mod bitswap;
-mod protocol;
+// NOTE: libp2p backend modules have been removed. Only litep2p backend is supported.
+// The following modules were removed as they depend on libp2p:
+// - behaviour (libp2p swarm behaviour)
+// - bitswap (libp2p bitswap - litep2p has its own in litep2p/shim/bitswap.rs)
+// - discovery (libp2p Kademlia - litep2p has its own in litep2p/discovery.rs)
+// - protocol (libp2p notifications - litep2p has its own in litep2p/shim/notification/)
+// - transport (libp2p transport - litep2p has its own transport)
+// - request_responses (libp2p request-response - litep2p has its own in
+//   litep2p/shim/request_response/)
 
-#[cfg(test)]
-mod mock;
+pub mod litep2p;
 
 pub mod config;
-pub mod discovery;
 pub mod error;
 pub mod event;
 pub mod network_state;
-pub mod peer_info;
+// NOTE: peer_info.rs is libp2p NetworkBehaviour - litep2p handles peer info differently
+// pub mod peer_info;
 pub mod peer_store;
 pub mod protocol_controller;
-pub mod request_responses;
 pub mod service;
-pub mod transport;
 pub mod types;
 pub mod utils;
 
+// Re-export request-response types from litep2p shim - this provides the `request_responses` module
+/// Request-response protocol types re-exported from the litep2p shim.
+pub mod request_responses {
+	pub use crate::{
+		litep2p::shim::request_response::{
+			IncomingRequest, OutboundRequest, OutgoingResponse, RequestResponseConfig,
+			RequestResponseProtocol,
+		},
+		service::traits::{IfDisconnected, OutboundFailure, RequestFailure},
+	};
+
+	/// Type alias for compatibility with sc-service which expects this name.
+	pub type ProtocolConfig = RequestResponseConfig;
+}
+
 pub use event::{DhtEvent, Event};
-#[doc(inline)]
-pub use request_responses::{Config, IfDisconnected, RequestFailure};
+pub use request_responses::{IfDisconnected, OutboundFailure, RequestFailure};
 pub use sc_network_common::{
 	role::{ObservedRole, Roles},
 	types::ReputationChange,
@@ -278,7 +295,7 @@ pub use sc_network_types::{
 };
 pub use service::{
 	metrics::NotificationMetrics,
-	signature::Signature,
+	signature::{DecodingError, Keypair, PublicKey, Signature},
 	traits::{
 		KademliaKey, MessageSink, NetworkBackend, NetworkBlock, NetworkDHTProvider,
 		NetworkEventStream, NetworkPeers, NetworkRequest, NetworkSigner, NetworkStateInfo,
@@ -286,25 +303,11 @@ pub use service::{
 		NotificationSender as NotificationSenderT, NotificationSenderError,
 		NotificationSenderReady, NotificationService,
 	},
-	DecodingError, Keypair, NetworkService, NetworkWorker, NotificationSender, OutboundFailure,
-	PublicKey,
 };
 pub use types::ProtocolName;
 
-/// Log target for `sc-network`.
-const LOG_TARGET: &str = "sub-libp2p";
-
-/// The maximum allowed number of established connections per peer.
-///
-/// Typically, and by design of the network behaviours in this crate,
-/// there is a single established connection per peer. However, to
-/// avoid unnecessary and nondeterministic connection closure in
-/// case of (possibly repeated) simultaneous dialing attempts between
-/// two peers, the per-peer connection limit is not set to 1 but 2.
-const MAX_CONNECTIONS_PER_PEER: usize = 2;
-
 /// The maximum number of concurrent established connections that were incoming.
-const MAX_CONNECTIONS_ESTABLISHED_INCOMING: u32 = 10_000;
+pub const MAX_CONNECTIONS_ESTABLISHED_INCOMING: u32 = 10_000;
 
 /// Maximum response size limit.
 pub const MAX_RESPONSE_SIZE: u64 = 16 * 1024 * 1024;
@@ -317,9 +320,4 @@ static TRANSPORT_TIMEOUT: OnceLock<Duration> = OnceLock::new();
 /// This is applied to both syncer and syncee.
 pub fn set_transport_timeout(timeout: Duration) {
 	TRANSPORT_TIMEOUT.set(timeout).ok();
-}
-
-/// Returns the timeout for transport operations.
-pub(crate) fn transport_timeout() -> Duration {
-	TRANSPORT_TIMEOUT.get().copied().unwrap_or(Duration::from_secs(30))
 }

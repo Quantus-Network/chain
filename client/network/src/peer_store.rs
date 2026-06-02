@@ -21,12 +21,12 @@
 
 use crate::service::{metrics::PeerStoreMetrics, traits::PeerStore as PeerStoreT};
 
-use libp2p::PeerId;
 use log::trace;
 use parking_lot::Mutex;
 use partial_sort::PartialSort;
 use prometheus_endpoint::Registry;
 use sc_network_common::{role::ObservedRole, types::ReputationChange};
+use sc_network_types::PeerId;
 use std::{
 	cmp::{Ord, Ordering, PartialOrd},
 	collections::{hash_map::Entry, HashMap, HashSet},
@@ -108,7 +108,7 @@ pub struct PeerStoreHandle {
 
 impl PeerStoreProvider for PeerStoreHandle {
 	fn is_banned(&self, peer_id: &sc_network_types::PeerId) -> bool {
-		self.inner.lock().is_banned(&peer_id.into())
+		self.inner.lock().is_banned(peer_id)
 	}
 
 	fn register_protocol(&self, protocol_handle: Arc<dyn ProtocolHandle>) {
@@ -117,25 +117,25 @@ impl PeerStoreProvider for PeerStoreHandle {
 
 	fn report_disconnect(&self, peer_id: sc_network_types::PeerId) {
 		let mut inner = self.inner.lock();
-		inner.report_disconnect(peer_id.into())
+		inner.report_disconnect(peer_id)
 	}
 
 	fn report_peer(&self, peer_id: sc_network_types::PeerId, change: ReputationChange) {
 		let mut inner = self.inner.lock();
-		inner.report_peer(peer_id.into(), change)
+		inner.report_peer(peer_id, change)
 	}
 
 	fn set_peer_role(&self, peer_id: &sc_network_types::PeerId, role: ObservedRole) {
 		let mut inner = self.inner.lock();
-		inner.set_peer_role(&peer_id.into(), role)
+		inner.set_peer_role(peer_id, role)
 	}
 
 	fn peer_reputation(&self, peer_id: &sc_network_types::PeerId) -> i32 {
-		self.inner.lock().peer_reputation(&peer_id.into())
+		self.inner.lock().peer_reputation(peer_id)
 	}
 
 	fn peer_role(&self, peer_id: &sc_network_types::PeerId) -> Option<ObservedRole> {
-		self.inner.lock().peer_role(&peer_id.into())
+		self.inner.lock().peer_role(peer_id)
 	}
 
 	fn outgoing_candidates(
@@ -143,12 +143,7 @@ impl PeerStoreProvider for PeerStoreHandle {
 		count: usize,
 		ignored: HashSet<sc_network_types::PeerId>,
 	) -> Vec<sc_network_types::PeerId> {
-		self.inner
-			.lock()
-			.outgoing_candidates(count, ignored.iter().map(|peer_id| (*peer_id).into()).collect())
-			.iter()
-			.map(|peer_id| peer_id.into())
-			.collect()
+		self.inner.lock().outgoing_candidates(count, ignored)
 	}
 
 	fn add_known_peer(&self, peer_id: sc_network_types::PeerId) {

@@ -22,7 +22,8 @@ fdlimit = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 itertools = { workspace = true }
-libp2p-identity = { features = ["dilithium", "peerid"], workspace = true }
+litep2p.default-features = true
+litep2p.workspace = true
 log = { workspace = true, default-features = true }
 names = { workspace = true }
 qp-dilithium-crypto = { workspace = true, features = ["full_crypto", "serde", "std"] }
@@ -58,8 +59,6 @@ sp-core.default-features = true
 sp-core.workspace = true
 sp-keyring.default-features = true
 sp-keyring.workspace = true
-sp-keystore.default-features = true
-sp-keystore.workspace = true
 sp-panic-handler.default-features = true
 sp-panic-handler.workspace = true
 sp-runtime.default-features = true

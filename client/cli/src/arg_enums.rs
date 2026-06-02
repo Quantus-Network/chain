@@ -310,14 +310,14 @@ impl Into<sc_network::config::SyncMode> for SyncMode {
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq)]
 #[value(rename_all = "lower")]
 pub enum NetworkBackendType {
-	/// Use libp2p for P2P networking.
-	Libp2p,
+	/// Use litep2p for P2P networking (default, with Dilithium).
+	Litep2p,
 }
 
 impl Into<sc_network::config::NetworkBackendType> for NetworkBackendType {
 	fn into(self) -> sc_network::config::NetworkBackendType {
 		match self {
-			Self::Libp2p => sc_network::config::NetworkBackendType::Libp2p,
+			Self::Litep2p => sc_network::config::NetworkBackendType::Litep2p,
 		}
 	}
 }
