@@ -283,6 +283,9 @@ pub enum NegotiationError {
 	/// The remote peer ID is not the same as the one expected.
 	#[error("The signature of the remote identity's public key does not verify")]
 	BadSignature,
+	/// Signing failed during handshake.
+	#[error("Signing failed: `{0}`")]
+	SigningFailed(String),
 	/// The negotiation operation timed out.
 	#[error("Operation timed out")]
 	Timeout,
@@ -310,6 +313,7 @@ impl PartialEq for NegotiationError {
 		match (self, other) {
 			(Self::MultistreamSelectError(lhs), Self::MultistreamSelectError(rhs)) => lhs == rhs,
 			(Self::Clatter(lhs), Self::Clatter(rhs)) => lhs == rhs,
+			(Self::SigningFailed(lhs), Self::SigningFailed(rhs)) => lhs == rhs,
 			(Self::ParseError(lhs), Self::ParseError(rhs)) => lhs == rhs,
 			(Self::IoError(lhs), Self::IoError(rhs)) => lhs == rhs,
 			(Self::PeerIdMismatch(lhs, lhs_1), Self::PeerIdMismatch(rhs, rhs_1)) =>

@@ -38,6 +38,18 @@ pub const SIGNATURE_BYTES: usize = ml_dsa_87::SIGNBYTES;
 /// Size of the seed used to generate a keypair (32 bytes).
 pub const SEED_BYTES: usize = 32;
 
+/// Error that can occur during signing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignError(pub String);
+
+impl fmt::Display for SignError {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "Dilithium signing failed: {}", self.0)
+	}
+}
+
+impl std::error::Error for SignError {}
+
 /// A Dilithium ML-DSA-87 keypair.
 ///
 /// Internally stores only the 32-byte seed.
@@ -92,7 +104,9 @@ impl Keypair {
 	}
 
 	/// Sign a message using the private key of this keypair.
-	pub fn sign(&self, msg: &[u8]) -> Vec<u8> {
+	///
+	/// Returns `Err` if signing fails (should not happen with a valid keypair).
+	pub fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, SignError> {
 		let internal_kp = self.derive_internal();
 
 		// Sign without context, with hedged randomness for side-channel protection
@@ -101,8 +115,8 @@ impl Keypair {
 
 		internal_kp
 			.sign(msg, None, Some(hedge))
-			.expect("Signing should not fail")
-			.to_vec()
+			.map(|sig| sig.to_vec())
+			.map_err(|e| SignError(format!("{:?}", e)))
 	}
 
 	/// Get the public key of this keypair.
@@ -276,7 +290,7 @@ mod tests {
 		let pk = kp.public();
 
 		let msg = "hello world".as_bytes();
-		let sig = kp.sign(msg);
+		let sig = kp.sign(msg).expect("signing should succeed");
 		assert!(pk.verify(msg, &sig));
 
 		// Invalid signature

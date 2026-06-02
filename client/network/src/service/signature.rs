@@ -105,7 +105,7 @@ impl Keypair {
 	/// Sign a message.
 	pub fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, SigningError> {
 		match self {
-			Keypair::Dilithium(kp) => Ok(kp.sign(msg)),
+			Keypair::Dilithium(kp) => kp.sign(msg).map_err(|_| SigningError::SigningFailed),
 		}
 	}
 

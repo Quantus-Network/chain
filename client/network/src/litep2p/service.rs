@@ -249,7 +249,7 @@ impl Litep2pNetworkService {
 impl NetworkSigner for Litep2pNetworkService {
 	fn sign_with_local_identity(&self, msg: Vec<u8>) -> Result<Signature, SigningError> {
 		let public_key = self.keypair.public();
-		let bytes = self.keypair.sign(msg.as_ref());
+		let bytes = self.keypair.sign(msg.as_ref()).map_err(|_| SigningError::SigningFailed)?;
 
 		Ok(Signature {
 			public_key: crate::service::signature::PublicKey::from(

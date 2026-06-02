@@ -125,12 +125,13 @@ impl NoiseContext {
 		role: Role,
 	) -> Result<Self, NegotiationError> {
 		// Sign the ML-KEM public key with the Dilithium identity key
+		let signature = id_keys
+			.sign(&[STATIC_KEY_DOMAIN.as_bytes(), kem_keypair.public().as_ref()].concat())
+			.map_err(|e| NegotiationError::SigningFailed(e.to_string()))?;
+
 		let noise_payload = handshake_schema::NoiseHandshakePayload {
 			identity_key: Some(PublicKey::from(id_keys.public()).to_protobuf_encoding()),
-			identity_sig: Some(
-				id_keys
-					.sign(&[STATIC_KEY_DOMAIN.as_bytes(), kem_keypair.public().as_ref()].concat()),
-			),
+			identity_sig: Some(signature),
 			..Default::default()
 		};
 
