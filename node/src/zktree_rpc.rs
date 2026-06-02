@@ -29,7 +29,7 @@ pub trait ZkTreeApi {
 	/// Get the current state of the ZK tree.
 	///
 	/// Returns the current root hash, leaf count, and tree depth.
-	#[method(name = "zkTree_getState")]
+	#[method(name = "zkTree_getState", blocking)]
 	fn get_state(&self) -> RpcResult<ZkTreeState>;
 
 	/// Get a Merkle proof for a leaf at the given index.
@@ -42,7 +42,7 @@ pub trait ZkTreeApi {
 	/// so the Merkle proof must be from the same block as the header.
 	///
 	/// Returns `null` if the leaf index is out of bounds.
-	#[method(name = "zkTree_getMerkleProof")]
+	#[method(name = "zkTree_getMerkleProof", blocking)]
 	fn get_merkle_proof(
 		&self,
 		leaf_index: u64,
