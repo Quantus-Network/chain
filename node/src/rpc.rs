@@ -7,7 +7,11 @@
 
 use std::sync::Arc;
 
-use jsonrpsee::{core::{async_trait, RpcResult}, proc_macros::rpc, RpcModule};
+use jsonrpsee::{
+	core::{async_trait, RpcResult},
+	proc_macros::rpc,
+	RpcModule,
+};
 use quantus_runtime::{opaque::Block, AccountId, Balance, Nonce};
 use sc_network::service::traits::NetworkService;
 use sc_transaction_pool_api::TransactionPool;
