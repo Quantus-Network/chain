@@ -79,3 +79,10 @@ fuzz = [
 websocket = ["dep:tokio-tungstenite"]
 # Compatibility feature - RSA support removed in favor of post-quantum Dilithium
 rsa = []
+
+[lints.clippy]
+# Warn on expect/panic in library code - remote input paths must not panic
+# Using warn instead of deny to allow gradual cleanup; critical paths are already panic-free
+expect_used = "warn"
+panic = "warn"
+unwrap_used = "warn"
