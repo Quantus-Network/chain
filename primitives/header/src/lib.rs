@@ -12,11 +12,10 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use codec::{Codec, Decode, DecodeWithMemTracking, Encode};
-use p3_field::integers::QuotientMap;
-use p3_goldilocks::Goldilocks;
 use qp_poseidon_core::{
 	hash_to_bytes,
 	serialization::{bytes_to_digest, bytes_to_felts},
+	Goldilocks,
 };
 use scale_info::TypeInfo;
 use sp_core::{H256, U256};
@@ -202,28 +201,28 @@ where
 		let mut felts = Vec::with_capacity(max_encoded_felts);
 
 		// parent_hash : 32 bytes → 4 felts (8 bytes/felt for hash outputs)
-		felts.extend(bytes_to_digest::<Goldilocks>(
+		felts.extend(bytes_to_digest(
 			self.parent_hash.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
 		// block number as u64 (compact encoded, but we only need the value)
 		// constrain the block number to be with u32 range for simplicity
 		let number = self.number.into();
-		felts.push(Goldilocks::from_int(number.as_u32() as u64));
+		felts.push(Goldilocks::new(number.as_u32() as u64));
 
 		// state_root : 32 bytes → 4 felts (8 bytes/felt for hash outputs)
-		felts.extend(bytes_to_digest::<Goldilocks>(
+		felts.extend(bytes_to_digest(
 			self.state_root.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
 		// extrinsics_root : 32 bytes → 4 felts (8 bytes/felt for hash outputs)
-		felts.extend(bytes_to_digest::<Goldilocks>(
+		felts.extend(bytes_to_digest(
 			self.extrinsics_root.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
 		// zk_tree_root : 32 bytes → 4 felts (8 bytes/felt for hash outputs)
 		// Placed before digest to ensure fixed offset regardless of digest content
-		felts.extend(bytes_to_digest::<Goldilocks>(
+		felts.extend(bytes_to_digest(
 			self.zk_tree_root.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
