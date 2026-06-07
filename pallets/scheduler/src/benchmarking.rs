@@ -147,13 +147,16 @@ benchmarks! {
 		let bucket_size = T::TimestampBucketSize::get();
 		let current_time = bucket_size.saturating_mul(2u32.into());
 		let last_processed = bucket_size;
+		let expected_normalized = BlockNumberOrTimestamp::<BlockNumberFor<T>, T::Moment>::Timestamp(current_time)
+			.normalize(bucket_size)
+			.as_timestamp()
+			.expect("timestamp normalization");
 		LastProcessedTimestamp::<T>::put(last_processed);
 		IncompleteTimestampSince::<T>::put(last_processed);
 	}: {
 		Scheduler::<T>::service_timestamp_agendas(&mut WeightMeter::new(), &mut 0, current_time, 0);
 	} verify {
-		// LastProcessedTimestamp should be updated to the normalized current time
-		assert_eq!(LastProcessedTimestamp::<T>::get(), Some(current_time));
+		assert_eq!(LastProcessedTimestamp::<T>::get(), Some(expected_normalized));
 	}
 
 	// `service_agenda` when no work is done.
