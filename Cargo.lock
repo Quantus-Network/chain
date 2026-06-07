@@ -45,7 +45,7 @@ checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
 dependencies = [
  "cfg-if",
  "cipher 0.4.4",
- "cpufeatures",
+ "cpufeatures 0.2.17",
 ]
 
 [[package]]
@@ -1295,7 +1295,18 @@ checksum = "c3613f74bd2eac03dad61bd53dbe620703d4371614fe0bc3b9f04dd36fe4e818"
 dependencies = [
  "cfg-if",
  "cipher 0.4.4",
- "cpufeatures",
+ "cpufeatures 0.2.17",
+]
+
+[[package]]
+name = "chacha20"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f8d983286843e49675a4b7a2d174efe136dc93a18d69130dd18198a6c167601"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.0",
+ "rand_core 0.10.0",
 ]
 
 [[package]]
@@ -1305,7 +1316,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10cd79432192d1c0f4e1a0fef9527696cc039165d729fb41b3f4f4f354c2dc35"
 dependencies = [
  "aead",
- "chacha20",
+ "chacha20 0.9.1",
  "cipher 0.4.4",
  "poly1305",
  "zeroize",
@@ -1563,7 +1574,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6407bff74dea37e0fa3dc1c1c974e5d46405f0c987bf9997a0762adce71eda6"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "proptest",
  "serde_core",
 ]
@@ -1699,6 +1710,15 @@ name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "cpufeatures"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201"
 dependencies = [
  "libc",
 ]
@@ -2120,7 +2140,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fb8b7c4503de7d6ae7b42ab72a5a59857b4c937ec27a3d4539dba95b5ab2be"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "curve25519-dalek-derive",
  "digest 0.10.7",
  "fiat-crypto",
@@ -4853,7 +4873,7 @@ version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ecc2af9a1119c51f12a14607e783cb977bde58bc069ff0c3da1095e635d70654"
 dependencies = [
- "cpufeatures",
+ "cpufeatures 0.2.17",
 ]
 
 [[package]]
@@ -6058,7 +6078,6 @@ checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
 dependencies = [
  "num-integer",
  "num-traits",
- "rand 0.8.5",
 ]
 
 [[package]]
@@ -6068,7 +6087,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73f88a1307638156682bada9d7604135552957b7818057dcef22705b4d509495"
 dependencies = [
  "num-traits",
- "rand 0.8.5",
 ]
 
 [[package]]
@@ -6505,7 +6523,7 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "primitive-types 0.13.1",
- "qp-poseidon-core 2.0.2",
+ "qp-poseidon-core 2.1.0",
  "qpow-math",
  "scale-info",
  "sp-core",
@@ -6720,7 +6738,7 @@ dependencies = [
  "qp-dilithium-crypto",
  "qp-header",
  "qp-plonky2",
- "qp-poseidon-core 2.0.2",
+ "qp-poseidon-core 2.1.0",
  "qp-wormhole",
  "qp-wormhole-aggregator",
  "qp-wormhole-circuit",
@@ -6744,7 +6762,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "parity-scale-codec",
- "qp-poseidon-core 2.0.2",
+ "qp-poseidon-core 2.1.0",
  "scale-info",
  "serde",
  "sp-api",
@@ -7454,7 +7472,7 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8159bd90725d2df49889a078b54f4f79e87f1f8a8444194cdca81d38f5393abf"
 dependencies = [
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "opaque-debug 0.3.1",
  "universal-hash",
 ]
@@ -7466,7 +7484,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d1fe60d06143b2430aa532c94cfe9e29783047f06c0d7fd359a9a51b729fa25"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "opaque-debug 0.3.1",
  "universal-hash",
 ]
@@ -7913,7 +7931,7 @@ dependencies = [
  "env_logger",
  "log",
  "parity-scale-codec",
- "qp-poseidon-core 2.0.2",
+ "qp-poseidon-core 2.1.0",
  "qp-rusty-crystals-dilithium",
  "qp-rusty-crystals-hdwallet",
  "scale-info",
@@ -7928,10 +7946,8 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "log",
- "p3-field",
- "p3-goldilocks",
  "parity-scale-codec",
- "qp-poseidon-core 2.0.2",
+ "qp-poseidon-core 2.1.0",
  "scale-info",
  "serde",
  "serde_json",
@@ -7945,32 +7961,26 @@ version = "0.1.0"
 
 [[package]]
 name = "qp-plonky2"
-version = "1.4.1"
+version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1d18516ef5ecd81ddcccb6beacdfe1578f44e4f05ccb0890998afcd3b87d01f"
+checksum = "f6db010db2fabb546251fa4c317e90a91a6a58bc96966d6685ba430228846479"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
  "critical-section",
- "getrandom 0.2.17",
  "hashbrown 0.14.5",
  "itertools 0.11.0",
  "keccak-hash 0.8.0",
  "log",
  "num",
  "once_cell",
- "p3-field",
- "p3-goldilocks",
- "p3-poseidon2",
- "p3-symmetric",
  "plonky2_maybe_rayon",
  "plonky2_util",
  "qp-plonky2-core",
  "qp-plonky2-field",
  "qp-plonky2-verifier",
- "qp-poseidon-constants",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
+ "qp-poseidon-core 2.1.0",
+ "rand 0.10.1",
  "serde",
  "static_assertions",
  "unroll",
@@ -7979,9 +7989,9 @@ dependencies = [
 
 [[package]]
 name = "qp-plonky2-core"
-version = "1.4.1"
+version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ad9961c2e2f6aca563eefd902697b0d21e9807c2c3b719ba1d4488bb03383c4"
+checksum = "80dfd857190a8b36568a8be6c7cdcbd74e155993d23e610ef31e0b068ab744cf"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -7990,14 +8000,9 @@ dependencies = [
  "keccak-hash 0.8.0",
  "log",
  "num",
- "p3-field",
- "p3-goldilocks",
- "p3-poseidon2",
- "p3-symmetric",
  "plonky2_util",
  "qp-plonky2-field",
- "qp-poseidon-constants",
- "rand 0.8.5",
+ "rand 0.10.1",
  "serde",
  "static_assertions",
  "unroll",
@@ -8005,15 +8010,15 @@ dependencies = [
 
 [[package]]
 name = "qp-plonky2-field"
-version = "1.4.1"
+version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ecc7089b7ae09ef8fe4889353d2f2be7dffe6d87edfb5b03f9553ca0a1ca55da"
+checksum = "aff3d551265f30da9325df10a0ed242e9051a9d860d033c6a1b1129171f725f1"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
  "num",
  "plonky2_util",
- "rand 0.8.5",
+ "rand 0.10.1",
  "rustc_version",
  "serde",
  "static_assertions",
@@ -8022,9 +8027,9 @@ dependencies = [
 
 [[package]]
 name = "qp-plonky2-verifier"
-version = "1.4.1"
+version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb155f950f3df3c0cf5fce846290f19c6b7a059fbefd9bdf9011fd6f01f84e79"
+checksum = "85ec868e56479bb8859275d0c300f06e7e8426a69829a31108ed0dde8471e7c1"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -8035,14 +8040,10 @@ dependencies = [
  "log",
  "num",
  "once_cell",
- "p3-field",
- "p3-goldilocks",
- "p3-poseidon2",
- "p3-symmetric",
  "plonky2_util",
  "qp-plonky2-core",
  "qp-plonky2-field",
- "qp-poseidon-constants",
+ "qp-poseidon-core 2.1.0",
  "serde",
  "static_assertions",
  "unroll",
@@ -8077,16 +8078,9 @@ dependencies = [
 
 [[package]]
 name = "qp-poseidon-core"
-version = "2.0.2"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "882fbe1c3054d60ba863333f5c2d2cf30432204e16c014fcfd5dbae0a73217ee"
-dependencies = [
- "p3-field",
- "p3-goldilocks",
- "p3-poseidon2",
- "p3-symmetric",
- "qp-poseidon-constants",
-]
+checksum = "78172860cd960773c72e97fba07ead9e5a1c13086c5746283744933e2e4a577b"
 
 [[package]]
 name = "qp-rusty-crystals-dilithium"
@@ -8132,7 +8126,7 @@ name = "qp-wormhole"
 version = "0.1.0"
 dependencies = [
  "parity-scale-codec",
- "qp-poseidon-core 2.0.2",
+ "qp-poseidon-core 2.1.0",
  "sp-consensus-qpow",
  "sp-core",
  "sp-runtime",
@@ -8140,9 +8134,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-aggregator"
-version = "2.0.1"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba5a23eea8e17c97632f5056d1fecdb83d2e997f79d823fb97c514823fce8580"
+checksum = "c9cd1dd3efde4e405a1d7c44852cee799fce30d82f0741c0b5c2b3ec024e3ae9"
 dependencies = [
  "anyhow",
  "hex",
@@ -8158,9 +8152,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit"
-version = "2.0.1"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b72abd3357e1c486621431109d83a259076ed941fcc7f035353a629940c443d9"
+checksum = "f8c616ca2d392b3701fdd97982c3b894e272245b751e4e669fac7bf6aa4cd977"
 dependencies = [
  "anyhow",
  "hex",
@@ -8171,9 +8165,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit-builder"
-version = "2.0.1"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d27c981d34a35cb10ee96e16c1fb44fbb4c52f3e58a787ce089c21bf5469514"
+checksum = "dedb083e6b1567354837930881e7bead77c84973422707c0604ed1234f12b1fd"
 dependencies = [
  "anyhow",
  "clap",
@@ -8185,31 +8179,30 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-inputs"
-version = "2.0.1"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f69e54a0f450d349cb1169bbb743a7a846475a1210760308e38f55841e5aa5c0"
+checksum = "6416e8b025382d5bc00d1418ca28a25c15f1fdfe351f793e83f6aae16b8ad2bf"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "qp-wormhole-prover"
-version = "2.0.1"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68cee4d6a0317f89d1ec7a6c40a9592e5525c75b9cb21bd7d5d3b408301068bd"
+checksum = "167337f6e3d65e6b67cace22f72537a86ee061b9880dc7fe6e5b617d33ad279b"
 dependencies = [
  "anyhow",
  "qp-plonky2",
  "qp-wormhole-circuit",
- "qp-wormhole-inputs",
  "qp-zk-circuits-common",
 ]
 
 [[package]]
 name = "qp-wormhole-verifier"
-version = "2.0.1"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83f7c0134a766c6624183d129abf12523247e38fc27860e3a9778f73321008ae"
+checksum = "ce89292e75e323ad792d169c5c725a2b534b4b6ca6108400d1649b2c972681ff"
 dependencies = [
  "anyhow",
  "qp-plonky2-verifier",
@@ -8218,15 +8211,14 @@ dependencies = [
 
 [[package]]
 name = "qp-zk-circuits-common"
-version = "2.0.1"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6d5e1d764560fd797f71defbf75a1618596945c53e33033ac42cc7c2e4689f6"
+checksum = "39bb72c67529758341ab094f7b6576379c5d704992df254d09282e9a99eec856"
 dependencies = [
  "anyhow",
- "hex",
  "qp-plonky2",
  "qp-poseidon-constants",
- "qp-poseidon-core 1.4.0",
+ "qp-poseidon-core 2.1.0",
  "qp-wormhole-inputs",
  "rand 0.8.5",
  "serde",
@@ -8240,7 +8232,7 @@ dependencies = [
  "log",
  "primitive-types 0.13.1",
  "proptest",
- "qp-poseidon-core 2.0.2",
+ "qp-poseidon-core 2.1.0",
 ]
 
 [[package]]
@@ -8370,7 +8362,7 @@ dependencies = [
  "qp-dilithium-crypto",
  "qp-header",
  "qp-high-security",
- "qp-poseidon-core 2.0.2",
+ "qp-poseidon-core 2.1.0",
  "qp-scheduler",
  "qp-wormhole",
  "scale-info",
@@ -8415,7 +8407,7 @@ checksum = "95c589f335db0f6aaa168a7cd27b1fc6920f5e1470c804f814d9cd6e62a0f70b"
 dependencies = [
  "env_logger",
  "log",
- "rand 0.10.0",
+ "rand 0.10.1",
 ]
 
 [[package]]
@@ -8572,10 +8564,11 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc266eb313df6c5c09c1c7b1fbe2510961e5bcd3add930c1e31f7ed9da0feff8"
+checksum = "d2e8e8bcc7961af1fdac401278c6a831614941f6164ee3bf4ce61b7edb162207"
 dependencies = [
+ "chacha20 0.10.0",
  "getrandom 0.4.2",
  "rand_core 0.10.0",
 ]
@@ -10673,7 +10666,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3bf829a2d51ab4a5ddf1352d8470c140cadc8301b2ae1789db023f01cedd6ba"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "digest 0.10.7",
 ]
 
@@ -10685,7 +10678,7 @@ checksum = "4d58a1e1bf39749807d89cf2d98ac2dfa0ff1cb3faa38fbb64dd88ac8013d800"
 dependencies = [
  "block-buffer 0.9.0",
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "digest 0.9.0",
  "opaque-debug 0.3.1",
 ]
@@ -10697,7 +10690,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "digest 0.10.7",
 ]
 
@@ -10836,7 +10829,7 @@ dependencies = [
  "bip39",
  "blake2-rfc",
  "bs58",
- "chacha20",
+ "chacha20 0.9.1",
  "crossbeam-queue",
  "derive_more 2.0.1",
  "ed25519-zebra",
