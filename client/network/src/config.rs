@@ -428,7 +428,7 @@ impl NodeKeyConfig {
 				|b| {
 					let bytes = if is_hex_data(b) {
 						array_bytes::hex2bytes(
-							std::str::from_utf8(b).map_err(|_| DecodingError::InvalidKey)?
+							std::str::from_utf8(b).map_err(|_| DecodingError::InvalidKey)?,
 						)
 						.map_err(|_| DecodingError::InvalidKey)?
 					} else {
@@ -462,10 +462,12 @@ where
 	let file_path = file.as_ref();
 	std::fs::read(file_path)
 		.and_then(|mut sk_bytes| {
-			parse(&mut sk_bytes).map_err(|e| io::Error::new(
-				io::ErrorKind::InvalidData,
-				format!("Failed to parse '{}': {}", file_path.display(), e)
-			))
+			parse(&mut sk_bytes).map_err(|e| {
+				io::Error::new(
+					io::ErrorKind::InvalidData,
+					format!("Failed to parse '{}': {}", file_path.display(), e),
+				)
+			})
 		})
 		.or_else(|e| {
 			if e.kind() == io::ErrorKind::NotFound {
