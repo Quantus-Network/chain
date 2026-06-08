@@ -70,12 +70,12 @@ fn test_difficulty_validation() {
 }
 
 #[test]
-fn test_poseidon_double_hash() {
+fn test_poseidon_hash_squeeze_twice() {
 	new_test_ext().execute_with(|| {
 		let block_hash = [0x42u8; 32];
 		let nonce = [0x24u8; 64];
 
-		// Manually verify double Poseidon2 hashing
+		// Verify single Poseidon2 hash with double squeeze (512-bit output)
 		let mut input = [0u8; 96];
 		input[..32].copy_from_slice(&block_hash);
 		input[32..96].copy_from_slice(&nonce);
