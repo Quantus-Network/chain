@@ -9,6 +9,7 @@ repository = "https://github.com/quantus-network/chain#"
 members = [
 	"client/cli",
 	"client/consensus/qpow",
+	"client/informant",
 	"client/litep2p",
 	"client/network",
 	"client/network-sync",
@@ -246,6 +247,7 @@ frame-storage-access-test-runtime = { path = "./patches/frame-storage-access-tes
 frame-system = { path = "./pallets/frame-system" }
 litep2p = { path = "./client/litep2p" }
 sc-cli = { path = "./client/cli" }
+sc-informant = { path = "./client/informant" }
 sc-network = { path = "client/network" }
 sc-network-sync = { path = "client/network-sync" }
 sc-network-types = { path = "client/network-types" }
