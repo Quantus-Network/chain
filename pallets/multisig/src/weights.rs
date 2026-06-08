@@ -102,12 +102,16 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `Multisig::Proposals` (r:0 w:1)
 	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13557), added: 16032, mode: `MaxEncodedLen`)
 	/// The range of component `c` is `[0, 10140]`.
-	fn propose_high_security(_c: u32, ) -> Weight {
+	fn propose_high_security(c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `401`
 		//  Estimated: `10357`
 		// Minimum execution time: 34_000_000 picoseconds.
 		Weight::from_parts(34_523_614, 10357)
+			// Call-length cost: the submitted call is decoded (up to `MaxCallSize`) and stored
+			// before the HS whitelist check, identical to `propose`. Mirror `propose`'s per-byte
+			// weight so the upfront `propose_high_security(call.len())` charge is not understated.
+			.saturating_add(Weight::from_parts(333, 0).saturating_mul(c.into()))
 			.saturating_add(T::DbWeight::get().reads(2_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
@@ -245,12 +249,16 @@ impl WeightInfo for () {
 	/// Storage: `Multisig::Proposals` (r:0 w:1)
 	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13557), added: 16032, mode: `MaxEncodedLen`)
 	/// The range of component `c` is `[0, 10140]`.
-	fn propose_high_security(_c: u32, ) -> Weight {
+	fn propose_high_security(c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `401`
 		//  Estimated: `10357`
 		// Minimum execution time: 34_000_000 picoseconds.
 		Weight::from_parts(34_523_614, 10357)
+			// Call-length cost: the submitted call is decoded (up to `MaxCallSize`) and stored
+			// before the HS whitelist check, identical to `propose`. Mirror `propose`'s per-byte
+			// weight so the upfront `propose_high_security(call.len())` charge is not understated.
+			.saturating_add(Weight::from_parts(333, 0).saturating_mul(c.into()))
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
