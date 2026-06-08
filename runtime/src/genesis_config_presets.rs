@@ -253,13 +253,15 @@ pub fn development_config_genesis() -> Value {
 
 		let treasury =
 			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(30) };
-		let mut config: RuntimeGenesisConfig = serde_json::from_value(genesis_template(
-			endowed_accounts,
-			treasury,
-			tech_collective,
-			vec![],
-		))
-		.expect("genesis_template returns valid config");
+		let mut template_value =
+			genesis_template(endowed_accounts, treasury, tech_collective, vec![]);
+		// `genesis_template` adds a chain-spec-only field; strip before deserializing.
+		template_value
+			.as_object_mut()
+			.expect("RuntimeGenesisConfig serializes to a JSON object")
+			.remove(TECH_COLLECTIVE_SEED_MEMBERS_KEY);
+		let mut config: RuntimeGenesisConfig =
+			serde_json::from_value(template_value).expect("genesis_template returns valid config");
 		config.reversible_transfers = rt_genesis;
 		return serde_json::to_value(config).expect("Could not build genesis config.");
 	}
