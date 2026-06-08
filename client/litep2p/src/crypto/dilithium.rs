@@ -94,8 +94,8 @@ impl Keypair {
 	pub fn try_from_bytes(kp: &mut [u8]) -> Result<Keypair, Error> {
 		let seed: [u8; SEED_BYTES] = kp.try_into().map_err(|_| {
 			Error::Other(format!(
-				"Invalid Dilithium seed length: expected {} bytes, got {}",
-				SEED_BYTES,
+				"Invalid node key format: expected {SEED_BYTES}-byte seed, got {} bytes. \
+				Please delete or move your old key file and restart to generate a new identity.",
 				kp.len()
 			))
 		})?;

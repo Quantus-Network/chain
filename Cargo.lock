@@ -9570,10 +9570,7 @@ dependencies = [
 [[package]]
 name = "sc-informant"
 version = "0.54.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7a21da8370d69fd5c43a2877174de2ef9aba6161131e15854ecbed3f98226f6"
 dependencies = [
- "console",
  "futures 0.3.31",
  "futures-timer",
  "log",

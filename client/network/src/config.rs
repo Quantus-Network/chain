@@ -50,7 +50,7 @@ use sc_network_types::{
 	PeerId,
 };
 
-use crate::service::signature::Keypair;
+use crate::service::signature::{DecodingError, Keypair};
 
 use crate::service::{ensure_addresses_consistent_with_transport, traits::NetworkBackend};
 use codec::Encode;
@@ -407,7 +407,6 @@ impl NodeKeyConfig {
 						b.to_vec()
 					};
 					litep2p::crypto::dilithium::Keypair::try_from_bytes(&mut bytes)
-						.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{e:?}")))
 				},
 				|| litep2p::crypto::dilithium::Keypair::generate(),
 				|kp| kp.to_bytes(),
@@ -428,15 +427,14 @@ impl NodeKeyConfig {
 				f,
 				|b| {
 					let bytes = if is_hex_data(b) {
-						array_bytes::hex2bytes(std::str::from_utf8(b).map_err(|_| {
-							io::Error::new(io::ErrorKind::InvalidData, "Failed to decode hex data")
-						})?)
-						.map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid hex"))?
+						array_bytes::hex2bytes(
+							std::str::from_utf8(b).map_err(|_| DecodingError::InvalidKey)?,
+						)
+						.map_err(|_| DecodingError::InvalidKey)?
 					} else {
 						b.to_vec()
 					};
 					Keypair::dilithium_from_bytes(&bytes)
-						.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{:?}", e)))
 				},
 				Keypair::generate_dilithium,
 				|kp| kp.dilithium_to_bytes(),
@@ -461,16 +459,22 @@ where
 	E: Error + Send + Sync + 'static,
 	W: Fn(&K) -> Vec<u8>,
 {
-	std::fs::read(&file)
+	let file_path = file.as_ref();
+	std::fs::read(file_path)
 		.and_then(|mut sk_bytes| {
-			parse(&mut sk_bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+			parse(&mut sk_bytes).map_err(|e| {
+				io::Error::new(
+					io::ErrorKind::InvalidData,
+					format!("Failed to parse '{}': {}", file_path.display(), e),
+				)
+			})
 		})
 		.or_else(|e| {
 			if e.kind() == io::ErrorKind::NotFound {
-				file.as_ref().parent().map_or(Ok(()), fs::create_dir_all)?;
+				file_path.parent().map_or(Ok(()), fs::create_dir_all)?;
 				let sk = generate();
 				let mut sk_vec = serialize(&sk);
-				write_secret_file(file, &sk_vec)?;
+				write_secret_file(file_path, &sk_vec)?;
 				sk_vec.zeroize();
 				Ok(sk)
 			} else {

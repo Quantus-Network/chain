@@ -1,0 +1,22 @@
+[package]
+authors.workspace = true
+description = "Substrate informant (ANSI-free fork)."
+edition.workspace = true
+homepage.workspace = true
+license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+name = "sc-informant"
+repository.workspace = true
+version = "0.54.0"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+futures = { workspace = true }
+futures-timer = { workspace = true }
+log = { workspace = true, default-features = true }
+sc-client-api = { workspace = true, default-features = true }
+sc-network = { workspace = true, default-features = true }
+sc-network-sync = { workspace = true, default-features = true }
+sp-blockchain = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }

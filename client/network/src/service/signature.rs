@@ -37,6 +37,9 @@ pub enum DecodingError {
 	/// Invalid key data.
 	#[error("Invalid key data")]
 	InvalidKey,
+	/// Invalid key data with details.
+	#[error("{0}")]
+	InvalidKeyWithMessage(String),
 	/// Unknown key type.
 	#[error("Unknown key type")]
 	UnknownKeyType,
@@ -128,7 +131,7 @@ impl Keypair {
 		let mut bytes_mut = bytes.to_vec();
 		DilithiumKeypair::try_from_bytes(&mut bytes_mut)
 			.map(Keypair::Dilithium)
-			.map_err(|_| DecodingError::InvalidKey)
+			.map_err(|e| DecodingError::InvalidKeyWithMessage(format!("{}", e)))
 	}
 
 	/// Convert to litep2p keypair for the network backend.
