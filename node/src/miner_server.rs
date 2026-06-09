@@ -152,25 +152,26 @@ async fn create_server_endpoint(port: u16) -> Result<quinn::Endpoint, String> {
 	let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
 		.map_err(|e| format!("Failed to generate certificate: {}", e))?;
 
-	let cert_der = cert
-		.serialize_der()
-		.map_err(|e| format!("Failed to serialize certificate: {}", e))?;
-	let key_der = cert.serialize_private_key_der();
+	let cert_der = rustls::pki_types::CertificateDer::from(cert.cert);
+	let key_der = rustls::pki_types::PrivateKeyDer::try_from(cert.key_pair.serialize_der())
+		.map_err(|e| format!("Failed to serialize private key: {}", e))?;
 
-	let cert_chain = vec![rustls::Certificate(cert_der)];
-	let key = rustls::PrivateKey(key_der);
+	let cert_chain = vec![cert_der];
 
 	// Create server config
 	let mut server_config = rustls::ServerConfig::builder()
-		.with_safe_defaults()
 		.with_no_client_auth()
-		.with_single_cert(cert_chain, key)
+		.with_single_cert(cert_chain, key_der)
 		.map_err(|e| format!("Failed to create server config: {}", e))?;
 
 	// Set ALPN protocol
 	server_config.alpn_protocols = vec![b"quantus-miner".to_vec()];
 
-	let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(server_config));
+	// Wrap in QuicServerConfig for quinn 0.11+
+	let quic_server_config = quinn::crypto::rustls::QuicServerConfig::try_from(server_config)
+		.map_err(|e| format!("Failed to create QUIC server config: {}", e))?;
+
+	let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(quic_server_config));
 
 	// Set transport config
 	let mut transport_config = quinn::TransportConfig::default();
