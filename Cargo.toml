@@ -132,7 +132,7 @@ unsigned-varint = { version = "0.7.2" }
 uuid = { version = "1.7.0", features = ["serde", "v4"] }
 void = { version = "1.0.2" }
 wasm-timer = { version = "0.2.5" }
-x509-parser = { version = "0.17.0" }
+x509-parser = { version = "0.18.1" }
 yamux = { version = "0.13.9" }
 yasna = { version = "0.5.0" }
 zeroize = { version = "1.7.0", default-features = false }
