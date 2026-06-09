@@ -46,7 +46,7 @@ qp-wormhole.workspace = true
 qpow-math.workspace = true
 quantus-miner-api = { workspace = true }
 quantus-runtime.workspace = true
-quinn = "0.10"
+quinn.workspace = true
 rand = { workspace = true, default-features = false, features = [
 	"alloc",
 	"getrandom",
