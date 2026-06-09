@@ -180,7 +180,7 @@ frame-system = { version = "45.0.0", default-features = false }
 frame-system-benchmarking = { version = "45.0.0", default-features = false }
 frame-system-rpc-runtime-api = { version = "40.0.0", default-features = false }
 frame-try-runtime = { version = "0.51.0", default-features = false }
-hickory-resolver = { version = "0.25.2" }
+hickory-resolver = { version = "0.26.1" }
 multiaddr = { version = "0.17.0" }
 multihash = { version = "0.17.0", default-features = false }
 pallet-assets = { version = "48.1.0", default-features = false }
