@@ -17,15 +17,15 @@ name = "sc_network_types"
 path = "src/lib.rs"
 
 [dependencies]
-bs58 = "0.5.1"
+bs58 = { workspace = true }
 bytes = { workspace = true }
 litep2p = { workspace = true }
 log = { workspace = true }
-multiaddr = "0.18.1"
-multihash = { version = "0.19.1", default-features = false }
+multiaddr = { workspace = true }
+multihash = { workspace = true }
 rand = { workspace = true }
-serde_with = { version = "3.12.0", default-features = false, features = ["hex", "macros"] }
+serde_with = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-quickcheck = "1.0.3"
+quickcheck = { workspace = true }

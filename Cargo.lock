@@ -769,6 +769,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "asynchronous-codec"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a860072022177f903e59730004fb5dc13db9275b79bb2aef7ba8ce831956c233"
+dependencies = [
+ "bytes 1.11.1",
+ "futures-sink",
+ "futures-util",
+ "memchr",
+ "pin-project-lite 0.2.16",
+]
+
+[[package]]
 name = "atomic-take"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1009,17 +1022,6 @@ name = "blake2b_simd"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06e903a20b159e944f91ec8499fe1e55651480c541ea0a584f5d967c49ad9d99"
-dependencies = [
- "arrayref",
- "arrayvec 0.7.6",
- "constant_time_eq 0.3.1",
-]
-
-[[package]]
-name = "blake2s_simd"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e90f7deecfac93095eb874a40febd69427776e24e1bd7f87f33ac62d6f0174df"
 dependencies = [
  "arrayref",
  "arrayvec 0.7.6",
@@ -1355,19 +1357,6 @@ checksum = "57663b653d948a338bfb3eeba9bb2fd5fcfaecb9e199e87e1eda4d9e8b240fd9"
 dependencies = [
  "ciborium-io",
  "half",
-]
-
-[[package]]
-name = "cid"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9b68e3193982cd54187d71afdb2a271ad4cf8af157858e9cb911b91321de143"
-dependencies = [
- "core2",
- "multibase",
- "multihash 0.17.0",
- "serde",
- "unsigned-varint 0.7.2",
 ]
 
 [[package]]
@@ -2323,7 +2312,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.106",
 ]
 
 [[package]]
@@ -4237,7 +4226,7 @@ dependencies = [
  "hyper 1.7.0",
  "libc",
  "pin-project-lite 0.2.16",
- "socket2 0.5.10",
+ "socket2 0.6.0",
  "tokio 1.47.1",
  "tower-service",
  "tracing",
@@ -5455,7 +5444,7 @@ dependencies = [
  "async-trait",
  "bs58",
  "bytes 1.11.1",
- "cid 0.11.1",
+ "cid",
  "clatter",
  "enum-display",
  "futures 0.3.31",
@@ -5897,15 +5886,11 @@ version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "835d6ff01d610179fbce3de1694d007e500bf33a7f29689838941d6bf783ae40"
 dependencies = [
- "blake2b_simd",
- "blake2s_simd",
- "blake3",
  "core2",
  "digest 0.10.7",
  "multihash-derive",
  "serde",
  "sha2 0.10.9",
- "sha3",
  "unsigned-varint 0.7.2",
 ]
 
@@ -8036,7 +8021,7 @@ dependencies = [
  "scale-info",
  "sp-core",
  "sp-runtime",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -8509,7 +8494,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.0",
  "thiserror 2.0.18",
  "tokio 1.47.1",
  "tracing",
@@ -8547,7 +8532,7 @@ dependencies = [
  "cfg_aliases 0.2.1",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.0",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -9333,7 +9318,7 @@ dependencies = [
  "sp-tracing",
  "sp-version",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio 1.47.1",
 ]
 
@@ -9492,7 +9477,7 @@ dependencies = [
  "sp-inherents",
  "sp-runtime",
  "substrate-prometheus-endpoint",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -9652,9 +9637,9 @@ dependencies = [
  "assert_matches",
  "async-channel 1.9.0",
  "async-trait",
- "asynchronous-codec",
+ "asynchronous-codec 0.6.2",
  "bytes 1.11.1",
- "cid 0.9.0",
+ "cid",
  "criterion",
  "either",
  "fnv",
@@ -9670,8 +9655,8 @@ dependencies = [
  "parking_lot 0.12.4",
  "partial_sort",
  "pin-project",
- "prost 0.12.6",
- "prost-build 0.13.5",
+ "prost 0.13.5",
+ "prost-build 0.14.3",
  "rand 0.8.5",
  "sc-client-api",
  "sc-network-common",
@@ -9688,11 +9673,11 @@ dependencies = [
  "sp-tracing",
  "substrate-prometheus-endpoint",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio 1.47.1",
  "tokio-stream",
  "tokio-util",
- "unsigned-varint 0.7.2",
+ "unsigned-varint 0.8.0",
  "void",
  "wasm-timer",
  "zeroize",
@@ -9794,12 +9779,12 @@ dependencies = [
  "bytes 1.11.1",
  "litep2p",
  "log",
- "multiaddr 0.18.2",
- "multihash 0.19.3",
+ "multiaddr 0.17.1",
+ "multihash 0.17.0",
  "quickcheck",
  "rand 0.8.5",
  "serde_with",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -12922,9 +12907,9 @@ checksum = "9ea3136b675547379c4bd395ca6b938e5ad3c3d20fad76e7fe85f9e0d011419c"
 
 [[package]]
 name = "typenum"
-version = "1.18.0"
+version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1dccffe3ce07af9386bfd29e80c0ab1a8205a2fc34e4bcd40364df902cfa8f3f"
+checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "ucd-trie"
@@ -13020,12 +13005,6 @@ name = "unsigned-varint"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6889a77d49f1f013504cec6bf97a2c730394adedaeb1deb5ea08949a50541105"
-dependencies = [
- "asynchronous-codec",
- "bytes 1.11.1",
- "futures-io",
- "futures-util",
-]
 
 [[package]]
 name = "unsigned-varint"
@@ -13033,7 +13012,10 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb066959b24b5196ae73cb057f45598450d2c5f71460e98c49b738086eff9c06"
 dependencies = [
+ "asynchronous-codec 0.7.0",
  "bytes 1.11.1",
+ "futures-io",
+ "futures-util",
  "tokio-util",
 ]
 
@@ -13813,7 +13795,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.0",
 ]
 
 [[package]]

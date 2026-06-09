@@ -156,20 +156,8 @@ impl From<Multihash> for LiteP2pMultihash {
 	}
 }
 
-impl From<multihash::Multihash<64>> for Multihash {
-	fn from(generic: multihash::Multihash<64>) -> Self {
-		LiteP2pMultihash::wrap(generic.code(), generic.digest())
-			.expect("both have size 64; qed")
-			.into()
-	}
-}
-
-impl From<Multihash> for multihash::Multihash<64> {
-	fn from(multihash: Multihash) -> Self {
-		multihash::Multihash::<64>::wrap(multihash.code(), multihash.digest())
-			.expect("both have size 64; qed")
-	}
-}
+// Note: In multihash 0.17, LiteP2pMultihash is the same as multihash::Multihash (type alias from
+// Code derive) so these From impls are redundant as both are already handled above.
 
 #[cfg(test)]
 mod tests {

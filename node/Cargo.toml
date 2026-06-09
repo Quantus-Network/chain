@@ -51,8 +51,8 @@ rand = { workspace = true, default-features = false, features = [
 	"alloc",
 	"getrandom",
 ] }
-rcgen = "0.13"
-rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rcgen = { workspace = true }
+rustls = { workspace = true }
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
 sc-cli.default-features = true

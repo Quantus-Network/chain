@@ -7,44 +7,42 @@ repository = "https://github.com/Quantus-Network/chain"
 version = "0.13.3"
 
 [build-dependencies]
-prost-build = "0.14"
+prost-build = { workspace = true }
 
 [dependencies]
 async-trait = { workspace = true }
-bs58 = "0.5.1"
+bs58 = { workspace = true }
 bytes = { workspace = true }
-cid = "0.11.1"
-
+cid = { workspace = true }
+clatter = { workspace = true }
+enum-display = { workspace = true }
 futures = { workspace = true }
 futures-timer = { workspace = true }
 hickory-resolver = { workspace = true }
-indexmap = { version = "2.9.0", features = ["std"] }
+indexmap = { workspace = true }
 ip_network = { workspace = true }
-libc = "0.2.158"
+libc = { workspace = true }
 mockall = { workspace = true }
 multiaddr = { workspace = true }
-multihash = { workspace = true, features = ["blake2b", "identity", "multihash-impl", "sha2", "sha3", "std"] }
-network-interface = "2.0.1"
+multihash = { workspace = true, features = ["identity", "sha2", "std"] }
+network-interface = { workspace = true }
 parking_lot = { workspace = true }
 pin-project = { workspace = true }
-prost = "0.13.5"
+prost = { workspace = true }
 rand = { workspace = true, features = ["getrandom", "std", "std_rng"] }
 serde = { workspace = true }
 sha2 = { workspace = true }
-simple-dns = "0.11.0"
+simple-dns = { workspace = true }
 smallvec = { workspace = true }
-# Noise protocol with post-quantum pqxx pattern (ML-KEM 768 / FIPS 203)
-clatter = { workspace = true }
-enum-display = "0.1.4"
-socket2 = { version = "0.5.9", features = ["all"] }
-thiserror = "2.0.12"
+socket2 = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "parking_lot", "rt", "sync", "time"] }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true, features = ["codec", "compat", "io"] }
 tracing = { workspace = true, features = ["log"] }
-uint = "0.10.0"
-unsigned-varint = { version = "0.8.0", features = ["codec"] }
-url = "2.5.4"
+uint = { workspace = true }
+unsigned-varint = { workspace = true }
+url = { workspace = true }
 x509-parser = { workspace = true }
 yamux = { workspace = true }
 yasna = { workspace = true }
@@ -54,17 +52,17 @@ zeroize = { workspace = true }
 qp-rusty-crystals-dilithium = { workspace = true }
 
 # Websocket
-tokio-tungstenite = { version = "0.27.0", features = ["rustls-tls-native-roots", "url"], optional = true }
+tokio-tungstenite = { workspace = true, optional = true }
 
 # Fuzzing
-serde_millis = { version = "0.1", optional = true }
+serde_millis = { workspace = true, optional = true }
 
 [dev-dependencies]
-futures_ringbuf = "0.4.0"
-hex-literal = "1.0.0"
-quickcheck = "1.0.3"
+futures_ringbuf = { workspace = true }
+hex-literal = { workspace = true }
+quickcheck = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }
-tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+tracing-subscriber = { workspace = true }
 
 [features]
 default = ["websocket"]

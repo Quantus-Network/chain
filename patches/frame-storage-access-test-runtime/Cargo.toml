@@ -11,7 +11,7 @@ runtime-benchmarks = []
 std = []
 
 [dependencies]
-codec = { version = "3.7.5", features = ["derive"], default-features = false, package = "parity-scale-codec" }
-sp-core = { version = "39.0.0", default-features = false }
-sp-runtime = { version = "45.0.0", default-features = false }
-sp-trie = { version = "42.0.0", default-features = false }
+codec = { workspace = true, features = ["derive"] }
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
+sp-trie = { workspace = true }
