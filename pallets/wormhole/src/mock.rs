@@ -111,6 +111,7 @@ impl pallet_assets::Config for Test {
 	type CallbackHandle = ();
 	type Holder = ();
 	type ReserveData = ();
+	type BenchmarkHelper = ();
 }
 
 parameter_types! {
