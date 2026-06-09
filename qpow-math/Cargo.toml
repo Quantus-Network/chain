@@ -5,12 +5,12 @@ version = "0.1.0"
 
 [dependencies]
 hex = { workspace = true, features = ["alloc"] }
-log = { version = "0.4.22", default-features = false }
-primitive-types = { version = "0.13.1", default-features = false }
+log = { workspace = true }
+primitive-types = { workspace = true }
 qp-poseidon-core = { workspace = true }
 
 [dev-dependencies]
-proptest = "1"
+proptest = { workspace = true }
 
 [features]
 default = ["std"]

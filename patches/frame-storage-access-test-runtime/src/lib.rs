@@ -3,7 +3,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use codec::Decode;
+use parity_scale_codec::Decode;
 use sp_core::storage::ChildInfo;
 use sp_runtime::traits;
 use sp_trie::StorageProof;
@@ -12,7 +12,7 @@ use sp_trie::StorageProof;
 pub const WASM_BINARY: Option<&[u8]> = None;
 
 #[derive(Decode, Clone)]
-#[cfg_attr(feature = "std", derive(codec::Encode))]
+#[cfg_attr(feature = "std", derive(parity_scale_codec::Encode))]
 pub struct StorageAccessParams<B: traits::Block> {
 	pub state_root: B::Hash,
 	pub storage_proof: StorageProof,
@@ -20,7 +20,7 @@ pub struct StorageAccessParams<B: traits::Block> {
 	pub is_dry_run: bool,
 }
 
-#[derive(Debug, Clone, Decode, codec::Encode)]
+#[derive(Debug, Clone, Decode, parity_scale_codec::Encode)]
 pub enum StorageAccessPayload {
 	Read(Vec<(Vec<u8>, Option<ChildInfo>)>),
 	Write((Vec<(Vec<u8>, Vec<u8>)>, Option<ChildInfo>)),
