@@ -111,6 +111,7 @@ impl pallet_assets::Config for Test {
 	type CallbackHandle = ();
 	type Holder = ();
 	type ReserveData = ();
+	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = ();
 }
 
