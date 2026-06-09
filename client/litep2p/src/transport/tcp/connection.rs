@@ -779,12 +779,9 @@ mod tests {
 			Duration::from_secs(10),
 			false,
 			Arc::new(
-				TokioResolver::builder_with_config(
-					Default::default(),
-					Default::default(),
-				)
-				.build()
-				.unwrap(),
+				TokioResolver::builder_with_config(Default::default(), Default::default())
+					.build()
+					.unwrap(),
 			),
 		)
 		.await
@@ -882,12 +879,9 @@ mod tests {
 			Duration::from_secs(10),
 			false,
 			Arc::new(
-				TokioResolver::builder_with_config(
-					Default::default(),
-					Default::default(),
-				)
-				.build()
-				.unwrap(),
+				TokioResolver::builder_with_config(Default::default(), Default::default())
+					.build()
+					.unwrap(),
 			),
 		)
 		.await
@@ -1032,12 +1026,9 @@ mod tests {
 			Duration::from_secs(10),
 			false,
 			Arc::new(
-				TokioResolver::builder_with_config(
-					Default::default(),
-					Default::default(),
-				)
-				.build()
-				.unwrap(),
+				TokioResolver::builder_with_config(Default::default(), Default::default())
+					.build()
+					.unwrap(),
 			),
 		)
 		.await
@@ -1086,12 +1077,9 @@ mod tests {
 			Duration::from_secs(10),
 			false,
 			Arc::new(
-				TokioResolver::builder_with_config(
-					Default::default(),
-					Default::default(),
-				)
-				.build()
-				.unwrap(),
+				TokioResolver::builder_with_config(Default::default(), Default::default())
+					.build()
+					.unwrap(),
 			),
 		)
 		.await
@@ -1267,12 +1255,9 @@ mod tests {
 			Duration::from_secs(10),
 			false,
 			Arc::new(
-				TokioResolver::builder_with_config(
-					Default::default(),
-					Default::default(),
-				)
-				.build()
-				.unwrap(),
+				TokioResolver::builder_with_config(Default::default(), Default::default())
+					.build()
+					.unwrap(),
 			),
 		)
 		.await
@@ -1403,12 +1388,9 @@ mod tests {
 			Duration::from_secs(10),
 			false,
 			Arc::new(
-				TokioResolver::builder_with_config(
-					Default::default(),
-					Default::default(),
-				)
-				.build()
-				.unwrap(),
+				TokioResolver::builder_with_config(Default::default(), Default::default())
+					.build()
+					.unwrap(),
 			),
 		)
 		.await
