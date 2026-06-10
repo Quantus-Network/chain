@@ -324,6 +324,7 @@ impl Litep2pNetworkBackend {
 			.unzip();
 
 		config_builder
+			.with_system_resolver()
 			.with_websocket(WebSocketTransportConfig {
 				listen_addresses: websocket.into_iter().flatten().map(Into::into).collect(),
 				yamux_config: litep2p::yamux::Config::default(),
