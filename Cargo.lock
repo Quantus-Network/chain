@@ -8331,7 +8331,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.6.5-penestanan"
+version = "0.7.0-qday"
 dependencies = [
  "clap",
  "frame-benchmarking-cli",
@@ -8394,7 +8394,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.6.5-penestanan"
+version = "0.7.0-qday"
 dependencies = [
  "env_logger",
  "frame-benchmarking",
