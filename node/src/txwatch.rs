@@ -88,24 +88,18 @@ impl TxWatch {
 					continue;
 				}
 
-				let encoded = if let Some(in_pool) = pool.ready_transaction(&tx_hash) {
-					Encode::encode(in_pool.data())
-				} else {
-					let found = pool
-						.ready()
-						.find(|in_pool| *in_pool.hash() == tx_hash)
-						.map(|in_pool| Encode::encode(in_pool.data()));
-					let Some(data) = found else {
-						log::trace!(target: LOG_TARGET, "Tx {:?} not found in ready queue (future or already finalized)", tx_hash);
-						continue;
-					};
-					data
+				let Some(in_pool) = pool.ready_transaction(&tx_hash) else {
+					log::trace!(target: LOG_TARGET, "Tx {:?} not in ready queue (future or already finalized)", tx_hash);
+					continue;
 				};
+				let encoded = Encode::encode(in_pool.data());
 
 				let Ok(inner_bytes) = Vec::<u8>::decode(&mut &encoded[..]) else {
+					log::warn!(target: LOG_TARGET, "Failed to strip length prefix from ready-queue tx {:?}", tx_hash);
 					continue;
 				};
 				let Ok(uxt) = UncheckedExtrinsic::decode_unprefixed(&inner_bytes) else {
+					log::warn!(target: LOG_TARGET, "Failed to decode ready-queue tx {:?} as UncheckedExtrinsic", tx_hash);
 					continue;
 				};
 
