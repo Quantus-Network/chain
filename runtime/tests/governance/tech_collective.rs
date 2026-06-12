@@ -683,8 +683,8 @@ mod tests {
 		// Scenario: Testing voting weights in a flat collective structure.
 		// This test verifies that:
 		// 1. A referendum is rejected when votes are equal (AYE/NAY).
-		// 2. A referendum is approved when 3 of 5 members vote AYE and no one votes against
-		//    (meets the 60% support and 61% approval thresholds).
+		// 2. A referendum is approved when 3 of 5 members vote AYE and no one votes against (meets
+		//    the 60% support and 61% approval thresholds).
 		// 3. A referendum with multiple voters (5 members) shows correct voting patterns:
 		//    - 4 AYE vs 1 NAY should pass
 		//    - 2 AYE vs 3 NAY should fail
