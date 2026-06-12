@@ -71,6 +71,13 @@ mod tests {
 				referendum_index
 			));
 
+			// Both members must vote aye to clear the 60% support threshold (2/2 = 100%)
+			assert_ok!(TechCollective::vote(
+				RuntimeOrigin::signed(proposer.clone()),
+				referendum_index,
+				true
+			));
+
 			assert_ok!(TechCollective::vote(
 				RuntimeOrigin::signed(voter.clone()),
 				referendum_index,
@@ -191,6 +198,13 @@ mod tests {
 			assert_ok!(TechReferenda::place_decision_deposit(
 				RuntimeOrigin::signed(proposer.clone()),
 				referendum_index
+			));
+
+			// Both members must vote aye to clear the 60% support threshold (2/2 = 100%)
+			assert_ok!(TechCollective::vote(
+				RuntimeOrigin::signed(proposer.clone()),
+				referendum_index,
+				true
 			));
 
 			assert_ok!(TechCollective::vote(
@@ -669,9 +683,10 @@ mod tests {
 		// Scenario: Testing voting weights in a flat collective structure.
 		// This test verifies that:
 		// 1. A referendum is rejected when votes are equal (AYE/NAY).
-		// 2. A referendum is approved when only one member votes AYE and no one votes against.
+		// 2. A referendum is approved when 3 of 5 members vote AYE and no one votes against
+		//    (meets the 60% support and 61% approval thresholds).
 		// 3. A referendum with multiple voters (5 members) shows correct voting patterns:
-		//    - 3 AYE vs 2 NAY should pass
+		//    - 4 AYE vs 1 NAY should pass
 		//    - 2 AYE vs 3 NAY should fail
 		// The test uses frame_system::Call::remark as a neutral proposal to avoid affecting chain
 		// state. -------------------------------------------------------------
@@ -880,10 +895,22 @@ mod tests {
 				frame_system::Pallet::<Runtime>::block_number()
 			);
 
-			// Only member_one votes (AYE) - by default this should be enough to approve if no one
-			// votes against
+			// Three of five members vote AYE with no NAYs: support 3/5 = 60% and
+			// approval 100% meet the thresholds
 			assert_ok!(TechCollective::vote(
 				RuntimeOrigin::signed(member_one.clone()),
+				second_referendum_index,
+				true // AYE vote
+			));
+
+			assert_ok!(TechCollective::vote(
+				RuntimeOrigin::signed(member_two.clone()),
+				second_referendum_index,
+				true // AYE vote
+			));
+
+			assert_ok!(TechCollective::vote(
+				RuntimeOrigin::signed(member_three.clone()),
 				second_referendum_index,
 				true // AYE vote
 			));
@@ -1165,7 +1192,7 @@ mod tests {
 	}
 
 	#[test]
-	fn track0_ignores_token_support_threshold_when_min_support_is_zero() {
+	fn track0_support_counts_members_not_token_amounts() {
 		TestCommons::new_fast_governance_test_ext().execute_with(|| {
 			let proposer = TestCommons::account_id(1);
 			let voter1 = TestCommons::account_id(2);
@@ -1329,6 +1356,13 @@ mod tests {
 			assert_ok!(TechReferenda::place_decision_deposit(
 				RuntimeOrigin::signed(proposer.clone()),
 				referendum_index
+			));
+
+			// Both members must vote aye to clear the 60% support threshold (2/2 = 100%)
+			assert_ok!(TechCollective::vote(
+				RuntimeOrigin::signed(proposer.clone()),
+				referendum_index,
+				true
 			));
 
 			assert_ok!(TechCollective::vote(
