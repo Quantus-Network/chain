@@ -6,27 +6,27 @@ Scope: the runtime-upgrade track (`TechReferenda` = `pallet_referenda::Pallet<Ru
 
 All periods are in blocks. `runtime/src/lib.rs:84-89`: `TARGET_BLOCK_TIME_MS = 12_000`, so `MINUTES = 5`, `HOURS = 300`, `DAYS = 7200` blocks.
 
-Track definition: `runtime/src/governance/definitions.rs:165-188` (`TechCollectiveTracksInfo::create_tech_collective_tracks`):
+Track definition: `runtime/src/governance/definitions.rs:165-192` (`TechCollectiveTracksInfo::create_tech_collective_tracks`):
 
 ```rust
 max_deciding: 1,
 decision_deposit: 1000 * UNIT,
 prepare_period: 20,
 decision_period: DAYS,
-confirm_period: 20,
-min_enactment_period: 20,
+confirm_period: DAYS,
+min_enactment_period: DAYS,
 ```
 
 | Parameter | Current (blocks) | Wall clock | Meaning |
 |---|---|---|---|
 | `prepare_period` | 20 | 4 min | Delay between submission and decision start |
 | `decision_period` | 7200 (`DAYS`) | 24 h | Window in which the referendum must reach passing state |
-| `confirm_period` | 20 | 4 min | Must remain continuously passing this long to be approved |
-| `min_enactment_period` | 20 | 4 min | Min delay between approval and dispatch of the upgrade |
+| `confirm_period` | 7200 (`DAYS`) | 24 h | Must remain continuously passing this long to be approved |
+| `min_enactment_period` | 7200 (`DAYS`) | 24 h | Min delay between approval and dispatch of the upgrade |
 
-To change approval duration, edit these four fields in `definitions.rs:170-173`. Any change is a runtime upgrade: bump `spec_version` (`runtime/src/lib.rs:76`, currently 131) and ship via this same track.
+To change approval duration, edit these four fields in `definitions.rs:174-177`. Any change is a runtime upgrade: it only takes effect once shipped via this same track (the release workflow bumps `spec_version`, `runtime/src/lib.rs:76`, currently 131).
 
-Test override: with the `fast-governance` cargo feature, `apply_test_timing` (`definitions.rs:86-95`) forces all four periods to 2 blocks. Production builds never compile it.
+Test override: with the `fast-governance` cargo feature, `apply_test_timing` (`definitions.rs:87-95`) forces all four periods to 2 blocks. Production builds never compile it.
 
 Instance1 `Config` (`runtime/src/configs/mod.rs:335-377`) also uses, from `configs/mod.rs:263-264`:
 
@@ -48,13 +48,13 @@ fn approval(&self, _) -> Perbill { Perbill::from_rational(self.ayes, 1.max(self.
 ```
 
 - **approval** = weighted ayes / (ayes + nays) — abstainers excluded.
-- **support** = `bare_ayes` (head-count of aye voters, unweighted) / total members of the class. `get_max_voters` returns `MemberCount[MinRankOfClass]` (lib.rs:266-271); `MinRankOfClassConverter` always returns rank 0 (`definitions.rs:234-239`), so the denominator is the full membership. Nay votes do not add support; abstention counts against support.
+- **support** = `bare_ayes` (head-count of aye voters, unweighted) / total members of the class. `get_max_voters` returns `MemberCount[MinRankOfClass]` (lib.rs:266-271); `MinRankOfClassConverter` always returns rank 0 (`definitions.rs:238-243`), so the denominator is the full membership. Nay votes do not add support; abstention counts against support.
 - **vote weight**: `type VoteWeight = Linear` (`configs/mod.rs:326`) = `excess_rank + 1` votes (lib.rs:236-241). `PromoteOrigin = NeverEnsureOrigin` (`configs/mod.rs:320`), so every member stays at rank 0 → exactly 1 vote each, and weighted `ayes == bare_ayes`.
 - **passing is inclusive**: `y >= self.threshold(x)` (`pallet-referenda-45.0.0/src/types.rs:637-639`). Therefore a threshold of exactly 60% would let 3 aye / 2 nay pass (60% ≥ 60%). `min_approval` must be strictly above 3/5.
 
-### Proposed curves (constant; `floor == ceil` makes `LinearDecreasing` flat)
+### Current curves (constant; `floor == ceil` makes `LinearDecreasing` flat)
 
-Replace `definitions.rs:174-183` with:
+Implemented at `definitions.rs:178-187`:
 
 ```rust
 min_approval: pallet_referenda::Curve::LinearDecreasing {
@@ -85,7 +85,7 @@ Requirements: (a) 3/5 ayes execute ✓ (rows 1–2); (b) 2 nays block ✓ (row 3
 
 ### Confirm/decision periods are security parameters
 
-A referendum must be *continuously* passing for the whole `confirm_period`; any nay that drops it below threshold aborts confirmation (`ConfirmAborted`, `pallet-referenda-45.0.0/src/lib.rs:1235-1240`) and confirmation must restart. Approval only happens at `lib.rs:1190-1208` after the confirm deadline elapses while still passing. So `confirm_period` is the honest members' reaction window: with the current 20 blocks (4 min), 3 compromised keys could submit 3 ayes and be irreversibly approved before anyone reacts. Recommend ≥ `DAYS` (24 h) for `confirm_period` and keeping `decision_period` ≥ several days on mainnet. `prepare_period` (currently 4 min) similarly bounds advance notice before deciding starts and should be hours at minimum.
+A referendum must be *continuously* passing for the whole `confirm_period`; any nay that drops it below threshold aborts confirmation (`ConfirmAborted`, `pallet-referenda-45.0.0/src/lib.rs:1235-1240`) and confirmation must restart. Approval only happens at `lib.rs:1190-1208` after the confirm deadline elapses while still passing. So `confirm_period` is the honest members' reaction window: at the current 24 h, even if all ayes land in the first block, approval cannot conclude before a full day has passed — dissenting nays always have that window. Worst case (ayes arrive at the end of the decision window) approval takes up to ~48 h; if the referendum is not passing when `decision_period` ends and is not confirming, it is rejected. `prepare_period` (currently 4 min) bounds advance notice before deciding starts and could be raised to hours on mainnet.
 
 ## 3. Vote changing
 
@@ -117,13 +117,13 @@ type KillOrigin = EnsureRoot<AccountId>;
 - `cancel` (`pallet-referenda-45.0.0/src/lib.rs:591-606`): stops an ongoing referendum, **refunds** submission + decision deposits.
 - `kill` (`lib.rs:616-630`): stops it and **slashes** both deposits (`Slash = ()` → burned, `configs/mod.rs:356`).
 
-Both are Root-only. Root is only reachable via a passed referendum, so cancelling a malicious tech referendum requires winning *another* referendum on the same track before the first one enacts — a chicken-and-egg problem, made worse by `max_deciding: 1` (`definitions.rs:168`): a second referendum cannot even enter deciding until the first leaves it. During an attack the practical defense is votes (2 honest nays), not cancellation. Recommendation: give `CancelOrigin` to a smaller quorum (e.g. `EnsureRoot` OR a 2-of-5 ranked-collective origin via `EitherOf<EnsureRoot<...>, EnsureRankedMember<...>>`-style construct, or a dedicated fast cancel track), keep `kill` Root-only.
+Both are Root-only. Root is only reachable via a passed referendum, so cancelling a malicious tech referendum requires winning *another* referendum on the same track before the first one enacts — a chicken-and-egg problem, made worse by `max_deciding: 1` (`definitions.rs:172`): a second referendum cannot even enter deciding until the first leaves it. During an attack the practical defense is votes (2 honest nays), not cancellation. Recommendation: give `CancelOrigin` to a smaller quorum (e.g. `EnsureRoot` OR a 2-of-5 ranked-collective origin via `EitherOf<EnsureRoot<...>, EnsureRankedMember<...>>`-style construct, or a dedicated fast cancel track), keep `kill` Root-only.
 
-Member removal mid-flight: `remove_member` (`pallet-ranked-collective-45.0.0/src/lib.rs:600-617`) requires `RemoveOrigin`, which this runtime sets to `RootOrMemberForCollectiveOrigin` (`configs/mod.rs:319`) — **Root or any single collective member** (`definitions.rs:262-283`). `AddOrigin` (line 318) is the same. This is currently the weakest link: one compromised member can unilaterally remove the other four (all rank 0, so the `max_rank >= rank` check at lib.rs:609 always passes) or stuff the collective up to `MaxMemberCount = 13`, invalidating all threshold math above. For mainnet, membership changes must require Root (i.e. a passed referendum) or an equivalent quorum.
+Member removal mid-flight: `remove_member` (`pallet-ranked-collective-45.0.0/src/lib.rs:600-617`) requires `RemoveOrigin`, which this runtime sets to `RootOrMemberForCollectiveOrigin` (`configs/mod.rs:319`) — **Root or any single collective member** (`definitions.rs:266-287`). `AddOrigin` (line 318) is the same. This is currently the weakest link: one compromised member can unilaterally remove the other four (all rank 0, so the `max_rank >= rank` check at lib.rs:609 always passes) or stuff the collective up to `MaxMemberCount = 13`, invalidating all threshold math above. For mainnet, membership changes must require Root (i.e. a passed referendum) or an equivalent quorum.
 
 Removal does **not** touch ongoing tallies: `do_remove_member_from_rank` (lib.rs:886-892) clears member indices only — cast votes stay counted, but the support denominator `MemberCount[0]` shrinks immediately, *raising* the support percentage of remaining ayes (e.g. after removing 2 of 5 members, 3 ayes = 100% support). Membership changes during a live referendum therefore shift its outcome.
 
-## 5. Security summary (proposed 5-member config: approval 61%, support 60%)
+## 5. Security summary (current 5-member config: approval 61%, support 60%)
 
 Assumes membership management is fixed to Root-only (see §4); with the current any-member `RemoveOrigin`, none of the rows below hold.
 
@@ -134,4 +134,4 @@ Assumes membership management is fixed to Root-only (see §4); with the current 
 | 3 | Yes | **Only if** fewer than 2 honest nays land within decision + confirm window (3a/0n and 3a/1n pass; 3a/2n fails) |
 | 4 | Yes | **Yes, always** (4a/1n = 80% approval) |
 
-Design assumption: at least 2 honest members are online and able to vote nay within `decision_period + confirm_period`. That window is currently 24 h + 4 min — the 4-minute confirm period is the binding constraint and should be raised to hours/days before mainnet.
+Design assumption: at least 2 honest members are online and able to vote nay within `decision_period + confirm_period`. That window is 24 h + 24 h: even in the fastest case (all ayes in the first block of deciding), honest members have a full 24 h confirm window to abort.
