@@ -204,6 +204,12 @@ pub enum PeersetCommand {
 		/// `oneshot::Sender` for sending the current set of reserved peers.
 		tx: oneshot::Sender<Vec<PeerId>>,
 	},
+
+	/// Get connected peers.
+	GetConnectedPeers {
+		/// `oneshot::Sender` for sending the current set of connected peers.
+		tx: oneshot::Sender<Vec<(PeerId, traits::Direction)>>,
+	},
 }
 
 /// Commands emitted by [`Peerset`] to the notification protocol.
@@ -1436,6 +1442,18 @@ impl Stream for Peerset {
 				},
 				PeersetCommand::GetReservedPeers { tx } => {
 					let _ = tx.send(self.reserved_peers.iter().cloned().collect());
+				},
+				PeersetCommand::GetConnectedPeers { tx } => {
+					let _ = tx.send(
+						self.peers
+							.iter()
+							.filter_map(|(peer, state)| match state {
+								PeerState::Connected { direction } =>
+									Some((*peer, (*direction).into())),
+								_ => None,
+							})
+							.collect(),
+					);
 				},
 			}
 		}
