@@ -280,17 +280,20 @@ where
 			})
 			.collect::<Vec<_>>();
 
-		self.metrics
-			.report(|metrics| metrics.submitted_transactions.inc_by(xts.len() as u64));
-
 		let number = self.api.resolve_block_number(at);
 		let at = HashAndNumber { hash: at, number: number? };
-		Ok(pool
+		let results = pool
 			.submit_at(&at, xts, ValidateTransactionPriority::Submitted)
 			.await
 			.into_iter()
 			.map(|result| result.map(|outcome| outcome.hash()))
-			.collect())
+			.collect::<Vec<_>>();
+		let success_count = results.iter().filter(|result| result.is_ok()).count() as u64;
+		if success_count > 0 {
+			self.metrics
+				.report(|metrics| metrics.submitted_transactions.inc_by(success_count));
+		}
+		Ok(results)
 	}
 
 	async fn submit_one(
@@ -302,13 +305,16 @@ where
 		let pool = self.pool.clone();
 		let xt = Arc::from(xt);
 
-		self.metrics.report(|metrics| metrics.submitted_transactions.inc());
-
 		let number = self.api.resolve_block_number(at);
 		let at = HashAndNumber { hash: at, number: number? };
-		pool.submit_one(&at, TimedTransactionSource::from_transaction_source(source, false), xt)
+		let result = pool
+			.submit_one(&at, TimedTransactionSource::from_transaction_source(source, false), xt)
 			.await
-			.map(|outcome| outcome.hash())
+			.map(|outcome| outcome.hash());
+		if result.is_ok() {
+			self.metrics.report(|metrics| metrics.submitted_transactions.inc());
+		}
+		result
 	}
 
 	async fn submit_and_watch(
@@ -320,18 +326,21 @@ where
 		let pool = self.pool.clone();
 		let xt = Arc::from(xt);
 
-		self.metrics.report(|metrics| metrics.submitted_transactions.inc());
-
 		let number = self.api.resolve_block_number(at);
 
 		let at = HashAndNumber { hash: at, number: number? };
-		pool.submit_and_watch(
-			&at,
-			TimedTransactionSource::from_transaction_source(source, false),
-			xt,
-		)
-		.await
-		.map(|mut outcome| outcome.expect_watcher().into_stream().boxed())
+		let result = pool
+			.submit_and_watch(
+				&at,
+				TimedTransactionSource::from_transaction_source(source, false),
+				xt,
+			)
+			.await
+			.map(|mut outcome| outcome.expect_watcher().into_stream().boxed());
+		if result.is_ok() {
+			self.metrics.report(|metrics| metrics.submitted_transactions.inc());
+		}
+		result
 	}
 
 	async fn report_invalid(
