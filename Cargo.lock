@@ -10123,10 +10123,10 @@ dependencies = [
 [[package]]
 name = "sc-transaction-pool"
 version = "44.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a96ce28233919bd507af7c6e61163655d3508b2a4be791b9ff64a4cfd570f4df"
 dependencies = [
+ "assert_matches",
  "async-trait",
+ "criterion",
  "futures 0.3.31",
  "futures-timer",
  "indexmap",
@@ -10147,7 +10147,7 @@ dependencies = [
  "sp-transaction-pool",
  "strum 0.26.3",
  "substrate-prometheus-endpoint",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio 1.47.1",
  "tokio-stream",
  "tracing",

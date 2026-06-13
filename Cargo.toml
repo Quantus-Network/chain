@@ -14,6 +14,7 @@ members = [
 	"client/network",
 	"client/network-sync",
 	"client/network-types",
+	"client/transaction-pool",
 	"miner-api",
 	"node",
 	"pallets/frame-system",
@@ -86,6 +87,7 @@ lazy_static = { version = "1.5.0", default-features = false, features = [
 ] }
 libc = { version = "0.2.158" }
 linked_hash_set = { version = "0.1.4" }
+linked-hash-map = { version = "0.5.6" }
 log = { version = "0.4.22", default-features = false }
 memory-db = { version = "0.34.0", default-features = false }
 mockall = { version = "0.13.1" }
@@ -250,6 +252,7 @@ sp-session = { version = "42.0.0", default-features = false }
 sp-storage = { version = "22.0.0", default-features = false }
 sp-timestamp = { version = "40.0.0", default-features = false }
 sp-tracing = { version = "19.0.0", default-features = false }
+strum = { version = "0.26.3", default-features = false, features = ["derive"] }
 sp-transaction-pool = { version = "40.0.0", default-features = false }
 sp-trie = { version = "42.0.1", default-features = false }
 sp-version = { version = "43.0.0", default-features = false }
@@ -268,6 +271,7 @@ sc-informant = { path = "./client/informant" }
 sc-network = { path = "client/network" }
 sc-network-sync = { path = "client/network-sync" }
 sc-network-types = { path = "client/network-types" }
+sc-transaction-pool = { path = "client/transaction-pool" }
 
 [profile.release]
 opt-level = 3
