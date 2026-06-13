@@ -69,8 +69,8 @@ directories = { version = "5.0.1" }
 docify = { version = "0.2.9", default-features = false }
 either = { version = "1.8.1", default-features = false }
 enum-display = { version = "0.1.4" }
-exit-future = { version = "0.2.0" }
 env_logger = { version = "0.11.5" }
+exit-future = { version = "0.2.0" }
 fdlimit = { version = "0.3.0" }
 fnv = { version = "1.0.6" }
 foldhash = { version = "0.1.5", default-features = false }
@@ -89,8 +89,8 @@ lazy_static = { version = "1.5.0", default-features = false, features = [
 	"spin_no_std",
 ] }
 libc = { version = "0.2.158" }
-linked_hash_set = { version = "0.1.4" }
 linked-hash-map = { version = "0.5.6" }
+linked_hash_set = { version = "0.1.4" }
 log = { version = "0.4.22", default-features = false }
 memory-db = { version = "0.34.0", default-features = false }
 mockall = { version = "0.13.1" }
@@ -222,8 +222,8 @@ pallet-utility = { version = "45.0.0", default-features = false }
 prometheus-endpoint = { version = "0.17.7", default-features = false, package = "substrate-prometheus-endpoint" }
 sc-basic-authorship = { version = "0.53.0", default-features = false }
 sc-block-builder = { version = "0.48.0", default-features = true }
-sc-cli = { version = "0.57.0", default-features = false }
 sc-chain-spec = { version = "48.0.0", default-features = false }
+sc-cli = { version = "0.57.0", default-features = false }
 sc-client-api = { version = "44.0.0", default-features = false }
 sc-consensus = { version = "0.54.0", default-features = false }
 sc-executor = { version = "0.47.0", default-features = false }
@@ -264,13 +264,13 @@ sp-session = { version = "42.0.0", default-features = false }
 sp-storage = { version = "22.0.0", default-features = false }
 sp-timestamp = { version = "40.0.0", default-features = false }
 sp-tracing = { version = "19.0.0", default-features = false }
-strum = { version = "0.26.3", default-features = false, features = ["derive"] }
 sp-transaction-pool = { version = "40.0.0", default-features = false }
 sp-transaction-storage-proof = { version = "40.0.0", default-features = false }
 sp-trie = { version = "42.0.1", default-features = false }
 sp-version = { version = "43.0.0", default-features = false }
 sp-weights = { version = "33.2.0", default-features = false }
 static_init = { version = "1.0.4" }
+strum = { version = "0.26.3", default-features = false, features = ["derive"] }
 substrate-build-script-utils = { version = "11.0.0", default-features = false }
 substrate-frame-rpc-system = { version = "49.0.0", default-features = false }
 substrate-test-utils = { version = "3.0.0", default-features = false }
