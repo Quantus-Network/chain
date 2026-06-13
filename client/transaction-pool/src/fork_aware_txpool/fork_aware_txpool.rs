@@ -794,7 +794,7 @@ where
 			return Ok(mempool_results
 				.into_iter()
 				.map(|r| r.map(|r| r.hash).map_err(Into::into))
-				.collect::<Vec<_>>())
+				.collect::<Vec<_>>());
 		}
 
 		// Submit all the transactions to the mempool
@@ -1230,7 +1230,7 @@ where
 					?tree_route,
 					"Skipping ChainEvent - no last block in tree route"
 				);
-				return
+				return;
 			},
 		};
 
@@ -1240,7 +1240,7 @@ where
 				?hash_and_number,
 				"view already exists for block"
 			);
-			return
+			return;
 		}
 
 		let best_view = self.view_store.find_best_view(tree_route);
@@ -1276,13 +1276,13 @@ where
 			let Some(oldest_block_number) =
 				included_transactions.first_key_value().map(|(k, _)| k.number)
 			else {
-				return
+				return;
 			};
 
 			if at.number.saturating_sub(oldest_block_number).into() <=
 				self.finality_timeout_threshold.into()
 			{
-				return
+				return;
 			}
 
 			let mut finality_timedout_blocks =
@@ -1464,7 +1464,7 @@ where
 	/// Returns a `Vec` of transactions hashes
 	async fn fetch_block_transactions(&self, at: &HashAndNumber<Block>) -> Vec<TxHash<Self>> {
 		if let Some(txs) = self.included_transactions.lock().get(at) {
-			return txs.clone()
+			return txs.clone();
 		};
 
 		debug!(
@@ -1502,7 +1502,7 @@ where
 		let recent_finalized_block = self.enactment_state.lock().recent_finalized_block();
 
 		let Ok(tree_route) = self.api.tree_route(recent_finalized_block, at.hash) else {
-			return Default::default()
+			return Default::default();
 		};
 
 		let mut all_txs = HashSet::new();
@@ -1890,7 +1890,7 @@ where
 			.await;
 
 		let Some(priority) = validated_tx.priority() else {
-			return Err(TxPoolApiError::ImmediatelyDropped)
+			return Err(TxPoolApiError::ImmediatelyDropped);
 		};
 
 		let insertion_info = self
@@ -1957,7 +1957,7 @@ where
 				});
 		}
 
-		return Ok(insertion_info)
+		return Ok(insertion_info);
 	}
 }
 

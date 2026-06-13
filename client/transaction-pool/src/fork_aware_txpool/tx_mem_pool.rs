@@ -454,7 +454,7 @@ where
 	/// Returns the number of bytes used by all extrinsics in the the pool.
 	#[cfg(test)]
 	pub fn bytes(&self) -> usize {
-		return self.transactions.bytes()
+		return self.transactions.bytes();
 	}
 
 	/// Returns true if provided values would exceed defined limits.

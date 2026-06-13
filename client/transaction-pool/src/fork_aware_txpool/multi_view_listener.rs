@@ -591,7 +591,7 @@ where
 			futures::stream::unfold(external_ctx, |mut ctx| async move {
 				if ctx.terminate {
 					trace!(target: LOG_TARGET, tx_hash = ?ctx.tx_hash, "terminate");
-					return None
+					return None;
 				}
 				loop {
 					tokio::select! {
