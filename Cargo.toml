@@ -14,6 +14,7 @@ members = [
 	"client/network",
 	"client/network-sync",
 	"client/network-types",
+	"client/service",
 	"client/transaction-pool",
 	"miner-api",
 	"node",
@@ -64,9 +65,11 @@ clap = { version = "4.5.13" }
 clatter = { version = "=1.1.0" }
 codec = { version = "3.6.12", default-features = false, package = "parity-scale-codec" }
 criterion = { version = "0.5.1", default-features = false }
+directories = { version = "5.0.1" }
 docify = { version = "0.2.9", default-features = false }
 either = { version = "1.8.1", default-features = false }
 enum-display = { version = "0.1.4" }
+exit-future = { version = "0.2.0" }
 env_logger = { version = "0.11.5" }
 fdlimit = { version = "0.3.0" }
 fnv = { version = "1.0.6" }
@@ -142,6 +145,7 @@ tokio-test = { version = "0.4.4" }
 tokio-tungstenite = { version = "0.27.0", features = ["rustls-tls-native-roots", "url"] }
 tokio-util = { version = "0.7.13", default-features = false }
 tracing = { version = "0.1.37", default-features = false }
+tracing-futures = { version = "0.2.5" }
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 trie-bench = { version = "0.42.0" }
 trie-db = { version = "0.30.0", default-features = false }
@@ -219,15 +223,23 @@ prometheus-endpoint = { version = "0.17.7", default-features = false, package = 
 sc-basic-authorship = { version = "0.53.0", default-features = false }
 sc-block-builder = { version = "0.48.0", default-features = true }
 sc-cli = { version = "0.57.0", default-features = false }
+sc-chain-spec = { version = "48.0.0", default-features = false }
 sc-client-api = { version = "44.0.0", default-features = false }
 sc-consensus = { version = "0.54.0", default-features = false }
 sc-executor = { version = "0.47.0", default-features = false }
+sc-informant = { version = "0.54.0", default-features = false }
 sc-network = { version = "0.55.1", default-features = false }
 sc-network-common = { version = "0.52.0", default-features = false }
+sc-network-light = { version = "0.54.0", default-features = false }
 sc-network-sync = { version = "0.54.0", default-features = false }
+sc-network-transactions = { version = "0.54.0", default-features = false }
 sc-network-types = { version = "0.20.3", default-features = false }
 sc-offchain = { version = "50.0.0", default-features = false }
+sc-rpc = { version = "50.0.0", default-features = false }
+sc-rpc-server = { version = "27.0.0", default-features = false }
+sc-rpc-spec-v2 = { version = "0.55.0", default-features = false }
 sc-service = { version = "0.56.0", default-features = false }
+sc-sysinfo = { version = "46.0.0", default-features = false }
 sc-telemetry = { version = "30.0.0", default-features = false }
 sc-transaction-pool = { version = "44.1.0", default-features = false }
 sc-transaction-pool-api = { version = "43.0.0", default-features = false }
@@ -254,9 +266,11 @@ sp-timestamp = { version = "40.0.0", default-features = false }
 sp-tracing = { version = "19.0.0", default-features = false }
 strum = { version = "0.26.3", default-features = false, features = ["derive"] }
 sp-transaction-pool = { version = "40.0.0", default-features = false }
+sp-transaction-storage-proof = { version = "40.0.0", default-features = false }
 sp-trie = { version = "42.0.1", default-features = false }
 sp-version = { version = "43.0.0", default-features = false }
 sp-weights = { version = "33.2.0", default-features = false }
+static_init = { version = "1.0.4" }
 substrate-build-script-utils = { version = "11.0.0", default-features = false }
 substrate-frame-rpc-system = { version = "49.0.0", default-features = false }
 substrate-test-utils = { version = "3.0.0", default-features = false }
@@ -271,6 +285,7 @@ sc-informant = { path = "./client/informant" }
 sc-network = { path = "client/network" }
 sc-network-sync = { path = "client/network-sync" }
 sc-network-types = { path = "client/network-types" }
+sc-service = { path = "client/service" }
 sc-transaction-pool = { path = "client/transaction-pool" }
 
 [profile.release]

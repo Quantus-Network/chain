@@ -5319,6 +5319,7 @@ dependencies = [
  "cc",
  "libc",
  "libz-sys",
+ "tikv-jemalloc-sys",
 ]
 
 [[package]]
@@ -9964,8 +9965,6 @@ dependencies = [
 [[package]]
 name = "sc-service"
 version = "0.56.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74474742137c0427d10cd937320e962373c5555234b76a0cbbfdbc1e73d1bfb7"
 dependencies = [
  "async-trait",
  "directories",
@@ -10020,7 +10019,7 @@ dependencies = [
  "static_init",
  "substrate-prometheus-endpoint",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio 1.47.1",
  "tracing",
  "tracing-futures",
