@@ -263,11 +263,15 @@ impl<B: ChainApi, L: EventHandler<B>> Pool<B, L> {
 		source: base::TimedTransactionSource,
 		xt: ExtrinsicFor<B>,
 	) -> Result<ValidatedPoolSubmitOutcome<B>, B::Error> {
-		let res = self
-			.submit_at(at, std::iter::once((source, xt)), ValidateTransactionPriority::Submitted)
+		self.submit_at(at, std::iter::once((source, xt)), ValidateTransactionPriority::Submitted)
 			.await
-			.pop();
-		res.expect("One extrinsic passed; one result returned; qed")
+			.pop()
+			.ok_or_else(|| {
+				sc_transaction_pool_api::error::Error::InvalidBlockId(
+					"submit_at returned no results".into(),
+				)
+				.into()
+			})?
 	}
 
 	/// Import a single extrinsic and starts to watch its progress in the pool.

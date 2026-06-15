@@ -321,7 +321,12 @@ where
 		self.submit_many(std::iter::once((source, xt)), validation_priority)
 			.await
 			.pop()
-			.expect("There is exactly one result, qed.")
+			.ok_or_else(|| {
+				sc_transaction_pool_api::error::Error::InvalidBlockId(
+					"submit_many returned empty result".into(),
+				)
+				.into()
+			})?
 	}
 
 	/// Imports many unvalidated extrinsics into the view.

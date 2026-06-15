@@ -830,10 +830,9 @@ where
 
 				if self.config.enable_import_proof_recording {
 					runtime_api.record_proof();
-					let recorder = runtime_api
-						.proof_recorder()
-						.expect("Proof recording is enabled in the line above; qed.");
-					runtime_api.register_extension(ProofSizeExt::new(recorder));
+					if let Some(recorder) = runtime_api.proof_recorder() {
+						runtime_api.register_extension(ProofSizeExt::new(recorder));
+					}
 				}
 
 				runtime_api.execute_block(
@@ -934,7 +933,7 @@ where
 				.backend
 				.blockchain()
 				.header(hash)?
-				.expect("Block to finalize expected to be onchain; qed");
+				.ok_or_else(|| Error::MissingHeader(format!("{hash:?}")))?;
 			let block_number = *header.number();
 
 			// The stale blocks that will be displaced after the block is finalized.
@@ -1264,7 +1263,9 @@ where
 			}
 		};
 		let mut current_child = if start_key.len() == 2 {
-			let start_key = start_key.get(0).expect("checked len");
+			let Some(start_key) = start_key.first() else {
+				return Err(Error::Backend("Invalid start_key: expected at least one element".to_string()));
+			};
 			if let Some(child_root) = state
 				.storage(start_key)
 				.map_err(|e| sp_blockchain::Error::from_state(Box::new(e)))?

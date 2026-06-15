@@ -402,7 +402,11 @@ impl TaskManager {
 			futures::select! {
 				_ = t1 => Err(Error::Other("Essential task failed.".into())),
 				_ = t2 => Ok(()),
-				res = t3 => Err(res.map(|_| ()).expect_err("this future never ends; qed")),
+				res = t3 => match res {
+					// This future contains pending() so should never return Ok
+					Ok(_) => Err(Error::Other("Child task manager unexpectedly completed.".into())),
+					Err(e) => Err(e),
+				},
 			}
 		})
 	}
@@ -449,8 +453,7 @@ impl Metrics {
 						"substrate_tasks_polling_duration",
 						"Duration in seconds of each invocation of Future::poll"
 					),
-					buckets: exponential_buckets(0.001, 4.0, 9)
-						.expect("function parameters are constant and always valid; qed"),
+					buckets: exponential_buckets(0.001, 4.0, 9)?,
 				},
 				&["task_name", "task_group", "kind"]
 			)?, registry)?,

@@ -5,17 +5,18 @@ fn main() {
 		".",
 		"#[cfg_attr(feature = \"fuzz\", derive(serde::Serialize, serde::Deserialize))]",
 	);
-	config
-		.compile_protos(
-			&[
-				"src/schema/keys.proto",
-				"src/schema/noise.proto",
-				"src/schema/webrtc.proto",
-				"src/protocol/libp2p/schema/identify.proto",
-				"src/protocol/libp2p/schema/kademlia.proto",
-				"src/protocol/libp2p/schema/bitswap.proto",
-			],
-			&["src"],
-		)
-		.unwrap();
+	if let Err(e) = config.compile_protos(
+		&[
+			"src/schema/keys.proto",
+			"src/schema/noise.proto",
+			"src/schema/webrtc.proto",
+			"src/protocol/libp2p/schema/identify.proto",
+			"src/protocol/libp2p/schema/kademlia.proto",
+			"src/protocol/libp2p/schema/bitswap.proto",
+		],
+		&["src"],
+	) {
+		println!("cargo::error=Failed to compile protobuf schemas: {e}");
+		std::process::exit(1);
+	}
 }

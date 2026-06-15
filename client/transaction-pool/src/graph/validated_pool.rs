@@ -153,10 +153,9 @@ impl<B: ChainApi, W> BaseSubmitOutcome<B, W> {
 		self.hash
 	}
 
-	/// Provides a watcher. Should only be called on outcomes of `submit_and_watch`. Otherwise will
-	/// panic (that would mean logical error in program).
-	pub fn expect_watcher(&mut self) -> W {
-		self.watcher.take().expect("watcher was set in submit_and_watch. qed")
+	/// Takes the watcher if present. Should only be called on outcomes of `submit_and_watch`.
+	pub fn take_watcher(&mut self) -> Option<W> {
+		self.watcher.take()
 	}
 }
 
@@ -447,10 +446,15 @@ impl<B: ChainApi, L: EventHandler<B>> ValidatedPool<B, L> {
 			ValidatedTransaction::Valid(tx) => {
 				let hash = self.api.hash_and_length(&tx.data).0;
 				let watcher = self.create_watcher(hash);
-				self.submit(std::iter::once(ValidatedTransaction::Valid(tx)))
-					.pop()
-					.expect("One extrinsic passed; one result returned; qed")
-					.map(|outcome| outcome.with_watcher(watcher))
+				let mut results = self.submit(std::iter::once(ValidatedTransaction::Valid(tx)));
+				// We submitted exactly one transaction, so we get exactly one result
+				match results.pop() {
+					Some(result) => result.map(|outcome| outcome.with_watcher(watcher)),
+					None => Err(sc_transaction_pool_api::error::Error::InvalidBlockId(
+						"submit returned no results".into(),
+					)
+					.into()),
+				}
 			},
 			ValidatedTransaction::Invalid(hash, err) => {
 				self.rotator.ban(&Instant::now(), std::iter::once(hash));
@@ -502,11 +506,10 @@ impl<B: ChainApi, L: EventHandler<B>> ValidatedPool<B, L> {
 			let mut initial_statuses = HashMap::new();
 			let mut txs_to_resubmit = Vec::with_capacity(updated_transactions.len());
 			while !updated_transactions.is_empty() {
-				let hash = updated_transactions
-					.keys()
-					.next()
-					.cloned()
-					.expect("transactions is not empty; qed");
+				// Get the next hash - the while condition guarantees this exists
+				let Some(hash) = updated_transactions.keys().next().cloned() else {
+					break;
+				};
 
 				// note we are not considering tx with hash invalid here - we just want
 				// to remove it along with dependent transactions and `remove_subtree()`

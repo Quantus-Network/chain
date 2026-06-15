@@ -406,12 +406,7 @@ where
 				.rev()
 				.find(|block| active_views.contains_key(&block.hash))
 		};
-		best_view.map(|h| {
-			active_views
-				.get(&h.hash)
-				.expect("hash was just found in the map's keys. qed")
-				.clone()
-		})
+		best_view.and_then(|h| active_views.get(&h.hash).cloned())
 	}
 
 	/// Returns an iterator for ready transactions for the most recently notified best block.

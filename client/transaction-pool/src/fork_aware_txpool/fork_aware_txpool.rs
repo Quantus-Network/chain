@@ -216,8 +216,10 @@ where
 			self.api.block_id_to_number(&BlockId::Hash(initial_view_hash)).ok().flatten()
 		{
 			let at_best = HashAndNumber { number: block_number, hash: initial_view_hash };
-			let tree_route =
-				&TreeRoute::new(vec![at_best.clone()], 0).expect("tree route is correct; qed");
+			// TreeRoute::new with a single element and pivot 0 always succeeds (0 < 1)
+			let Ok(tree_route) = TreeRoute::new(vec![at_best.clone()], 0) else {
+				return self;
+			};
 			let view = self.build_and_plug_view(None, &at_best, &tree_route);
 			self.view_store.insert_new_view_sync(view.into(), &tree_route);
 			trace!(target: LOG_TARGET, ?block_number, ?initial_view_hash, "fatp::injected initial view");
@@ -766,7 +768,10 @@ where
 				self.mempool
 					.update_transaction_priority(outcome.hash(), outcome.priority())
 					.await;
-				Ok(outcome.expect_watcher())
+				outcome.take_watcher().ok_or_else(|| {
+					TxPoolApiError::InvalidBlockId("watcher was not set in submit_and_watch".into())
+						.into()
+				})
 			},
 		}
 	}
@@ -849,11 +854,16 @@ where
 		//
 		// Finally, it collects the hashes of updated transactions or submission errors (either
 		// from the mempool or view_store) into a returned vector (final_results).
-		const RESULTS_ASSUMPTION : &str =
-			"The number of Ok results in mempool is exactly the same as the size of view_store submission result. qed.";
 		let merged_results = mempool_results.into_iter().map(|result| {
 			result.map_err(Into::into).and_then(|insertion| {
-				Ok((insertion.hash, submission_results.next().expect(RESULTS_ASSUMPTION)))
+				// The number of Ok results in mempool equals view_store submission results size
+				match submission_results.next() {
+					Some(submission_result) => Ok((insertion.hash, submission_result)),
+					None => Err(TxPoolApiError::InvalidBlockId(
+						"submission_results iterator exhausted unexpectedly".into(),
+					)
+					.into()),
+				}
 			})
 		});
 
@@ -991,8 +1001,9 @@ where
 			"fatp::submit_one"
 		);
 		match self.submit_at(_at, source, vec![xt]).await {
-			Ok(mut v) =>
-				v.pop().expect("There is exactly one element in result of submit_at. qed."),
+			Ok(mut v) => v.pop().ok_or_else(|| {
+				TxPoolApiError::InvalidBlockId("submit_at returned empty result".into()).into()
+			})?,
 			Err(e) => Err(e),
 		}
 	}

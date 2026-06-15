@@ -185,13 +185,14 @@ pub struct PrometheusConfig {
 
 impl PrometheusConfig {
 	/// Create a new config using the default registry.
-	pub fn new_with_default_registry(port: SocketAddr, chain_id: String) -> Self {
+	///
+	/// Returns `None` if the registry creation fails (should not happen with valid inputs).
+	pub fn new_with_default_registry(port: SocketAddr, chain_id: String) -> Option<Self> {
 		let param = iter::once((String::from("chain"), chain_id)).collect();
-		Self {
+		Some(Self {
 			port,
-			registry: Registry::new_custom(None, Some(param))
-				.expect("this can only fail if the prefix is empty"),
-		}
+			registry: Registry::new_custom(None, Some(param)).ok()?,
+		})
 	}
 }
 
@@ -280,12 +281,13 @@ impl BasePath {
 	}
 
 	/// Create a base path from values describing the project.
-	pub fn from_project(qualifier: &str, organization: &str, application: &str) -> BasePath {
-		BasePath::new(
-			directories::ProjectDirs::from(qualifier, organization, application)
-				.expect("app directories exist on all supported platforms; qed")
+	///
+	/// Returns `None` if the platform does not support application directories.
+	pub fn from_project(qualifier: &str, organization: &str, application: &str) -> Option<BasePath> {
+		Some(BasePath::new(
+			directories::ProjectDirs::from(qualifier, organization, application)?
 				.data_local_dir(),
-		)
+		))
 	}
 
 	/// Retrieve the base path.

@@ -203,10 +203,12 @@ impl<Hash: hash::Hash + Member + Serialize, Ex> ReadyTransactions<Hash, Ex> {
 		for tag in &transaction.requires {
 			// Check if the transaction that satisfies the tag is still in the queue.
 			if let Some(other) = self.provided_tags.get(tag) {
-				let tx = ready.get_mut(other).expect(HASH_READY);
-				tx.unlocks.push(hash.clone());
-				// this transaction depends on some other, so it doesn't go to best directly.
-				goes_to_best = false;
+				// Every hash in provided_tags is guaranteed to be in ready map (see HASH_READY).
+				if let Some(tx) = ready.get_mut(other) {
+					tx.unlocks.push(hash.clone());
+					// this transaction depends on some other, so it doesn't go to best directly.
+					goes_to_best = false;
+				}
 			} else {
 				requires_offset += 1;
 			}
@@ -245,7 +247,7 @@ impl<Hash: hash::Hash + Member + Serialize, Ex> ReadyTransactions<Hash, Ex> {
 
 	/// Retrieve transaction by hash
 	pub fn by_hash(&self, hash: &Hash) -> Option<Arc<Transaction<Hash, Ex>>> {
-		self.by_hashes(&[hash.clone()]).into_iter().next().unwrap_or(None)
+		self.by_hashes(std::slice::from_ref(hash)).into_iter().next().unwrap_or(None)
 	}
 
 	/// Retrieve transactions by hash

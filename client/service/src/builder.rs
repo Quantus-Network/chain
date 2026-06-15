@@ -882,7 +882,11 @@ where
 	// - block pruning in archive mode: The block's body is kept around
 	let is_archive_node = state_pruning.as_ref().map(|sp| sp.is_archive()).unwrap_or(false) &&
 		blocks_pruning.is_archive();
-	let genesis_hash = client.hash(Zero::zero()).ok().flatten().expect("Genesis block exists; qed");
+	let genesis_hash = client
+		.hash(Zero::zero())
+		.ok()
+		.flatten()
+		.ok_or_else(|| Error::Other("Genesis block hash not found".into()))?;
 	if is_archive_node {
 		let archive_v2 = sc_rpc_spec_v2::archive::Archive::new(
 			client.clone(),

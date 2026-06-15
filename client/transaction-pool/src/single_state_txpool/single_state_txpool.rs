@@ -335,8 +335,17 @@ where
 				TimedTransactionSource::from_transaction_source(source, false),
 				xt,
 			)
-			.await
-			.map(|mut outcome| outcome.expect_watcher().into_stream().boxed());
+			.await;
+		let result = match result {
+			Ok(mut outcome) => match outcome.take_watcher() {
+				Some(w) => Ok(w.into_stream().boxed()),
+				None => Err(TxPoolError::InvalidBlockId(
+					"watcher was not set in submit_and_watch".into(),
+				)
+				.into()),
+			},
+			Err(e) => Err(e),
+		};
 		if result.is_ok() {
 			self.metrics.report(|metrics| metrics.submitted_transactions.inc());
 		}

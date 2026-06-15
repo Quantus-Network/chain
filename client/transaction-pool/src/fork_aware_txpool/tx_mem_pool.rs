@@ -980,7 +980,9 @@ where
 			watched,
 		);
 		let _ = self.sync_channel.send(request);
-		response.recv().expect(SYNC_BRIDGE_EXPECT)
+		response.recv().map_err(|_| {
+			sc_transaction_pool_api::error::Error::InvalidBlockId(SYNC_BRIDGE_EXPECT.into())
+		})?
 	}
 
 	pub(super) fn extend_unwatched_sync(
@@ -993,7 +995,7 @@ where
 		let (response, request) =
 			TxMemPoolSyncRequest::extend_unwatched(self.clone(), source, validated_at, xts);
 		let _ = self.sync_channel.send(request);
-		response.recv().expect(SYNC_BRIDGE_EXPECT)
+		response.recv().unwrap_or_default()
 	}
 
 	pub(super) fn remove_transactions_sync(
@@ -1003,7 +1005,7 @@ where
 		let (response, request) =
 			TxMemPoolSyncRequest::remove_transactions(self.clone(), tx_hashes);
 		let _ = self.sync_channel.send(request);
-		response.recv().expect(SYNC_BRIDGE_EXPECT)
+		let _ = response.recv();
 	}
 
 	pub(super) fn update_transaction_priority_sync(
@@ -1014,7 +1016,7 @@ where
 		let (response, request) =
 			TxMemPoolSyncRequest::update_transaction_priority(self.clone(), hash, prio);
 		let _ = self.sync_channel.send(request);
-		response.recv().expect(SYNC_BRIDGE_EXPECT)
+		let _ = response.recv();
 	}
 }
 

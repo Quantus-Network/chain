@@ -124,7 +124,7 @@ impl EventsHistograms {
 				Histogram::with_opts(histogram_opts!(
 					"substrate_sub_txpool_timing_event_future",
 					"Histogram of timings for reporting Future event",
-					exponential_buckets(0.01, 2.0, 16).unwrap()
+					exponential_buckets(0.01, 2.0, 16)?
 				))?,
 				registry,
 			)?,
@@ -132,7 +132,7 @@ impl EventsHistograms {
 				Histogram::with_opts(histogram_opts!(
 					"substrate_sub_txpool_timing_event_ready",
 					"Histogram of timings for reporting Ready event",
-					exponential_buckets(0.01, 2.0, 16).unwrap()
+					exponential_buckets(0.01, 2.0, 16)?
 				))?,
 				registry,
 			)?,
@@ -140,7 +140,7 @@ impl EventsHistograms {
 				Histogram::with_opts(histogram_opts!(
 					"substrate_sub_txpool_timing_event_broadcast",
 					"Histogram of timings for reporting Broadcast event",
-					linear_buckets(0.01, 0.25, 16).unwrap()
+					linear_buckets(0.01, 0.25, 16)?
 				))?,
 				registry,
 			)?,
@@ -152,7 +152,7 @@ impl EventsHistograms {
 					)
 					.buckets(
 						[
-							linear_buckets(0.0, 3.0, 20).unwrap(),
+							linear_buckets(0.0, 3.0, 20)?,
 							// requested in #9158
 							vec![60.0, 75.0, 90.0, 120.0, 180.0],
 						]
@@ -169,7 +169,7 @@ impl EventsHistograms {
 					)
 					.buckets(
 						[
-							linear_buckets(0.0, 3.0, 20).unwrap(),
+							linear_buckets(0.0, 3.0, 20)?,
 							// requested in #9158
 							vec![60.0, 75.0, 90.0, 120.0, 180.0],
 						]
@@ -182,7 +182,7 @@ impl EventsHistograms {
 				Histogram::with_opts(histogram_opts!(
 					"substrate_sub_txpool_timing_event_retracted",
 					"Histogram of timings for reporting Retracted event",
-					linear_buckets(0.0, 3.0, 20).unwrap()
+					linear_buckets(0.0, 3.0, 20)?
 				))?,
 				registry,
 			)?,
@@ -190,7 +190,7 @@ impl EventsHistograms {
 				Histogram::with_opts(histogram_opts!(
 					"substrate_sub_txpool_timing_event_finality_timeout",
 					"Histogram of timings for reporting FinalityTimeout event",
-					linear_buckets(0.0, 40.0, 20).unwrap()
+					linear_buckets(0.0, 40.0, 20)?
 				))?,
 				registry,
 			)?,
@@ -203,8 +203,8 @@ impl EventsHistograms {
 					.buckets(
 						[
 							// requested in #9158
-							linear_buckets(0.0, 5.0, 8).unwrap(),
-							linear_buckets(40.0, 40.0, 19).unwrap(),
+							linear_buckets(0.0, 5.0, 8)?,
+							linear_buckets(40.0, 40.0, 19)?,
 						]
 						.concat(),
 					),
@@ -219,7 +219,7 @@ impl EventsHistograms {
 					)
 					.buckets(
 						[
-							linear_buckets(0.0, 3.0, 20).unwrap(),
+							linear_buckets(0.0, 3.0, 20)?,
 							// requested in #9158
 							vec![60.0, 75.0, 90.0, 120.0, 180.0],
 						]
@@ -236,7 +236,7 @@ impl EventsHistograms {
 					)
 					.buckets(
 						[
-							linear_buckets(0.0, 3.0, 20).unwrap(),
+							linear_buckets(0.0, 3.0, 20)?,
 							// requested in #9158
 							vec![60.0, 75.0, 90.0, 120.0, 180.0],
 						]
@@ -253,7 +253,7 @@ impl EventsHistograms {
 					)
 					.buckets(
 						[
-							linear_buckets(0.0, 3.0, 20).unwrap(),
+							linear_buckets(0.0, 3.0, 20)?,
 							// requested in #9158
 							vec![60.0, 75.0, 90.0, 120.0, 180.0],
 						]
@@ -395,7 +395,7 @@ impl MetricsRegistrant for Metrics {
 				Histogram::with_opts(histogram_opts!(
 					"substrate_sub_txpool_maintain_duration_seconds",
 					"Histogram of maintain durations.",
-					linear_buckets(0.0, 0.25, 13).unwrap()
+					linear_buckets(0.0, 0.25, 13)?
 				))?,
 				registry,
 			)?,
@@ -432,7 +432,7 @@ impl MetricsRegistrant for Metrics {
 				Histogram::with_opts(histogram_opts!(
 					"substrate_sub_txpool_view_revalidation_duration_seconds",
 					"Histogram of view revalidation durations.",
-					linear_buckets(0.0, 0.25, 13).unwrap()
+					linear_buckets(0.0, 0.25, 13)?
 				))?,
 				registry,
 			)?,
@@ -503,14 +503,14 @@ impl<ChainApi: graph::ChainApi> EventsMetricsCollector<ChainApi> {
 	/// send a submission message to the metrics messages processing task.
 	pub fn report_submitted(&self, insertion_info: &InsertionInfo<ExtrinsicHash<ChainApi>>) {
 		self.metrics_message_sink.as_ref().map(|sink| {
-			if let Err(error) = sink.unbounded_send(EventMetricsMessage::Submitted(
-				insertion_info
-					.source
-					.timestamp
-					.expect("timestamp is set in fork-aware pool. qed"),
-				insertion_info.hash,
-			)) {
-				trace!(target: LOG_TARGET, %error, "tx status metrics message send failed")
+			// timestamp is set in fork-aware pool when source is created
+			if let Some(timestamp) = insertion_info.source.timestamp {
+				if let Err(error) = sink.unbounded_send(EventMetricsMessage::Submitted(
+					timestamp,
+					insertion_info.hash,
+				)) {
+					trace!(target: LOG_TARGET, %error, "tx status metrics message send failed")
+				}
 			}
 		});
 	}

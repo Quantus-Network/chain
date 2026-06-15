@@ -357,7 +357,10 @@ where
 	let import = future::poll_fn(move |cx| {
 		let client = &client;
 		let queue = &mut import_queue;
-		match state.take().expect("state should never be None; qed") {
+		let Some(current_state) = state.take() else {
+			return Poll::Ready(Err(Error::Other("Import state was unexpectedly None".into())));
+		};
+		match current_state {
 			ImportState::Reading { mut block_iter } => {
 				match block_iter.next() {
 					None => {

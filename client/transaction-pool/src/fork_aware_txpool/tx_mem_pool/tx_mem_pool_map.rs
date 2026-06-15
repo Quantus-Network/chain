@@ -186,11 +186,11 @@ where
 	/// Removes a key-value pair from the map based on the key.
 	pub fn remove(&mut self, key: &K) -> Option<V> {
 		let r = self.items_by_hashes.remove(key);
-		let _ = r.as_ref().map(|r| {
-			let k = SortKey::new(key, r);
+		if let Some(ref value) = r {
+			let k = SortKey::new(key, value);
 			let a = self.items_by_priority.remove(&k);
-			debug_assert_eq!(r.clone(), a.expect("item should be in both maps. qed."));
-		});
+			debug_assert_eq!(Some(value.clone()), a, "item should be in both maps");
+		}
 		r
 	}
 
