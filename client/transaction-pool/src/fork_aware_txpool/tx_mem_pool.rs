@@ -1018,7 +1018,7 @@ where
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test-helpers"))]
 mod tx_mem_pool_tests {
 	use futures::future::join_all;
 	use substrate_test_runtime::{AccountId, Extrinsic, ExtrinsicBuilder, Transfer, H256};

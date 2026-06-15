@@ -243,7 +243,7 @@ impl WasmOverride {
 }
 
 /// Returns a WasmOverride struct filled with dummy data for testing.
-#[cfg(test)]
+#[cfg(all(test, feature = "test-helpers"))]
 pub fn dummy_overrides() -> WasmOverride {
 	let version = RuntimeVersion { spec_name: "test".into(), ..Default::default() };
 	let mut overrides = HashMap::new();
@@ -261,7 +261,7 @@ pub fn dummy_overrides() -> WasmOverride {
 	WasmOverride { overrides }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test-helpers"))]
 mod tests {
 	use super::*;
 	use sc_executor::{HeapAllocStrategy, WasmExecutor};

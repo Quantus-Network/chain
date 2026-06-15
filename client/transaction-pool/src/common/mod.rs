@@ -23,7 +23,7 @@ pub(crate) mod enactment_state;
 pub(crate) mod error;
 pub(crate) mod metrics;
 pub(crate) mod sliding_stat;
-#[cfg(test)]
+#[cfg(all(test, feature = "test-helpers"))]
 pub(crate) mod tests;
 pub(crate) mod tracing_log_xt;
 

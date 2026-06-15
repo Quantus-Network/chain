@@ -194,7 +194,7 @@ where
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test-helpers"))]
 //todo: add more tests [#5480]
 mod tests {
 	use super::*;

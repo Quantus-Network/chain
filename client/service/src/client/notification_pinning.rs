@@ -186,7 +186,7 @@ impl<Block: BlockT, Back: Backend<Block>> NotificationPinningWorker<Block, Back>
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test-helpers"))]
 mod tests {
 	use std::sync::Arc;
 

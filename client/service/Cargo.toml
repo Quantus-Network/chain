@@ -120,3 +120,6 @@ runtime-benchmarks = [
 	"sc-client-db/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
+# Enable tests that require substrate_test_runtime and substrate_test_runtime_client.
+# These crates are not available in the vendored version of this package.
+test-helpers = []

@@ -597,7 +597,7 @@ impl<B: ChainApi, L: EventHandler<B>> Pool<B, L> {
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test-helpers"))]
 mod tests {
 	use super::{super::base_pool::Limit, *};
 	use crate::common::tests::{pool, uxt, TestApi, INVALID_NONCE};

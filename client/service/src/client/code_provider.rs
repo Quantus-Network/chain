@@ -163,7 +163,7 @@ where
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test-helpers"))]
 mod tests {
 	use super::*;
 	use backend::Backend;

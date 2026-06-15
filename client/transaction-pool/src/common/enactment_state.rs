@@ -187,7 +187,7 @@ where
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test-helpers"))]
 mod enactment_state_tests {
 	use super::{EnactmentAction, EnactmentState};
 	use sc_transaction_pool_api::ChainEvent;

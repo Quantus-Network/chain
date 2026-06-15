@@ -436,7 +436,7 @@ where
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test-helpers"))]
 mod dropped_watcher_tests {
 	use super::*;
 	use crate::common::tests::TestApi;

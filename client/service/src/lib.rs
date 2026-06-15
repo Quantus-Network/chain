@@ -568,7 +568,7 @@ where
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test-helpers"))]
 mod tests {
 	use super::*;
 	use futures::executor::block_on;

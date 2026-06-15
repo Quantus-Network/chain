@@ -16,9 +16,18 @@ workspace = true
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
+# NOTE: The benchmark requires substrate_test_runtime which is not available
+# in this vendored version. Enable via --features test-helpers if available.
 [[bench]]
 harness = false
 name = "basics"
+required-features = ["test-helpers"]
+
+[features]
+default = []
+# Enable tests that require substrate_test_runtime and substrate_test_runtime_client.
+# These crates are not available in the vendored version of this package.
+test-helpers = []
 
 [dependencies]
 async-trait = { workspace = true }
@@ -61,4 +70,5 @@ tracing = { workspace = true, default-features = true }
 [dev-dependencies]
 assert_matches = { workspace = true }
 criterion = { workspace = true, default-features = true }
+rstest = { workspace = true }
 tokio = { features = ["rt-multi-thread"], workspace = true, default-features = false }
