@@ -54,7 +54,7 @@ use std::{
 	},
 	time::Instant,
 };
-use tracing::{debug, trace};
+use tracing::{debug, error, trace};
 
 use crate::{
 	common::tracing_log_xt::log_xt_trace,
@@ -995,7 +995,10 @@ where
 		let (response, request) =
 			TxMemPoolSyncRequest::extend_unwatched(self.clone(), source, validated_at, xts);
 		let _ = self.sync_channel.send(request);
-		response.recv().unwrap_or_default()
+		response.recv().unwrap_or_else(|_| {
+			error!(target: LOG_TARGET, "extend_unwatched_sync: {}", SYNC_BRIDGE_EXPECT);
+			Vec::new()
+		})
 	}
 
 	pub(super) fn remove_transactions_sync(
@@ -1005,7 +1008,9 @@ where
 		let (response, request) =
 			TxMemPoolSyncRequest::remove_transactions(self.clone(), tx_hashes);
 		let _ = self.sync_channel.send(request);
-		let _ = response.recv();
+		if response.recv().is_err() {
+			error!(target: LOG_TARGET, "remove_transactions_sync: {}", SYNC_BRIDGE_EXPECT);
+		}
 	}
 
 	pub(super) fn update_transaction_priority_sync(
@@ -1016,7 +1021,9 @@ where
 		let (response, request) =
 			TxMemPoolSyncRequest::update_transaction_priority(self.clone(), hash, prio);
 		let _ = self.sync_channel.send(request);
-		let _ = response.recv();
+		if response.recv().is_err() {
+			error!(target: LOG_TARGET, "update_transaction_priority_sync: {}", SYNC_BRIDGE_EXPECT);
+		}
 	}
 }
 

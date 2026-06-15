@@ -43,6 +43,20 @@ pub const AMOUNT_SCALE_DOWN_FACTOR: u128 = 10_000_000_000;
 /// Total: 8 felts
 ///
 /// This encoding must exactly match `ZkLeafTargets::collect_for_hash()` in the circuit.
+///
+/// ## Encoding-safety invariant (see `qp-zk-circuits/formal` audit, gap 7)
+///
+/// The 8-byte/felt compact encoding is *non-injective*: an 8-byte limb `≥ p`
+/// (the Goldilocks prime) is reduced mod `p`, so `to` bytes and their canonical
+/// reduction hash identically. `to` is an arbitrary recipient (this runs on every
+/// transfer), so it need not be canonical. This is safe **only** because the
+/// withdrawal circuit binds the leaf's `to_account` felts to `WA(secret)`, a
+/// canonical Poseidon output, and range-checks the numeric fields — so the leaf
+/// hash commits to the canonical *reduction* of the recipient, never the bytes.
+/// If you ever need to recover the exact recipient bytes from a leaf, or relax
+/// the `to_account = WA(s)` binding, this invariant breaks. The `debug_assert`
+/// below documents (and in test/dev builds enforces) that production deposits use
+/// canonical recipients.
 pub fn hash_leaf<T: Config>(leaf: &ZkLeaf<AccountIdOf<T>, T::AssetId, T::Balance>) -> Hash256
 where
 	AccountIdOf<T>: AsRef<[u8]>,
@@ -54,6 +68,16 @@ where
 	// to_account: 4 felts (32 bytes -> 4 felts at 8 bytes/felt)
 	let to_bytes = leaf.to.as_ref();
 	debug_assert_eq!(to_bytes.len(), 32, "Account must be 32 bytes");
+	// Encoding-safety guard: each 8-byte little-endian limb must be canonical
+	// (< Goldilocks prime) so the non-injective compact encoding does not silently
+	// reduce the recipient. See the invariant note above.
+	debug_assert!(
+		to_bytes
+			.chunks_exact(8)
+			.all(|limb| u64::from_le_bytes(limb.try_into().expect("8-byte limb"))
+				< 0xFFFF_FFFF_0000_0001),
+		"recipient account is non-canonical for the 8-byte/felt leaf encoding"
+	);
 	felts.extend(bytes_to_felts_compact(to_bytes));
 
 	// transfer_count: 2 felts (u64 as two 32-bit limbs, high then low)
