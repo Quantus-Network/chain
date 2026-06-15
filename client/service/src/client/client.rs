@@ -1264,7 +1264,9 @@ where
 		};
 		let mut current_child = if start_key.len() == 2 {
 			let Some(start_key) = start_key.first() else {
-				return Err(Error::Backend("Invalid start_key: expected at least one element".to_string()));
+				return Err(Error::Backend(
+					"Invalid start_key: expected at least one element".to_string(),
+				));
 			};
 			if let Some(child_root) = state
 				.storage(start_key)

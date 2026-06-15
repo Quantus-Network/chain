@@ -202,7 +202,8 @@ impl<Hash: hash::Hash + Eq + Clone + std::fmt::Debug, Ex: std::fmt::Debug>
 			if let Some(hashes) = self.wanted_tags.remove(tag.as_ref()) {
 				for hash in hashes {
 					let is_ready = {
-						// Every hash from wanted_tags is always present in waiting (see WAITING_PROOF)
+						// Every hash from wanted_tags is always present in waiting (see
+						// WAITING_PROOF)
 						let Some(tx) = self.waiting.get_mut(&hash) else { continue };
 						tx.satisfy_tag(tag.as_ref());
 						tx.is_ready()

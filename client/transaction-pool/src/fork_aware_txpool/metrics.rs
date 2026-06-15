@@ -505,10 +505,9 @@ impl<ChainApi: graph::ChainApi> EventsMetricsCollector<ChainApi> {
 		self.metrics_message_sink.as_ref().map(|sink| {
 			// timestamp is set in fork-aware pool when source is created
 			if let Some(timestamp) = insertion_info.source.timestamp {
-				if let Err(error) = sink.unbounded_send(EventMetricsMessage::Submitted(
-					timestamp,
-					insertion_info.hash,
-				)) {
+				if let Err(error) = sink
+					.unbounded_send(EventMetricsMessage::Submitted(timestamp, insertion_info.hash))
+				{
 					trace!(target: LOG_TARGET, %error, "tx status metrics message send failed")
 				}
 			}
