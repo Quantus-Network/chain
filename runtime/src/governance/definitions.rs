@@ -163,23 +163,27 @@ pub struct TechCollectiveTracksInfo;
 
 impl TechCollectiveTracksInfo {
 	fn create_tech_collective_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] {
+		// With 5 members: >=3 ayes required (support 60%), and 2 nays always block
+		// (3 ayes / 2 nays = 60% approval < 61%). Constant curves: thresholds don't
+		// decay over the decision period. The 24h confirm period guarantees nays can
+		// arrive for a full day before any approval; enactment is delayed another 24h.
 		let info = pallet_referenda::TrackInfo {
 			name: str_array("tech_collective_members"),
 			max_deciding: 1,
 			decision_deposit: 1000 * UNIT,
 			prepare_period: 20,
 			decision_period: DAYS,
-			confirm_period: 20,
-			min_enactment_period: 20,
+			confirm_period: DAYS,
+			min_enactment_period: DAYS,
 			min_approval: pallet_referenda::Curve::LinearDecreasing {
 				length: Perbill::from_percent(100),
-				floor: Perbill::from_percent(50),
-				ceil: Perbill::from_percent(100),
+				floor: Perbill::from_percent(61),
+				ceil: Perbill::from_percent(61),
 			},
 			min_support: pallet_referenda::Curve::LinearDecreasing {
 				length: Perbill::from_percent(100),
-				floor: Perbill::from_percent(0),
-				ceil: Perbill::from_percent(0),
+				floor: Perbill::from_percent(60),
+				ceil: Perbill::from_percent(60),
 			},
 		};
 		#[cfg(feature = "fast-governance")]
