@@ -1297,3 +1297,57 @@ async fn reserved_only_rejects_non_reserved_peers() {
 		assert_eq!(connected_peers.load(Ordering::Relaxed), 5usize);
 	}
 }
+
+#[tokio::test]
+async fn get_connected_peers_returns_only_connected_peers() {
+	sp_tracing::try_init_simple();
+
+	let peerstore_handle = Arc::new(peerstore_handle_test());
+	for _ in 0..3 {
+		peerstore_handle.add_known_peer(PeerId::random());
+	}
+
+	let (mut peerset, to_peerset) = Peerset::new(
+		ProtocolName::from("/notif/1"),
+		25,
+		25,
+		false,
+		Default::default(),
+		Default::default(),
+		peerstore_handle,
+	);
+
+	// open substreams to all known peers but report only two of them as connected
+	let connected = match peerset.next().await {
+		Some(PeersetNotificationCommand::OpenSubstream { peers: out_peers }) => {
+			assert_eq!(out_peers.len(), 3usize);
+
+			let connected = out_peers.iter().take(2).copied().collect::<HashSet<_>>();
+			for peer in &connected {
+				assert!(std::matches!(
+					peerset.report_substream_opened(*peer, traits::Direction::Outbound),
+					OpenResult::Accept { .. }
+				));
+			}
+			connected
+		},
+		event => panic!("invalid event: {event:?}"),
+	};
+
+	let (tx, rx) = futures::channel::oneshot::channel();
+	to_peerset.unbounded_send(PeersetCommand::GetConnectedPeers { tx }).unwrap();
+
+	// poll `Peerset` to process the command
+	futures::future::poll_fn(|cx| match peerset.poll_next_unpin(cx) {
+		Poll::Pending => Poll::Ready(()),
+		_ => panic!("unexpected event"),
+	})
+	.await;
+
+	let result = rx.await.unwrap();
+	assert_eq!(result.len(), 2usize);
+	for (peer, direction) in result {
+		assert!(connected.contains(&peer));
+		assert_eq!(direction, traits::Direction::Outbound);
+	}
+}

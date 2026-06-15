@@ -24,11 +24,14 @@ use crate::{
 		notification::{config::ProtocolControlHandle, peerset::PeersetCommand},
 		request_response::OutboundRequest,
 	},
-	network_state::NetworkState,
+	network_state::{
+		Endpoint as NetworkStateEndpoint, NetworkState, Peer as NetworkStatePeer,
+		PeerEndpoint as NetworkStatePeerEndpoint,
+	},
 	peer_store::PeerStoreProvider,
 	service::{
 		out_events,
-		traits::{IfDisconnected, OutboundFailure, RequestFailure},
+		traits::{Direction, IfDisconnected, OutboundFailure, RequestFailure},
 	},
 	Event, NetworkDHTProvider, NetworkEventStream, NetworkPeers, NetworkRequest, NetworkSigner,
 	NetworkStateInfo, NetworkStatus, NetworkStatusProvider, ProtocolName, Signature,
@@ -343,6 +346,16 @@ impl NetworkStatusProvider for Litep2pNetworkService {
 	}
 
 	async fn network_state(&self) -> Result<NetworkState, ()> {
+		let Some(handle) = self.peerset_handles.get(&self.block_announce_protocol) else {
+			return Err(())
+		};
+		let (tx, rx) = oneshot::channel();
+		handle
+			.tx
+			.unbounded_send(PeersetCommand::GetConnectedPeers { tx })
+			.map_err(|_| ())?;
+		let connected_peers = rx.await.map_err(|_| ())?;
+
 		Ok(NetworkState {
 			peer_id: self.local_peer_id.to_base58(),
 			listened_addresses: self
@@ -358,7 +371,33 @@ impl NetworkStatusProvider for Litep2pNetworkService {
 				.into_iter()
 				.map(|a| Multiaddr::from(a).into())
 				.collect(),
-			connected_peers: HashMap::new(),
+			connected_peers: connected_peers
+				.into_iter()
+				.map(|(peer, direction)| {
+					// Connection-level addresses are not exposed by litep2p, only the
+					// substream direction is known.
+					let endpoint = match direction {
+						Direction::Inbound => NetworkStatePeerEndpoint::Listening {
+							local_addr: Multiaddr::empty(),
+							send_back_addr: Multiaddr::empty(),
+						},
+						Direction::Outbound => NetworkStatePeerEndpoint::Dialing(
+							Multiaddr::empty(),
+							NetworkStateEndpoint::Dialer,
+						),
+					};
+
+					(
+						peer.to_base58(),
+						NetworkStatePeer {
+							endpoint,
+							version_string: None,
+							latest_ping_time: None,
+							known_addresses: HashSet::new(),
+						},
+					)
+				})
+				.collect(),
 			not_connected_peers: HashMap::new(),
 			// TODO: Check what info we can include here.
 			//       Issue reference: https://github.com/paritytech/substrate/issues/14160.
