@@ -5319,6 +5319,7 @@ dependencies = [
  "cc",
  "libc",
  "libz-sys",
+ "tikv-jemalloc-sys",
 ]
 
 [[package]]
@@ -8834,6 +8835,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
 
 [[package]]
+name = "relative-path"
+version = "1.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
+
+[[package]]
 name = "resolv-conf"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8921,6 +8928,35 @@ dependencies = [
  "libc",
  "rtoolbox",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "rstest"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97eeab2f3c0a199bc4be135c36c924b6590b88c377d416494288c14f2db30199"
+dependencies = [
+ "futures 0.3.31",
+ "futures-timer",
+ "rstest_macros",
+ "rustc_version",
+]
+
+[[package]]
+name = "rstest_macros"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d428f8247852f894ee1be110b375111b586d4fa431f6c46e64ba5a0dcccbe605"
+dependencies = [
+ "cfg-if",
+ "glob",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "relative-path",
+ "rustc_version",
+ "syn 2.0.106",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -9964,8 +10000,6 @@ dependencies = [
 [[package]]
 name = "sc-service"
 version = "0.56.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74474742137c0427d10cd937320e962373c5555234b76a0cbbfdbc1e73d1bfb7"
 dependencies = [
  "async-trait",
  "directories",
@@ -10020,7 +10054,7 @@ dependencies = [
  "static_init",
  "substrate-prometheus-endpoint",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio 1.47.1",
  "tracing",
  "tracing-futures",
@@ -10123,10 +10157,10 @@ dependencies = [
 [[package]]
 name = "sc-transaction-pool"
 version = "44.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a96ce28233919bd507af7c6e61163655d3508b2a4be791b9ff64a4cfd570f4df"
 dependencies = [
+ "assert_matches",
  "async-trait",
+ "criterion",
  "futures 0.3.31",
  "futures-timer",
  "indexmap",
@@ -10134,6 +10168,7 @@ dependencies = [
  "linked-hash-map",
  "parity-scale-codec",
  "parking_lot 0.12.4",
+ "rstest",
  "sc-client-api",
  "sc-transaction-pool-api",
  "sc-utils",
@@ -10147,7 +10182,7 @@ dependencies = [
  "sp-transaction-pool",
  "strum 0.26.3",
  "substrate-prometheus-endpoint",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio 1.47.1",
  "tokio-stream",
  "tracing",

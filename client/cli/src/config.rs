@@ -703,7 +703,9 @@ pub(crate) fn base_path_or_default(
 	base_path: Option<BasePath>,
 	executable_name: &String,
 ) -> BasePath {
-	base_path.unwrap_or_else(|| BasePath::from_project("", "", executable_name))
+	base_path
+		.or_else(|| BasePath::from_project("", "", executable_name))
+		.unwrap_or_else(|| BasePath::new(std::env::current_dir().unwrap_or_else(|_| ".".into())))
 }
 
 /// Returns the default path for configuration  directory based on the chain_spec

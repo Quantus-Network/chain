@@ -1,0 +1,74 @@
+[package]
+authors.workspace = true
+description = "Substrate transaction pool implementation."
+documentation = "https://docs.rs/sc-transaction-pool"
+edition.workspace = true
+homepage.workspace = true
+license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+name = "sc-transaction-pool"
+readme = "README.md"
+repository.workspace = true
+version = "44.1.0"
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+# NOTE: The benchmark requires substrate_test_runtime which is not available
+# in this vendored version. Enable via --features test-helpers if available.
+[[bench]]
+harness = false
+name = "basics"
+required-features = ["test-helpers"]
+
+[features]
+default = []
+# Enable tests that require substrate_test_runtime and substrate_test_runtime_client.
+# These crates are not available in the vendored version of this package.
+test-helpers = []
+
+[dependencies]
+async-trait = { workspace = true }
+codec = { workspace = true, default-features = true }
+futures = { workspace = true }
+futures-timer = { workspace = true }
+indexmap = { workspace = true }
+itertools = { workspace = true }
+linked-hash-map = { workspace = true }
+parking_lot = { workspace = true, default-features = true }
+prometheus-endpoint.default-features = true
+prometheus-endpoint.workspace = true
+sc-client-api.default-features = true
+sc-client-api.workspace = true
+sc-transaction-pool-api.default-features = true
+sc-transaction-pool-api.workspace = true
+sc-utils.default-features = true
+sc-utils.workspace = true
+serde = { features = ["derive"], workspace = true, default-features = true }
+sp-api.default-features = true
+sp-api.workspace = true
+sp-blockchain.default-features = true
+sp-blockchain.workspace = true
+sp-core.default-features = true
+sp-core.workspace = true
+sp-crypto-hashing.default-features = true
+sp-crypto-hashing.workspace = true
+sp-runtime.default-features = true
+sp-runtime.workspace = true
+sp-tracing.default-features = true
+sp-tracing.workspace = true
+sp-transaction-pool.default-features = true
+sp-transaction-pool.workspace = true
+strum = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }
+tokio = { features = ["macros", "time"], workspace = true, default-features = true }
+tokio-stream = { workspace = true }
+tracing = { workspace = true, default-features = true }
+
+[dev-dependencies]
+assert_matches = { workspace = true }
+criterion = { workspace = true, default-features = true }
+rstest = { workspace = true }
+tokio = { features = ["rt-multi-thread"], workspace = true, default-features = false }
