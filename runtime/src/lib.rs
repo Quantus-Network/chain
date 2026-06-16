@@ -212,7 +212,11 @@ mod runtime {
 	#[runtime::pallet_index(7)]
 	pub type Preimage = pallet_preimage;
 
+	// The scheduler is used internally for reversible transfers and governance via the
+	// `Scheduler`/`ScheduleNamed` trait. Its extrinsics are disabled so users cannot place
+	// arbitrary transactions onto the scheduler.
 	#[runtime::pallet_index(8)]
+	#[runtime::disable_call]
 	pub type Scheduler = pallet_scheduler;
 
 	#[runtime::pallet_index(9)]
