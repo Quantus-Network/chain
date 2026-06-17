@@ -8,6 +8,7 @@ use qp_wormhole_verifier::WormholeVerifier;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+pub mod migrations;
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
@@ -65,7 +66,16 @@ pub mod pallet {
 	pub type BalanceOf<T> = <T as Config>::NativeBalance;
 	pub type AssetBalanceOf<T> = <T as Config>::AssetBalance;
 
+	/// Current storage version of the pallet.
+	///
+	/// v1 introduces the wormhole soundness counters (`PotentialWormholeBalance` and
+	/// `TotalWormholeExits`). The v0 -> v1 migration seeds `PotentialWormholeBalance` so
+	/// that wormhole deposits made before the soundness tracking existed can still be
+	/// exited (see `migrations::v1`).
+	pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+
 	#[pallet::pallet]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
 	/// Genesis configuration for recording transfer proofs.
@@ -227,6 +237,27 @@ pub mod pallet {
 	pub type GenesisEndowmentsPending<T: Config> =
 		StorageValue<_, Vec<(T::WormholeAccountId, BalanceOf<T>)>, ValueQuery>;
 
+	/// Sum of balances held by "ambiguous" addresses (accounts that have never signed a
+	/// dilithium transaction, i.e. `nonce == 0`). These addresses are indistinguishable from
+	/// wormhole deposit addresses, so this is the maximum value that could legitimately be
+	/// exited via the wormhole.
+	///
+	/// Maintained incrementally: transfers to ambiguous addresses add to it (see
+	/// `record_transfer`), and an address revealing itself by signing its first transaction
+	/// subtracts its balance (see `WormholeProofRecorderExtension::validate` in the runtime).
+	#[pallet::storage]
+	#[pallet::getter(fn potential_wormhole_balance)]
+	pub type PotentialWormholeBalance<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
+
+	/// Total value of all successful wormhole exits (tokens minted to exit accounts).
+	///
+	/// The core soundness invariant enforced on every exit is
+	/// `TotalWormholeExits <= PotentialWormholeBalance`. A violation indicates that more value
+	/// is being exited than could possibly have been deposited — i.e. a ZK soundness bug.
+	#[pallet::storage]
+	#[pallet::getter(fn total_wormhole_exits)]
+	pub type TotalWormholeExits<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
@@ -276,6 +307,10 @@ pub mod pallet {
 		TransferAmountBelowMinimum,
 		/// Only native asset (asset_id = 0) is supported in this version
 		NonNativeAssetNotSupported,
+		/// Soundness invariant violated: total wormhole exits would exceed the value that could
+		/// possibly have been deposited into wormhole addresses. This indicates a potential
+		/// soundness bug in the ZK proof system, so the exit is rejected.
+		SoundnessInvariantViolation,
 	}
 
 	#[pallet::hooks]
@@ -401,6 +436,14 @@ pub mod pallet {
 				Error::<T>::TransferAmountBelowMinimum
 			);
 
+			// SOUNDNESS CHECK: never allow the cumulative wormhole exits to exceed the value
+			// that could possibly have been deposited into wormhole (ambiguous) addresses.
+			// A violation means the ZK system is letting more value out than went in, so we
+			// reject the exit rather than mint unbacked tokens.
+			let potential_balance = PotentialWormholeBalance::<T>::get();
+			let exits_after = TotalWormholeExits::<T>::get().saturating_add(total_exit_amount);
+			ensure!(exits_after <= potential_balance, Error::<T>::SoundnessInvariantViolation);
+
 			// Emit event for each exit account
 			Self::deposit_event(Event::ProofVerified {
 				exit_amount: total_exit_amount,
@@ -498,6 +541,10 @@ pub mod pallet {
 				);
 			}
 
+			// Commit the new cumulative exit total now that all exits succeeded. The invariant
+			// `exits_after <= potential_balance` was checked above before any minting.
+			TotalWormholeExits::<T>::put(exits_after);
+
 			// Success - use declared weight (actual_weight: None means use declared weight)
 			Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
 		}
@@ -593,6 +640,18 @@ pub mod pallet {
 			Ok((proof, inputs))
 		}
 
+		/// Whether `account` is "ambiguous": it has never signed a transaction (`nonce == 0`) and
+		/// is therefore indistinguishable from a wormhole deposit address. Signing any transaction
+		/// reveals an account as a regular dilithium account, after which it is no longer
+		/// ambiguous.
+		///
+		/// This is the single source of truth for the soundness heuristic. Both the deposit-side
+		/// tracking in `record_transfer` (recipient) and the reveal-side tracking in the runtime's
+		/// `WormholeProofRecorderExtension` (signer) classify addresses through this function.
+		pub fn is_ambiguous_account(account: &<T as frame_system::Config>::AccountId) -> bool {
+			frame_system::Pallet::<T>::account_nonce(account).is_zero()
+		}
+
 		/// Record a transfer in the ZK tree and emit events.
 		///
 		/// This inserts the transfer data into the 4-ary Poseidon Merkle tree
@@ -619,6 +678,20 @@ pub mod pallet {
 				asset_id.clone(),
 				amount,
 			);
+
+			// Soundness tracking (native asset only): if the recipient has never signed a
+			// transaction (nonce == 0) it is "ambiguous" and might be a wormhole deposit address,
+			// so it adds to the pool of value that could later be exited via the wormhole.
+			//
+			// TODO: Add equivalent tracking for asset transfers once the asset wormhole is enabled.
+			if asset_id == T::AssetId::default() {
+				let to_account: <T as frame_system::Config>::AccountId = to.clone().into();
+				if Self::is_ambiguous_account(&to_account) {
+					PotentialWormholeBalance::<T>::mutate(|total| {
+						*total = total.saturating_add(amount);
+					});
+				}
+			}
 
 			if asset_id == T::AssetId::default() {
 				Self::deposit_event(Event::<T>::NativeTransferred {

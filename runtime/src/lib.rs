@@ -73,7 +73,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	//   `spec_version`, and `authoring_version` are the same between Wasm and native.
 	// This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
 	//   the compatible custom types.
-	spec_version: 131,
+	spec_version: 132,
 	impl_version: 1,
 	apis: apis::RUNTIME_API_VERSIONS,
 	transaction_version: 2,
@@ -162,6 +162,12 @@ pub type UncheckedExtrinsic =
 /// The payload being signed in transactions.
 pub type SignedPayload = generic::SignedPayload<RuntimeCall, TxExtension>;
 
+/// All storage migrations to run on runtime upgrade.
+pub type Migrations = (
+	// v0 -> v1: seed the wormhole soundness counters so pre-upgrade deposits remain exitable.
+	pallet_wormhole::migrations::MigrateV0ToV1<Runtime>,
+);
+
 /// Executive: handles dispatch to the various modules.
 pub type Executive = frame_executive::Executive<
 	Runtime,
@@ -169,7 +175,7 @@ pub type Executive = frame_executive::Executive<
 	frame_system::ChainContext<Runtime>,
 	Runtime,
 	AllPalletsWithSystem,
-	(),
+	Migrations,
 >;
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
