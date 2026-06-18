@@ -319,8 +319,7 @@ pub mod pallet {
 		/// calls execute in a temporary context where state changes are discarded,
 		/// so we don't emit events here.
 		pub fn verify_and_get_block_work(block_hash: [u8; 32], nonce: NonceType) -> (bool, U512) {
-			let (valid, difficulty, _hash_achieved) =
-				Self::verify_nonce_internal(block_hash, nonce);
+			let (valid, difficulty, _) = Self::verify_nonce_internal(block_hash, nonce);
 			let block_work = if valid { difficulty } else { U512::zero() };
 			(valid, block_work)
 		}
