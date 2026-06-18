@@ -26,7 +26,7 @@ pub mod pallet {
 		traits::{BuildGenesisConfig, Time},
 	};
 	use frame_system::pallet_prelude::BlockNumberFor;
-	use qpow_math::{achieved_difficulty_from_hash, get_nonce_hash, is_valid_nonce};
+	use qpow_math::{get_nonce_hash, is_valid_nonce};
 	use sp_core::U512;
 
 	pub type NonceType = [u8; 64];
@@ -306,21 +306,23 @@ pub mod pallet {
 			verify
 		}
 
-		/// Verify nonce validity and return achieved difficulty in a single call.
-		/// This avoids computing the nonce hash twice when both validation and
-		/// achieved difficulty are needed during block import.
+		/// Verify nonce validity and return the block's work in a single call.
+		///
+		/// The work credited to a block is the *target* difficulty it was required to
+		/// satisfy (the network difficulty at this height), NOT the achieved difficulty
+		/// derived from the winning hash. This matches Bitcoin (`2^256/(target+1)`) and
+		/// Ethereum PoW (sum of the `difficulty` field): every block at a given difficulty
+		/// contributes an identical, deterministic amount of work, so cumulative chain work
+		/// tracks total expended hash power instead of being dominated by lucky hashes.
 		///
 		/// Note: This is called via runtime API from the client side. Runtime API
 		/// calls execute in a temporary context where state changes are discarded,
 		/// so we don't emit events here.
-		pub fn verify_and_get_achieved_difficulty(
-			block_hash: [u8; 32],
-			nonce: NonceType,
-		) -> (bool, U512) {
-			let (valid, _, hash_achieved) = Self::verify_nonce_internal(block_hash, nonce);
-			let achieved_difficulty =
-				if valid { achieved_difficulty_from_hash(hash_achieved) } else { U512::zero() };
-			(valid, achieved_difficulty)
+		pub fn verify_and_get_block_work(block_hash: [u8; 32], nonce: NonceType) -> (bool, U512) {
+			let (valid, difficulty, _hash_achieved) =
+				Self::verify_nonce_internal(block_hash, nonce);
+			let block_work = if valid { difficulty } else { U512::zero() };
+			(valid, block_work)
 		}
 
 		pub fn initial_difficulty() -> Difficulty {

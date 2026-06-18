@@ -8,7 +8,10 @@ use sp_consensus_qpow::QPoWApi;
 use sp_runtime::traits::{Block as BlockT, Header, Zero};
 use std::fmt;
 
-const ACHIEVED_WORK_PREFIX: &[u8] = b"QPow:AchievedWork:";
+// Namespaced separately from the legacy `QPow:AchievedWork:` keyspace: the work metric
+// changed from achieved difficulty (MAX/hash) to target difficulty, so values are not
+// comparable across the change. Nodes must resync (or purge aux work entries) on upgrade.
+const CHAIN_WORK_PREFIX: &[u8] = b"QPow:ChainWork:";
 
 #[derive(Debug)]
 pub enum ChainManagementError {
@@ -38,31 +41,31 @@ impl From<ChainManagementError> for ConsensusError {
 	}
 }
 
-/// Store cumulative achieved work for a block in auxiliary storage.
-/// This is used for chain selection based on achieved difficulty.
-pub fn store_cumulative_achieved_work<B: BlockT, C: AuxStore>(
+/// Store cumulative work for a block in auxiliary storage.
+/// Used for chain selection based on cumulative target-difficulty work.
+pub fn store_cumulative_work<B: BlockT, C: AuxStore>(
 	client: &C,
 	block_hash: B::Hash,
 	cumulative_work: U512,
 ) -> Result<(), sp_blockchain::Error> {
-	let key = [ACHIEVED_WORK_PREFIX, block_hash.as_ref()].concat();
+	let key = [CHAIN_WORK_PREFIX, block_hash.as_ref()].concat();
 	client.insert_aux(&[(&key[..], &cumulative_work.encode()[..])], &[])?;
 	log::debug!(
 		target: "qpow",
-		"Stored cumulative achieved work {} for block {:?}",
+		"Stored cumulative work {} for block {:?}",
 		cumulative_work,
 		block_hash
 	);
 	Ok(())
 }
 
-/// Get cumulative achieved work for a block from auxiliary storage.
+/// Get cumulative work for a block from auxiliary storage.
 /// Returns U512::zero() if not found (e.g., for genesis block before initialization).
-pub fn get_cumulative_achieved_work<B: BlockT, C: AuxStore>(
+pub fn get_cumulative_work<B: BlockT, C: AuxStore>(
 	client: &C,
 	block_hash: B::Hash,
 ) -> Result<U512, sp_blockchain::Error> {
-	let key = [ACHIEVED_WORK_PREFIX, block_hash.as_ref()].concat();
+	let key = [CHAIN_WORK_PREFIX, block_hash.as_ref()].concat();
 	match client.get_aux(&key)? {
 		Some(bytes) => {
 			let work = U512::decode(&mut &bytes[..]).map_err(|e| {
@@ -76,7 +79,7 @@ pub fn get_cumulative_achieved_work<B: BlockT, C: AuxStore>(
 		None => {
 			log::trace!(
 				target: "qpow",
-				"No cumulative achieved work found for block {:?}, returning zero",
+				"No cumulative work found for block {:?}, returning zero",
 				block_hash
 			);
 			Ok(U512::zero())
@@ -84,26 +87,26 @@ pub fn get_cumulative_achieved_work<B: BlockT, C: AuxStore>(
 	}
 }
 
-/// Delete cumulative achieved work for a block from auxiliary storage.
+/// Delete cumulative work for a block from auxiliary storage.
 /// Used to clean up entries for finalized blocks that no longer need fork choice data.
-pub fn delete_cumulative_achieved_work<B: BlockT, C: AuxStore>(
+pub fn delete_cumulative_work<B: BlockT, C: AuxStore>(
 	client: &C,
 	block_hash: B::Hash,
 ) -> Result<(), sp_blockchain::Error> {
-	let key = [ACHIEVED_WORK_PREFIX, block_hash.as_ref()].concat();
+	let key = [CHAIN_WORK_PREFIX, block_hash.as_ref()].concat();
 	client.insert_aux(&[], &[&key[..]])?;
 	log::trace!(
 		target: "qpow",
-		"Deleted cumulative achieved work for block {:?}",
+		"Deleted cumulative work for block {:?}",
 		block_hash
 	);
 	Ok(())
 }
 
-/// Initialize the genesis block's achieved work if not already set.
-/// Genesis block has achieved work = 1 (no mining, but represents the start of the chain).
+/// Initialize the genesis block's work if not already set.
+/// Genesis block has work = 1 (no mining, but represents the start of the chain).
 /// This should be called during node startup.
-pub fn initialize_genesis_achieved_work<B: BlockT, C: AuxStore + HeaderBackend<B>>(
+pub fn initialize_genesis_work<B: BlockT, C: AuxStore + HeaderBackend<B>>(
 	client: &C,
 ) -> Result<(), sp_blockchain::Error> {
 	// Get genesis hash
@@ -112,22 +115,22 @@ pub fn initialize_genesis_achieved_work<B: BlockT, C: AuxStore + HeaderBackend<B
 		.ok_or_else(|| sp_blockchain::Error::Backend("Genesis block not found".to_string()))?;
 
 	// Check if already initialized
-	let existing = get_cumulative_achieved_work::<B, C>(client, genesis_hash)?;
+	let existing = get_cumulative_work::<B, C>(client, genesis_hash)?;
 	if existing != U512::zero() {
 		log::debug!(
 			target: "qpow",
-			"Genesis achieved work already initialized to {}",
+			"Genesis work already initialized to {}",
 			existing
 		);
 		return Ok(());
 	}
 
-	// Initialize genesis achieved work to 1
+	// Initialize genesis work to 1
 	let genesis_work = U512::one();
-	store_cumulative_achieved_work::<B, C>(client, genesis_hash, genesis_work)?;
+	store_cumulative_work::<B, C>(client, genesis_hash, genesis_work)?;
 	log::info!(
 		target: "qpow",
-		"Initialized genesis block {:?} achieved work to {}",
+		"Initialized genesis block {:?} work to {}",
 		genesis_hash,
 		genesis_work
 	);
@@ -135,17 +138,15 @@ pub fn initialize_genesis_achieved_work<B: BlockT, C: AuxStore + HeaderBackend<B
 	Ok(())
 }
 
-/// Get chain work using achieved difficulty from auxiliary storage.
+/// Get cumulative chain work from auxiliary storage.
 /// This is the new chain selection metric based on actual work done.
 pub fn get_chain_work<B, C>(client: &C, at_hash: B::Hash) -> Result<U512, sp_consensus::Error>
 where
 	B: BlockT,
 	C: AuxStore,
 {
-	get_cumulative_achieved_work::<B, C>(client, at_hash).map_err(|e| {
-		sp_consensus::Error::Other(
-			format!("Failed to get cumulative achieved work: {:?}", e).into(),
-		)
+	get_cumulative_work::<B, C>(client, at_hash).map_err(|e| {
+		sp_consensus::Error::Other(format!("Failed to get cumulative work: {:?}", e).into())
 	})
 }
 
@@ -163,7 +164,7 @@ pub fn is_heavier<N: PartialOrd>(
 /// This should be called synchronously after each block import to ensure finalization
 /// happens before the next block is imported.
 ///
-/// Also cleans up achieved work entries for blocks that are now deep enough in the
+/// Also cleans up work entries for blocks that are now deep enough in the
 /// finalized chain that they can never be involved in fork choice again.
 pub fn finalize_canonical_at_depth<B, C, BE>(client: &C) -> Result<(), ConsensusError>
 where
@@ -267,16 +268,16 @@ where
 
 	log::debug!("✓ Finalized block #{:?} ({:?})", finalize_number, finalize_hash);
 
-	// Clean up achieved work for the previously finalized block.
-	// Once a block is finalized and we've moved past it, its achieved work
+	// Clean up work for the previously finalized block.
+	// Once a block is finalized and we've moved past it, its work
 	// is no longer needed for fork choice decisions.
 	if last_finalized_before > Zero::zero() {
 		if let Ok(Some(old_finalized_hash)) = client.hash(last_finalized_before) {
-			if let Err(e) = delete_cumulative_achieved_work::<B, C>(client, old_finalized_hash) {
+			if let Err(e) = delete_cumulative_work::<B, C>(client, old_finalized_hash) {
 				// Non-fatal: log warning but don't fail the finalization
 				log::warn!(
 					target: "qpow",
-					"Failed to clean up achieved work for old finalized block #{:?}: {:?}",
+					"Failed to clean up work for old finalized block #{:?}: {:?}",
 					last_finalized_before,
 					e
 				);

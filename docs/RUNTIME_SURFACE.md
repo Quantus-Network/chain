@@ -193,7 +193,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 | `sp_transaction_pool::TaggedTransactionQueue` | `validate_transaction` |
 | `sp_offchain::OffchainWorkerApi` | `offchain_worker` |
 | `sp_session::SessionKeys` | `generate_session_keys`, `decode_session_keys` (empty — no session keys) |
-| `sp_consensus_qpow::QPoWApi` | `verify_nonce_on_import_block`, `verify_nonce_local_mining`, `get_max_reorg_depth`, `get_difficulty`, `get_last_block_time`, `get_last_block_duration`, `get_chain_height`, `get_max_difficulty`, `verify_and_get_achieved_difficulty` |
+| `sp_consensus_qpow::QPoWApi` | `verify_nonce_on_import_block`, `verify_nonce_local_mining`, `get_max_reorg_depth`, `get_difficulty`, `get_last_block_time`, `get_last_block_duration`, `get_chain_height`, `get_max_difficulty`, `verify_and_get_block_work` |
 | `pallet_zk_tree::ZkTreeApi` | `get_root`, `get_leaf_count`, `get_depth`, `get_merkle_proof` |
 | `frame_system_rpc_runtime_api::AccountNonceApi` | `account_nonce` |
 | `pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi` | `query_info`, `query_fee_details`, `query_weight_to_fee`, `query_length_to_fee` |
