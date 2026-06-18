@@ -194,6 +194,13 @@ impl pallet_multisig::Config for Test {
 	type PalletId = MultisigPalletId;
 	type WeightInfo = ();
 	type HighSecurity = crate::tests::MockHighSecurity;
+	type ProofRecorder = MockProofRecorder;
+}
+
+thread_local! {
+	/// Records addresses passed to `TransferProofRecorder::reveal_address`, so tests can assert a
+	/// multisig is revealed to the wormhole soundness counter on creation.
+	pub static REVEALED_ADDRESSES: RefCell<Vec<AccountId>> = const { RefCell::new(Vec::new()) };
 }
 
 impl mock_heavy_call::Config for Test {}
@@ -243,6 +250,10 @@ impl qp_wormhole::TransferProofRecorder<AccountId, u32, Balance> for MockProofRe
 		_to: AccountId,
 		_amount: Balance,
 	) {
+	}
+
+	fn reveal_address(account: AccountId) {
+		REVEALED_ADDRESSES.with(|a| a.borrow_mut().push(account));
 	}
 }
 

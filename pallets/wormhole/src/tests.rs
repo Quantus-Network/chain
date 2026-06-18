@@ -316,6 +316,48 @@ mod wormhole_tests {
 	}
 
 	#[test]
+	fn record_transfer_to_non_wormhole_account_does_not_change_potential_balance() {
+		new_test_ext().execute_with(|| {
+			let from = account_id(1);
+			let to = crate::mock::excluded_account();
+			let amount = 25 * UNIT;
+
+			// `to` has nonce == 0 but is in the NonWormholeAccounts set (e.g. a multisig or known
+			// keyless account), so it must not be treated as an ambiguous wormhole deposit.
+			assert!(!Wormhole::is_ambiguous_account(&to));
+			Wormhole::record_transfer(0u32, &from, &to, amount);
+			assert_eq!(
+				Wormhole::potential_wormhole_balance(),
+				0,
+				"Transfers to excluded (non-wormhole) addresses must not add to the pool"
+			);
+		});
+	}
+
+	#[test]
+	fn reveal_account_subtracts_free_balance_from_potential_balance() {
+		new_test_ext_with_endowments(vec![(account_id(7), 500 * UNIT)]).execute_with(|| {
+			let revealed = account_id(7);
+			let seeded = 1_000 * UNIT;
+			crate::PotentialWormholeBalance::<Test>::put(seeded);
+
+			// Mirrors funds being sent to a pre-computed multisig address before creation: when
+			// the address is later revealed, its balance is removed from the pool.
+			Wormhole::reveal_account(&revealed);
+			assert_eq!(
+				Wormhole::potential_wormhole_balance(),
+				seeded - 500 * UNIT,
+				"reveal_account must subtract the account's free balance from the pool"
+			);
+
+			// Idempotent against over-subtraction: revealing an empty account is a no-op.
+			let before = Wormhole::potential_wormhole_balance();
+			Wormhole::reveal_account(&account_id(99));
+			assert_eq!(Wormhole::potential_wormhole_balance(), before);
+		});
+	}
+
+	#[test]
 	fn migration_seeds_potential_balance_to_total_issuance() {
 		use frame_support::traits::UncheckedOnRuntimeUpgrade;
 

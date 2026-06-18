@@ -162,6 +162,34 @@ fn create_multisig_works() {
 }
 
 #[test]
+fn create_multisig_reveals_address_to_wormhole() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		crate::mock::REVEALED_ADDRESSES.with(|a| a.borrow_mut().clear());
+
+		let creator = alice();
+		let signers = vec![bob(), charlie(), dave()];
+		let threshold = 2;
+
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(creator.clone()),
+			signers.clone(),
+			threshold,
+			0,
+		));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, threshold, 0);
+		crate::mock::REVEALED_ADDRESSES.with(|a| {
+			assert_eq!(
+				a.borrow().as_slice(),
+				&[multisig_address],
+				"creating a multisig must reveal its address to the wormhole soundness counter"
+			);
+		});
+	});
+}
+
+#[test]
 fn create_multisig_fails_with_threshold_zero() {
 	new_test_ext().execute_with(|| {
 		let creator = alice();

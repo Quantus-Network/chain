@@ -35,7 +35,8 @@ use crate::{
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, Get, NeverEnsureOrigin, VariantCountOf,
+		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, Contains, Get, NeverEnsureOrigin,
+		VariantCountOf,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -54,7 +55,7 @@ use smallvec::smallvec;
 
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
-	traits::{BlakeTwo256, One},
+	traits::{AccountIdConversion, BlakeTwo256, One},
 	AccountId32, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
@@ -709,6 +710,7 @@ impl pallet_multisig::Config for Runtime {
 	type PalletId = MultisigPalletId;
 	type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
 	type HighSecurity = HighSecurityConfig;
+	type ProofRecorder = Wormhole;
 }
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
@@ -740,6 +742,40 @@ parameter_types! {
 	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
 }
 
+/// Accounts excluded from the wormhole "ambiguous address" heuristic even though their nonce is
+/// zero, i.e. accounts that are known not to be wormhole deposit addresses. Counting any of these
+/// would only inflate the soundness pool (the unsafe direction), and their balances can never
+/// actually be exited via the wormhole.
+pub struct NonWormholeAccounts;
+impl Contains<AccountId> for NonWormholeAccounts {
+	fn contains(account: &AccountId) -> bool {
+		// Registered multisigs spend through their signatories, so the multisig account itself
+		// never signs and never reveals itself. (Funds sent to a pre-computed multisig address
+		// before creation are reconciled by `reveal_address` at creation time.)
+		if pallet_multisig::Pallet::<Runtime>::is_multisig(account) {
+			return true;
+		}
+
+		// The treasury receives a block reward every block but is a keyless governance account
+		// (a multisig that need not be registered in the multisig pallet), not a wormhole deposit.
+		if pallet_treasury::Pallet::<Runtime>::treasury_account().as_ref() == Some(account) {
+			return true;
+		}
+
+		// Genuinely keyless accounts that can never sign, and so can never hold a wormhole
+		// deposit: the `PalletId`-derived pallet accounts and the sentinel minting addresses used
+		// as the `from` side of minted transfers.
+		let keyless: [AccountId; 5] = [
+			TreasuryPalletId::get().into_account_truncating(),
+			MultisigPalletId::get().into_account_truncating(),
+			ReversibleTransfersPalletIdValue::get().into_account_truncating(),
+			MintingAccount::get(),
+			AssetMintingAccount::get(),
+		];
+		keyless.iter().any(|keyless_account| keyless_account == account)
+	}
+}
+
 impl pallet_wormhole::Config for Runtime {
 	type NativeBalance = Balance;
 	type Currency = Balances;
@@ -751,6 +787,7 @@ impl pallet_wormhole::Config for Runtime {
 	/// Both pallets mint native tokens and should use the same sentinel "from" address.
 	type MintingAccount = MintingAccount;
 	type MinimumTransferAmount = WormholeMinimumTransferAmount;
+	type NonWormholeAccounts = NonWormholeAccounts;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
 	type WormholeAccountId = AccountId32;

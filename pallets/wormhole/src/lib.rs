@@ -46,7 +46,7 @@ pub mod pallet {
 		traits::{
 			fungible::{Inspect as FungibleInspect, Mutate, Unbalanced},
 			fungibles::{self},
-			BuildGenesisConfig, Currency,
+			BuildGenesisConfig, Contains, Currency,
 		},
 	};
 	use frame_system::pallet_prelude::*;
@@ -181,6 +181,23 @@ pub mod pallet {
 		/// This prevents dust transfers that waste storage.
 		#[pallet::constant]
 		type MinimumTransferAmount: Get<BalanceOf<Self>>;
+
+		/// Accounts that must never be treated as "ambiguous" wormhole-deposit addresses, even
+		/// though their nonce is zero.
+		///
+		/// The soundness counter assumes an ambiguous (`nonce == 0`) address either holds a
+		/// wormhole deposit or will eventually "reveal" itself by signing a transaction (at which
+		/// point its balance is removed from the pool). Some accounts break that assumption:
+		///
+		/// - **Multisig accounts** spend via their signatories, so the multisig account itself
+		///   never signs and never reveals. Its received funds would otherwise stay counted in
+		///   `PotentialWormholeBalance` forever, and its outflows would never be subtracted.
+		/// - **Keyless accounts** (e.g. pallet/`PalletId` accounts) can never sign at all, so they
+		///   are known not to be wormhole deposits.
+		///
+		/// Counting either kind only inflates the pool (the unsafe direction for the soundness
+		/// bound), so they are excluded here.
+		type NonWormholeAccounts: Contains<<Self as frame_system::Config>::AccountId>;
 
 		/// Volume fee rate in basis points (1 basis point = 0.01%).
 		/// This must match the fee rate used in proof generation.
@@ -649,7 +666,29 @@ pub mod pallet {
 		/// tracking in `record_transfer` (recipient) and the reveal-side tracking in the runtime's
 		/// `WormholeProofRecorderExtension` (signer) classify addresses through this function.
 		pub fn is_ambiguous_account(account: &<T as frame_system::Config>::AccountId) -> bool {
-			frame_system::Pallet::<T>::account_nonce(account).is_zero()
+			frame_system::Pallet::<T>::account_nonce(account).is_zero() &&
+				!T::NonWormholeAccounts::contains(account)
+		}
+
+		/// Reveal `account`: remove its current free balance from `PotentialWormholeBalance`.
+		///
+		/// This is the deduction side of the soundness counter. It runs when an account stops
+		/// being indistinguishable from a wormhole deposit address:
+		///
+		/// - a regular account the first time it signs a transaction (see
+		///   `WormholeProofRecorderExtension::validate` in the runtime), and
+		/// - a multisig address at creation time (see `OnMultisigCreated`), which covers the case
+		///   where funds were sent to a pre-computed multisig address before it was created.
+		///
+		/// Idempotent in practice: once revealed, an account is excluded from
+		/// `is_ambiguous_account`, so its later receipts are never re-added to the pool.
+		pub fn reveal_account(account: &<T as frame_system::Config>::AccountId) {
+			let balance = <T::Currency as Currency<_>>::free_balance(account);
+			if !balance.is_zero() {
+				PotentialWormholeBalance::<T>::mutate(|total| {
+					*total = total.saturating_sub(balance);
+				});
+			}
 		}
 
 		/// Record a transfer in the ZK tree and emit events.
@@ -730,6 +769,10 @@ pub mod pallet {
 		) {
 			let asset_id_value = asset_id.unwrap_or_default();
 			Self::record_transfer(asset_id_value, &from, &to, amount);
+		}
+
+		fn reveal_address(account: <T as Config>::WormholeAccountId) {
+			Self::reveal_account(&account.into());
 		}
 	}
 }

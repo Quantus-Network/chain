@@ -20,6 +20,7 @@ pallet-balances.workspace = true
 pallet-reversible-transfers = { path = "../reversible-transfers", default-features = false, optional = true }
 qp-high-security = { path = "../../primitives/high-security", default-features = false }
 qp-scheduler = { workspace = true, optional = true }
+qp-wormhole = { workspace = true, default-features = false }
 scale-info = { features = ["derive"], workspace = true }
 sp-arithmetic.workspace = true
 sp-core.workspace = true
@@ -66,6 +67,7 @@ std = [
 	"pallet-timestamp/std",
 	"qp-high-security/std",
 	"qp-scheduler?/std",
+	"qp-wormhole/std",
 	"scale-info/std",
 	"sp-arithmetic/std",
 	"sp-core/std",

@@ -23,6 +23,13 @@ On-chain, wormhole addresses are indistinguishable from regular dilithium addres
 
 When an address signs its first transaction, it "reveals" itself as a regular dilithium address (not a wormhole address), and its balance should be subtracted from the potential wormhole pool.
 
+### Accounts that never reveal
+
+The `nonce == 0` heuristic over-counts two kinds of accounts that have a zero nonce but are known *not* to be wormhole deposits. These are excluded via the `NonWormholeAccounts: Contains<AccountId>` config (so they never add to the pool), and the runtime populates it as follows:
+
+- **Multisig accounts** spend through their signatories, so the multisig account itself never signs and never reveals. The runtime excludes any address registered in `pallet_multisig` (`is_multisig`). Because funds can be sent to a *pre-computed* multisig address before it is created, the multisig pallet also calls `TransferProofRecorder::reveal_address` on creation, which subtracts the address's balance from the pool (the multisig analog of a normal account's first-signature reveal). Together these make a multisig net zero into the pool over its lifetime.
+- **Keyless accounts** that can never sign at all: the treasury account (a keyless governance account that receives a block reward every block), the `PalletId`-derived pallet accounts, and the sentinel minting addresses used as the `from` side of minted transfers.
+
 ## Storage Items
 
 Add to `pallets/wormhole/src/lib.rs`:
@@ -219,7 +226,8 @@ Wormhole exits are unsigned (`ensure_none`). They don't have a signer and won't 
 1. **`pallets/wormhole/src/lib.rs`**
    - Bumped `STORAGE_VERSION` to 1 (`#[pallet::storage_version]`)
    - Added `PotentialWormholeBalance` and `TotalWormholeExits` storage items (with getters)
-   - Added `is_ambiguous_account()` helper (single source of truth for the `nonce == 0` heuristic)
+   - Added `is_ambiguous_account()` helper (single source of truth for the `nonce == 0` heuristic), now also excluding `NonWormholeAccounts`
+   - Added `NonWormholeAccounts: Contains<AccountId>` config and `reveal_account()` helper (the deduction side, shared by the first-signature reveal and multisig creation)
    - Added `SoundnessInvariantViolation` error variant
    - Updated `record_transfer()` to track deposits to ambiguous addresses
    - Updated `verify_aggregated_proof()` to check the invariant and update `TotalWormholeExits`
@@ -227,10 +235,20 @@ Wormhole exits are unsigned (`ensure_none`). They don't have a signer and won't 
 2. **`pallets/wormhole/src/migrations.rs`** (new)
    - `v1::InitSoundnessCounters` + `MigrateV0ToV1` versioned migration to seed the pool
 
-3. **`runtime/src/transaction_extensions.rs`**
-   - Updated `WormholeProofRecorderExtension::validate()` to detect first-time signers and subtract their balance (and accounted for it in `weight()`)
+3. **`primitives/wormhole/src/lib.rs`**
+   - Added `reveal_address()` to the `TransferProofRecorder` trait (the cross-pallet wormhole hook), implemented by the wormhole pallet
 
-4. **`runtime/src/lib.rs`**
+4. **`pallets/multisig/src/lib.rs`**
+   - Added `is_multisig()` helper (registry lookup)
+   - Added a `ProofRecorder: TransferProofRecorder` config and a `reveal_address` call on multisig creation, so a multisig is revealed to the soundness counter when created
+
+5. **`runtime/src/transaction_extensions.rs`**
+   - Updated `WormholeProofRecorderExtension::validate()` to detect first-time signers and reveal them (and accounted for it in `weight()`)
+
+6. **`runtime/src/configs/mod.rs`**
+   - Implemented `NonWormholeAccounts` (registered multisigs + treasury + `PalletId`/sentinel keyless accounts) and wired multisig's `ProofRecorder = Wormhole`
+
+7. **`runtime/src/lib.rs`**
    - Added the `Migrations` tuple (`MigrateV0ToV1`) to `Executive` and bumped `spec_version` to 132
 
 ## Testing
@@ -238,11 +256,18 @@ Wormhole exits are unsigned (`ensure_none`). They don't have a signer and won't 
 1. **Unit tests in wormhole pallet:**
    - Test that transfers to nonce-0 addresses increment `PotentialWormholeBalance`
    - Test that transfers to nonce>0 addresses don't affect `PotentialWormholeBalance`
+   - Test that transfers to `NonWormholeAccounts` don't affect `PotentialWormholeBalance`
+   - Test that `reveal_account()` subtracts an account's balance from the pool
    - Test that exits increment `TotalWormholeExits`
    - Test that exits fail with `SoundnessInvariantViolation` when invariant would be violated
 
-2. **Integration tests in runtime:**
+2. **Multisig pallet test:**
+   - Test that creating a multisig reveals its address to the wormhole soundness counter
+
+3. **Integration tests in runtime:**
    - Test that signing a first transaction subtracts balance from `PotentialWormholeBalance`
+   - Test that creating a multisig deducts a pre-funded (pre-computed) address's balance and excludes it afterward
+   - Test that mining rewards count only the miner's (ambiguous) portion, not the excluded treasury portion
    - Test full flow: deposit -> exit -> verify counters
    - Test reveal flow: deposit -> sign transaction -> verify balance subtracted
 

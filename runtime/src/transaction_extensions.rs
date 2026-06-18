@@ -3,9 +3,8 @@ extern crate alloc;
 use crate::*;
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::marker::PhantomData;
-use frame_support::{
-	pallet_prelude::{InvalidTransaction, TransactionValidityError, ValidTransaction},
-	traits::Currency,
+use frame_support::pallet_prelude::{
+	InvalidTransaction, TransactionValidityError, ValidTransaction,
 };
 use frame_system::ensure_signed;
 use qp_high_security::HighSecurityInspector;
@@ -255,12 +254,7 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		// signers. Unsigned transactions (e.g. wormhole exits) have no signer and are skipped.
 		if let Ok(signer) = ensure_signed(origin.clone()) {
 			if pallet_wormhole::Pallet::<Runtime>::is_ambiguous_account(&signer) {
-				let balance = <Balances as Currency<AccountId>>::free_balance(&signer);
-				if balance > 0 {
-					pallet_wormhole::PotentialWormholeBalance::<Runtime>::mutate(|total| {
-						*total = total.saturating_sub(balance);
-					});
-				}
+				pallet_wormhole::Pallet::<Runtime>::reveal_account(&signer);
 			}
 		}
 
@@ -287,7 +281,7 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use frame_support::{assert_ok, pallet_prelude::TransactionValidityError};
+	use frame_support::{assert_ok, pallet_prelude::TransactionValidityError, traits::Currency};
 	use sp_runtime::{traits::TxBaseImplication, AccountId32};
 	fn alice() -> AccountId {
 		AccountId32::from([1; 32])
@@ -982,17 +976,20 @@ mod tests {
 
 	#[test]
 	fn reveal_subtracts_signer_balance_from_potential_pool() {
-		use frame_support::traits::Currency;
 		use sp_runtime::traits::TxBaseImplication;
 
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
 
-			let signer = alice();
+			// Use a fresh account (not a sentinel/keyless address like alice == [1; 32]) so it is
+			// genuinely ambiguous and not excluded by `NonWormholeAccounts`.
+			let signer = intg_account(80);
+			fund(&signer, 500 * UNIT);
 			let balance = <Balances as Currency<AccountId>>::free_balance(&signer);
 			assert!(balance > 0);
-			// Alice has never signed yet.
+			// The signer has never signed yet.
 			assert_eq!(frame_system::Pallet::<Runtime>::account_nonce(&signer), 0);
+			assert!(pallet_wormhole::Pallet::<Runtime>::is_ambiguous_account(&signer));
 
 			// Seed the pool above the signer's balance so the subtraction is observable.
 			let seeded = balance + 1_000 * UNIT;
@@ -1026,8 +1023,9 @@ mod tests {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
 
-			let signer = alice();
-			// Mark alice as already revealed (nonce > 0).
+			let signer = intg_account(81);
+			fund(&signer, 500 * UNIT);
+			// Mark the signer as already revealed (nonce > 0).
 			frame_system::Pallet::<Runtime>::inc_account_nonce(&signer);
 
 			let seeded = 5_000 * UNIT;
@@ -1297,11 +1295,10 @@ mod tests {
 	}
 
 	// --- mined block rewards flow into the potential pool ---
-	// Mining mints brand-new coins to the miner (and treasury) and records them via
-	// `Wormhole::record_transfer`. Both recipients are ambiguous (never-signed) accounts, so
-	// every freshly minted coin lands in `PotentialWormholeBalance` — exactly the value the
-	// wormhole could later legitimately exit. This guards the soundness invariant against being
-	// tripped by ordinary emission.
+	// Mining mints brand-new coins to the miner (ambiguous, never-signed) and the treasury (a
+	// keyless governance account, excluded via `NonWormholeAccounts`). Only the miner's portion is
+	// indistinguishable from a wormhole deposit, so only it lands in `PotentialWormholeBalance`;
+	// the treasury's portion is correctly excluded since it can never be exited via the wormhole.
 	#[test]
 	fn counter_mining_rewards_increase_potential_balance() {
 		use frame_support::traits::Hooks;
@@ -1335,17 +1332,88 @@ mod tests {
 
 			// New coins were actually minted, and the miner was credited.
 			assert!(issuance_after > issuance_before, "block reward must mint new coins");
-			assert!(
-				<Balances as Currency<AccountId>>::free_balance(&miner_account) > 0,
-				"miner must be credited the mined reward"
-			);
+			let miner_reward = <Balances as Currency<AccountId>>::free_balance(&miner_account);
+			assert!(miner_reward > 0, "miner must be credited the mined reward");
 
-			// Every freshly minted coin went to an ambiguous account (miner + treasury), so the
-			// whole emission shows up as new potential wormhole balance.
+			// The treasury portion is excluded (keyless governance account), so the pool grows by
+			// the miner's ambiguous portion only — and by strictly less than the full emission.
 			assert_eq!(
 				pool_after - pool_before,
-				issuance_after - issuance_before,
-				"mined coins must increase PotentialWormholeBalance by the full emission"
+				miner_reward,
+				"only the miner's (ambiguous) portion of the reward increases PotentialWormholeBalance"
+			);
+			assert!(
+				pool_after - pool_before < issuance_after - issuance_before,
+				"the excluded treasury portion must not be counted into the pool"
+			);
+		});
+	}
+
+	// --- multisig creation reveals a pre-funded address ---
+	// A multisig never signs (it spends via its signatories), so it never reveals itself the way
+	// a normal account does. This guards the attack where someone pre-computes a multisig address,
+	// sends funds to it (counted into the pool because it looks ambiguous), then creates the
+	// multisig: creation must deduct the address's balance so it nets zero into the pool, and the
+	// registered multisig must afterwards be excluded from the ambiguous set.
+	#[test]
+	fn counter_multisig_creation_reveals_prefunded_address() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let creator = intg_account(60);
+			let signers = vec![intg_account(61), intg_account(62)];
+			let threshold = 2u32;
+			fund(&creator, 10_000 * UNIT);
+			mark_revealed(&creator);
+
+			// Pre-compute the multisig address before it is created.
+			let multisig_addr = Multisig::derive_multisig_address(&signers, threshold, 0);
+			assert!(
+				pallet_wormhole::Pallet::<Runtime>::is_ambiguous_account(&multisig_addr),
+				"pre-creation multisig address must look ambiguous"
+			);
+
+			// Attacker pre-funds the pre-computed address; record_transfer counts it.
+			let sender = intg_account(63);
+			fund(&sender, 5_000 * UNIT);
+			mark_revealed(&sender);
+			pallet_wormhole::PotentialWormholeBalance::<Runtime>::put(POOL_BASE);
+
+			let prefund = 1_000 * UNIT;
+			run_transfer(&sender, &multisig_addr, prefund);
+			assert_eq!(
+				pool(),
+				POOL_BASE + prefund,
+				"pre-funding a pre-computed (ambiguous-looking) address is counted into the pool"
+			);
+			assert_eq!(<Balances as Currency<AccountId>>::free_balance(&multisig_addr), prefund);
+
+			// Create the multisig at the same derived address.
+			assert_ok!(Multisig::create_multisig(
+				RuntimeOrigin::signed(creator.clone()),
+				signers.clone(),
+				threshold,
+				0,
+			));
+
+			// Creation reveals the address: its balance is removed from the pool, exactly undoing
+			// the pre-funding, so the multisig nets zero into the soundness pool.
+			assert_eq!(
+				pool(),
+				POOL_BASE,
+				"multisig creation must deduct the pre-funded balance from the pool"
+			);
+			assert!(
+				!pallet_wormhole::Pallet::<Runtime>::is_ambiguous_account(&multisig_addr),
+				"registered multisig must no longer be treated as ambiguous"
+			);
+
+			// A later receipt to the now-registered multisig is not re-counted.
+			run_transfer(&sender, &multisig_addr, 100 * UNIT);
+			assert_eq!(
+				pool(),
+				POOL_BASE,
+				"post-creation receipts to a registered multisig must not be counted"
 			);
 		});
 	}

@@ -71,8 +71,8 @@ pub fn account_id(id: u64) -> sp_core::crypto::AccountId32 {
 pub const MINTING_ACCOUNT: sp_core::crypto::AccountId32 =
 	sp_core::crypto::AccountId32::new([3u8; 32]);
 
-/// Trait for recording transfer proofs in the wormhole pallet.
-/// Other pallets can use this to record proofs when they mint/transfer tokens.
+/// Trait giving other pallets a handle into the wormhole pallet's bookkeeping, without taking a
+/// hard dependency on `pallet-wormhole` itself.
 pub trait TransferProofRecorder<AccountId, AssetId, Balance> {
 	/// Record a transfer proof for native or asset tokens
 	/// - `None` for native tokens (asset_id = 0)
@@ -83,6 +83,15 @@ pub trait TransferProofRecorder<AccountId, AssetId, Balance> {
 		to: AccountId,
 		amount: Balance,
 	);
+
+	/// Reveal `account` to the wormhole soundness counter, removing its current balance from the
+	/// pool of value that could be exited via the wormhole.
+	///
+	/// Used when an account becomes known to be a regular (non-deposit) account. Most accounts
+	/// reveal themselves by signing their first transaction; a multisig never signs, so it is
+	/// revealed at creation time instead (covering funds sent to a pre-computed address before the
+	/// multisig existed).
+	fn reveal_address(account: AccountId);
 }
 
 /// Derive a wormhole address from a 32-byte inner_digest (already hashed).
