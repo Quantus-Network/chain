@@ -109,12 +109,16 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	}
 
 	fn count_transfers(call: &RuntimeCall) -> u64 {
+		// NOTE: this must stay in sync with the events matched by `record_proofs_from_events_since`
+		// — we only weight calls whose emitted events we actually record. In particular
+		// `Balances::force_set_balance` is deliberately NOT counted here: it emits `BalanceSet`
+		// (an absolute set, not a transfer/mint), which we cannot turn into a transfer proof and
+		// therefore never record. See the soundness-counter caveat on `reduce_potential_balance`.
 		match call {
 			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::force_transfer { .. }) |
-			RuntimeCall::Balances(pallet_balances::Call::force_set_balance { .. }) |
 			RuntimeCall::Assets(pallet_assets::Call::transfer { .. }) |
 			RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) |
 			RuntimeCall::Assets(pallet_assets::Call::transfer_approved { .. }) |
@@ -266,9 +270,14 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		// the fee charge), so the nonce check is accurate and the captured balance is the
 		// pre-deduction balance. Unsigned transactions (e.g. wormhole exits) have no signer and
 		// are skipped.
+		// We subtract `total_balance` (free + reserved), not just free: an ambiguous account cannot
+		// spend (spending requires signing, which reveals it), so its total balance equals the sum
+		// of credits it received — which is exactly what was added to the pool, provided every
+		// credit path was tracked. (See the caveat on `reduce_potential_balance` re: untracked
+		// credits such as `force_set_balance`.)
 		let reveal_balance = match ensure_signed(origin.clone()) {
 			Ok(signer) if pallet_wormhole::Pallet::<Runtime>::is_ambiguous_account(&signer) =>
-				Some(<Balances as Currency<AccountId>>::free_balance(&signer)),
+				Some(<Balances as Currency<AccountId>>::total_balance(&signer)),
 			_ => None,
 		};
 

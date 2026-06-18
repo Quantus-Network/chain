@@ -683,7 +683,7 @@ pub mod pallet {
 		/// Idempotent in practice: once revealed, an account is excluded from
 		/// `is_ambiguous_account`, so its later receipts are never re-added to the pool.
 		pub fn reveal_account(account: &<T as frame_system::Config>::AccountId) {
-			Self::reduce_potential_balance(<T::Currency as Currency<_>>::free_balance(account));
+			Self::reduce_potential_balance(<T::Currency as Currency<_>>::total_balance(account));
 		}
 
 		/// Remove `amount` from `PotentialWormholeBalance` (saturating).
@@ -692,6 +692,15 @@ pub mod pallet {
 		/// transaction extension can capture a signer's balance during `validate` (a side-effect
 		/// free phase) and commit the subtraction later in `prepare`, rather than re-reading a
 		/// post-fee balance.
+		///
+		/// Soundness caveat: the reveal subtracts an account's whole balance on the assumption that
+		/// every credit it received while ambiguous was added to the pool (via `record_transfer`).
+		/// This holds for all normal credit paths (transfers and mints), but NOT for an untracked
+		/// balance increase such as a root `Balances::force_set_balance` (emits `BalanceSet`, which
+		/// is not recorded). Such an increase is never added to the pool, so revealing the account
+		/// would over-subtract here. This is root-gated and the conservative migration seed keeps
+		/// the pool well above the true ambiguous sum, but operators should avoid raising the
+		/// balance of a never-signed account via `force_set_balance`.
 		pub fn reduce_potential_balance(amount: BalanceOf<T>) {
 			if !amount.is_zero() {
 				PotentialWormholeBalance::<T>::mutate(|total| {
