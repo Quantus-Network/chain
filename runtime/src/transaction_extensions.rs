@@ -3,8 +3,9 @@ extern crate alloc;
 use crate::*;
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::marker::PhantomData;
-use frame_support::pallet_prelude::{
-	InvalidTransaction, TransactionValidityError, ValidTransaction,
+use frame_support::{
+	pallet_prelude::{InvalidTransaction, TransactionValidityError, ValidTransaction},
+	traits::Currency,
 };
 use frame_system::ensure_signed;
 use qp_high_security::HighSecurityInspector;
@@ -200,7 +201,10 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 	for WormholeProofRecorderExtension<T>
 {
 	type Pre = u32;
-	type Val = ();
+	/// Carries the pre-fee balance captured in `validate` for a first-time signer that must be
+	/// revealed (subtracted from the potential wormhole pool). `None` when there is nothing to
+	/// reveal. The actual subtraction is committed in `prepare`.
+	type Val = Option<Balance>;
 	type Implicit = ();
 
 	const IDENTIFIER: &'static str = "WormholeProofRecorderExtension";
@@ -214,8 +218,8 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 			Weight::zero()
 		};
 
-		// Soundness reveal bookkeeping done in `validate`: worst case reads the signer's nonce
-		// and balance and writes `PotentialWormholeBalance` once.
+		// Soundness reveal bookkeeping: `validate` reads the signer's nonce and balance, and
+		// `prepare` writes `PotentialWormholeBalance` once.
 		let reveal_weight = T::DbWeight::get().reads_writes(2, 1);
 
 		transfer_weight.saturating_add(reveal_weight)
@@ -223,12 +227,19 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 
 	fn prepare(
 		self,
-		_val: Self::Val,
+		val: Self::Val,
 		_origin: &sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
 		_call: &RuntimeCall,
 		_info: &sp_runtime::traits::DispatchInfoOf<RuntimeCall>,
 		_len: usize,
 	) -> Result<Self::Pre, TransactionValidityError> {
+		// Commit the soundness reveal detected in `validate`. This is done here, not in `validate`,
+		// because `validate` must be side-effect free (it can be re-run against discarded overlays
+		// during pool validation), whereas `prepare` runs once as a committed pre-dispatch step.
+		if let Some(balance) = val {
+			pallet_wormhole::Pallet::<Runtime>::reduce_potential_balance(balance);
+		}
+
 		// Snapshot current event count so we only process events added by this tx
 		// (and any events from previous txs in the same block).
 		Ok(frame_system::Pallet::<Runtime>::event_count())
@@ -245,20 +256,23 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		_source: frame_support::pallet_prelude::TransactionSource,
 	) -> sp_runtime::traits::ValidateResult<Self::Val, RuntimeCall> {
 		// Soundness tracking: when an account signs for the very first time it reveals itself as
-		// a regular dilithium account rather than a wormhole deposit address. Remove its balance
-		// from the potential wormhole pool.
+		// a regular dilithium account rather than a wormhole deposit address, so its balance must
+		// be removed from the potential wormhole pool.
 		//
-		// We detect "first signature" by `nonce == 0`. This runs in `validate`, which executes
-		// before `CheckNonce::prepare` increments the nonce (all extensions' `validate` run
-		// before any extension's `prepare`), so `nonce == 0` correctly identifies first-time
-		// signers. Unsigned transactions (e.g. wormhole exits) have no signer and are skipped.
-		if let Ok(signer) = ensure_signed(origin.clone()) {
-			if pallet_wormhole::Pallet::<Runtime>::is_ambiguous_account(&signer) {
-				pallet_wormhole::Pallet::<Runtime>::reveal_account(&signer);
-			}
-		}
+		// `validate` is kept side-effect free: here we only *detect* a first-time signer and
+		// capture its balance, returning it via `Val`; the subtraction is committed in `prepare`.
+		// We detect "first signature" by `nonce == 0`. All extensions' `validate` run before any
+		// extension's `prepare` (including `CheckNonce::prepare`, which increments the nonce, and
+		// the fee charge), so the nonce check is accurate and the captured balance is the
+		// pre-deduction balance. Unsigned transactions (e.g. wormhole exits) have no signer and
+		// are skipped.
+		let reveal_balance = match ensure_signed(origin.clone()) {
+			Ok(signer) if pallet_wormhole::Pallet::<Runtime>::is_ambiguous_account(&signer) =>
+				Some(<Balances as Currency<AccountId>>::free_balance(&signer)),
+			_ => None,
+		};
 
-		Ok((ValidTransaction::default(), (), origin))
+		Ok((ValidTransaction::default(), reveal_balance, origin))
 	}
 
 	fn post_dispatch(
@@ -591,7 +605,7 @@ mod tests {
 			let origin = RuntimeOrigin::signed(alice());
 
 			// Prepare should succeed and return current event count
-			let result = ext.prepare((), &origin, &call, &Default::default(), 0);
+			let result = ext.prepare(None, &origin, &call, &Default::default(), 0);
 			assert_ok!(result);
 		});
 	}
@@ -997,16 +1011,28 @@ mod tests {
 
 			let ext = WormholeProofRecorderExtension::<Runtime>::new();
 			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
-			let result = ext.validate(
-				RuntimeOrigin::signed(signer.clone()),
-				&call,
-				&Default::default(),
-				0,
-				(),
-				&TxBaseImplication::<()>(()),
-				frame_support::pallet_prelude::TransactionSource::External,
+			let origin = RuntimeOrigin::signed(signer.clone());
+			let (_, val, _) = ext
+				.validate(
+					origin.clone(),
+					&call,
+					&Default::default(),
+					0,
+					(),
+					&TxBaseImplication::<()>(()),
+					frame_support::pallet_prelude::TransactionSource::External,
+				)
+				.expect("validate should succeed");
+
+			// `validate` must be side-effect free; the subtraction is committed in `prepare`.
+			assert_eq!(
+				pallet_wormhole::PotentialWormholeBalance::<Runtime>::get(),
+				seeded,
+				"validate must not mutate the pool"
 			);
-			assert_ok!(result);
+
+			ext.prepare(val, &origin, &call, &Default::default(), 0)
+				.expect("prepare should succeed");
 
 			assert_eq!(
 				pallet_wormhole::PotentialWormholeBalance::<Runtime>::get(),
@@ -1033,16 +1059,22 @@ mod tests {
 
 			let ext = WormholeProofRecorderExtension::<Runtime>::new();
 			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
-			let result = ext.validate(
-				RuntimeOrigin::signed(signer),
-				&call,
-				&Default::default(),
-				0,
-				(),
-				&TxBaseImplication::<()>(()),
-				frame_support::pallet_prelude::TransactionSource::External,
-			);
-			assert_ok!(result);
+			let origin = RuntimeOrigin::signed(signer);
+			let (_, val, _) = ext
+				.validate(
+					origin.clone(),
+					&call,
+					&Default::default(),
+					0,
+					(),
+					&TxBaseImplication::<()>(()),
+					frame_support::pallet_prelude::TransactionSource::External,
+				)
+				.expect("validate should succeed");
+			assert!(val.is_none(), "an already-revealed signer must capture nothing to reveal");
+
+			ext.prepare(val, &origin, &call, &Default::default(), 0)
+				.expect("prepare should succeed");
 
 			assert_eq!(
 				pallet_wormhole::PotentialWormholeBalance::<Runtime>::get(),

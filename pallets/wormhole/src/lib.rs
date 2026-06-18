@@ -683,10 +683,19 @@ pub mod pallet {
 		/// Idempotent in practice: once revealed, an account is excluded from
 		/// `is_ambiguous_account`, so its later receipts are never re-added to the pool.
 		pub fn reveal_account(account: &<T as frame_system::Config>::AccountId) {
-			let balance = <T::Currency as Currency<_>>::free_balance(account);
-			if !balance.is_zero() {
+			Self::reduce_potential_balance(<T::Currency as Currency<_>>::free_balance(account));
+		}
+
+		/// Remove `amount` from `PotentialWormholeBalance` (saturating).
+		///
+		/// This is the low-level deduction used by the reveal paths. It is exposed so the runtime's
+		/// transaction extension can capture a signer's balance during `validate` (a side-effect
+		/// free phase) and commit the subtraction later in `prepare`, rather than re-reading a
+		/// post-fee balance.
+		pub fn reduce_potential_balance(amount: BalanceOf<T>) {
+			if !amount.is_zero() {
 				PotentialWormholeBalance::<T>::mutate(|total| {
-					*total = total.saturating_sub(balance);
+					*total = total.saturating_sub(amount);
 				});
 			}
 		}
