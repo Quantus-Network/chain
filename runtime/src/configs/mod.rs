@@ -157,7 +157,7 @@ parameter_types! {
 impl pallet_qpow::Config for Runtime {
 	type InitialDifficulty = QPoWInitialDifficulty;
 	type TargetBlockTime = TargetBlockTime;
-	type MaxReorgDepth = ConstU32<180>;
+	type MaxReorgDepth = ConstU32<100>;
 	type WeightInfo = ();
 }
 

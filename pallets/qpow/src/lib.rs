@@ -26,7 +26,7 @@ pub mod pallet {
 		traits::{BuildGenesisConfig, Time},
 	};
 	use frame_system::pallet_prelude::BlockNumberFor;
-	use qpow_math::{achieved_difficulty_from_hash, get_nonce_hash, is_valid_nonce};
+	use qpow_math::{get_nonce_hash, is_valid_nonce};
 	use sp_core::U512;
 
 	pub type NonceType = [u8; 64];
@@ -306,9 +306,23 @@ pub mod pallet {
 			verify
 		}
 
-		/// Verify nonce validity and return achieved difficulty in a single call.
-		/// This avoids computing the nonce hash twice when both validation and
-		/// achieved difficulty are needed during block import.
+		/// Verify the nonce and return the block's work used for chain selection.
+		///
+		/// IMPORTANT: despite the legacy name, this returns the *target* difficulty the
+		/// block had to satisfy (the network difficulty at this height), NOT the achieved
+		/// difficulty derived from the winning hash. Target-based work matches Bitcoin
+		/// (`2^256/(target+1)`) and Ethereum PoW (sum of the `difficulty` field): every
+		/// block at a given difficulty contributes an identical, deterministic amount of
+		/// work, so cumulative chain work tracks expended hash power instead of being
+		/// dominated by a single lucky hash.
+		///
+		/// The runtime API name is intentionally left unchanged so this can ship as an
+		/// on-chain-only upgrade: because the metric is determined by the value this
+		/// returns (the client merely accumulates `parent_work + value`), upgrading the
+		/// on-chain Wasm flips the whole network to target-based work at the `set_code`
+		/// block, with no coordinated node-binary upgrade and no resync. Renaming the API
+		/// would break that compatibility, so defer the rename to a later release once all
+		/// nodes run a binary that expects the new name.
 		///
 		/// Note: This is called via runtime API from the client side. Runtime API
 		/// calls execute in a temporary context where state changes are discarded,
@@ -317,10 +331,9 @@ pub mod pallet {
 			block_hash: [u8; 32],
 			nonce: NonceType,
 		) -> (bool, U512) {
-			let (valid, _, hash_achieved) = Self::verify_nonce_internal(block_hash, nonce);
-			let achieved_difficulty =
-				if valid { achieved_difficulty_from_hash(hash_achieved) } else { U512::zero() };
-			(valid, achieved_difficulty)
+			let (valid, difficulty, _) = Self::verify_nonce_internal(block_hash, nonce);
+			let block_work = if valid { difficulty } else { U512::zero() };
+			(valid, block_work)
 		}
 
 		pub fn initial_difficulty() -> Difficulty {

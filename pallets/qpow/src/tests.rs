@@ -285,26 +285,22 @@ fn test_verify_and_get_achieved_difficulty() {
 		let block_hash = [1u8; 32];
 		let nonce = [2u8; 64];
 
-		// Call the combined function
-		let (valid, achieved_diff) = QPow::verify_and_get_achieved_difficulty(block_hash, nonce);
+		// Despite the legacy name, this returns the target difficulty (block work).
+		let (valid, block_work) = QPow::verify_and_get_achieved_difficulty(block_hash, nonce);
 
 		// Check that verify_nonce_on_import_block returns the same validity
 		let expected_valid = QPow::verify_nonce_on_import_block(block_hash, nonce);
 		assert_eq!(valid, expected_valid, "Validity should match verify_nonce_on_import_block");
 
 		if valid {
-			let nonce_hash = QPow::get_nonce_hash(block_hash, nonce);
-			let expected_from_hash = U512::MAX / nonce_hash;
+			// Work is the target difficulty the block satisfied, NOT MAX / nonce_hash.
 			assert_eq!(
-				achieved_diff, expected_from_hash,
-				"Achieved difficulty should equal U512::MAX / nonce_hash"
+				block_work,
+				QPow::get_difficulty(),
+				"Block work should equal the target difficulty"
 			);
 		} else {
-			assert_eq!(
-				achieved_diff,
-				U512::zero(),
-				"Invalid nonce should yield zero achieved difficulty"
-			);
+			assert_eq!(block_work, U512::zero(), "Invalid nonce should yield zero work");
 		}
 	});
 }
