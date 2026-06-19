@@ -216,15 +216,23 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 	fn weight(&self, call: &RuntimeCall) -> Weight {
 		let n = Self::count_transfers(call);
 		let transfer_weight = if n > 0 {
-			// Per transfer: 1 read (TransferCount) + 2 writes (TransferProof + TransferCount)
-			T::DbWeight::get().reads_writes(n, 2 * n)
+			// Per recorded transfer, `record_transfer` touches (worst case):
+			//   reads:  TransferCount (1) + the `is_ambiguous_account` lookup on the recipient,
+			//           which reads the recipient nonce (1) and, when nonce == 0, the
+			//           `NonWormholeAccounts` membership checks `Multisigs` (1) and the configured
+			//           `TreasuryAccount` (1) => 4 reads.
+			//   writes: TransferProof / ZkTree leaf (1) + TransferCount (1) + the conditional
+			//           `PotentialWormholeBalance` deposit add (1) => 3 writes.
+			T::DbWeight::get().reads_writes(4 * n, 3 * n)
 		} else {
 			Weight::zero()
 		};
 
-		// Soundness reveal bookkeeping: `validate` reads the signer's nonce and balance, and
-		// `prepare` writes `PotentialWormholeBalance` once.
-		let reveal_weight = T::DbWeight::get().reads_writes(2, 1);
+		// Soundness reveal bookkeeping for the signer. `validate` runs `is_ambiguous_account` on
+		// the signer — nonce (1) + `Multisigs` (1) + `TreasuryAccount` (1) — and, when ambiguous,
+		// reads the signer's balance (1): 4 reads worst case. `prepare` then writes
+		// `PotentialWormholeBalance` once.
+		let reveal_weight = T::DbWeight::get().reads_writes(4, 1);
 
 		transfer_weight.saturating_add(reveal_weight)
 	}
@@ -564,9 +572,10 @@ mod tests {
 			let ext = WormholeProofRecorderExtension::<Runtime>::new();
 
 			// Even non-transfer calls carry the constant soundness reveal-bookkeeping overhead
-			// (read nonce + balance, possibly write the pool), so the base weight is non-zero.
+			// (read signer nonce + multisig/treasury membership + balance, possibly write the
+			// pool), so the base weight is non-zero.
 			let reveal_weight =
-				<Runtime as frame_system::Config>::DbWeight::get().reads_writes(2, 1);
+				<Runtime as frame_system::Config>::DbWeight::get().reads_writes(4, 1);
 			let non_transfer =
 				RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
 			let base_weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<

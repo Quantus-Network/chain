@@ -742,6 +742,24 @@ parameter_types! {
 	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
 }
 
+parameter_types! {
+	/// Genuinely keyless accounts that can never sign a transaction, and so can never hold a
+	/// wormhole deposit. Excluded from the "ambiguous address" heuristic.
+	///
+	/// These are the `PalletId`-derived pallet accounts and the sentinel minting addresses used as
+	/// the `from` side of minted transfers. The treasury entry here is the *conventional*
+	/// `PalletId`-derived address (`py/trsry`); the actually-*configured* treasury account (which
+	/// may differ in this fork) is excluded separately in `NonWormholeAccounts::contains` via the
+	/// runtime `treasury_account()` storage getter.
+	pub KeylessNonWormholeAccounts: [AccountId; 5] = [
+		TreasuryPalletId::get().into_account_truncating(),
+		MultisigPalletId::get().into_account_truncating(),
+		ReversibleTransfersPalletIdValue::get().into_account_truncating(),
+		MintingAccount::get(),
+		AssetMintingAccount::get(),
+	];
+}
+
 /// Accounts excluded from the wormhole "ambiguous address" heuristic even though their nonce is
 /// zero, i.e. accounts that are known not to be wormhole deposit addresses. Counting any of these
 /// would only inflate the soundness pool (the unsafe direction), and their balances can never
@@ -756,23 +774,15 @@ impl Contains<AccountId> for NonWormholeAccounts {
 			return true;
 		}
 
-		// The treasury receives a block reward every block but is a keyless governance account
-		// (a multisig that need not be registered in the multisig pallet), not a wormhole deposit.
+		// The configured treasury account receives a block reward every block but is a keyless
+		// governance account (a multisig that need not be registered in the multisig pallet), not
+		// a wormhole deposit. In this fork the treasury address is configurable, so we read the
+		// real one rather than assuming the `PalletId`-derived default below.
 		if pallet_treasury::Pallet::<Runtime>::treasury_account().as_ref() == Some(account) {
 			return true;
 		}
 
-		// Genuinely keyless accounts that can never sign, and so can never hold a wormhole
-		// deposit: the `PalletId`-derived pallet accounts and the sentinel minting addresses used
-		// as the `from` side of minted transfers.
-		let keyless: [AccountId; 5] = [
-			TreasuryPalletId::get().into_account_truncating(),
-			MultisigPalletId::get().into_account_truncating(),
-			ReversibleTransfersPalletIdValue::get().into_account_truncating(),
-			MintingAccount::get(),
-			AssetMintingAccount::get(),
-		];
-		keyless.iter().any(|keyless_account| keyless_account == account)
+		KeylessNonWormholeAccounts::get().iter().any(|keyless| keyless == account)
 	}
 }
 

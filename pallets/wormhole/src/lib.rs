@@ -670,15 +670,16 @@ pub mod pallet {
 				!T::NonWormholeAccounts::contains(account)
 		}
 
-		/// Reveal `account`: remove its current free balance from `PotentialWormholeBalance`.
+		/// Reveal `account`: remove its current total balance from `PotentialWormholeBalance`.
 		///
 		/// This is the deduction side of the soundness counter. It runs when an account stops
 		/// being indistinguishable from a wormhole deposit address:
 		///
 		/// - a regular account the first time it signs a transaction (see
 		///   `WormholeProofRecorderExtension::validate` in the runtime), and
-		/// - a multisig address at creation time (see `OnMultisigCreated`), which covers the case
-		///   where funds were sent to a pre-computed multisig address before it was created.
+		/// - a multisig address at creation time (the multisig pallet calls `reveal_address`), which
+		///   covers the case where funds were sent to a pre-computed multisig address before it was
+		///   created.
 		///
 		/// Idempotent in practice: once revealed, an account is excluded from
 		/// `is_ambiguous_account`, so its later receipts are never re-added to the pool.
@@ -694,13 +695,25 @@ pub mod pallet {
 		/// post-fee balance.
 		///
 		/// Soundness caveat: the reveal subtracts an account's whole balance on the assumption that
-		/// every credit it received while ambiguous was added to the pool (via `record_transfer`).
-		/// This holds for all normal credit paths (transfers and mints), but NOT for an untracked
-		/// balance increase such as a root `Balances::force_set_balance` (emits `BalanceSet`, which
-		/// is not recorded). Such an increase is never added to the pool, so revealing the account
-		/// would over-subtract here. This is root-gated and the conservative migration seed keeps
-		/// the pool well above the true ambiguous sum, but operators should avoid raising the
-		/// balance of a never-signed account via `force_set_balance`.
+		/// every credit it received while ambiguous was added to the pool. The pool is only
+		/// incremented by `record_transfer`, which is driven by the runtime's event-scanning
+		/// transaction extension, so the assumption holds for every *unprivileged* credit path
+		/// (ordinary transfers and mints inside a signed extrinsic). It does NOT hold for
+		/// privileged credit paths that bypass that extension, including:
+		///   - root `Balances::force_set_balance` (emits `BalanceSet`, which is not a transfer/mint
+		///     event and is therefore never recorded),
+		///   - Root/scheduler-dispatched transfers (the scheduler runs in `on_initialize`/`on_idle`
+		///     with no transaction extension, so their `Transfer`/`Minted` events are never
+		///     scanned), and
+		///   - any future pallet-internal credit that does not flow through `record_transfer`.
+		/// Each such credit raises an ambiguous account's balance without adding to the pool, so a
+		/// later reveal over-subtracts here. All of these paths are privileged (Root/governance)
+		/// today, and the error is in the safe direction: it under-counts the pool, so the worst
+		/// case is a liveness false-positive (`SoundnessInvariantViolation` wrongly blocking a
+		/// legitimate exit), never a forged exit. The conservative migration seed (`total_issuance`)
+		/// keeps the pool far above the true ambiguous sum, masking this in practice. For true
+		/// robustness, track a per-account contributed amount and subtract that here instead of the
+		/// account's total balance.
 		pub fn reduce_potential_balance(amount: BalanceOf<T>) {
 			if !amount.is_zero() {
 				PotentialWormholeBalance::<T>::mutate(|total| {
