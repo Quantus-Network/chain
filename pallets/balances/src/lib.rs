@@ -153,7 +153,6 @@ pub mod weights;
 extern crate alloc;
 
 use alloc::{
-	format,
 	string::{String, ToString},
 	vec::Vec,
 };
@@ -600,10 +599,14 @@ pub mod pallet {
 			// Generate additional dev accounts.
 			if let Some((num_accounts, balance, ref derivation)) = self.dev_accounts {
 				// Using the provided derivation string or default to `"//Sender//{}`".
-				Pallet::<T, I>::derive_dev_account(
-					num_accounts,
-					balance,
-					derivation.as_deref().unwrap_or(DEFAULT_ADDRESS_URI),
+				assert!(
+					Pallet::<T, I>::derive_dev_account(
+						num_accounts,
+						balance,
+						derivation.as_deref().unwrap_or(DEFAULT_ADDRESS_URI),
+					)
+					.is_ok(),
+					"Failed to derive dev accounts from genesis configuration."
 				);
 			}
 			for &(ref who, free) in self.balances.iter() {
@@ -1326,7 +1329,14 @@ pub mod pallet {
 		}
 
 		/// Generate dev account from derivation(hard) string.
-		pub fn derive_dev_account(num_accounts: u32, balance: T::Balance, derivation: &str) {
+		///
+		/// Returns an error instead of panicking on a malformed derivation string or an account
+		/// that cannot be created, so the caller decides how to handle the failure.
+		pub fn derive_dev_account(
+			num_accounts: u32,
+			balance: T::Balance,
+			derivation: &str,
+		) -> Result<(), &'static str> {
 			// Ensure that the number of accounts is not zero.
 			assert!(num_accounts > 0, "num_accounts must be greater than zero");
 
@@ -1346,18 +1356,20 @@ pub mod pallet {
 
 				// Generate the key pair from the derivation string using sr25519.
 				let pair: SrPair = Pair::from_string(&derivation_string, None)
-					.expect(&format!("Failed to parse derivation string: {derivation_string}"));
+					.map_err(|_| "Failed to parse derivation string")?;
 
 				// Convert the public key to AccountId.
 				let who = T::AccountId::decode(&mut &pair.public().encode()[..])
-					.expect(&format!("Failed to decode public key from pair: {:?}", pair.public()));
+					.map_err(|_| "Failed to decode public key from pair")?;
 
 				// Set the balance for the generated account.
 				Self::mutate_account_handling_dust(&who, false, |account| {
 					account.free = balance;
 				})
-				.expect(&format!("Failed to add account to keystore: {:?}", who));
+				.map_err(|_| "Failed to set balance for derived dev account")?;
 			}
+
+			Ok(())
 		}
 	}
 
