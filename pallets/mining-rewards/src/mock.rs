@@ -161,6 +161,8 @@ impl qp_wormhole::TransferProofRecorder<sp_core::crypto::AccountId32, u32, u128>
 			proofs.borrow_mut().push(RecordedTransferProof { asset_id, from, to, amount });
 		});
 	}
+
+	fn reveal_address(_account: sp_core::crypto::AccountId32) {}
 }
 
 impl pallet_mining_rewards::Config for Test {

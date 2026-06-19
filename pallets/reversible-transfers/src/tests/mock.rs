@@ -244,6 +244,8 @@ impl qp_wormhole::TransferProofRecorder<AccountId, u32, Balance> for MockProofRe
 			proofs.borrow_mut().push(RecordedTransferProof { asset_id, from, to, amount });
 		});
 	}
+
+	fn reveal_address(_account: AccountId) {}
 }
 
 impl pallet_reversible_transfers::Config for Test {

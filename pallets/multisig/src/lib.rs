@@ -45,6 +45,7 @@ pub mod weights;
 
 use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::{traits::Get, BoundedBTreeMap, BoundedVec};
+use qp_wormhole::TransferProofRecorder;
 use scale_info::TypeInfo;
 use sp_runtime::RuntimeDebug;
 
@@ -236,6 +237,11 @@ pub mod pallet {
 			Self::AccountId,
 			<Self as pallet::Config>::RuntimeCall,
 		>;
+
+		/// Handle into the wormhole pallet. On creation, a multisig is revealed to the wormhole
+		/// soundness counter (a multisig never signs, so it never reveals itself otherwise), which
+		/// deducts any balance sent to the pre-computed address before it was created.
+		type ProofRecorder: TransferProofRecorder<Self::AccountId, u32, BalanceOf<Self>>;
 	}
 
 	/// Type alias for bounded signers vector
@@ -478,6 +484,11 @@ pub mod pallet {
 					proposals_per_signer: BoundedProposalsPerSignerOf::<T>::default(),
 				},
 			);
+
+			// Reveal the multisig to the wormhole soundness counter now that the address is known
+			// to be a multisig (it will never sign and reveal itself). This deducts any balance
+			// sent to the pre-computed address before creation.
+			T::ProofRecorder::reveal_address(multisig_address.clone());
 
 			// Emit event with sorted signers
 			Self::deposit_event(Event::MultisigCreated {
@@ -1208,6 +1219,16 @@ pub mod pallet {
 			let hash = T::Hashing::hash(&data);
 			T::AccountId::decode(&mut TrailingZeroInput::new(hash.as_ref()))
 				.expect("TrailingZeroInput provides sufficient bytes; qed")
+		}
+
+		/// Check if an account is a (permanently registered) multisig address.
+		///
+		/// Multisigs are recorded in [`Multisigs`] when created and never removed, so this is an
+		/// exact test. It is used by other pallets (e.g. the wormhole soundness counter) that need
+		/// to know an account spends via signatories and therefore never "reveals" itself by
+		/// signing a transaction directly.
+		pub fn is_multisig(account: &T::AccountId) -> bool {
+			Multisigs::<T>::contains_key(account)
 		}
 
 		/// Check if an account is a signer for a given multisig

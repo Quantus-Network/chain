@@ -272,6 +272,115 @@ mod wormhole_tests {
 			assert_eq!(Wormhole::transfer_count(&address), 1); // Still 1, not 2
 		});
 	}
+
+	// =========================================================================
+	// Soundness counter tracking
+	// =========================================================================
+
+	#[test]
+	fn record_transfer_to_ambiguous_address_increases_potential_balance() {
+		new_test_ext().execute_with(|| {
+			let from = account_id(1);
+			let to = account_id(2);
+			let amount = 25 * UNIT;
+
+			// `to` has never signed (nonce == 0), so it's ambiguous.
+			assert_eq!(Wormhole::potential_wormhole_balance(), 0);
+			Wormhole::record_transfer(0u32, &from, &to, amount);
+			assert_eq!(Wormhole::potential_wormhole_balance(), amount);
+
+			// A second deposit to another ambiguous address accumulates.
+			let to2 = account_id(3);
+			Wormhole::record_transfer(0u32, &from, &to2, amount);
+			assert_eq!(Wormhole::potential_wormhole_balance(), amount * 2);
+		});
+	}
+
+	#[test]
+	fn record_transfer_to_revealed_address_does_not_change_potential_balance() {
+		new_test_ext().execute_with(|| {
+			let from = account_id(1);
+			let to = account_id(2);
+			let amount = 25 * UNIT;
+
+			// Reveal `to` by bumping its nonce above zero.
+			frame_system::Pallet::<Test>::inc_account_nonce(&to);
+
+			Wormhole::record_transfer(0u32, &from, &to, amount);
+			assert_eq!(
+				Wormhole::potential_wormhole_balance(),
+				0,
+				"Transfers to revealed (nonce > 0) addresses must not add to the pool"
+			);
+		});
+	}
+
+	#[test]
+	fn record_transfer_to_non_wormhole_account_does_not_change_potential_balance() {
+		new_test_ext().execute_with(|| {
+			let from = account_id(1);
+			let to = crate::mock::excluded_account();
+			let amount = 25 * UNIT;
+
+			// `to` has nonce == 0 but is in the NonWormholeAccounts set (e.g. a multisig or known
+			// keyless account), so it must not be treated as an ambiguous wormhole deposit.
+			assert!(!Wormhole::is_ambiguous_account(&to));
+			Wormhole::record_transfer(0u32, &from, &to, amount);
+			assert_eq!(
+				Wormhole::potential_wormhole_balance(),
+				0,
+				"Transfers to excluded (non-wormhole) addresses must not add to the pool"
+			);
+		});
+	}
+
+	#[test]
+	fn reveal_account_subtracts_free_balance_from_potential_balance() {
+		new_test_ext_with_endowments(vec![(account_id(7), 500 * UNIT)]).execute_with(|| {
+			let revealed = account_id(7);
+			let seeded = 1_000 * UNIT;
+			crate::PotentialWormholeBalance::<Test>::put(seeded);
+
+			// Mirrors funds being sent to a pre-computed multisig address before creation: when
+			// the address is later revealed, its balance is removed from the pool.
+			Wormhole::reveal_account(&revealed);
+			assert_eq!(
+				Wormhole::potential_wormhole_balance(),
+				seeded - 500 * UNIT,
+				"reveal_account must subtract the account's free balance from the pool"
+			);
+
+			// Idempotent against over-subtraction: revealing an empty account is a no-op.
+			let before = Wormhole::potential_wormhole_balance();
+			Wormhole::reveal_account(&account_id(99));
+			assert_eq!(Wormhole::potential_wormhole_balance(), before);
+		});
+	}
+
+	#[test]
+	fn migration_seeds_potential_balance_to_total_issuance() {
+		use frame_support::traits::UncheckedOnRuntimeUpgrade;
+
+		new_test_ext().execute_with(|| {
+			// The migration seeds the pool to current total issuance, a safe upper bound on the
+			// value that could be sitting in ambiguous addresses.
+			let alice = account_id(1);
+			let minted = 750 * UNIT;
+			assert_ok!(Balances::mint_into(&alice, minted));
+
+			let issuance = <Balances as Inspect<AccountId>>::total_issuance();
+			assert_eq!(issuance, minted);
+			assert_eq!(Wormhole::potential_wormhole_balance(), 0);
+
+			crate::migrations::v1::InitSoundnessCounters::<Test>::on_runtime_upgrade();
+
+			assert_eq!(
+				Wormhole::potential_wormhole_balance(),
+				issuance,
+				"Migration must seed PotentialWormholeBalance to total issuance"
+			);
+		});
+	}
 }
 
 /// Tests for aggregated proof verification
@@ -279,7 +388,7 @@ mod wormhole_tests {
 mod aggregated_proof_tests {
 	use crate::{
 		mock::*,
-		pallet::{Error, UsedNullifiers},
+		pallet::{Error, PotentialWormholeBalance, TotalWormholeExits, UsedNullifiers},
 	};
 	use frame_support::{assert_noop, assert_ok};
 	use frame_system::RawOrigin;
@@ -444,10 +553,24 @@ mod aggregated_proof_tests {
 			// Set current block number higher than the proof's block
 			System::set_block_number(block_number + 10);
 
+			// Seed the soundness pool so the exit doesn't trip the invariant.
+			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+
 			let proof_bytes = get_test_proof_bytes();
+
+			// Expected exit total from the proof's public inputs.
+			let expected_exit: u128 = inputs
+				.account_data
+				.iter()
+				.filter(|a| a.summed_output_amount > 0)
+				.map(|a| (a.summed_output_amount as u128) * crate::SCALE_DOWN_FACTOR)
+				.sum();
 
 			// This should succeed - proof is valid and state matches
 			assert_ok!(Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes));
+
+			// TotalWormholeExits should now reflect the exit amount.
+			assert_eq!(TotalWormholeExits::<Test>::get(), expected_exit);
 
 			// Verify nullifiers are now marked as used
 			for nullifier in &inputs.nullifiers {
@@ -484,6 +607,48 @@ mod aggregated_proof_tests {
 	}
 
 	#[test]
+	fn exit_to_ambiguous_address_rejected_when_margin_exhausted() {
+		new_test_ext().execute_with(|| {
+			let proof = deserialize_test_proof();
+			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
+
+			let block_number = inputs.block_data.block_number as u64;
+			let block_hash_bytes: [u8; 32] =
+				inputs.block_data.block_hash.as_ref().try_into().unwrap();
+			frame_system::BlockHash::<Test>::insert(block_number, H256::from(block_hash_bytes));
+			System::set_block_number(block_number + 10);
+
+			let expected_exit: u128 = inputs
+				.account_data
+				.iter()
+				.filter(|a| a.summed_output_amount > 0)
+				.map(|a| (a.summed_output_amount as u128) * crate::SCALE_DOWN_FACTOR)
+				.sum();
+
+			// Margin is exactly zero: the pool has already been fully consumed by prior exits
+			// (potential_balance == total_exits). Exiting into another wormhole (an ambiguous
+			// address) is itself valid, but it must NOT be possible when there is no margin left,
+			// regardless of where the exit lands. The exit account in the fixture is ambiguous.
+			PotentialWormholeBalance::<Test>::put(expected_exit);
+			TotalWormholeExits::<Test>::put(expected_exit);
+
+			let proof_bytes = get_test_proof_bytes();
+			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+
+			assert!(result.is_err());
+			assert_eq!(
+				result.unwrap_err().error,
+				Error::<Test>::SoundnessInvariantViolation.into(),
+				"exit must be rejected when margin is zero, even to an ambiguous address"
+			);
+
+			// State is unchanged: no tokens minted, no counters moved.
+			assert_eq!(TotalWormholeExits::<Test>::get(), expected_exit);
+			assert_eq!(PotentialWormholeBalance::<Test>::get(), expected_exit);
+		});
+	}
+
+	#[test]
 	fn test_verify_aggregated_proof_cannot_replay() {
 		new_test_ext().execute_with(|| {
 			let proof = deserialize_test_proof();
@@ -498,6 +663,9 @@ mod aggregated_proof_tests {
 			frame_system::BlockHash::<Test>::insert(block_number, block_hash);
 			System::set_block_number(block_number + 10);
 
+			// Seed the soundness pool so the exit doesn't trip the invariant.
+			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+
 			let proof_bytes = get_test_proof_bytes();
 
 			// First submission should succeed
@@ -511,6 +679,35 @@ mod aggregated_proof_tests {
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::NullifierAlreadyUsed.into());
+		});
+	}
+
+	#[test]
+	fn test_verify_aggregated_proof_fails_when_soundness_invariant_violated() {
+		new_test_ext().execute_with(|| {
+			let proof = deserialize_test_proof();
+			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
+
+			let block_number = inputs.block_data.block_number as u64;
+			let block_hash_bytes: [u8; 32] =
+				inputs.block_data.block_hash.as_ref().try_into().unwrap();
+			let block_hash = H256::from(block_hash_bytes);
+
+			frame_system::BlockHash::<Test>::insert(block_number, block_hash);
+			System::set_block_number(block_number + 10);
+
+			// PotentialWormholeBalance defaults to 0, so any exit must be rejected: the proof is
+			// valid but there is no recorded deposit backing it.
+			let proof_bytes = get_test_proof_bytes();
+			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+			assert!(result.is_err());
+			assert_eq!(
+				result.unwrap_err().error,
+				Error::<Test>::SoundnessInvariantViolation.into()
+			);
+
+			// Nothing should have been exited.
+			assert_eq!(TotalWormholeExits::<Test>::get(), 0);
 		});
 	}
 

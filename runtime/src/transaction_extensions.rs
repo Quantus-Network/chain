@@ -3,8 +3,9 @@ extern crate alloc;
 use crate::*;
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::marker::PhantomData;
-use frame_support::pallet_prelude::{
-	InvalidTransaction, TransactionValidityError, ValidTransaction,
+use frame_support::{
+	pallet_prelude::{InvalidTransaction, TransactionValidityError, ValidTransaction},
+	traits::Currency,
 };
 use frame_system::ensure_signed;
 use qp_high_security::HighSecurityInspector;
@@ -108,12 +109,16 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	}
 
 	fn count_transfers(call: &RuntimeCall) -> u64 {
+		// NOTE: this must stay in sync with the events matched by `record_proofs_from_events_since`
+		// — we only weight calls whose emitted events we actually record. In particular
+		// `Balances::force_set_balance` is deliberately NOT counted here: it emits `BalanceSet`
+		// (an absolute set, not a transfer/mint), which we cannot turn into a transfer proof and
+		// therefore never record. See the soundness-counter caveat on `reduce_potential_balance`.
 		match call {
 			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::force_transfer { .. }) |
-			RuntimeCall::Balances(pallet_balances::Call::force_set_balance { .. }) |
 			RuntimeCall::Assets(pallet_assets::Call::transfer { .. }) |
 			RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) |
 			RuntimeCall::Assets(pallet_assets::Call::transfer_approved { .. }) |
@@ -200,29 +205,53 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 	for WormholeProofRecorderExtension<T>
 {
 	type Pre = u32;
-	type Val = ();
+	/// Carries the pre-fee balance captured in `validate` for a first-time signer that must be
+	/// revealed (subtracted from the potential wormhole pool). `None` when there is nothing to
+	/// reveal. The actual subtraction is committed in `prepare`.
+	type Val = Option<Balance>;
 	type Implicit = ();
 
 	const IDENTIFIER: &'static str = "WormholeProofRecorderExtension";
 
 	fn weight(&self, call: &RuntimeCall) -> Weight {
 		let n = Self::count_transfers(call);
-		if n > 0 {
-			// Per transfer: 1 read (TransferCount) + 2 writes (TransferProof + TransferCount)
-			T::DbWeight::get().reads_writes(n, 2 * n)
+		let transfer_weight = if n > 0 {
+			// Per recorded transfer, `record_transfer` touches (worst case):
+			//   reads:  TransferCount (1) + the `is_ambiguous_account` lookup on the recipient,
+			//           which reads the recipient nonce (1) and, when nonce == 0, the
+			//           `NonWormholeAccounts` membership checks `Multisigs` (1) and the configured
+			//           `TreasuryAccount` (1) => 4 reads.
+			//   writes: TransferProof / ZkTree leaf (1) + TransferCount (1) + the conditional
+			//           `PotentialWormholeBalance` deposit add (1) => 3 writes.
+			T::DbWeight::get().reads_writes(4 * n, 3 * n)
 		} else {
 			Weight::zero()
-		}
+		};
+
+		// Soundness reveal bookkeeping for the signer. `validate` runs `is_ambiguous_account` on
+		// the signer — nonce (1) + `Multisigs` (1) + `TreasuryAccount` (1) — and, when ambiguous,
+		// reads the signer's balance (1): 4 reads worst case. `prepare` then writes
+		// `PotentialWormholeBalance` once.
+		let reveal_weight = T::DbWeight::get().reads_writes(4, 1);
+
+		transfer_weight.saturating_add(reveal_weight)
 	}
 
 	fn prepare(
 		self,
-		_val: Self::Val,
+		val: Self::Val,
 		_origin: &sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
 		_call: &RuntimeCall,
 		_info: &sp_runtime::traits::DispatchInfoOf<RuntimeCall>,
 		_len: usize,
 	) -> Result<Self::Pre, TransactionValidityError> {
+		// Commit the soundness reveal detected in `validate`. This is done here, not in `validate`,
+		// because `validate` must be side-effect free (it can be re-run against discarded overlays
+		// during pool validation), whereas `prepare` runs once as a committed pre-dispatch step.
+		if let Some(balance) = val {
+			pallet_wormhole::Pallet::<Runtime>::reduce_potential_balance(balance);
+		}
+
 		// Snapshot current event count so we only process events added by this tx
 		// (and any events from previous txs in the same block).
 		Ok(frame_system::Pallet::<Runtime>::event_count())
@@ -230,7 +259,7 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 
 	fn validate(
 		&self,
-		_origin: sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
+		origin: sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
 		_call: &RuntimeCall,
 		_info: &DispatchInfoOf<RuntimeCall>,
 		_len: usize,
@@ -238,8 +267,29 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		_inherited_implication: &impl sp_runtime::traits::Implication,
 		_source: frame_support::pallet_prelude::TransactionSource,
 	) -> sp_runtime::traits::ValidateResult<Self::Val, RuntimeCall> {
-		// No validation needed - just return Ok
-		Ok((ValidTransaction::default(), (), _origin))
+		// Soundness tracking: when an account signs for the very first time it reveals itself as
+		// a regular dilithium account rather than a wormhole deposit address, so its balance must
+		// be removed from the potential wormhole pool.
+		//
+		// `validate` is kept side-effect free: here we only *detect* a first-time signer and
+		// capture its balance, returning it via `Val`; the subtraction is committed in `prepare`.
+		// We detect "first signature" by `nonce == 0`. All extensions' `validate` run before any
+		// extension's `prepare` (including `CheckNonce::prepare`, which increments the nonce, and
+		// the fee charge), so the nonce check is accurate and the captured balance is the
+		// pre-deduction balance. Unsigned transactions (e.g. wormhole exits) have no signer and
+		// are skipped.
+		// We subtract `total_balance` (free + reserved), not just free: an ambiguous account cannot
+		// spend (spending requires signing, which reveals it), so its total balance equals the sum
+		// of credits it received — which is exactly what was added to the pool, provided every
+		// credit path was tracked. (See the caveat on `reduce_potential_balance` re: untracked
+		// credits such as `force_set_balance`.)
+		let reveal_balance = match ensure_signed(origin.clone()) {
+			Ok(signer) if pallet_wormhole::Pallet::<Runtime>::is_ambiguous_account(&signer) =>
+				Some(<Balances as Currency<AccountId>>::total_balance(&signer)),
+			_ => None,
+		};
+
+		Ok((ValidTransaction::default(), reveal_balance, origin))
 	}
 
 	fn post_dispatch(
@@ -262,7 +312,7 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use frame_support::{assert_ok, pallet_prelude::TransactionValidityError};
+	use frame_support::{assert_ok, pallet_prelude::TransactionValidityError, traits::Currency};
 	use sp_runtime::{traits::TxBaseImplication, AccountId32};
 	fn alice() -> AccountId {
 		AccountId32::from([1; 32])
@@ -297,6 +347,11 @@ mod tests {
 		}
 		.assimilate_storage(&mut t)
 		.unwrap();
+
+		// Treasury account + portion are required for mining-reward distribution.
+		pallet_treasury::GenesisConfig::<Runtime>::default()
+			.assimilate_storage(&mut t)
+			.unwrap();
 
 		sp_io::TestExternalities::new(t)
 	}
@@ -516,12 +571,17 @@ mod tests {
 		new_test_ext().execute_with(|| {
 			let ext = WormholeProofRecorderExtension::<Runtime>::new();
 
+			// Even non-transfer calls carry the constant soundness reveal-bookkeeping overhead
+			// (read signer nonce + multisig/treasury membership + balance, possibly write the
+			// pool), so the base weight is non-zero.
+			let reveal_weight =
+				<Runtime as frame_system::Config>::DbWeight::get().reads_writes(4, 1);
 			let non_transfer =
 				RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
-			let weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
+			let base_weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
 				RuntimeCall,
 			>>::weight(&ext, &non_transfer);
-			assert_eq!(weight, Weight::zero());
+			assert_eq!(base_weight, reveal_weight);
 
 			let transfer = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
 				dest: MultiAddress::Id(bob()),
@@ -530,7 +590,8 @@ mod tests {
 			let weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
 				RuntimeCall,
 			>>::weight(&ext, &transfer);
-			assert!(weight.ref_time() > 0);
+			// A transfer adds per-transfer cost on top of the reveal overhead.
+			assert!(weight.ref_time() > base_weight.ref_time());
 
 			let batch = RuntimeCall::Utility(pallet_utility::Call::batch {
 				calls: vec![
@@ -562,7 +623,7 @@ mod tests {
 			let origin = RuntimeOrigin::signed(alice());
 
 			// Prepare should succeed and return current event count
-			let result = ext.prepare((), &origin, &call, &Default::default(), 0);
+			let result = ext.prepare(None, &origin, &call, &Default::default(), 0);
 			assert_ok!(result);
 		});
 	}
@@ -937,6 +998,472 @@ mod tests {
 				count_after,
 				count_before + 1,
 				"Transfer count should increment for multisig transfer"
+			);
+		});
+	}
+
+	// =========================================================================
+	// Soundness reveal tracking
+	// =========================================================================
+
+	#[test]
+	fn reveal_subtracts_signer_balance_from_potential_pool() {
+		use sp_runtime::traits::TxBaseImplication;
+
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			// Use a fresh account (not a sentinel/keyless address like alice == [1; 32]) so it is
+			// genuinely ambiguous and not excluded by `NonWormholeAccounts`.
+			let signer = intg_account(80);
+			fund(&signer, 500 * UNIT);
+			let balance = <Balances as Currency<AccountId>>::free_balance(&signer);
+			assert!(balance > 0);
+			// The signer has never signed yet.
+			assert_eq!(frame_system::Pallet::<Runtime>::account_nonce(&signer), 0);
+			assert!(pallet_wormhole::Pallet::<Runtime>::is_ambiguous_account(&signer));
+
+			// Seed the pool above the signer's balance so the subtraction is observable.
+			let seeded = balance + 1_000 * UNIT;
+			pallet_wormhole::PotentialWormholeBalance::<Runtime>::put(seeded);
+
+			let ext = WormholeProofRecorderExtension::<Runtime>::new();
+			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
+			let origin = RuntimeOrigin::signed(signer.clone());
+			let (_, val, _) = ext
+				.validate(
+					origin.clone(),
+					&call,
+					&Default::default(),
+					0,
+					(),
+					&TxBaseImplication::<()>(()),
+					frame_support::pallet_prelude::TransactionSource::External,
+				)
+				.expect("validate should succeed");
+
+			// `validate` must be side-effect free; the subtraction is committed in `prepare`.
+			assert_eq!(
+				pallet_wormhole::PotentialWormholeBalance::<Runtime>::get(),
+				seeded,
+				"validate must not mutate the pool"
+			);
+
+			ext.prepare(val, &origin, &call, &Default::default(), 0)
+				.expect("prepare should succeed");
+
+			assert_eq!(
+				pallet_wormhole::PotentialWormholeBalance::<Runtime>::get(),
+				seeded - balance,
+				"Revealing (first signature) must subtract the signer's balance from the pool"
+			);
+		});
+	}
+
+	#[test]
+	fn reveal_is_noop_for_already_revealed_signer() {
+		use sp_runtime::traits::TxBaseImplication;
+
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let signer = intg_account(81);
+			fund(&signer, 500 * UNIT);
+			// Mark the signer as already revealed (nonce > 0).
+			frame_system::Pallet::<Runtime>::inc_account_nonce(&signer);
+
+			let seeded = 5_000 * UNIT;
+			pallet_wormhole::PotentialWormholeBalance::<Runtime>::put(seeded);
+
+			let ext = WormholeProofRecorderExtension::<Runtime>::new();
+			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
+			let origin = RuntimeOrigin::signed(signer);
+			let (_, val, _) = ext
+				.validate(
+					origin.clone(),
+					&call,
+					&Default::default(),
+					0,
+					(),
+					&TxBaseImplication::<()>(()),
+					frame_support::pallet_prelude::TransactionSource::External,
+				)
+				.expect("validate should succeed");
+			assert!(val.is_none(), "an already-revealed signer must capture nothing to reveal");
+
+			ext.prepare(val, &origin, &call, &Default::default(), 0)
+				.expect("prepare should succeed");
+
+			assert_eq!(
+				pallet_wormhole::PotentialWormholeBalance::<Runtime>::get(),
+				seeded,
+				"Already-revealed signers must not change the pool"
+			);
+		});
+	}
+
+	// =========================================================================
+	// Full-transaction integration tests for PotentialWormholeBalance
+	//
+	// These drive the WormholeProofRecorderExtension lifecycle the way the real
+	// transaction pipeline does:
+	//   validate()  -> reveal subtraction (sees the pre-tx, un-incremented nonce)
+	//   prepare()   -> snapshot event count
+	//   [CheckNonce::prepare bumps the signer nonce]
+	//   dispatch    -> the call executes and emits Transfer event(s)
+	//   post_dispatch() -> record_transfer() applies the deposit addition
+	//
+	// so BOTH sides of the counter are exercised together, and we assert the net
+	// change to `PotentialWormholeBalance` for each sender/recipient combination.
+	// =========================================================================
+
+	/// Pool baseline large enough that reveal subtractions never saturate at zero.
+	const POOL_BASE: Balance = 10_000_000 * UNIT;
+	const SENDER_BAL: Balance = 1_000 * UNIT;
+
+	fn intg_account(tag: u8) -> AccountId {
+		AccountId32::from([tag; 32])
+	}
+
+	fn fund(who: &AccountId, amount: Balance) {
+		use frame_support::traits::fungible::Mutate;
+		assert_ok!(<Balances as Mutate<AccountId>>::mint_into(who, amount));
+	}
+
+	/// Mark an account as "revealed" (has signed before) by giving it a non-zero nonce.
+	fn mark_revealed(who: &AccountId) {
+		frame_system::Pallet::<Runtime>::inc_account_nonce(who);
+	}
+
+	/// Run a full transaction (whatever `dispatch` performs) through the extension lifecycle.
+	/// `call` is the call presented to validate/prepare; `dispatch` performs the real execution.
+	fn run_lifecycle(from: &AccountId, call: RuntimeCall, dispatch: impl FnOnce()) {
+		use sp_runtime::traits::TxBaseImplication;
+
+		let ext = WormholeProofRecorderExtension::<Runtime>::new();
+		let origin = RuntimeOrigin::signed(from.clone());
+
+		// validate(): reveal runs here against the pre-tx (un-incremented) nonce.
+		let (_, val, _) = ext
+			.validate(
+				origin.clone(),
+				&call,
+				&Default::default(),
+				0,
+				(),
+				&TxBaseImplication::<()>(()),
+				frame_support::pallet_prelude::TransactionSource::External,
+			)
+			.expect("validate should succeed");
+
+		// prepare(): snapshot the event count before the call emits its Transfer event(s).
+		let pre = ext
+			.clone()
+			.prepare(val, &origin, &call, &Default::default(), 0)
+			.expect("prepare should succeed");
+
+		// CheckNonce::prepare would bump the signer's nonce at this point.
+		mark_revealed(from);
+
+		// Execute the real call (emits the Transfer event(s) that post_dispatch scans).
+		dispatch();
+
+		// post_dispatch(): records the transfer proof(s), applying the deposit side.
+		let mut post_info = frame_support::dispatch::PostDispatchInfo::default();
+		<WormholeProofRecorderExtension<Runtime> as TransactionExtension<RuntimeCall>>::post_dispatch(
+			pre,
+			&Default::default(),
+			&mut post_info,
+			0,
+			&Ok(()),
+		)
+		.expect("post_dispatch should succeed");
+	}
+
+	fn transfer_call(to: &AccountId, amount: Balance) -> RuntimeCall {
+		RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+			dest: MultiAddress::Id(to.clone()),
+			value: amount,
+		})
+	}
+
+	/// Run a full single native transfer from `from` to `to`.
+	fn run_transfer(from: &AccountId, to: &AccountId, amount: Balance) {
+		let from = from.clone();
+		let to = to.clone();
+		run_lifecycle(&from, transfer_call(&to, amount), || {
+			assert_ok!(Balances::transfer_keep_alive(
+				RuntimeOrigin::signed(from.clone()),
+				MultiAddress::Id(to.clone()),
+				amount,
+			));
+		});
+	}
+
+	fn pool() -> Balance {
+		pallet_wormhole::PotentialWormholeBalance::<Runtime>::get()
+	}
+
+	// --- recipient ambiguous, sender already revealed: deposit only ---
+	#[test]
+	fn counter_to_ambiguous_from_revealed_adds_deposit_only() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let from = intg_account(40);
+			let to = intg_account(41);
+			fund(&from, SENDER_BAL);
+			mark_revealed(&from); // sender has outgoing history
+						 // `to` keeps nonce 0 (ambiguous)
+			pallet_wormhole::PotentialWormholeBalance::<Runtime>::put(POOL_BASE);
+
+			let amount = 100 * UNIT;
+			run_transfer(&from, &to, amount);
+
+			assert_eq!(pool(), POOL_BASE + amount, "deposit to ambiguous recipient adds amount");
+		});
+	}
+
+	// --- recipient revealed, sender already revealed: no change ---
+	#[test]
+	fn counter_to_revealed_from_revealed_no_change() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let from = intg_account(42);
+			let to = intg_account(43);
+			fund(&from, SENDER_BAL);
+			mark_revealed(&from);
+			mark_revealed(&to); // recipient already has outgoing history
+			pallet_wormhole::PotentialWormholeBalance::<Runtime>::put(POOL_BASE);
+
+			run_transfer(&from, &to, 100 * UNIT);
+
+			assert_eq!(pool(), POOL_BASE, "neither side is ambiguous: no change");
+		});
+	}
+
+	// --- sender ambiguous (first tx -> reveal), recipient revealed: reveal only ---
+	#[test]
+	fn counter_from_ambiguous_to_revealed_subtracts_sender_balance() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let from = intg_account(44);
+			let to = intg_account(45);
+			fund(&from, SENDER_BAL); // from stays nonce 0 (ambiguous, will reveal)
+			mark_revealed(&to);
+			pallet_wormhole::PotentialWormholeBalance::<Runtime>::put(POOL_BASE);
+
+			run_transfer(&from, &to, 100 * UNIT);
+
+			assert_eq!(
+				pool(),
+				POOL_BASE - SENDER_BAL,
+				"first signature subtracts the sender's full pre-tx balance"
+			);
+		});
+	}
+
+	// --- sender ambiguous AND recipient ambiguous: reveal and deposit both fire ---
+	#[test]
+	fn counter_from_ambiguous_to_ambiguous_applies_both() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let from = intg_account(46);
+			let to = intg_account(47);
+			fund(&from, SENDER_BAL); // ambiguous
+							// `to` keeps nonce 0 (ambiguous)
+			pallet_wormhole::PotentialWormholeBalance::<Runtime>::put(POOL_BASE);
+
+			let amount = 100 * UNIT;
+			run_transfer(&from, &to, amount);
+
+			assert_eq!(
+				pool(),
+				POOL_BASE + amount - SENDER_BAL,
+				"deposit (+amount) and reveal (-sender balance) both apply"
+			);
+		});
+	}
+
+	// --- sender's second tx must NOT reveal again ---
+	#[test]
+	fn counter_sender_reveals_only_on_first_tx() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let from = intg_account(48);
+			let to1 = intg_account(49);
+			let to2 = intg_account(50);
+			fund(&from, SENDER_BAL); // ambiguous
+			mark_revealed(&to1); // isolate the reveal: no deposit on either transfer
+			mark_revealed(&to2);
+			pallet_wormhole::PotentialWormholeBalance::<Runtime>::put(POOL_BASE);
+
+			// First tx reveals the sender.
+			run_transfer(&from, &to1, 100 * UNIT);
+			assert_eq!(pool(), POOL_BASE - SENDER_BAL, "first tx reveals sender");
+
+			// Second tx: sender nonce is now > 0, so no further subtraction.
+			run_transfer(&from, &to2, 50 * UNIT);
+			assert_eq!(
+				pool(),
+				POOL_BASE - SENDER_BAL,
+				"second tx from the same sender must not reveal again"
+			);
+		});
+	}
+
+	// --- batch from an ambiguous sender: reveal ONCE, count EACH deposit ---
+	#[test]
+	fn counter_batch_from_ambiguous_reveals_once_counts_each_deposit() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let from = intg_account(51);
+			let to1 = intg_account(52); // ambiguous
+			let to2 = intg_account(53); // ambiguous
+			fund(&from, SENDER_BAL); // ambiguous
+			pallet_wormhole::PotentialWormholeBalance::<Runtime>::put(POOL_BASE);
+
+			let a1 = 100 * UNIT;
+			let a2 = 50 * UNIT;
+			let batch = RuntimeCall::Utility(pallet_utility::Call::batch {
+				calls: vec![transfer_call(&to1, a1), transfer_call(&to2, a2)],
+			});
+
+			run_lifecycle(&from, batch, || {
+				assert_ok!(Utility::batch(
+					RuntimeOrigin::signed(from.clone()),
+					vec![transfer_call(&to1, a1), transfer_call(&to2, a2)],
+				));
+			});
+
+			// Reveal applies once (-SENDER_BAL); both deposits apply (+a1 +a2).
+			assert_eq!(
+				pool(),
+				POOL_BASE + a1 + a2 - SENDER_BAL,
+				"batch reveals the sender once and counts each ambiguous-recipient deposit"
+			);
+		});
+	}
+
+	// --- mined block rewards flow into the potential pool ---
+	// Mining mints brand-new coins to the miner (ambiguous, never-signed) and the treasury (a
+	// keyless governance account, excluded via `NonWormholeAccounts`). Only the miner's portion is
+	// indistinguishable from a wormhole deposit, so only it lands in `PotentialWormholeBalance`;
+	// the treasury's portion is correctly excluded since it can never be exited via the wormhole.
+	#[test]
+	fn counter_mining_rewards_increase_potential_balance() {
+		use frame_support::traits::Hooks;
+		use qp_wormhole::TestMiner;
+		use sp_consensus_qpow::POW_ENGINE_ID;
+		use sp_runtime::DigestItem;
+
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let miner = TestMiner(777);
+			let miner_account = miner.account_id();
+
+			// A freshly derived miner has never signed a transaction, so it is ambiguous.
+			assert!(
+				pallet_wormhole::Pallet::<Runtime>::is_ambiguous_account(&miner_account),
+				"freshly derived miner account must be ambiguous (nonce == 0)"
+			);
+
+			// Announce the miner for this block via the pre-runtime digest.
+			System::deposit_log(DigestItem::PreRuntime(POW_ENGINE_ID, miner.preimage().to_vec()));
+
+			let issuance_before = <Balances as Currency<AccountId>>::total_issuance();
+			let pool_before = pool();
+
+			// Mine the block: mints the reward to miner + treasury and records the proofs.
+			MiningRewards::on_finalize(1);
+
+			let issuance_after = <Balances as Currency<AccountId>>::total_issuance();
+			let pool_after = pool();
+
+			// New coins were actually minted, and the miner was credited.
+			assert!(issuance_after > issuance_before, "block reward must mint new coins");
+			let miner_reward = <Balances as Currency<AccountId>>::free_balance(&miner_account);
+			assert!(miner_reward > 0, "miner must be credited the mined reward");
+
+			// The treasury portion is excluded (keyless governance account), so the pool grows by
+			// the miner's ambiguous portion only — and by strictly less than the full emission.
+			assert_eq!(
+				pool_after - pool_before,
+				miner_reward,
+				"only the miner's (ambiguous) portion of the reward increases PotentialWormholeBalance"
+			);
+			assert!(
+				pool_after - pool_before < issuance_after - issuance_before,
+				"the excluded treasury portion must not be counted into the pool"
+			);
+		});
+	}
+
+	// --- multisig creation reveals a pre-funded address ---
+	// A multisig never signs (it spends via its signatories), so it never reveals itself the way
+	// a normal account does. This guards the attack where someone pre-computes a multisig address,
+	// sends funds to it (counted into the pool because it looks ambiguous), then creates the
+	// multisig: creation must deduct the address's balance so it nets zero into the pool, and the
+	// registered multisig must afterwards be excluded from the ambiguous set.
+	#[test]
+	fn counter_multisig_creation_reveals_prefunded_address() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let creator = intg_account(60);
+			let signers = vec![intg_account(61), intg_account(62)];
+			let threshold = 2u32;
+			fund(&creator, 10_000 * UNIT);
+			mark_revealed(&creator);
+
+			// Pre-compute the multisig address before it is created.
+			let multisig_addr = Multisig::derive_multisig_address(&signers, threshold, 0);
+			assert!(
+				pallet_wormhole::Pallet::<Runtime>::is_ambiguous_account(&multisig_addr),
+				"pre-creation multisig address must look ambiguous"
+			);
+
+			// Attacker pre-funds the pre-computed address; record_transfer counts it.
+			let sender = intg_account(63);
+			fund(&sender, 5_000 * UNIT);
+			mark_revealed(&sender);
+			pallet_wormhole::PotentialWormholeBalance::<Runtime>::put(POOL_BASE);
+
+			let prefund = 1_000 * UNIT;
+			run_transfer(&sender, &multisig_addr, prefund);
+			assert_eq!(
+				pool(),
+				POOL_BASE + prefund,
+				"pre-funding a pre-computed (ambiguous-looking) address is counted into the pool"
+			);
+			assert_eq!(<Balances as Currency<AccountId>>::free_balance(&multisig_addr), prefund);
+
+			// Create the multisig at the same derived address.
+			assert_ok!(Multisig::create_multisig(
+				RuntimeOrigin::signed(creator.clone()),
+				signers.clone(),
+				threshold,
+				0,
+			));
+
+			// Creation reveals the address: its balance is removed from the pool, exactly undoing
+			// the pre-funding, so the multisig nets zero into the soundness pool.
+			assert_eq!(
+				pool(),
+				POOL_BASE,
+				"multisig creation must deduct the pre-funded balance from the pool"
+			);
+			assert!(
+				!pallet_wormhole::Pallet::<Runtime>::is_ambiguous_account(&multisig_addr),
+				"registered multisig must no longer be treated as ambiguous"
+			);
+
+			// A later receipt to the now-registered multisig is not re-counted.
+			run_transfer(&sender, &multisig_addr, 100 * UNIT);
+			assert_eq!(
+				pool(),
+				POOL_BASE,
+				"post-creation receipts to a registered multisig must not be counted"
 			);
 		});
 	}
