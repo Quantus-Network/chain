@@ -31,8 +31,6 @@ sp_api::decl_runtime_apis! {
 
 		fn verify_nonce_local_mining(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
 
-		/// Verify the nonce and return the block's work (the target difficulty it had to
-		/// satisfy). Work is target-based, not derived from the achieved hash.
-		fn verify_and_get_block_work(block_hash: [u8; 32], nonce: [u8; 64]) -> (bool, U512);
+		fn verify_and_get_achieved_difficulty(block_hash: [u8; 32], nonce: [u8; 64]) -> (bool, U512);
 	}
 }

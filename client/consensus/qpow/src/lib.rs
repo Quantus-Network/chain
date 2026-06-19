@@ -2,8 +2,9 @@ mod chain_management;
 mod worker;
 
 pub use chain_management::{
-	delete_cumulative_work, finalize_canonical_at_depth, get_chain_work, get_cumulative_work,
-	initialize_genesis_work, is_heavier, store_cumulative_work, ChainManagementError,
+	delete_cumulative_achieved_work, finalize_canonical_at_depth, get_chain_work,
+	get_cumulative_achieved_work, initialize_genesis_achieved_work, is_heavier,
+	store_cumulative_achieved_work, ChainManagementError,
 };
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
@@ -251,15 +252,17 @@ where
 			.map_err(|_| Error::<B>::Runtime("Seal does not have exactly 64 bytes".to_string()))?;
 		let pre_hash_arr: [u8; 32] = pre_hash.0;
 
-		// Verify nonce and get this block's work (its target difficulty) in a single call.
-		// Work is target-based (like Bitcoin/Ethereum), not derived from the achieved hash,
-		// so a single lucky hash cannot dominate cumulative chain work.
-		let (verified, block_work) = self
+		// Verify nonce and get achieved difficulty in a single call
+		// This avoids computing the nonce hash twice
+		let (verified, achieved_difficulty) = self
 			.client
 			.runtime_api()
-			.verify_and_get_block_work(parent_hash, pre_hash_arr, nonce)
+			.verify_and_get_achieved_difficulty(parent_hash, pre_hash_arr, nonce)
 			.map_err(|e| {
-				Error::<B>::Runtime(format!("API error in verify_and_get_block_work: {:?}", e))
+				Error::<B>::Runtime(format!(
+					"API error in verify_and_get_achieved_difficulty: {:?}",
+					e
+				))
 			})?;
 
 		if !verified {
@@ -267,19 +270,19 @@ where
 			return Err(Error::<B>::InvalidSeal.into());
 		}
 
-		// Get parent's cumulative work from aux storage
+		// Get parent's cumulative achieved work from aux storage
 		let parent_work = get_chain_work::<B, C>(&*self.client, parent_hash).unwrap_or_else(|e| {
-			log::warn!(target: LOG_TARGET, "Failed to get parent chain work for {parent_hash:?}: {e:?}");
+			log::warn!(target: LOG_TARGET, "Failed to get parent achieved work for {parent_hash:?}: {e:?}");
 			U512::zero()
 		});
 
-		// Calculate new cumulative work
-		let new_work = parent_work.saturating_add(block_work);
+		// Calculate new cumulative achieved work
+		let new_work = parent_work.saturating_add(achieved_difficulty);
 
 		let info = self.client.info();
 		let current_best_work = get_chain_work::<B, C>(&*self.client, info.best_hash)
 			.unwrap_or_else(|e| {
-				log::warn!(target: LOG_TARGET, "Failed to get best chain work for {:?}: {e:?}", info.best_hash);
+				log::warn!(target: LOG_TARGET, "Failed to get best chain achieved work for {:?}: {e:?}", info.best_hash);
 				U512::zero()
 			});
 
@@ -291,7 +294,7 @@ where
 		);
 		block_import_params.fork_choice = Some(ForkChoiceStrategy::Custom(is_best));
 
-		// Get block hash (with seal) for chain work storage.
+		// Get block hash (with seal) for achieved work storage.
 		// Must use the post-seal hash because that's how blocks are referenced:
 		// - parent_hash in child blocks references the post-seal hash
 		// - client.info().best_hash is the post-seal hash
@@ -320,26 +323,29 @@ where
 			);
 		}
 
-		// Store cumulative work BEFORE inner import, because inner import
+		// Store cumulative achieved work BEFORE inner import, because inner import
 		// triggers notifications that call best_chain which needs this data.
-		store_cumulative_work::<B, C>(&*self.client, block_hash, new_work).map_err(|e| {
-			ConsensusError::ClientImport(format!(
-				"Failed to store cumulative work for {:?}: {:?}",
-				block_hash, e
-			))
-		})?;
+		store_cumulative_achieved_work::<B, C>(&*self.client, block_hash, new_work).map_err(
+			|e| {
+				ConsensusError::ClientImport(format!(
+					"Failed to store cumulative achieved work for {:?}: {:?}",
+					block_hash, e
+				))
+			},
+		)?;
 
-		// Import the block. If import fails, clean up the work entry we just stored
+		// Import the block. If import fails, clean up the achieved work entry we just stored
 		// to prevent stale aux data accumulation from repeated invalid submissions.
 		let result = match self.inner.import_block(block_import_params).await {
 			Ok(result) => result,
 			Err(e) => {
-				// Rollback: remove the work entry for the failed import
-				if let Err(cleanup_err) = delete_cumulative_work::<B, C>(&*self.client, block_hash)
+				// Rollback: remove the achieved work entry for the failed import
+				if let Err(cleanup_err) =
+					delete_cumulative_achieved_work::<B, C>(&*self.client, block_hash)
 				{
 					log::warn!(
 						target: LOG_TARGET,
-						"Failed to clean up chain work after failed import for {:?}: {:?}",
+						"Failed to clean up achieved work after failed import for {:?}: {:?}",
 						block_hash,
 						cleanup_err
 					);

@@ -280,13 +280,13 @@ fn test_calculate_achieved_difficulty() {
 }
 
 #[test]
-fn test_verify_and_get_block_work() {
+fn test_verify_and_get_achieved_difficulty() {
 	new_test_ext().execute_with(|| {
 		let block_hash = [1u8; 32];
 		let nonce = [2u8; 64];
 
-		// Call the combined function
-		let (valid, block_work) = QPow::verify_and_get_block_work(block_hash, nonce);
+		// Despite the legacy name, this returns the target difficulty (block work).
+		let (valid, block_work) = QPow::verify_and_get_achieved_difficulty(block_hash, nonce);
 
 		// Check that verify_nonce_on_import_block returns the same validity
 		let expected_valid = QPow::verify_nonce_on_import_block(block_hash, nonce);

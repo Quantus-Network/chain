@@ -306,19 +306,31 @@ pub mod pallet {
 			verify
 		}
 
-		/// Verify nonce validity and return the block's work in a single call.
+		/// Verify the nonce and return the block's work used for chain selection.
 		///
-		/// The work credited to a block is the *target* difficulty it was required to
-		/// satisfy (the network difficulty at this height), NOT the achieved difficulty
-		/// derived from the winning hash. This matches Bitcoin (`2^256/(target+1)`) and
-		/// Ethereum PoW (sum of the `difficulty` field): every block at a given difficulty
-		/// contributes an identical, deterministic amount of work, so cumulative chain work
-		/// tracks total expended hash power instead of being dominated by lucky hashes.
+		/// IMPORTANT: despite the legacy name, this returns the *target* difficulty the
+		/// block had to satisfy (the network difficulty at this height), NOT the achieved
+		/// difficulty derived from the winning hash. Target-based work matches Bitcoin
+		/// (`2^256/(target+1)`) and Ethereum PoW (sum of the `difficulty` field): every
+		/// block at a given difficulty contributes an identical, deterministic amount of
+		/// work, so cumulative chain work tracks expended hash power instead of being
+		/// dominated by a single lucky hash.
+		///
+		/// The runtime API name is intentionally left unchanged so this can ship as an
+		/// on-chain-only upgrade: because the metric is determined by the value this
+		/// returns (the client merely accumulates `parent_work + value`), upgrading the
+		/// on-chain Wasm flips the whole network to target-based work at the `set_code`
+		/// block, with no coordinated node-binary upgrade and no resync. Renaming the API
+		/// would break that compatibility, so defer the rename to a later release once all
+		/// nodes run a binary that expects the new name.
 		///
 		/// Note: This is called via runtime API from the client side. Runtime API
 		/// calls execute in a temporary context where state changes are discarded,
 		/// so we don't emit events here.
-		pub fn verify_and_get_block_work(block_hash: [u8; 32], nonce: NonceType) -> (bool, U512) {
+		pub fn verify_and_get_achieved_difficulty(
+			block_hash: [u8; 32],
+			nonce: NonceType,
+		) -> (bool, U512) {
 			let (valid, difficulty, _) = Self::verify_nonce_internal(block_hash, nonce);
 			let block_work = if valid { difficulty } else { U512::zero() };
 			(valid, block_work)

@@ -608,7 +608,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 
 	// Initialize genesis block's achieved work if not already set.
 	// Genesis has achieved work = 1 (represents the start of the chain).
-	if let Err(e) = sc_consensus_qpow::initialize_genesis_work::<Block, _>(&*client) {
+	if let Err(e) = sc_consensus_qpow::initialize_genesis_achieved_work::<Block, _>(&*client) {
 		log::warn!(target: "qpow", "Failed to initialize genesis achieved work: {:?}", e);
 	}
 
