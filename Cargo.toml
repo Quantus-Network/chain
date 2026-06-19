@@ -24,6 +24,7 @@ members = [
 	"pallets/multisig",
 	"pallets/preimage",
 	"pallets/qpow",
+	"pallets/recovery",
 	"pallets/reversible-transfers",
 	"pallets/scheduler",
 	"pallets/timestamp",
@@ -201,6 +202,7 @@ qp-wormhole-verifier = { version = "3.0.0", default-features = false }
 qp-zk-circuits-common = { version = "3.0.0", default-features = false }
 
 # polkadot-sdk dependencies
+frame = { version = "0.14.0", package = "polkadot-sdk-frame", default-features = false }
 frame-benchmarking = { version = "45.0.3", default-features = false }
 frame-benchmarking-cli = { version = "53.0.0", default-features = false }
 frame-executive = { version = "45.0.1", default-features = false }
@@ -216,7 +218,7 @@ pallet-assets-holder = { version = "0.8.0", default-features = false }
 pallet-conviction-voting = { version = "45.0.0", default-features = false }
 pallet-preimage = { path = "./pallets/preimage", default-features = false }
 pallet-ranked-collective = { version = "45.0.0", default-features = false }
-pallet-recovery = { version = "45.0.0", default-features = false }
+pallet-recovery = { path = "./pallets/recovery", default-features = false }
 pallet-referenda = { version = "45.0.0", default-features = false }
 pallet-timestamp = { path = "./pallets/timestamp", default-features = false }
 pallet-transaction-payment = { version = "45.0.0", default-features = false }

@@ -6645,9 +6645,8 @@ dependencies = [
 [[package]]
 name = "pallet-recovery"
 version = "45.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff0e74f1f04c59885cb421ec85225135c63ee793d60411fdb36adfe2518ee1e9"
 dependencies = [
+ "pallet-balances",
  "parity-scale-codec",
  "polkadot-sdk-frame",
  "scale-info",
