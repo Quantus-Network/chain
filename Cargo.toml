@@ -27,6 +27,7 @@ members = [
 	"pallets/scheduler",
 	"pallets/timestamp",
 	"pallets/treasury",
+	"pallets/utility",
 	"pallets/wormhole",
 	"pallets/zk-tree",
 	"primitives/consensus/qpow",
@@ -221,7 +222,7 @@ pallet-transaction-payment = { version = "45.0.0", default-features = false }
 pallet-transaction-payment-rpc = { version = "48.0.0", default-features = false }
 pallet-transaction-payment-rpc-runtime-api = { version = "45.0.0", default-features = false }
 pallet-treasury = { path = "pallets/treasury", default-features = false }
-pallet-utility = { version = "45.0.0", default-features = false }
+pallet-utility = { path = "./pallets/utility", default-features = false }
 prometheus-endpoint = { version = "0.17.7", default-features = false, package = "substrate-prometheus-endpoint" }
 sc-basic-authorship = { version = "0.53.0", default-features = false }
 sc-block-builder = { version = "0.48.0", default-features = true }
