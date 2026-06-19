@@ -22,6 +22,7 @@ members = [
 	"pallets/frame-system",
 	"pallets/mining-rewards",
 	"pallets/multisig",
+	"pallets/preimage",
 	"pallets/qpow",
 	"pallets/reversible-transfers",
 	"pallets/scheduler",
@@ -213,7 +214,7 @@ hickory-resolver = { version = "0.26.1" }
 pallet-assets = { version = "48.1.0", default-features = false }
 pallet-assets-holder = { version = "0.8.0", default-features = false }
 pallet-conviction-voting = { version = "45.0.0", default-features = false }
-pallet-preimage = { version = "45.0.0", default-features = false }
+pallet-preimage = { path = "./pallets/preimage", default-features = false }
 pallet-ranked-collective = { version = "45.0.0", default-features = false }
 pallet-recovery = { version = "45.0.0", default-features = false }
 pallet-referenda = { version = "45.0.0", default-features = false }

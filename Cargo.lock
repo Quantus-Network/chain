@@ -6590,13 +6590,12 @@ dependencies = [
 [[package]]
 name = "pallet-preimage"
 version = "45.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2d614776ca7e0411dd2d1a6cba525d389b4d81c4595a82db3f9d697bedfd367"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
  "log",
+ "pallet-balances",
  "parity-scale-codec",
  "scale-info",
  "sp-core",
