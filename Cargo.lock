@@ -6491,17 +6491,18 @@ dependencies = [
 [[package]]
 name = "pallet-balances"
 version = "46.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1a8216eaf2a90707d761856ea3d7e31d9be8781ca44a5ec668e00be5e404698"
 dependencies = [
  "docify",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
  "log",
+ "pallet-transaction-payment",
  "parity-scale-codec",
+ "paste",
  "scale-info",
  "sp-core",
+ "sp-io",
  "sp-runtime",
 ]
 
