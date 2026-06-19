@@ -1,14 +1,14 @@
 [package]
-name = "pallet-timestamp"
-version = "44.0.0"
 authors.workspace = true
-edition.workspace = true
-license = "Apache-2.0"
-homepage.workspace = true
-repository.workspace = true
 description = "FRAME Timestamp Module"
 documentation = "https://docs.rs/pallet-timestamp"
+edition.workspace = true
+homepage.workspace = true
+license = "Apache-2.0"
+name = "pallet-timestamp"
 readme = "README.md"
+repository.workspace = true
+version = "44.0.0"
 
 [lints]
 workspace = true
@@ -34,6 +34,12 @@ sp-io = { workspace = true, default-features = true }
 
 [features]
 default = ["std"]
+runtime-benchmarks = [
+	"frame-benchmarking/runtime-benchmarks",
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
+]
 std = [
 	"codec/std",
 	"frame-benchmarking?/std",
@@ -45,12 +51,6 @@ std = [
 	"sp-runtime/std",
 	"sp-storage/std",
 	"sp-timestamp/std",
-]
-runtime-benchmarks = [
-	"frame-benchmarking/runtime-benchmarks",
-	"frame-support/runtime-benchmarks",
-	"frame-system/runtime-benchmarks",
-	"sp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
