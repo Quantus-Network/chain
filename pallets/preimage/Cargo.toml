@@ -8,8 +8,8 @@ name = "pallet-preimage"
 repository.workspace = true
 version = "45.0.0"
 
-[lints]
-workspace = true
+# Vendored upstream FRAME pallet: the pallet macros expand to expect/unwrap, so
+# we deliberately don't apply the workspace restriction lints here.
 
 [dependencies]
 codec = { features = ["derive"], workspace = true }
