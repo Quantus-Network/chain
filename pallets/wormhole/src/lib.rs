@@ -677,9 +677,9 @@ pub mod pallet {
 		///
 		/// - a regular account the first time it signs a transaction (see
 		///   `WormholeProofRecorderExtension::validate` in the runtime), and
-		/// - a multisig address at creation time (the multisig pallet calls `reveal_address`), which
-		///   covers the case where funds were sent to a pre-computed multisig address before it was
-		///   created.
+		/// - a multisig address at creation time (the multisig pallet calls `reveal_address`),
+		///   which covers the case where funds were sent to a pre-computed multisig address before
+		///   it was created.
 		///
 		/// Idempotent in practice: once revealed, an account is excluded from
 		/// `is_ambiguous_account`, so its later receipts are never re-added to the pool.
@@ -710,10 +710,10 @@ pub mod pallet {
 		/// later reveal over-subtracts here. All of these paths are privileged (Root/governance)
 		/// today, and the error is in the safe direction: it under-counts the pool, so the worst
 		/// case is a liveness false-positive (`SoundnessInvariantViolation` wrongly blocking a
-		/// legitimate exit), never a forged exit. The conservative migration seed (`total_issuance`)
-		/// keeps the pool far above the true ambiguous sum, masking this in practice. For true
-		/// robustness, track a per-account contributed amount and subtract that here instead of the
-		/// account's total balance.
+		/// legitimate exit), never a forged exit. The conservative migration seed
+		/// (`total_issuance`) keeps the pool far above the true ambiguous sum, masking this in
+		/// practice. For true robustness, track a per-account contributed amount and subtract
+		/// that here instead of the account's total balance.
 		pub fn reduce_potential_balance(amount: BalanceOf<T>) {
 			if !amount.is_zero() {
 				PotentialWormholeBalance::<T>::mutate(|total| {
