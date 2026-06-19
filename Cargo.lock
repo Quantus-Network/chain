@@ -6702,8 +6702,6 @@ dependencies = [
 [[package]]
 name = "pallet-timestamp"
 version = "44.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a27830482ee21f4edea07afe13ed14ea04b58a8b2bef0ed7535544b660198bb"
 dependencies = [
  "docify",
  "frame-benchmarking",
@@ -6713,6 +6711,7 @@ dependencies = [
  "parity-scale-codec",
  "scale-info",
  "sp-inherents",
+ "sp-io",
  "sp-runtime",
  "sp-storage",
  "sp-timestamp",
