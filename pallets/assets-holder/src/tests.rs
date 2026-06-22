@@ -76,12 +76,28 @@ mod impl_balance_on_hold {
 		});
 	}
 
+	// `defensive_assert!` only panics when `debug_assertions` are enabled. CI runs
+	// tests in `--release`, so we split the expectation by build profile.
+	#[cfg(debug_assertions)]
 	#[test]
 	#[should_panic = "The list of Holds should be empty before allowing an account to die"]
 	fn died_fails_if_holds_exist() {
 		new_test_ext(|| {
 			test_hold(DummyHoldReason::Governance, 1);
 			AssetsHolder::died(ASSET_ID, &WHO);
+		});
+	}
+
+	// In release builds the defensive assertions don't panic; `died` still clears
+	// any lingering hold state instead.
+	#[cfg(not(debug_assertions))]
+	#[test]
+	fn died_fails_if_holds_exist() {
+		new_test_ext(|| {
+			test_hold(DummyHoldReason::Governance, 1);
+			AssetsHolder::died(ASSET_ID, &WHO);
+			assert!(BalancesOnHold::<Test>::get(ASSET_ID, WHO).is_none());
+			assert!(Holds::<Test>::get(ASSET_ID, WHO).is_empty());
 		});
 	}
 
