@@ -6627,8 +6627,6 @@ dependencies = [
 [[package]]
 name = "pallet-ranked-collective"
 version = "45.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ea0209ecadc9a8b93d5d9a93ad1fd9abd760542892d833e199b40144725406d"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
