@@ -33,6 +33,7 @@ assert_matches = { workspace = true }
 pallet-balances = { workspace = true, default-features = true }
 pallet-preimage = { workspace = true, default-features = true }
 pallet-scheduler = { workspace = true, default-features = true }
+qp-scheduler = { workspace = true, default-features = true }
 sp-core = { workspace = true, default-features = true }
 
 [features]

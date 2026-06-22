@@ -72,8 +72,21 @@ impl pallet_preimage::Config for Test {
 	type ManagerOrigin = EnsureRoot<u64>;
 	type Consideration = ();
 }
+parameter_types! {
+	pub const SchedulerTimestampBucketSize: u64 = 10_000;
+}
+
+// The in-tree pallet-scheduler is timestamp-aware. Referenda schedules by block
+// number, so a constant-zero time provider is sufficient for these tests.
+pub struct MockTime;
+impl frame_support::traits::Time for MockTime {
+	type Moment = u64;
+	fn now() -> Self::Moment {
+		0
+	}
+}
+
 impl pallet_scheduler::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type RuntimeOrigin = RuntimeOrigin;
 	type PalletsOrigin = OriginCaller;
 	type RuntimeCall = RuntimeCall;
@@ -83,7 +96,9 @@ impl pallet_scheduler::Config for Test {
 	type WeightInfo = ();
 	type OriginPrivilegeCmp = EqualPrivilegeOnly;
 	type Preimages = Preimage;
-	type BlockNumberProvider = frame_system::Pallet<Test>;
+	type Moment = u64;
+	type TimeProvider = MockTime;
+	type TimestampBucketSize = SchedulerTimestampBucketSize;
 }
 #[derive_impl(pallet_balances::config_preludes::TestDefaultConfig)]
 impl pallet_balances::Config for Test {

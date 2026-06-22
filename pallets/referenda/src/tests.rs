@@ -23,6 +23,7 @@ use assert_matches::assert_matches;
 use codec::Decode;
 use frame_support::{assert_noop, assert_ok, dispatch::RawOrigin, traits::Contains};
 use pallet_balances::Error as BalancesError;
+use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::DispatchError::BadOrigin;
 
 #[test]
@@ -208,7 +209,6 @@ fn queueing_works() {
 		set_tally(2, 2, 20);
 		set_tally(3, 3, 30);
 		set_tally(4, 100, 0);
-		println!("Agenda #6: {:?}", pallet_scheduler::Agenda::<Test>::get(6));
 		run_to(6);
 		println!("{:?}", Vec::<_>::from(TrackQueue::<Test>::get(0)));
 
@@ -362,7 +362,7 @@ fn tracks_are_distinguished() {
 						deciding: None,
 						tally: Tally { ayes: 0, nays: 0 },
 						in_queue: false,
-						alarm: Some((5, (5, 0))),
+						alarm: Some((5, (BlockNumberOrTimestamp::BlockNumber(5), 0))),
 					})
 				),
 				(
@@ -378,7 +378,7 @@ fn tracks_are_distinguished() {
 						deciding: None,
 						tally: Tally { ayes: 0, nays: 0 },
 						in_queue: false,
-						alarm: Some((3, (3, 0))),
+						alarm: Some((3, (BlockNumberOrTimestamp::BlockNumber(3), 0))),
 					})
 				),
 			]
