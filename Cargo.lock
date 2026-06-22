@@ -6528,16 +6528,16 @@ dependencies = [
 [[package]]
 name = "pallet-conviction-voting"
 version = "45.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36c21787730ec39818943b4572ea9cbff684e0e4de0ba1b4539798909bba6409"
 dependencies = [
  "assert_matches",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
+ "pallet-balances",
  "parity-scale-codec",
  "scale-info",
  "serde",
+ "sp-core",
  "sp-io",
  "sp-runtime",
 ]
