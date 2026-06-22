@@ -1,0 +1,38 @@
+[package]
+authors.workspace = true
+description = "FRAME account recovery pallet"
+edition.workspace = true
+homepage.workspace = true
+license = "Apache-2.0"
+name = "pallet-recovery"
+readme = "README.md"
+repository.workspace = true
+version = "45.0.0"
+
+# Vendored upstream FRAME pallet: the pallet macros expand to expect/unwrap, so
+# we deliberately don't apply the workspace restriction lints here.
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { features = ["derive"], workspace = true }
+frame = { workspace = true, features = ["runtime"] }
+scale-info = { features = ["derive"], workspace = true }
+
+[dev-dependencies]
+pallet-balances = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+runtime-benchmarks = [
+	"frame/runtime-benchmarks",
+]
+std = [
+	"codec/std",
+	"frame/std",
+	"scale-info/std",
+]
+try-runtime = [
+	"frame/try-runtime",
+]

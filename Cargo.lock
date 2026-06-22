@@ -6491,8 +6491,26 @@ dependencies = [
 [[package]]
 name = "pallet-balances"
 version = "46.0.0"
+dependencies = [
+ "docify",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-transaction-payment",
+ "parity-scale-codec",
+ "paste",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
+name = "pallet-collective"
+version = "45.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1a8216eaf2a90707d761856ea3d7e31d9be8781ca44a5ec668e00be5e404698"
+checksum = "7a6ab7b91882b9cceeda0efd67259ff18cac710272b21df801e014d15bbe0fe3"
 dependencies = [
  "docify",
  "frame-benchmarking",
@@ -6502,6 +6520,7 @@ dependencies = [
  "parity-scale-codec",
  "scale-info",
  "sp-core",
+ "sp-io",
  "sp-runtime",
 ]
 
@@ -6571,13 +6590,12 @@ dependencies = [
 [[package]]
 name = "pallet-preimage"
 version = "45.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2d614776ca7e0411dd2d1a6cba525d389b4d81c4595a82db3f9d697bedfd367"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
  "log",
+ "pallet-balances",
  "parity-scale-codec",
  "scale-info",
  "sp-core",
@@ -6627,9 +6645,8 @@ dependencies = [
 [[package]]
 name = "pallet-recovery"
 version = "45.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff0e74f1f04c59885cb421ec85225135c63ee793d60411fdb36adfe2518ee1e9"
 dependencies = [
+ "pallet-balances",
  "parity-scale-codec",
  "polkadot-sdk-frame",
  "scale-info",
@@ -6681,6 +6698,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-root-testing"
+version = "21.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24d0babff4812d15f9e9ae74136b7c22986b8f5bbd64ebe95c27a8fd5b47153c"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-scheduler"
 version = "40.1.0"
 dependencies = [
@@ -6702,8 +6733,6 @@ dependencies = [
 [[package]]
 name = "pallet-timestamp"
 version = "44.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a27830482ee21f4edea07afe13ed14ea04b58a8b2bef0ed7535544b660198bb"
 dependencies = [
  "docify",
  "frame-benchmarking",
@@ -6713,6 +6742,7 @@ dependencies = [
  "parity-scale-codec",
  "scale-info",
  "sp-inherents",
+ "sp-io",
  "sp-runtime",
  "sp-storage",
  "sp-timestamp",
@@ -6782,12 +6812,14 @@ dependencies = [
 [[package]]
 name = "pallet-utility"
 version = "45.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "002e4eb4830616c2e8bfbedbd8dbd65876700ad7dac00289ec66447e4c0d41ce"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
+ "pallet-balances",
+ "pallet-collective",
+ "pallet-root-testing",
+ "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
  "sp-core",
