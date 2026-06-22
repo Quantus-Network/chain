@@ -28,6 +28,9 @@ members = [
 	"pallets/reversible-transfers",
 	"pallets/scheduler",
 	"pallets/timestamp",
+	"pallets/transaction-payment",
+	"pallets/transaction-payment-rpc",
+	"pallets/transaction-payment-rpc-runtime-api",
 	"pallets/treasury",
 	"pallets/utility",
 	"pallets/wormhole",
@@ -221,9 +224,9 @@ pallet-ranked-collective = { version = "45.0.0", default-features = false }
 pallet-recovery = { path = "./pallets/recovery", default-features = false }
 pallet-referenda = { version = "45.0.0", default-features = false }
 pallet-timestamp = { path = "./pallets/timestamp", default-features = false }
-pallet-transaction-payment = { version = "45.0.0", default-features = false }
-pallet-transaction-payment-rpc = { version = "48.0.0", default-features = false }
-pallet-transaction-payment-rpc-runtime-api = { version = "45.0.0", default-features = false }
+pallet-transaction-payment = { path = "./pallets/transaction-payment", default-features = false }
+pallet-transaction-payment-rpc = { path = "./pallets/transaction-payment-rpc", default-features = false }
+pallet-transaction-payment-rpc-runtime-api = { path = "./pallets/transaction-payment-rpc-runtime-api", default-features = false }
 pallet-treasury = { path = "pallets/treasury", default-features = false }
 pallet-utility = { path = "./pallets/utility", default-features = false }
 prometheus-endpoint = { version = "0.17.7", default-features = false, package = "substrate-prometheus-endpoint" }
@@ -266,6 +269,7 @@ sp-keyring = { version = "45.0.0", default-features = false }
 sp-metadata-ir = { version = "0.12.1", default-features = false }
 sp-offchain = { version = "40.0.0", default-features = false }
 sp-panic-handler = { version = "13.0.2", default-features = true }
+sp-rpc = { version = "37.0.0", default-features = false }
 sp-runtime = { version = "45.0.0", default-features = false }
 sp-session = { version = "42.0.0", default-features = false }
 sp-storage = { version = "22.0.0", default-features = false }
