@@ -6458,33 +6458,34 @@ dependencies = [
 [[package]]
 name = "pallet-assets"
 version = "48.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe32957ed431e041d4a5f6a964d2a385a4b7d27d22881c77d18fbd3971bf605c"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
  "impl-trait-for-tuples",
  "log",
+ "pallet-balances",
  "parity-scale-codec",
  "scale-info",
  "sp-core",
+ "sp-io",
  "sp-runtime",
 ]
 
 [[package]]
 name = "pallet-assets-holder"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bc2b2b6b79d04434b827dc7ad9ee1bc984dff48a28644cdafa901579876782b"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
  "log",
  "pallet-assets",
+ "pallet-balances",
  "parity-scale-codec",
  "scale-info",
+ "sp-core",
+ "sp-io",
  "sp-runtime",
 ]
 

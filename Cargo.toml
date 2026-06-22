@@ -18,6 +18,8 @@ members = [
 	"client/transaction-pool",
 	"miner-api",
 	"node",
+	"pallets/assets",
+	"pallets/assets-holder",
 	"pallets/balances",
 	"pallets/frame-system",
 	"pallets/mining-rewards",
@@ -89,6 +91,7 @@ hash-db = { version = "0.16.0", default-features = false }
 hashbrown = { version = "0.15.3" }
 hex = { version = "0.4.3", default-features = false }
 hex-literal = { version = "1.0.0" }
+impl-trait-for-tuples = { version = "0.2.3" }
 indexmap = { version = "2.9.0", features = ["std"] }
 ip_network = { version = "0.4.1" }
 itertools = { version = "0.11" }
@@ -216,8 +219,8 @@ frame-system-benchmarking = { version = "45.0.0", default-features = false }
 frame-system-rpc-runtime-api = { version = "40.0.0", default-features = false }
 frame-try-runtime = { version = "0.51.0", default-features = false }
 hickory-resolver = { version = "0.26.1" }
-pallet-assets = { version = "48.1.0", default-features = false }
-pallet-assets-holder = { version = "0.8.0", default-features = false }
+pallet-assets = { path = "./pallets/assets", default-features = false }
+pallet-assets-holder = { path = "./pallets/assets-holder", default-features = false }
 pallet-conviction-voting = { version = "45.0.0", default-features = false }
 pallet-preimage = { path = "./pallets/preimage", default-features = false }
 pallet-ranked-collective = { version = "45.0.0", default-features = false }
