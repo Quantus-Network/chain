@@ -27,6 +27,7 @@ members = [
 	"pallets/preimage",
 	"pallets/qpow",
 	"pallets/recovery",
+	"pallets/referenda",
 	"pallets/reversible-transfers",
 	"pallets/scheduler",
 	"pallets/timestamp",
@@ -225,7 +226,7 @@ pallet-conviction-voting = { version = "45.0.0", default-features = false }
 pallet-preimage = { path = "./pallets/preimage", default-features = false }
 pallet-ranked-collective = { version = "45.0.0", default-features = false }
 pallet-recovery = { path = "./pallets/recovery", default-features = false }
-pallet-referenda = { version = "45.0.0", default-features = false }
+pallet-referenda = { path = "./pallets/referenda", default-features = false }
 pallet-timestamp = { path = "./pallets/timestamp", default-features = false }
 pallet-transaction-payment = { path = "./pallets/transaction-payment", default-features = false }
 pallet-transaction-payment-rpc = { path = "./pallets/transaction-payment-rpc", default-features = false }
