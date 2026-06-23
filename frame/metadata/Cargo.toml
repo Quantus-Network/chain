@@ -23,19 +23,19 @@ serde = { optional = true, features = ["derive"], workspace = true, default-feat
 [features]
 current = ["scale-info"]
 decode = ["scale-info/decode"]
-default = ["std", "current"]
+default = ["current", "std"]
 legacy = []
 serde_full = [
-	"scale-info/serde",
 	"codec/serde",
+	"scale-info/serde",
 	"serde",
 	"serde/alloc",
 ]
 std = [
-	"decode",
-	"serde_full",
 	"codec/std",
+	"decode",
 	"scale-info/std",
 	"serde/std",
+	"serde_full",
 ]
 unstable = ["current"]
