@@ -3247,8 +3247,6 @@ dependencies = [
 [[package]]
 name = "frame-metadata-hash-extension"
 version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70b849ff6fbe4e7e238293bf42bacbdcd9aaed4b2d98aec204de6fc221f74638"
 dependencies = [
  "array-bytes 6.2.3",
  "const-hex",
