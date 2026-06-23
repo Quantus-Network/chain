@@ -54,6 +54,7 @@ members = [
 	"primitives/consensus/qpow",
 	"primitives/dilithium-crypto",
 	"primitives/header",
+	"primitives/high-security",
 	"primitives/scheduler",
 	"primitives/wormhole",
 	"qpow-math",
@@ -216,6 +217,7 @@ pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
 pallet-zk-tree = { path = "./pallets/zk-tree", default-features = false }
 qp-dilithium-crypto = { path = "./primitives/dilithium-crypto", version = "0.4.0", default-features = false }
 qp-header = { path = "./primitives/header", default-features = false }
+qp-high-security = { path = "./primitives/high-security", default-features = false }
 qp-scheduler = { path = "./primitives/scheduler", default-features = false }
 qp-wormhole = { path = "./primitives/wormhole", default-features = false }
 qpow-math = { path = "./qpow-math", default-features = false }
@@ -328,15 +330,23 @@ substrate-test-utils = { version = "3.0.0", default-features = false }
 substrate-wasm-builder = { version = "31.1.0", default-features = false }
 
 [patch.crates-io]
-frame-storage-access-test-runtime = { path = "./patches/frame-storage-access-test-runtime" }
+frame-benchmarking = { path = "./frame/benchmarking", default-features = false }
+frame-executive = { path = "./frame/executive", default-features = false }
 frame-metadata = { path = "./frame/metadata", default-features = false }
+frame-metadata-hash-extension = { path = "./frame/metadata-hash-extension", default-features = false }
+frame-storage-access-test-runtime = { path = "./patches/frame-storage-access-test-runtime" }
 frame-support = { path = "./frame/support", default-features = false }
 frame-support-procedural = { path = "./frame/support-procedural" }
 frame-support-procedural-tools = { path = "./frame/support-procedural-tools" }
 frame-support-procedural-tools-derive = { path = "./frame/support-procedural-tools-derive" }
-frame-try-runtime = { path = "./frame/try-runtime", default-features = false }
 frame-system = { path = "./pallets/frame-system" }
+frame-system-benchmarking = { path = "./frame/system-benchmarking", default-features = false }
+frame-system-rpc-runtime-api = { path = "./frame/system-rpc-runtime-api", default-features = false }
+frame-try-runtime = { path = "./frame/try-runtime", default-features = false }
 litep2p = { path = "./client/litep2p" }
+pallet-transaction-payment = { path = "./pallets/transaction-payment", default-features = false }
+pallet-transaction-payment-rpc = { path = "./pallets/transaction-payment-rpc", default-features = false }
+pallet-transaction-payment-rpc-runtime-api = { path = "./pallets/transaction-payment-rpc-runtime-api", default-features = false }
 sc-cli = { path = "./client/cli" }
 sc-informant = { path = "./client/informant" }
 sc-network = { path = "client/network" }
