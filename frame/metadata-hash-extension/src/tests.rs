@@ -18,10 +18,7 @@
 use crate::CheckMetadataHash;
 use codec::{Decode, Encode};
 use frame_support::derive_impl;
-use sp_runtime::{
-	traits::TransactionExtension,
-	transaction_validity::UnknownTransaction,
-};
+use sp_runtime::{traits::TransactionExtension, transaction_validity::UnknownTransaction};
 
 type Block = frame_system::mocking::MockBlock<Test>;
 

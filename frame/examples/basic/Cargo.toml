@@ -1,8 +1,8 @@
 [package]
-name = "pallet-example-basic"
-version = "0.1.0"
 edition = "2021"
+name = "pallet-example-basic"
 publish = false
+version = "0.1.0"
 
 [dependencies]
 frame-support = { path = "../../support", default-features = false }

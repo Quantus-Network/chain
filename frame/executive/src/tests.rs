@@ -479,13 +479,7 @@ type Header = qp_header::Header<u64, BlakeTwo256>;
 type TestBlock = sp_runtime::generic::Block<Header, UncheckedXt>;
 
 fn header_from_number(number: u64) -> Header {
-	Header::new(
-		number,
-		H256::default(),
-		H256::default(),
-		H256::default(),
-		Digest::default(),
-	)
+	Header::new(number, H256::default(), H256::default(), H256::default(), Digest::default())
 }
 
 // Will contain `true` when the custom runtime logic was called.
@@ -1344,13 +1338,8 @@ fn try_runtime_upgrade_works() {
 
 	sp_tracing::init_for_tests();
 
-	type ExecutiveWithoutMigrations = super::Executive<
-		Runtime,
-		TestBlock,
-		ChainContext<Runtime>,
-		Runtime,
-		AllPalletsWithSystem,
-	>;
+	type ExecutiveWithoutMigrations =
+		super::Executive<Runtime, TestBlock, ChainContext<Runtime>, Runtime, AllPalletsWithSystem>;
 
 	new_test_ext(1).execute_with(|| {
 		// Call `on_genesis` to reset the storage version of all pallets.
