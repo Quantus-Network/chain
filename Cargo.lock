@@ -3401,6 +3401,15 @@ dependencies = [
 [[package]]
 name = "frame-system-rpc-runtime-api"
 version = "40.0.0"
+dependencies = [
+ "docify",
+ "parity-scale-codec",
+ "sp-api",
+]
+
+[[package]]
+name = "frame-system-rpc-runtime-api"
+version = "40.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8405cc4c9564cd87521065b7607a85a2a56bfab2c6f12afdf3df32c4da66f804"
 dependencies = [
@@ -7450,7 +7459,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "frame-system-benchmarking",
- "frame-system-rpc-runtime-api",
+ "frame-system-rpc-runtime-api 40.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "frame-try-runtime",
  "log",
  "parity-scale-codec",
@@ -8467,7 +8476,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "frame-system-benchmarking",
- "frame-system-rpc-runtime-api",
+ "frame-system-rpc-runtime-api 40.0.0",
  "frame-try-runtime",
  "lazy_static",
  "log",
@@ -11970,7 +11979,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "505d94026847bf523d3d4383412102d9f7d49b9008a56568967d93b12fcccfa1"
 dependencies = [
  "docify",
- "frame-system-rpc-runtime-api",
+ "frame-system-rpc-runtime-api 40.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.3.31",
  "jsonrpsee",
  "log",
