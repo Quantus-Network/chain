@@ -17,6 +17,7 @@ members = [
 	"client/service",
 	"client/transaction-pool",
 	"frame/metadata",
+	"frame/support-procedural",
 	"frame/support-procedural-tools",
 	"frame/support-procedural-tools-derive",
 	"miner-api",
@@ -82,8 +83,11 @@ clatter = { version = "=1.1.0" }
 codec = { version = "3.6.12", default-features = false, package = "parity-scale-codec" }
 criterion = { version = "0.5.1", default-features = false }
 directories = { version = "5.0.1" }
+derive-syn-parse = { version = "0.2.0" }
 docify = { version = "0.2.9", default-features = false }
+expander = { version = "2.2.1" }
 frame-metadata = { path = "./frame/metadata", default-features = false }
+frame-support-procedural = { path = "./frame/support-procedural" }
 frame-support-procedural-tools = { path = "./frame/support-procedural-tools" }
 frame-support-procedural-tools-derive = { path = "./frame/support-procedural-tools-derive" }
 either = { version = "1.8.1", default-features = false }
@@ -102,6 +106,7 @@ hex = { version = "0.4.3", default-features = false }
 hex-literal = { version = "1.0.0" }
 impl-trait-for-tuples = { version = "0.2.3" }
 indexmap = { version = "2.9.0", features = ["std"] }
+Inflector = { version = "0.11.4" }
 ip_network = { version = "0.4.1" }
 itertools = { version = "0.11" }
 jsonrpsee = { version = "0.24.3" }
@@ -112,6 +117,7 @@ libc = { version = "0.2.158" }
 linked-hash-map = { version = "0.5.6" }
 linked_hash_set = { version = "0.1.4" }
 log = { version = "0.4.22", default-features = false }
+macro_magic = { version = "0.5.1", default-features = false }
 memory-db = { version = "0.34.0", default-features = false }
 mockall = { version = "0.13.1" }
 multiaddr = { version = "0.17.0" }
@@ -128,6 +134,7 @@ paste = { version = "1.0.15", default-features = false }
 pin-project = { version = "1.1.3" }
 pretty_assertions = { version = "1.3.0" }
 primitive-types = { version = "0.13.1", default-features = false }
+proc-macro-warning = { version = "1.84.1", default-features = false }
 prometheus = { version = "0.13.4", default-features = false }
 proptest = { version = "1" }
 prost = { version = "0.13.5" }
@@ -301,6 +308,9 @@ substrate-wasm-builder = { version = "31.1.0", default-features = false }
 
 [patch.crates-io]
 frame-storage-access-test-runtime = { path = "./patches/frame-storage-access-test-runtime" }
+frame-support-procedural = { path = "./frame/support-procedural" }
+frame-support-procedural-tools = { path = "./frame/support-procedural-tools" }
+frame-support-procedural-tools-derive = { path = "./frame/support-procedural-tools-derive" }
 frame-system = { path = "./pallets/frame-system" }
 litep2p = { path = "./client/litep2p" }
 sc-cli = { path = "./client/cli" }
