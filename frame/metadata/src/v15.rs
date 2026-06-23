@@ -82,15 +82,7 @@ impl RuntimeMetadataV15 {
 		let outer_enums = outer_enums.into_portable(&mut registry);
 		let custom = custom.into_portable(&mut registry);
 
-		Self {
-			types: registry.into(),
-			pallets,
-			extrinsic,
-			ty,
-			apis,
-			outer_enums,
-			custom,
-		}
+		Self { types: registry.into(), pallets, extrinsic, ty, apis, outer_enums, custom }
 	}
 }
 
@@ -343,10 +335,7 @@ impl IntoPortable for CustomValueMetadata {
 	type Output = CustomValueMetadata<PortableForm>;
 
 	fn into_portable(self, registry: &mut Registry) -> Self::Output {
-		CustomValueMetadata {
-			ty: registry.register_type(&self.ty),
-			value: self.value,
-		}
+		CustomValueMetadata { ty: registry.register_type(&self.ty), value: self.value }
 	}
 }
 
@@ -367,17 +356,17 @@ pub struct OuterEnums<T: Form = MetaForm> {
 	/// [`DispatchError::Module`](https://docs.rs/sp-runtime/24.0.0/sp_runtime/enum.DispatchError.html#variant.Module) variant.
 	///
 	/// The `Module` variant will be 5 scale encoded bytes which are normally decoded into
-	/// an `{ index: u8, error: [u8; 4] }` struct. This type ID points to an enum type which instead
-	/// interprets the first `index` byte as a pallet variant, and the remaining `error` bytes as the
-	/// appropriate `pallet::Error` type. It is an equally valid way to decode the error bytes, and
-	/// can be more informative.
+	/// an `{ index: u8, error: [u8; 4] }` struct. This type ID points to an enum type which
+	/// instead interprets the first `index` byte as a pallet variant, and the remaining `error`
+	/// bytes as the appropriate `pallet::Error` type. It is an equally valid way to decode the
+	/// error bytes, and can be more informative.
 	///
 	/// # Note
 	///
-	/// - This type cannot be used directly to decode `sp_runtime::DispatchError` from the
-	///   chain. It provides just the information needed to decode `sp_runtime::DispatchError::Module`.
-	/// - Decoding the 5 error bytes into this type will not always lead to all of the bytes being consumed;
-	///   many error types do not require all of the bytes to represent them fully.
+	/// - This type cannot be used directly to decode `sp_runtime::DispatchError` from the chain.
+	///   It provides just the information needed to decode `sp_runtime::DispatchError::Module`.
+	/// - Decoding the 5 error bytes into this type will not always lead to all of the bytes being
+	///   consumed; many error types do not require all of the bytes to represent them fully.
 	pub error_enum_ty: T::Type,
 }
 

@@ -20,9 +20,9 @@ use serde::Serialize;
 
 use super::RuntimeMetadataPrefixed;
 use codec::Encode;
-use scale_info::prelude::vec::Vec;
 use scale_info::{
 	form::{Form, MetaForm, PortableForm},
+	prelude::vec::Vec,
 	IntoPortable, MetaType, PortableRegistry, Registry,
 };
 
@@ -64,12 +64,7 @@ impl RuntimeMetadataV14 {
 		let pallets = registry.map_into_portable(pallets);
 		let extrinsic = extrinsic.into_portable(&mut registry);
 		let ty = registry.register_type(&runtime_type);
-		Self {
-			types: registry.into(),
-			pallets,
-			extrinsic,
-			ty,
-		}
+		Self { types: registry.into(), pallets, extrinsic, ty }
 	}
 }
 
@@ -234,11 +229,13 @@ impl IntoPortable for StorageEntryMetadata {
 	}
 }
 
-/// A storage entry modifier indicates how a storage entry is returned when fetched and what the value will be if the key is not present.
-/// Specifically this refers to the "return type" when fetching a storage entry, and what the value will be if the key is not present.
+/// A storage entry modifier indicates how a storage entry is returned when fetched and what the
+/// value will be if the key is not present. Specifically this refers to the "return type" when
+/// fetching a storage entry, and what the value will be if the key is not present.
 ///
-/// `Optional` means you should expect an `Option<T>`, with `None` returned if the key is not present.
-/// `Default` means you should expect a `T` with the default value of default if the key is not present.
+/// `Optional` means you should expect an `Option<T>`, with `None` returned if the key is not
+/// present. `Default` means you should expect a `T` with the default value of default if the key is
+/// not present.
 #[derive(Clone, PartialEq, Eq, Encode, Debug)]
 #[cfg_attr(feature = "decode", derive(Decode))]
 #[cfg_attr(feature = "serde_full", derive(Serialize))]
@@ -298,11 +295,7 @@ impl IntoPortable for StorageEntryType {
 	fn into_portable(self, registry: &mut Registry) -> Self::Output {
 		match self {
 			Self::Plain(plain) => StorageEntryType::Plain(registry.register_type(&plain)),
-			Self::Map {
-				hashers,
-				key,
-				value,
-			} => StorageEntryType::Map {
+			Self::Map { hashers, key, value } => StorageEntryType::Map {
 				hashers,
 				key: registry.register_type(&key),
 				value: registry.register_type(&value),
@@ -328,9 +321,7 @@ impl IntoPortable for PalletCallMetadata {
 	type Output = PalletCallMetadata<PortableForm>;
 
 	fn into_portable(self, registry: &mut Registry) -> Self::Output {
-		PalletCallMetadata {
-			ty: registry.register_type(&self.ty),
-		}
+		PalletCallMetadata { ty: registry.register_type(&self.ty) }
 	}
 }
 
@@ -353,9 +344,7 @@ impl IntoPortable for PalletEventMetadata {
 	type Output = PalletEventMetadata<PortableForm>;
 
 	fn into_portable(self, registry: &mut Registry) -> Self::Output {
-		PalletEventMetadata {
-			ty: registry.register_type(&self.ty),
-		}
+		PalletEventMetadata { ty: registry.register_type(&self.ty) }
 	}
 }
 
@@ -411,9 +400,7 @@ impl IntoPortable for PalletErrorMetadata {
 	type Output = PalletErrorMetadata<PortableForm>;
 
 	fn into_portable(self, registry: &mut Registry) -> Self::Output {
-		PalletErrorMetadata {
-			ty: registry.register_type(&self.ty),
-		}
+		PalletErrorMetadata { ty: registry.register_type(&self.ty) }
 	}
 }
 
