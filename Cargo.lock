@@ -3409,6 +3409,19 @@ dependencies = [
 [[package]]
 name = "frame-system-benchmarking"
 version = "45.0.0"
+dependencies = [
+ "frame-benchmarking 45.0.3",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-runtime",
+]
+
+[[package]]
+name = "frame-system-benchmarking"
+version = "45.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64ef073183476960babf0c7e5a169375c9698709b407c7beedb6c2dc8690d73f"
 dependencies = [
@@ -7481,7 +7494,7 @@ dependencies = [
  "frame-executive 45.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "frame-support",
  "frame-system",
- "frame-system-benchmarking",
+ "frame-system-benchmarking 45.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "frame-system-rpc-runtime-api 40.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "frame-try-runtime",
  "log",
@@ -8498,7 +8511,7 @@ dependencies = [
  "frame-metadata-hash-extension",
  "frame-support",
  "frame-system",
- "frame-system-benchmarking",
+ "frame-system-benchmarking 45.0.0",
  "frame-system-rpc-runtime-api 40.0.0",
  "frame-try-runtime",
  "lazy_static",

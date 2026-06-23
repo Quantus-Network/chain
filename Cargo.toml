@@ -17,6 +17,7 @@ members = [
 	"client/service",
 	"client/transaction-pool",
 	"frame/metadata",
+	"frame/system-benchmarking",
 	"frame/benchmarking",
 	"frame/system-rpc-runtime-api",
 	"frame/metadata-hash-extension",
@@ -244,7 +245,7 @@ frame-executive = { path = "./frame/executive", default-features = false }
 frame-metadata-hash-extension = { path = "./frame/metadata-hash-extension", default-features = false }
 frame-support = { path = "./frame/support", default-features = false }
 frame-system = { version = "45.0.0", default-features = false }
-frame-system-benchmarking = { version = "45.0.0", default-features = false }
+frame-system-benchmarking = { path = "./frame/system-benchmarking", default-features = false }
 frame-system-rpc-runtime-api = { path = "./frame/system-rpc-runtime-api", default-features = false }
 frame-try-runtime = { path = "./frame/try-runtime", default-features = false }
 hickory-resolver = { version = "0.26.1" }
