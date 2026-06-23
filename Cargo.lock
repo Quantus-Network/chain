@@ -3200,6 +3200,24 @@ dependencies = [
 [[package]]
 name = "frame-executive"
 version = "45.0.1"
+dependencies = [
+ "aquamarine",
+ "array-bytes 6.2.3",
+ "frame-support",
+ "frame-system",
+ "frame-try-runtime",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-tracing",
+]
+
+[[package]]
+name = "frame-executive"
+version = "45.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7110e75b540e49ebf54e368e8117c8bf25109a1eb619890c55715093f1a1e04f"
 dependencies = [
@@ -7430,7 +7448,7 @@ checksum = "b43835ff8d1fd5cbe21b436b3a12771502a3916187927542726d388eac722967"
 dependencies = [
  "docify",
  "frame-benchmarking",
- "frame-executive",
+ "frame-executive 45.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "frame-support",
  "frame-system",
  "frame-system-benchmarking",
@@ -8446,7 +8464,7 @@ version = "0.7.1-q-day-2"
 dependencies = [
  "env_logger",
  "frame-benchmarking",
- "frame-executive",
+ "frame-executive 45.0.1",
  "frame-metadata-hash-extension",
  "frame-support",
  "frame-system",

@@ -17,6 +17,7 @@ members = [
 	"client/service",
 	"client/transaction-pool",
 	"frame/metadata",
+	"frame/executive",
 	"frame/try-runtime",
 	"frame/support",
 	"frame/support-procedural",
@@ -234,7 +235,7 @@ qp-zk-circuits-common = { version = "3.0.0", default-features = false }
 frame = { version = "0.14.0", package = "polkadot-sdk-frame", default-features = false }
 frame-benchmarking = { version = "45.0.3", default-features = false }
 frame-benchmarking-cli = { version = "53.0.0", default-features = false }
-frame-executive = { version = "45.0.1", default-features = false }
+frame-executive = { path = "./frame/executive", default-features = false }
 frame-metadata-hash-extension = { version = "0.13.0", default-features = false }
 frame-support = { path = "./frame/support", default-features = false }
 frame-system = { version = "45.0.0", default-features = false }
