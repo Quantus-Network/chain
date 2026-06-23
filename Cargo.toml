@@ -18,16 +18,24 @@ members = [
 	"client/transaction-pool",
 	"miner-api",
 	"node",
+	"pallets/assets",
+	"pallets/assets-holder",
 	"pallets/balances",
+	"pallets/conviction-voting",
 	"pallets/frame-system",
 	"pallets/mining-rewards",
 	"pallets/multisig",
 	"pallets/preimage",
 	"pallets/qpow",
+	"pallets/ranked-collective",
 	"pallets/recovery",
+	"pallets/referenda",
 	"pallets/reversible-transfers",
 	"pallets/scheduler",
 	"pallets/timestamp",
+	"pallets/transaction-payment",
+	"pallets/transaction-payment-rpc",
+	"pallets/transaction-payment-rpc-runtime-api",
 	"pallets/treasury",
 	"pallets/utility",
 	"pallets/wormhole",
@@ -86,6 +94,7 @@ hash-db = { version = "0.16.0", default-features = false }
 hashbrown = { version = "0.15.3" }
 hex = { version = "0.4.3", default-features = false }
 hex-literal = { version = "1.0.0" }
+impl-trait-for-tuples = { version = "0.2.3" }
 indexmap = { version = "2.9.0", features = ["std"] }
 ip_network = { version = "0.4.1" }
 itertools = { version = "0.11" }
@@ -213,17 +222,17 @@ frame-system-benchmarking = { version = "45.0.0", default-features = false }
 frame-system-rpc-runtime-api = { version = "40.0.0", default-features = false }
 frame-try-runtime = { version = "0.51.0", default-features = false }
 hickory-resolver = { version = "0.26.1" }
-pallet-assets = { version = "48.1.0", default-features = false }
-pallet-assets-holder = { version = "0.8.0", default-features = false }
-pallet-conviction-voting = { version = "45.0.0", default-features = false }
+pallet-assets = { path = "./pallets/assets", default-features = false }
+pallet-assets-holder = { path = "./pallets/assets-holder", default-features = false }
+pallet-conviction-voting = { path = "./pallets/conviction-voting", default-features = false }
 pallet-preimage = { path = "./pallets/preimage", default-features = false }
-pallet-ranked-collective = { version = "45.0.0", default-features = false }
+pallet-ranked-collective = { path = "./pallets/ranked-collective", default-features = false }
 pallet-recovery = { path = "./pallets/recovery", default-features = false }
-pallet-referenda = { version = "45.0.0", default-features = false }
+pallet-referenda = { path = "./pallets/referenda", default-features = false }
 pallet-timestamp = { path = "./pallets/timestamp", default-features = false }
-pallet-transaction-payment = { version = "45.0.0", default-features = false }
-pallet-transaction-payment-rpc = { version = "48.0.0", default-features = false }
-pallet-transaction-payment-rpc-runtime-api = { version = "45.0.0", default-features = false }
+pallet-transaction-payment = { path = "./pallets/transaction-payment", default-features = false }
+pallet-transaction-payment-rpc = { path = "./pallets/transaction-payment-rpc", default-features = false }
+pallet-transaction-payment-rpc-runtime-api = { path = "./pallets/transaction-payment-rpc-runtime-api", default-features = false }
 pallet-treasury = { path = "pallets/treasury", default-features = false }
 pallet-utility = { path = "./pallets/utility", default-features = false }
 prometheus-endpoint = { version = "0.17.7", default-features = false, package = "substrate-prometheus-endpoint" }
@@ -266,6 +275,7 @@ sp-keyring = { version = "45.0.0", default-features = false }
 sp-metadata-ir = { version = "0.12.1", default-features = false }
 sp-offchain = { version = "40.0.0", default-features = false }
 sp-panic-handler = { version = "13.0.2", default-features = true }
+sp-rpc = { version = "37.0.0", default-features = false }
 sp-runtime = { version = "45.0.0", default-features = false }
 sp-session = { version = "42.0.0", default-features = false }
 sp-storage = { version = "22.0.0", default-features = false }

@@ -6458,33 +6458,34 @@ dependencies = [
 [[package]]
 name = "pallet-assets"
 version = "48.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe32957ed431e041d4a5f6a964d2a385a4b7d27d22881c77d18fbd3971bf605c"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
  "impl-trait-for-tuples",
  "log",
+ "pallet-balances",
  "parity-scale-codec",
  "scale-info",
  "sp-core",
+ "sp-io",
  "sp-runtime",
 ]
 
 [[package]]
 name = "pallet-assets-holder"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bc2b2b6b79d04434b827dc7ad9ee1bc984dff48a28644cdafa901579876782b"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
  "log",
  "pallet-assets",
+ "pallet-balances",
  "parity-scale-codec",
  "scale-info",
+ "sp-core",
+ "sp-io",
  "sp-runtime",
 ]
 
@@ -6527,16 +6528,16 @@ dependencies = [
 [[package]]
 name = "pallet-conviction-voting"
 version = "45.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36c21787730ec39818943b4572ea9cbff684e0e4de0ba1b4539798909bba6409"
 dependencies = [
  "assert_matches",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
+ "pallet-balances",
  "parity-scale-codec",
  "scale-info",
  "serde",
+ "sp-core",
  "sp-io",
  "sp-runtime",
 ]
@@ -6626,8 +6627,6 @@ dependencies = [
 [[package]]
 name = "pallet-ranked-collective"
 version = "45.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ea0209ecadc9a8b93d5d9a93ad1fd9abd760542892d833e199b40144725406d"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -6655,18 +6654,21 @@ dependencies = [
 [[package]]
 name = "pallet-referenda"
 version = "45.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71ae4df35eb4e9f9183ad1a81842f0f74281d02cdd7fa512cbdb51bbbd9acca5"
 dependencies = [
  "assert_matches",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
  "log",
+ "pallet-balances",
+ "pallet-preimage",
+ "pallet-scheduler",
  "parity-scale-codec",
+ "qp-scheduler",
  "scale-info",
  "serde",
  "sp-arithmetic",
+ "sp-core",
  "sp-io",
  "sp-runtime",
 ]
@@ -6751,16 +6753,16 @@ dependencies = [
 [[package]]
 name = "pallet-transaction-payment"
 version = "45.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6be8a43637711ad0bd344e6c6fced72cfcd0e8644b777bda0e2b48a72bf5c66c"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
  "log",
+ "pallet-balances",
  "parity-scale-codec",
  "scale-info",
  "serde",
+ "serde_json",
  "sp-io",
  "sp-runtime",
 ]
@@ -6768,8 +6770,6 @@ dependencies = [
 [[package]]
 name = "pallet-transaction-payment-rpc"
 version = "48.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5727ecb862778e2cc198776944369677a24eb1c8cbcc66723f8bb06648b0545e"
 dependencies = [
  "jsonrpsee",
  "pallet-transaction-payment-rpc-runtime-api",
@@ -6785,8 +6785,6 @@ dependencies = [
 [[package]]
 name = "pallet-transaction-payment-rpc-runtime-api"
 version = "45.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba1748d7be740e04b69422053f45439b09d7842deb4522cbdb96431fd21aac52"
 dependencies = [
  "pallet-transaction-payment",
  "parity-scale-codec",
