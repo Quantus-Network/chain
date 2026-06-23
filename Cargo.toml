@@ -16,6 +16,7 @@ members = [
 	"client/network-types",
 	"client/service",
 	"client/transaction-pool",
+	"frame/support-procedural-tools",
 	"frame/support-procedural-tools-derive",
 	"miner-api",
 	"node",
@@ -81,6 +82,7 @@ codec = { version = "3.6.12", default-features = false, package = "parity-scale-
 criterion = { version = "0.5.1", default-features = false }
 directories = { version = "5.0.1" }
 docify = { version = "0.2.9", default-features = false }
+frame-support-procedural-tools = { path = "./frame/support-procedural-tools" }
 frame-support-procedural-tools-derive = { path = "./frame/support-procedural-tools-derive" }
 either = { version = "1.8.1", default-features = false }
 enum-display = { version = "0.1.4" }
