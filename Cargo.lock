@@ -3396,8 +3396,6 @@ dependencies = [
 [[package]]
 name = "frame-try-runtime"
 version = "0.51.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af1745c6b30778a7c5aa682b87e59d6c0f6f1b00087cb4861f7ecd22fcda17f0"
 dependencies = [
  "frame-support",
  "parity-scale-codec",

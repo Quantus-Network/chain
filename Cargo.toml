@@ -17,6 +17,7 @@ members = [
 	"client/service",
 	"client/transaction-pool",
 	"frame/metadata",
+	"frame/try-runtime",
 	"frame/support",
 	"frame/support-procedural",
 	"frame/support-procedural-tools",
@@ -239,7 +240,7 @@ frame-support = { path = "./frame/support", default-features = false }
 frame-system = { version = "45.0.0", default-features = false }
 frame-system-benchmarking = { version = "45.0.0", default-features = false }
 frame-system-rpc-runtime-api = { version = "40.0.0", default-features = false }
-frame-try-runtime = { version = "0.51.0", default-features = false }
+frame-try-runtime = { path = "./frame/try-runtime", default-features = false }
 hickory-resolver = { version = "0.26.1" }
 pallet-assets = { path = "./pallets/assets", default-features = false }
 pallet-assets-holder = { path = "./pallets/assets-holder", default-features = false }
@@ -323,6 +324,7 @@ frame-support = { path = "./frame/support", default-features = false }
 frame-support-procedural = { path = "./frame/support-procedural" }
 frame-support-procedural-tools = { path = "./frame/support-procedural-tools" }
 frame-support-procedural-tools-derive = { path = "./frame/support-procedural-tools-derive" }
+frame-try-runtime = { path = "./frame/try-runtime", default-features = false }
 frame-system = { path = "./pallets/frame-system" }
 litep2p = { path = "./client/litep2p" }
 sc-cli = { path = "./client/cli" }
