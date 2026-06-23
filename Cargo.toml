@@ -17,6 +17,7 @@ members = [
 	"client/service",
 	"client/transaction-pool",
 	"frame/metadata",
+	"frame/benchmarking",
 	"frame/system-rpc-runtime-api",
 	"frame/metadata-hash-extension",
 	"frame/executive",
@@ -126,6 +127,7 @@ lazy_static = { version = "1.5.0", default-features = false, features = [
 libc = { version = "0.2.158" }
 linked-hash-map = { version = "0.5.6" }
 linked_hash_set = { version = "0.1.4" }
+linregress = { version = "0.5.4", default-features = false }
 log = { version = "0.4.22", default-features = false }
 macro_magic = { version = "0.5.1", default-features = false }
 memory-db = { version = "0.34.0", default-features = false }
@@ -236,7 +238,7 @@ qp-zk-circuits-common = { version = "3.0.0", default-features = false }
 
 # polkadot-sdk dependencies
 frame = { version = "0.14.0", package = "polkadot-sdk-frame", default-features = false }
-frame-benchmarking = { version = "45.0.3", default-features = false }
+frame-benchmarking = { path = "./frame/benchmarking", default-features = false }
 frame-benchmarking-cli = { version = "53.0.0", default-features = false }
 frame-executive = { path = "./frame/executive", default-features = false }
 frame-metadata-hash-extension = { path = "./frame/metadata-hash-extension", default-features = false }
@@ -285,6 +287,7 @@ sc-transaction-pool = { version = "44.1.0", default-features = false }
 sc-transaction-pool-api = { version = "43.0.0", default-features = false }
 sc-utils = { version = "20.0.0", default-features = false }
 sp-api = { version = "40.0.0", default-features = false }
+sp-application-crypto = { version = "44.0.0", default-features = false }
 sp-arithmetic = { version = "28.0.0", default-features = false }
 sp-block-builder = { version = "40.0.0", default-features = false }
 sp-blockchain = { version = "43.0.0", default-features = false }
@@ -301,8 +304,9 @@ sp-keyring = { version = "45.0.0", default-features = false }
 sp-metadata-ir = { version = "0.12.1", default-features = false }
 sp-offchain = { version = "40.0.0", default-features = false }
 sp-panic-handler = { version = "13.0.2", default-features = true }
-sp-rpc = { version = "37.0.0", default-features = false }
 sp-runtime = { version = "45.0.0", default-features = false }
+sp-runtime-interface = { version = "33.0.0", default-features = false }
+sp-rpc = { version = "37.0.0", default-features = false }
 sp-session = { version = "42.0.0", default-features = false }
 sp-staking = { version = "42.1.0", default-features = false }
 sp-std = { version = "14.0.0", default-features = false }
@@ -314,6 +318,7 @@ sp-transaction-storage-proof = { version = "40.0.0", default-features = false }
 sp-trie = { version = "42.0.1", default-features = false }
 sp-version = { version = "43.0.0", default-features = false }
 sp-weights = { version = "33.2.0", default-features = false }
+static_assertions = { version = "1.1.0", default-features = false }
 static_init = { version = "1.0.4" }
 strum = { version = "0.26.3", default-features = false, features = ["derive"] }
 substrate-build-script-utils = { version = "11.0.0", default-features = false }

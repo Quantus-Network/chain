@@ -3095,6 +3095,29 @@ checksum = "28dd6caf6059519a65843af8fe2a3ae298b14b80179855aeb4adc2c1934ee619"
 [[package]]
 name = "frame-benchmarking"
 version = "45.0.3"
+dependencies = [
+ "frame-support",
+ "frame-support-procedural",
+ "frame-system",
+ "linregress",
+ "log",
+ "parity-scale-codec",
+ "paste",
+ "scale-info",
+ "serde",
+ "sp-api",
+ "sp-application-crypto",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-runtime-interface",
+ "sp-storage",
+ "static_assertions",
+]
+
+[[package]]
+name = "frame-benchmarking"
+version = "45.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f3226faf3dbf5311c1ab352850d680f487f4f675c4590b1c905572b0de611df"
 dependencies = [
@@ -3131,7 +3154,7 @@ dependencies = [
  "cumulus-client-parachain-inherent",
  "cumulus-primitives-proof-size-hostfunction",
  "env_filter",
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "frame-storage-access-test-runtime",
  "frame-support",
  "frame-system",
@@ -3321,7 +3344,7 @@ dependencies = [
  "derive-syn-parse",
  "docify",
  "expander",
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-support-procedural-tools",
  "frame-system",
@@ -3389,7 +3412,7 @@ version = "45.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64ef073183476960babf0c7e5a169375c9698709b407c7beedb6c2dc8690d73f"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "frame-support",
  "frame-system",
  "parity-scale-codec",
@@ -6491,7 +6514,7 @@ dependencies = [
 name = "pallet-assets"
 version = "48.1.0"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "impl-trait-for-tuples",
@@ -6508,7 +6531,7 @@ dependencies = [
 name = "pallet-assets-holder"
 version = "0.8.0"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "log",
@@ -6526,7 +6549,7 @@ name = "pallet-balances"
 version = "46.0.0"
 dependencies = [
  "docify",
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "log",
@@ -6546,7 +6569,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a6ab7b91882b9cceeda0efd67259ff18cac710272b21df801e014d15bbe0fe3"
 dependencies = [
  "docify",
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "frame-support",
  "frame-system",
  "log",
@@ -6562,7 +6585,7 @@ name = "pallet-conviction-voting"
 version = "45.0.0"
 dependencies = [
  "assert_matches",
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "pallet-balances",
@@ -6578,7 +6601,7 @@ dependencies = [
 name = "pallet-mining-rewards"
 version = "0.1.0"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "log",
@@ -6597,7 +6620,7 @@ dependencies = [
 name = "pallet-multisig"
 version = "1.0.0"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "pallet-assets",
@@ -6624,7 +6647,7 @@ dependencies = [
 name = "pallet-preimage"
 version = "45.0.0"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "log",
@@ -6640,7 +6663,7 @@ dependencies = [
 name = "pallet-qpow"
 version = "0.1.0"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "hex",
@@ -6660,7 +6683,7 @@ dependencies = [
 name = "pallet-ranked-collective"
 version = "45.0.0"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "impl-trait-for-tuples",
@@ -6688,7 +6711,7 @@ name = "pallet-referenda"
 version = "45.0.0"
 dependencies = [
  "assert_matches",
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "log",
@@ -6709,7 +6732,7 @@ dependencies = [
 name = "pallet-reversible-transfers"
 version = "40.0.1"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "log",
@@ -6750,7 +6773,7 @@ name = "pallet-scheduler"
 version = "40.1.0"
 dependencies = [
  "docify",
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "log",
@@ -6769,7 +6792,7 @@ name = "pallet-timestamp"
 version = "44.0.0"
 dependencies = [
  "docify",
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "log",
@@ -6786,7 +6809,7 @@ dependencies = [
 name = "pallet-transaction-payment"
 version = "45.0.0"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "log",
@@ -6829,7 +6852,7 @@ dependencies = [
 name = "pallet-treasury"
 version = "0.1.0"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "parity-scale-codec",
@@ -6843,7 +6866,7 @@ dependencies = [
 name = "pallet-utility"
 version = "45.0.0"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "pallet-balances",
@@ -6861,7 +6884,7 @@ dependencies = [
 name = "pallet-wormhole"
 version = "0.1.0"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-support",
  "frame-system",
  "hex",
@@ -7454,7 +7477,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b43835ff8d1fd5cbe21b436b3a12771502a3916187927542726d388eac722967"
 dependencies = [
  "docify",
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "frame-executive 45.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "frame-support",
  "frame-system",
@@ -8470,7 +8493,7 @@ name = "quantus-runtime"
 version = "0.7.1-q-day-2"
 dependencies = [
  "env_logger",
- "frame-benchmarking",
+ "frame-benchmarking 45.0.3",
  "frame-executive 45.0.1",
  "frame-metadata-hash-extension",
  "frame-support",
