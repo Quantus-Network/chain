@@ -162,6 +162,7 @@ reqwest = { version = "0.11.24", default-features = false, features = ["json"] }
 rpassword = { version = "7.0.0" }
 rstest = { version = "0.18" }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rusty-fork = { version = "0.3.1" }
 sc-client-db = { version = "0.51.0", default-features = false }
 sc-keystore = { version = "39.0.0", default-features = true }
 sc-mixnet = { version = "0.25.0", default-features = true }
@@ -330,23 +331,23 @@ substrate-test-utils = { version = "3.0.0", default-features = false }
 substrate-wasm-builder = { version = "31.1.0", default-features = false }
 
 [patch.crates-io]
-frame-benchmarking = { path = "./frame/benchmarking", default-features = false }
-frame-executive = { path = "./frame/executive", default-features = false }
-frame-metadata = { path = "./frame/metadata", default-features = false }
-frame-metadata-hash-extension = { path = "./frame/metadata-hash-extension", default-features = false }
+frame-benchmarking = { path = "./frame/benchmarking" }
+frame-executive = { path = "./frame/executive" }
+frame-metadata = { path = "./frame/metadata" }
+frame-metadata-hash-extension = { path = "./frame/metadata-hash-extension" }
 frame-storage-access-test-runtime = { path = "./patches/frame-storage-access-test-runtime" }
-frame-support = { path = "./frame/support", default-features = false }
+frame-support = { path = "./frame/support" }
 frame-support-procedural = { path = "./frame/support-procedural" }
 frame-support-procedural-tools = { path = "./frame/support-procedural-tools" }
 frame-support-procedural-tools-derive = { path = "./frame/support-procedural-tools-derive" }
 frame-system = { path = "./pallets/frame-system" }
-frame-system-benchmarking = { path = "./frame/system-benchmarking", default-features = false }
-frame-system-rpc-runtime-api = { path = "./frame/system-rpc-runtime-api", default-features = false }
-frame-try-runtime = { path = "./frame/try-runtime", default-features = false }
+frame-system-benchmarking = { path = "./frame/system-benchmarking" }
+frame-system-rpc-runtime-api = { path = "./frame/system-rpc-runtime-api" }
+frame-try-runtime = { path = "./frame/try-runtime" }
 litep2p = { path = "./client/litep2p" }
-pallet-transaction-payment = { path = "./pallets/transaction-payment", default-features = false }
-pallet-transaction-payment-rpc = { path = "./pallets/transaction-payment-rpc", default-features = false }
-pallet-transaction-payment-rpc-runtime-api = { path = "./pallets/transaction-payment-rpc-runtime-api", default-features = false }
+pallet-transaction-payment = { path = "./pallets/transaction-payment" }
+pallet-transaction-payment-rpc = { path = "./pallets/transaction-payment-rpc" }
+pallet-transaction-payment-rpc-runtime-api = { path = "./pallets/transaction-payment-rpc-runtime-api" }
 sc-cli = { path = "./client/cli" }
 sc-informant = { path = "./client/informant" }
 sc-network = { path = "client/network" }

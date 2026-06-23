@@ -605,7 +605,7 @@ fn test_parse_tasks_attr() {
 
 #[test]
 fn test_parse_tasks_def_basic() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		let parsed = parse2::<TasksDef>(quote! {
 			#[pallet::tasks_experimental]
 			impl<T: Config<I>, I: 'static> Pallet<T, I> {
@@ -631,7 +631,7 @@ fn test_parse_tasks_def_basic() {
 
 #[test]
 fn test_parse_tasks_def_basic_increment_decrement() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		let parsed = parse2::<TasksDef>(quote! {
 			#[pallet::tasks_experimental]
 			impl<T: Config<I>, I: 'static> Pallet<T, I> {
@@ -683,7 +683,7 @@ fn test_parse_tasks_def_basic_increment_decrement() {
 
 #[test]
 fn test_parse_tasks_def_duplicate_index() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		assert_parse_error_matches!(
 			parse2::<TasksDef>(quote! {
 				#[pallet::tasks_experimental]
@@ -712,7 +712,7 @@ fn test_parse_tasks_def_duplicate_index() {
 
 #[test]
 fn test_parse_tasks_def_missing_task_list() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		assert_parse_error_matches!(
 			parse2::<TasksDef>(quote! {
 				#[pallet::tasks_experimental]
@@ -731,7 +731,7 @@ fn test_parse_tasks_def_missing_task_list() {
 
 #[test]
 fn test_parse_tasks_def_missing_task_condition() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		assert_parse_error_matches!(
 			parse2::<TasksDef>(quote! {
 				#[pallet::tasks_experimental]
@@ -750,7 +750,7 @@ fn test_parse_tasks_def_missing_task_condition() {
 
 #[test]
 fn test_parse_tasks_def_missing_task_index() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		assert_parse_error_matches!(
 			parse2::<TasksDef>(quote! {
 				#[pallet::tasks_experimental]
@@ -769,7 +769,7 @@ fn test_parse_tasks_def_missing_task_index() {
 
 #[test]
 fn test_parse_tasks_def_missing_task_weight() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		assert_parse_error_matches!(
 			parse2::<TasksDef>(quote! {
 				#[pallet::tasks_experimental]
@@ -789,7 +789,7 @@ fn test_parse_tasks_def_missing_task_weight() {
 
 #[test]
 fn test_parse_tasks_def_unexpected_extra_task_list_attr() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		assert_parse_error_matches!(
 			parse2::<TasksDef>(quote! {
 				#[pallet::tasks_experimental]
@@ -811,7 +811,7 @@ fn test_parse_tasks_def_unexpected_extra_task_list_attr() {
 
 #[test]
 fn test_parse_tasks_def_unexpected_extra_task_condition_attr() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		assert_parse_error_matches!(
 			parse2::<TasksDef>(quote! {
 				#[pallet::tasks_experimental]
@@ -833,7 +833,7 @@ fn test_parse_tasks_def_unexpected_extra_task_condition_attr() {
 
 #[test]
 fn test_parse_tasks_def_unexpected_extra_task_index_attr() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		assert_parse_error_matches!(
 			parse2::<TasksDef>(quote! {
 				#[pallet::tasks_experimental]
@@ -855,7 +855,7 @@ fn test_parse_tasks_def_unexpected_extra_task_index_attr() {
 
 #[test]
 fn test_parse_tasks_def_extra_tasks_attribute() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		assert_parse_error_matches!(
 			parse2::<TasksDef>(quote! {
 				#[pallet::tasks_experimental]
@@ -869,7 +869,7 @@ fn test_parse_tasks_def_extra_tasks_attribute() {
 
 #[test]
 fn test_parse_task_enum_def_basic() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		parse2::<TaskEnumDef>(quote! {
 			#[pallet::task_enum]
 			pub enum Task<T: Config> {
@@ -883,7 +883,7 @@ fn test_parse_task_enum_def_basic() {
 
 #[test]
 fn test_parse_task_enum_def_non_task_name() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		parse2::<TaskEnumDef>(quote! {
 			#[pallet::task_enum]
 			pub enum Something<T> {
@@ -896,7 +896,7 @@ fn test_parse_task_enum_def_non_task_name() {
 
 #[test]
 fn test_parse_task_enum_def_missing_attr_allowed() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		parse2::<TaskEnumDef>(quote! {
 			pub enum Task<T: Config> {
 				Increment,
@@ -909,7 +909,7 @@ fn test_parse_task_enum_def_missing_attr_allowed() {
 
 #[test]
 fn test_parse_task_enum_def_missing_attr_alternate_name_allowed() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		parse2::<TaskEnumDef>(quote! {
 			pub enum Foo<T> {
 				Red,
@@ -921,7 +921,7 @@ fn test_parse_task_enum_def_missing_attr_alternate_name_allowed() {
 
 #[test]
 fn test_parse_task_enum_def_wrong_attr() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		assert_parse_error_matches!(
 			parse2::<TaskEnumDef>(quote! {
 				#[pallet::something]
@@ -937,7 +937,7 @@ fn test_parse_task_enum_def_wrong_attr() {
 
 #[test]
 fn test_parse_task_enum_def_wrong_item() {
-	simulate_manifest_dir("../../examples/basic", || {
+	simulate_manifest_dir("../examples/basic", || {
 		assert_parse_error_matches!(
 			parse2::<TaskEnumDef>(quote! {
 				#[pallet::task_enum]

@@ -25,11 +25,11 @@
 //! # Integration
 //!
 //! As any transaction extension you will need to add it to your runtime transaction extensions:
-#![doc = docify::embed!("src/tests.rs", add_metadata_hash_extension)]
+#![doc = docify::embed!("src/doc_examples.rs", add_metadata_hash_extension)]
 //! As the extension requires the `RUNTIME_METADATA_HASH` environment variable to be present at
 //! compile time, it requires a little bit more setup. To have this environment variable available
 //! at compile time required to tell the `substrate-wasm-builder` to do so:
-#![doc = docify::embed!("src/tests.rs", enable_metadata_hash_in_wasm_builder)]
+#![doc = docify::embed!("src/doc_examples.rs", enable_metadata_hash_in_wasm_builder)]
 //! As generating the metadata hash requires to compile the runtime twice, it is
 //! recommended to only enable the metadata hash generation when doing a build for a release or when
 //! you want to test this feature.

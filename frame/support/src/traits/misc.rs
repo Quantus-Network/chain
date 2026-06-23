@@ -502,10 +502,12 @@ pub trait DefensiveMin<T> {
 	/// assert_eq!(4, 4_u32.defensive_min(4_u32));
 	/// ```
 	///
-	/// ```should_panic
+	/// When the assumption is violated, the other value is returned and a defensive
+	/// error is logged. With `debug_assertions` enabled, this also panics.
+	///
+	/// ```
 	/// use frame_support::traits::DefensiveMin;
-	/// // min(4, 3) panics.
-	/// 4_u32.defensive_min(3_u32);
+	/// assert_eq!(3, 4_u32.defensive_min(3_u32));
 	/// ```
 	fn defensive_min(self, other: T) -> Self;
 
@@ -519,10 +521,12 @@ pub trait DefensiveMin<T> {
 	/// assert_eq!(3, 3_u32.defensive_strict_min(4_u32));
 	/// ```
 	///
-	/// ```should_panic
+	/// When the assumption is violated, the other value is returned and a defensive
+	/// error is logged. With `debug_assertions` enabled, this also panics.
+	///
+	/// ```
 	/// use frame_support::traits::DefensiveMin;
-	/// // min(4, 4) panics.
-	/// 4_u32.defensive_strict_min(4_u32);
+	/// assert_eq!(4, 4_u32.defensive_strict_min(4_u32));
 	/// ```
 	fn defensive_strict_min(self, other: T) -> Self;
 }
@@ -566,10 +570,12 @@ pub trait DefensiveMax<T> {
 	/// assert_eq!(4, 4_u32.defensive_max(4_u32));
 	/// ```
 	///
-	/// ```should_panic
+	/// When the assumption is violated, the other value is returned and a defensive
+	/// error is logged. With `debug_assertions` enabled, this also panics.
+	///
+	/// ```
 	/// use frame_support::traits::DefensiveMax;
-	/// // max(4, 5) panics.
-	/// 4_u32.defensive_max(5_u32);
+	/// assert_eq!(5, 4_u32.defensive_max(5_u32));
 	/// ```
 	fn defensive_max(self, other: T) -> Self;
 
@@ -583,10 +589,12 @@ pub trait DefensiveMax<T> {
 	/// assert_eq!(4, 4_u32.defensive_strict_max(3_u32));
 	/// ```
 	///
-	/// ```should_panic
+	/// When the assumption is violated, the other value is returned and a defensive
+	/// error is logged. With `debug_assertions` enabled, this also panics.
+	///
+	/// ```
 	/// use frame_support::traits::DefensiveMax;
-	/// // max(4, 4) panics.
-	/// 4_u32.defensive_strict_max(4_u32);
+	/// assert_eq!(4, 4_u32.defensive_strict_max(4_u32));
 	/// ```
 	fn defensive_strict_max(self, other: T) -> Self;
 }

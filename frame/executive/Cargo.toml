@@ -29,6 +29,11 @@ sp-tracing.workspace = true
 
 [dev-dependencies]
 array-bytes = { workspace = true, default-features = true }
+pallet-balances = { workspace = true, default-features = true }
+pallet-transaction-payment = { workspace = true, default-features = true }
+qp-header = { workspace = true, default-features = true }
+sp-inherents = { workspace = true, default-features = true }
+sp-version = { workspace = true, default-features = true }
 
 [features]
 default = ["std"]

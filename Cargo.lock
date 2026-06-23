@@ -3096,6 +3096,7 @@ checksum = "28dd6caf6059519a65843af8fe2a3ae298b14b80179855aeb4adc2c1934ee619"
 name = "frame-benchmarking"
 version = "45.0.3"
 dependencies = [
+ "array-bytes 6.2.3",
  "frame-support",
  "frame-support-procedural",
  "frame-system",
@@ -3103,14 +3104,19 @@ dependencies = [
  "log",
  "parity-scale-codec",
  "paste",
+ "rusty-fork",
+ "sc-client-db",
  "scale-info",
  "serde",
  "sp-api",
  "sp-application-crypto",
  "sp-core",
+ "sp-externalities",
  "sp-io",
+ "sp-keystore",
  "sp-runtime",
  "sp-runtime-interface",
+ "sp-state-machine",
  "sp-storage",
  "static_assertions",
 ]
@@ -3205,12 +3211,17 @@ dependencies = [
  "frame-system",
  "frame-try-runtime",
  "log",
+ "pallet-balances",
+ "pallet-transaction-payment",
  "parity-scale-codec",
+ "qp-header",
  "scale-info",
  "sp-core",
+ "sp-inherents",
  "sp-io",
  "sp-runtime",
  "sp-tracing",
+ "sp-version",
 ]
 
 [[package]]
@@ -3275,6 +3286,7 @@ dependencies = [
  "sp-api",
  "sp-arithmetic",
  "sp-core",
+ "sp-crypto-hashing",
  "sp-crypto-hashing-proc-macro",
  "sp-debug-derive",
  "sp-genesis-builder",
@@ -3285,6 +3297,7 @@ dependencies = [
  "sp-staking",
  "sp-state-machine",
  "sp-std",
+ "sp-timestamp",
  "sp-tracing",
  "sp-trie",
  "sp-weights",

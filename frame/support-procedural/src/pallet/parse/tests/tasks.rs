@@ -20,7 +20,7 @@ use syn::parse_quote;
 #[test]
 fn test_parse_pallet_with_task_enum_missing_impl() {
 	assert_pallet_parse_error! {
-		#[manifest_dir("../../examples/basic")]
+		#[manifest_dir("../examples/basic")]
 		#[error_regex("Missing `\\#\\[pallet::tasks_experimental\\]` impl")]
 		#[frame_support::pallet]
 		pub mod pallet {
@@ -41,7 +41,7 @@ fn test_parse_pallet_with_task_enum_missing_impl() {
 #[test]
 fn test_parse_pallet_with_task_enum_wrong_attribute() {
 	assert_pallet_parse_error! {
-		#[manifest_dir("../../examples/basic")]
+		#[manifest_dir("../examples/basic")]
 		#[error_regex("expected one of")]
 		#[frame_support::pallet]
 		pub mod pallet {
@@ -68,7 +68,7 @@ fn test_parse_pallet_with_task_enum_wrong_attribute() {
 #[test]
 fn test_parse_pallet_missing_task_enum() {
 	assert_pallet_parses! {
-		#[manifest_dir("../../examples/basic")]
+		#[manifest_dir("../examples/basic")]
 		#[frame_support::pallet]
 		pub mod pallet {
 			#[pallet::tasks_experimental]
@@ -90,7 +90,7 @@ fn test_parse_pallet_missing_task_enum() {
 #[test]
 fn test_parse_pallet_task_list_in_wrong_place() {
 	assert_pallet_parse_error! {
-		#[manifest_dir("../../examples/basic")]
+		#[manifest_dir("../examples/basic")]
 		#[error_regex("can only be used on items within an `impl` statement.")]
 		#[frame_support::pallet]
 		pub mod pallet {
@@ -115,7 +115,7 @@ fn test_parse_pallet_task_list_in_wrong_place() {
 #[test]
 fn test_parse_pallet_manual_tasks_impl_without_manual_tasks_enum() {
 	assert_pallet_parse_error! {
-		#[manifest_dir("../../examples/basic")]
+		#[manifest_dir("../examples/basic")]
 		#[error_regex(".*attribute must be attached to your.*")]
 		#[frame_support::pallet]
 		pub mod pallet {
@@ -143,7 +143,7 @@ fn test_parse_pallet_manual_tasks_impl_without_manual_tasks_enum() {
 #[test]
 fn test_parse_pallet_manual_task_enum_non_manual_impl() {
 	assert_pallet_parses! {
-		#[manifest_dir("../../examples/basic")]
+		#[manifest_dir("../examples/basic")]
 		#[frame_support::pallet]
 		pub mod pallet {
 			pub enum MyCustomTaskEnum<T: Config> {
@@ -168,7 +168,7 @@ fn test_parse_pallet_manual_task_enum_non_manual_impl() {
 #[test]
 fn test_parse_pallet_non_manual_task_enum_manual_impl() {
 	assert_pallet_parses! {
-		#[manifest_dir("../../examples/basic")]
+		#[manifest_dir("../examples/basic")]
 		#[frame_support::pallet]
 		pub mod pallet {
 			#[pallet::task_enum]
@@ -193,7 +193,7 @@ fn test_parse_pallet_non_manual_task_enum_manual_impl() {
 #[test]
 fn test_parse_pallet_manual_task_enum_manual_impl() {
 	assert_pallet_parses! {
-		#[manifest_dir("../../examples/basic")]
+		#[manifest_dir("../examples/basic")]
 		#[frame_support::pallet]
 		pub mod pallet {
 			pub enum MyCustomTaskEnum<T: Config> {
@@ -217,7 +217,7 @@ fn test_parse_pallet_manual_task_enum_manual_impl() {
 #[test]
 fn test_parse_pallet_manual_task_enum_mismatch_ident() {
 	assert_pallet_parses! {
-		#[manifest_dir("../../examples/basic")]
+		#[manifest_dir("../examples/basic")]
 		#[frame_support::pallet]
 		pub mod pallet {
 			pub enum WrongIdent<T: Config> {

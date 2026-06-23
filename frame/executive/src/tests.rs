@@ -32,9 +32,8 @@ use pallet_balances::Call as BalancesCall;
 use pallet_transaction_payment::FungibleAdapter;
 use sp_core::H256;
 use sp_runtime::{
-	generic::{DigestItem, Era},
-	testing::{Block, Digest, Header},
-	traits::{Block as BlockT, Header as HeaderT, TransactionExtension},
+	generic::{Digest, DigestItem, Era},
+	traits::{BlakeTwo256, Block as BlockT, Header as HeaderT, TransactionExtension},
 	transaction_validity::{
 		InvalidTransaction, TransactionValidityError, UnknownTransaction, ValidTransaction,
 	},
@@ -476,7 +475,18 @@ type UncheckedXt = sp_runtime::generic::UncheckedExtrinsic<
 	sp_runtime::testing::UintAuthorityId,
 	TxExtension,
 >;
-type TestBlock = Block<UncheckedXt>;
+type Header = qp_header::Header<u64, BlakeTwo256>;
+type TestBlock = sp_runtime::generic::Block<Header, UncheckedXt>;
+
+fn header_from_number(number: u64) -> Header {
+	Header::new(
+		number,
+		H256::default(),
+		H256::default(),
+		H256::default(),
+		Digest::default(),
+	)
+}
 
 // Will contain `true` when the custom runtime logic was called.
 const CUSTOM_ON_RUNTIME_KEY: &[u8] = b":custom:on_runtime";
@@ -507,7 +517,7 @@ impl OnRuntimeUpgrade for CustomOnRuntimeUpgrade {
 #[allow(deprecated)]
 type Executive = super::Executive<
 	Runtime,
-	Block<UncheckedXt>,
+	TestBlock,
 	ChainContext<Runtime>,
 	Runtime,
 	AllPalletsWithSystem,
@@ -613,7 +623,7 @@ fn balance_transfer_dispatch_works() {
 		<Runtime as pallet_transaction_payment::Config>::WeightToFee::weight_to_fee(&weight);
 	let mut t = sp_io::TestExternalities::new(t);
 	t.execute_with(|| {
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 		let r = Executive::apply_extrinsic(xt);
 		assert!(r.is_ok());
 		assert_eq!(<pallet_balances::Pallet<Runtime>>::total_balance(&1), 142 - fee);
@@ -665,16 +675,16 @@ fn block_import_works() {
 fn block_import_works_inner(mut ext: sp_io::TestExternalities, state_root: H256) {
 	ext.execute_with(|| {
 		Executive::execute_block(
-			Block {
-				header: Header {
-					parent_hash: [69u8; 32].into(),
-					number: 1,
-					state_root,
-					extrinsics_root: array_bytes::hex_n_into_unchecked(
+			TestBlock {
+				header: Header::new(
+					1,
+					array_bytes::hex_n_into_unchecked(
 						"03170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314",
 					),
-					digest: Digest { logs: vec![] },
-				},
+					state_root,
+					[69u8; 32].into(),
+					Digest { logs: vec![] },
+				),
 				extrinsics: vec![],
 			}
 			.into(),
@@ -687,16 +697,16 @@ fn block_import_works_inner(mut ext: sp_io::TestExternalities, state_root: H256)
 fn block_import_of_bad_state_root_fails() {
 	new_test_ext(1).execute_with(|| {
 		Executive::execute_block(
-			Block {
-				header: Header {
-					parent_hash: [69u8; 32].into(),
-					number: 1,
-					state_root: [0u8; 32].into(),
-					extrinsics_root: array_bytes::hex_n_into_unchecked(
+			TestBlock {
+				header: Header::new(
+					1,
+					array_bytes::hex_n_into_unchecked(
 						"03170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314",
 					),
-					digest: Digest { logs: vec![] },
-				},
+					[0u8; 32].into(),
+					[69u8; 32].into(),
+					Digest { logs: vec![] },
+				),
 				extrinsics: vec![],
 			}
 			.into(),
@@ -709,16 +719,16 @@ fn block_import_of_bad_state_root_fails() {
 fn block_import_of_bad_extrinsic_root_fails() {
 	new_test_ext(1).execute_with(|| {
 		Executive::execute_block(
-			Block {
-				header: Header {
-					parent_hash: [69u8; 32].into(),
-					number: 1,
-					state_root: array_bytes::hex_n_into_unchecked(
+			TestBlock {
+				header: Header::new(
+					1,
+					[0u8; 32].into(),
+					array_bytes::hex_n_into_unchecked(
 						"75e7d8f360d375bbe91bcf8019c01ab6362448b4a89e3b329717eb9d910340e5",
 					),
-					extrinsics_root: [0u8; 32].into(),
-					digest: Digest { logs: vec![] },
-				},
+					[69u8; 32].into(),
+					Digest { logs: vec![] },
+				),
 				extrinsics: vec![],
 			}
 			.into(),
@@ -732,7 +742,7 @@ fn bad_extrinsic_not_inserted() {
 	// bad nonce check!
 	let xt = UncheckedXt::new_signed(call_transfer(33, 69), 1, 1.into(), tx_ext(30, 0));
 	t.execute_with(|| {
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 		assert_err!(
 			Executive::apply_extrinsic(xt),
 			TransactionValidityError::Invalid(InvalidTransaction::Future)
@@ -755,7 +765,7 @@ fn block_weight_limit_enforced() {
 	let num_to_exhaust_block =
 		limit.ref_time() / (transfer_weight.ref_time() + extension_weight.ref_time() + 5);
 	t.execute_with(|| {
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 		// Base block execution weight + `on_initialize` weight from the custom module.
 		assert_eq!(<frame_system::Pallet<Runtime>>::block_weight().total(), base_block_weight);
 
@@ -826,7 +836,7 @@ fn block_weight_and_size_is_stored_per_tx() {
 		let base_block_weight = Weight::from_parts(175, 0) +
 			<Runtime as frame_system::Config>::BlockWeights::get().base_block;
 
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 
 		assert_eq!(<frame_system::Pallet<Runtime>>::block_weight().total(), base_block_weight);
 		assert_eq!(<frame_system::Pallet<Runtime>>::all_extrinsics_len(), 0);
@@ -853,7 +863,7 @@ fn block_weight_and_size_is_stored_per_tx() {
 
 		// Reset to a new block.
 		SystemCallbacksCalled::take();
-		Executive::initialize_block(&Header::new_from_number(2));
+		Executive::initialize_block(&header_from_number(2));
 
 		// Block weight cleaned up on `System::initialize`
 		assert_eq!(<frame_system::Pallet<Runtime>>::block_weight().total(), base_block_weight);
@@ -869,7 +879,7 @@ fn validate_unsigned() {
 	t.execute_with(|| {
 		// Need to initialize the block before applying extrinsics for the `MockedSystemCallbacks`
 		// check.
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 
 		assert_eq!(
 			Executive::validate_transaction(
@@ -911,7 +921,7 @@ fn can_not_pay_for_tx_fee_on_full_lock() {
 			1.into(),
 			tx_ext(0, 0),
 		);
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 
 		assert_eq!(Executive::apply_extrinsic(xt), Err(InvalidTransaction::Payment.into()),);
 		assert_eq!(<pallet_balances::Pallet<Runtime>>::total_balance(&1), 111);
@@ -921,7 +931,7 @@ fn can_not_pay_for_tx_fee_on_full_lock() {
 #[test]
 fn block_hooks_weight_is_stored() {
 	new_test_ext(1).execute_with(|| {
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 		Executive::finalize_block();
 		// NOTE: might need updates over time if new weights are introduced.
 		// For now it only accounts for the base block execution weight and
@@ -1003,7 +1013,7 @@ fn custom_runtime_upgrade_is_called_before_modules() {
 			*v = sp_version::RuntimeVersion { spec_version: 1, ..Default::default() }
 		});
 
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 
 		assert_eq!(&sp_io::storage::get(TEST_KEY).unwrap()[..], *b"module");
 		assert_eq!(sp_io::storage::get(CUSTOM_ON_RUNTIME_KEY).unwrap(), true.encode());
@@ -1025,7 +1035,7 @@ fn event_from_runtime_upgrade_is_included() {
 		// set block number to non zero so events are not excluded
 		System::set_block_number(1);
 
-		Executive::initialize_block(&Header::new_from_number(2));
+		Executive::initialize_block(&header_from_number(2));
 		System::assert_last_event(frame_system::Event::<Runtime>::CodeUpdated.into());
 	});
 }
@@ -1048,7 +1058,7 @@ fn custom_runtime_upgrade_is_called_when_using_execute_block_trait() {
 		});
 
 		// Let's build some fake block.
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 
 		Executive::apply_extrinsic(xt.clone()).unwrap().unwrap();
 
@@ -1066,8 +1076,8 @@ fn custom_runtime_upgrade_is_called_when_using_execute_block_trait() {
 			*v = sp_version::RuntimeVersion { spec_version: 1, ..Default::default() }
 		});
 
-		<Executive as ExecuteBlock<Block<UncheckedXt>>>::execute_block(
-			Block::new(header, vec![xt]).into(),
+		<Executive as ExecuteBlock<TestBlock>>::execute_block(
+			TestBlock::new(header, vec![xt]).into(),
 		);
 
 		assert_eq!(&sp_io::storage::get(TEST_KEY).unwrap()[..], *b"module");
@@ -1088,7 +1098,7 @@ fn all_weights_are_recorded_correctly() {
 
 		let block_number = 1;
 
-		Executive::initialize_block(&Header::new_from_number(block_number));
+		Executive::initialize_block(&header_from_number(block_number));
 
 		// Reset the last runtime upgrade info, to make the second call to `on_runtime_upgrade`
 		// succeed.
@@ -1140,7 +1150,7 @@ fn calculating_storage_root_twice_works() {
 
 	let header = new_test_ext(1).execute_with(|| {
 		// Let's build some fake block.
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 
 		Executive::apply_extrinsic(xt.clone()).unwrap().unwrap();
 
@@ -1148,7 +1158,7 @@ fn calculating_storage_root_twice_works() {
 	});
 
 	new_test_ext(1).execute_with(|| {
-		Executive::execute_block(Block::new(header, vec![xt]).into());
+		Executive::execute_block(TestBlock::new(header, vec![xt]).into());
 	});
 }
 
@@ -1165,7 +1175,7 @@ fn invalid_inherent_position_fail() {
 
 	let header = new_test_ext(1).execute_with(|| {
 		// Let's build some fake block.
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 
 		Executive::apply_extrinsic(xt1.clone()).unwrap().unwrap();
 		Executive::apply_extrinsic(xt2.clone()).unwrap().unwrap();
@@ -1174,7 +1184,7 @@ fn invalid_inherent_position_fail() {
 	});
 
 	new_test_ext(1).execute_with(|| {
-		Executive::execute_block(Block::new(header, vec![xt1, xt2]).into());
+		Executive::execute_block(TestBlock::new(header, vec![xt1, xt2]).into());
 	});
 }
 
@@ -1185,7 +1195,7 @@ fn valid_inherents_position_works() {
 
 	let header = new_test_ext(1).execute_with(|| {
 		// Let's build some fake block.
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 
 		Executive::apply_extrinsic(xt1.clone()).unwrap().unwrap();
 		Executive::apply_extrinsic(xt2.clone()).unwrap().unwrap();
@@ -1194,7 +1204,7 @@ fn valid_inherents_position_works() {
 	});
 
 	new_test_ext(1).execute_with(|| {
-		Executive::execute_block(Block::new(header, vec![xt1, xt2]).into());
+		Executive::execute_block(TestBlock::new(header, vec![xt1, xt2]).into());
 	});
 }
 
@@ -1210,7 +1220,7 @@ fn invalid_inherents_fail_block_execution() {
 
 	new_test_ext(1).execute_with(|| {
 		Executive::execute_block(
-			Block::new(
+			TestBlock::new(
 				Header::new(
 					1,
 					H256::default(),
@@ -1245,7 +1255,7 @@ fn inherents_ok_while_exts_forbidden_works() {
 	let xt1 = UncheckedXt::new_bare(RuntimeCall::Custom(custom::Call::inherent {}));
 
 	let header = new_test_ext(1).execute_with(|| {
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 
 		Executive::apply_extrinsic(xt1.clone()).unwrap().unwrap();
 		// This is not applied:
@@ -1254,7 +1264,7 @@ fn inherents_ok_while_exts_forbidden_works() {
 
 	new_test_ext(1).execute_with(|| {
 		// Tell `initialize_block` to forbid extrinsics:
-		Executive::execute_block(Block::new(header, vec![xt1]).into());
+		Executive::execute_block(TestBlock::new(header, vec![xt1]).into());
 	});
 }
 
@@ -1266,7 +1276,7 @@ fn transactions_in_only_inherents_block_errors() {
 	let xt2 = UncheckedXt::new_signed(call_transfer(33, 0), 1, 1.into(), tx_ext(0, 0));
 
 	let header = new_test_ext(1).execute_with(|| {
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 
 		Executive::apply_extrinsic(xt1.clone()).unwrap().unwrap();
 		Executive::apply_extrinsic(xt2.clone()).unwrap().unwrap();
@@ -1276,7 +1286,7 @@ fn transactions_in_only_inherents_block_errors() {
 
 	new_test_ext(1).execute_with(|| {
 		MbmActive::set(true);
-		Executive::execute_block(Block::new(header, vec![xt1, xt2]).into());
+		Executive::execute_block(TestBlock::new(header, vec![xt1, xt2]).into());
 	});
 }
 
@@ -1287,7 +1297,7 @@ fn transactions_in_normal_block_works() {
 	let xt2 = UncheckedXt::new_signed(call_transfer(33, 0), 1, 1.into(), tx_ext(0, 0));
 
 	let header = new_test_ext(1).execute_with(|| {
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 
 		Executive::apply_extrinsic(xt1.clone()).unwrap().unwrap();
 		Executive::apply_extrinsic(xt2.clone()).unwrap().unwrap();
@@ -1297,7 +1307,7 @@ fn transactions_in_normal_block_works() {
 
 	new_test_ext(1).execute_with(|| {
 		// Tell `initialize_block` to forbid extrinsics:
-		Executive::execute_block(Block::new(header, vec![xt1, xt2]).into());
+		Executive::execute_block(TestBlock::new(header, vec![xt1, xt2]).into());
 	});
 }
 
@@ -1308,7 +1318,7 @@ fn try_execute_block_works() {
 	let xt2 = UncheckedXt::new_signed(call_transfer(33, 0), 1, 1.into(), tx_ext(0, 0));
 
 	let header = new_test_ext(1).execute_with(|| {
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 
 		Executive::apply_extrinsic(xt1.clone()).unwrap().unwrap();
 		Executive::apply_extrinsic(xt2.clone()).unwrap().unwrap();
@@ -1318,7 +1328,7 @@ fn try_execute_block_works() {
 
 	new_test_ext(1).execute_with(|| {
 		Executive::try_execute_block(
-			Block::new(header, vec![xt1, xt2]).into(),
+			TestBlock::new(header, vec![xt1, xt2]).into(),
 			true,
 			true,
 			frame_try_runtime::TryStateSelect::All,
@@ -1336,7 +1346,7 @@ fn try_runtime_upgrade_works() {
 
 	type ExecutiveWithoutMigrations = super::Executive<
 		Runtime,
-		Block<UncheckedXt>,
+		TestBlock,
 		ChainContext<Runtime>,
 		Runtime,
 		AllPalletsWithSystem,
@@ -1366,7 +1376,7 @@ fn try_execute_tx_forbidden_errors() {
 
 	let header = new_test_ext(1).execute_with(|| {
 		// Let's build some fake block.
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 
 		Executive::apply_extrinsic(xt1.clone()).unwrap().unwrap();
 		Executive::apply_extrinsic(xt2.clone()).unwrap().unwrap();
@@ -1377,7 +1387,7 @@ fn try_execute_tx_forbidden_errors() {
 	new_test_ext(1).execute_with(|| {
 		MbmActive::set(true);
 		Executive::try_execute_block(
-			Block::new(header, vec![xt1, xt2]).into(),
+			TestBlock::new(header, vec![xt1, xt2]).into(),
 			true,
 			true,
 			frame_try_runtime::TryStateSelect::All,
@@ -1493,7 +1503,7 @@ fn callbacks_in_block_execution_works_inner(mbms_active: bool) {
 
 		let header = new_test_ext(10).execute_with(|| {
 			MockedSystemCallbacks::reset();
-			Executive::initialize_block(&Header::new_from_number(1));
+			Executive::initialize_block(&header_from_number(1));
 			assert_eq!(SystemCallbacksCalled::get(), 1);
 
 			for i in 0..n_in {
@@ -1525,7 +1535,7 @@ fn callbacks_in_block_execution_works_inner(mbms_active: bool) {
 
 		new_test_ext(10).execute_with(|| {
 			let header = std::panic::catch_unwind(|| {
-				Executive::execute_block(Block::new(header, extrinsics).into());
+				Executive::execute_block(TestBlock::new(header, extrinsics).into());
 			});
 
 			match header {
@@ -1561,7 +1571,7 @@ fn post_inherent_called_after_all_inherents() {
 
 	let header = new_test_ext(1).execute_with(|| {
 		// Let's build some fake block.
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 
 		Executive::apply_extrinsic(in1.clone()).unwrap().unwrap();
 		Executive::apply_extrinsic(xt1.clone()).unwrap().unwrap();
@@ -1572,7 +1582,7 @@ fn post_inherent_called_after_all_inherents() {
 	#[cfg(feature = "try-runtime")]
 	new_test_ext(1).execute_with(|| {
 		Executive::try_execute_block(
-			Block::new(header.clone(), vec![in1.clone(), xt1.clone()]).into(),
+			TestBlock::new(header.clone(), vec![in1.clone(), xt1.clone()]).into(),
 			true,
 			true,
 			frame_try_runtime::TryStateSelect::All,
@@ -1583,7 +1593,7 @@ fn post_inherent_called_after_all_inherents() {
 
 	new_test_ext(1).execute_with(|| {
 		MockedSystemCallbacks::reset();
-		Executive::execute_block(Block::new(header, vec![in1, xt1]).into());
+		Executive::execute_block(TestBlock::new(header, vec![in1, xt1]).into());
 		assert!(MockedSystemCallbacks::post_transactions_called());
 	});
 }
@@ -1601,7 +1611,7 @@ fn post_inherent_called_after_all_optional_inherents() {
 
 	let header = new_test_ext(1).execute_with(|| {
 		// Let's build some fake block.
-		Executive::initialize_block(&Header::new_from_number(1));
+		Executive::initialize_block(&header_from_number(1));
 
 		Executive::apply_extrinsic(in1.clone()).unwrap().unwrap();
 		Executive::apply_extrinsic(xt1.clone()).unwrap().unwrap();
@@ -1612,7 +1622,7 @@ fn post_inherent_called_after_all_optional_inherents() {
 	#[cfg(feature = "try-runtime")]
 	new_test_ext(1).execute_with(|| {
 		Executive::try_execute_block(
-			Block::new(header.clone(), vec![in1.clone(), xt1.clone()]).into(),
+			TestBlock::new(header.clone(), vec![in1.clone(), xt1.clone()]).into(),
 			true,
 			true,
 			frame_try_runtime::TryStateSelect::All,
@@ -1623,7 +1633,7 @@ fn post_inherent_called_after_all_optional_inherents() {
 
 	new_test_ext(1).execute_with(|| {
 		MockedSystemCallbacks::reset();
-		Executive::execute_block(Block::new(header, vec![in1, xt1]).into());
+		Executive::execute_block(TestBlock::new(header, vec![in1, xt1]).into());
 		assert!(MockedSystemCallbacks::post_transactions_called());
 	});
 }
@@ -1640,40 +1650,4 @@ fn is_inherent_works() {
 
 	let ext = UncheckedXt::new_bare(RuntimeCall::Custom2(custom2::Call::allowed_unsigned {}));
 	assert!(!Runtime::is_inherent(&ext), "Unsigned ext are not automatically inherents");
-}
-
-#[test]
-fn max_transaction_depth_is_respected() {
-	use substrate_test_runtime_client::{
-		prelude::*,
-		runtime::{ExtrinsicBuilder, RuntimeCall, UtilityCall},
-		BlockOrigin,
-	};
-
-	let client = TestClientBuilder::default().build();
-
-	let mut call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
-	for _ in 0..MAX_EXTRINSIC_DEPTH {
-		call = RuntimeCall::Utility(UtilityCall::batch { calls: vec![call] });
-	}
-
-	let call_one_more = RuntimeCall::Utility(UtilityCall::batch { calls: vec![call.clone()] });
-
-	let ext = ExtrinsicBuilder::new(call).build();
-
-	let mut block_builder = BlockBuilderBuilder::new(&client)
-		.on_parent_block(client.chain_info().best_hash)
-		.with_parent_block_number(0)
-		.build()
-		.unwrap();
-
-	block_builder.push(ext).unwrap();
-
-	// With one more the transaction is rejected
-	block_builder.push(ExtrinsicBuilder::new(call_one_more).build()).unwrap_err();
-
-	let block = block_builder.build().unwrap().block;
-
-	// Import works
-	block_on(client.import(BlockOrigin::Own, block)).unwrap();
 }

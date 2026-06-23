@@ -55,6 +55,8 @@ tt-call.workspace = true
 Inflector.workspace = true
 frame-system = { workspace = true, default-features = true }
 pretty_assertions.workspace = true
+sp-crypto-hashing = { workspace = true, default-features = true }
+sp-timestamp = { workspace = true, default-features = true }
 
 [features]
 default = ["std"]

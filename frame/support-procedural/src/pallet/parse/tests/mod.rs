@@ -88,7 +88,7 @@ macro_rules! assert_parse_error_matches {
 ///
 /// ```ignore
 /// assert_pallet_parses! {
-/// 	#[manifest_dir("../../examples/basic")]
+/// 	#[manifest_dir("../examples/basic")]
 /// 	#[frame_support::pallet]
 /// 	pub mod pallet {
 /// 		#[pallet::config]
@@ -142,7 +142,7 @@ macro_rules! assert_pallet_parses {
 ///
 /// ```
 /// assert_pallet_parse_error! {
-/// 	#[manifest_dir("../../examples/basic")]
+/// 	#[manifest_dir("../examples/basic")]
 /// 	#[error_regex("Missing `\\#\\[pallet::pallet\\]`")]
 /// 	#[frame_support::pallet]
 /// 	pub mod pallet {
@@ -225,7 +225,7 @@ mod tasks;
 #[test]
 fn test_parse_minimal_pallet() {
 	assert_pallet_parses! {
-		#[manifest_dir("../../examples/basic")]
+		#[manifest_dir("../examples/basic")]
 		#[frame_support::pallet]
 		pub mod pallet {
 			#[pallet::config]
@@ -240,7 +240,7 @@ fn test_parse_minimal_pallet() {
 #[test]
 fn test_parse_pallet_missing_pallet() {
 	assert_pallet_parse_error! {
-		#[manifest_dir("../../examples/basic")]
+		#[manifest_dir("../examples/basic")]
 		#[error_regex("Missing `\\#\\[pallet::pallet\\]`")]
 		#[frame_support::pallet]
 		pub mod pallet {
@@ -253,7 +253,7 @@ fn test_parse_pallet_missing_pallet() {
 #[test]
 fn test_parse_pallet_missing_config() {
 	assert_pallet_parse_error! {
-		#[manifest_dir("../../examples/basic")]
+		#[manifest_dir("../examples/basic")]
 		#[error_regex("Missing `\\#\\[pallet::config\\]`")]
 		#[frame_support::pallet]
 		pub mod pallet {
@@ -266,7 +266,7 @@ fn test_parse_pallet_missing_config() {
 #[test]
 fn test_parse_pallet_deprecated_attribute_on_error_enum() {
 	assert_pallet_parse_error! {
-		#[manifest_dir("../../examples/basic")]
+		#[manifest_dir("../examples/basic")]
 		#[error_regex("The `\\#\\[deprecated\\]` attribute should be applied to individual variants, not the enum as a whole\\.")]
 		#[frame_support::pallet]
 		pub mod pallet {
@@ -282,7 +282,7 @@ fn test_parse_pallet_deprecated_attribute_on_error_enum() {
 #[test]
 fn test_parse_pallet_deprecated_attribute_on_event_enum() {
 	assert_pallet_parse_error! {
-		#[manifest_dir("../../examples/basic")]
+		#[manifest_dir("../examples/basic")]
 		#[error_regex("The `\\#\\[deprecated\\]` attribute should be applied to individual variants, not the enum as a whole\\.")]
 		#[frame_support::pallet]
 		pub mod pallet {
