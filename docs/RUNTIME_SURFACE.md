@@ -60,25 +60,25 @@ The runtime derives `RuntimeCall`, `RuntimeEvent`, `RuntimeError`, `RuntimeOrigi
 
 | Index | Alias | Source crate | Origin | Calls? |
 | --- | --- | --- | --- | --- |
-| 0 | `System` | `frame-system` | **Local fork** (`pallets/frame-system`) | yes |
-| 1 | `Timestamp` | `pallet-timestamp` `44.0.0` | upstream | yes |
-| 2 | `Balances` | `pallet-balances` `46.0.0` | upstream | yes |
-| 3 | `TransactionPayment` | `pallet-transaction-payment` `45.0.0` | upstream | (no extrinsics) |
+| 0 | `System` | `frame-system` `45.0.0` | **Local fork** (`pallets/frame-system`) | yes |
+| 1 | `Timestamp` | `pallet-timestamp` `44.0.0` | **Inlined** (`pallets/timestamp`) | yes |
+| 2 | `Balances` | `pallet-balances` `46.0.0` | **Inlined** (`pallets/balances`) | yes |
+| 3 | `TransactionPayment` | `pallet-transaction-payment` `45.0.0` | **Inlined** (`pallets/transaction-payment`) | (no extrinsics) |
 | 4 | — | *(vacant; was `pallet-sudo`)* | — | — |
 | 5 | `QPoW` | `pallet-qpow` | **Local** (`pallets/qpow`) | no |
 | 6 | `MiningRewards` | `pallet-mining-rewards` | **Local** (`pallets/mining-rewards`) | no |
-| 7 | `Preimage` | `pallet-preimage` `45.0.0` | upstream | yes |
-| 8 | `Scheduler` | `pallet-scheduler` | **Local** (`pallets/scheduler`) | **calls disabled** (`#[runtime::disable_call]`) |
-| 9 | `Utility` | `pallet-utility` `45.0.0` | upstream | yes |
-| 10 | `Referenda` | `pallet-referenda` `45.0.0` | upstream | yes |
+| 7 | `Preimage` | `pallet-preimage` `45.0.0` | **Inlined** (`pallets/preimage`) | yes |
+| 8 | `Scheduler` | `pallet-scheduler` | **Local fork** (`pallets/scheduler`) | **calls disabled** (`#[runtime::disable_call]`) |
+| 9 | `Utility` | `pallet-utility` `45.0.0` | **Inlined** (`pallets/utility`) | yes |
+| 10 | `Referenda` | `pallet-referenda` `45.0.0` | **Inlined** (`pallets/referenda`) | yes |
 | 11 | `ReversibleTransfers` | `pallet-reversible-transfers` | **Local** (`pallets/reversible-transfers`) | yes |
-| 12 | `ConvictionVoting` | `pallet-conviction-voting` `45.0.0` | upstream | yes |
-| 13 | `TechCollective` | `pallet-ranked-collective` `45.0.0` | upstream | yes |
-| 14 | `TechReferenda` | `pallet-referenda::Pallet<Runtime, Instance1>` `45.0.0` | upstream (2nd instance) | yes |
+| 12 | `ConvictionVoting` | `pallet-conviction-voting` `45.0.0` | **Inlined** (`pallets/conviction-voting`) | yes |
+| 13 | `TechCollective` | `pallet-ranked-collective` `45.0.0` | **Inlined** (`pallets/ranked-collective`) | yes |
+| 14 | `TechReferenda` | `pallet-referenda::Pallet<Runtime, Instance1>` `45.0.0` | **Inlined** (2nd instance) | yes |
 | 15 | `TreasuryPallet` | `pallet-treasury` | **Local** (`pallets/treasury`) | yes |
-| 16 | `Recovery` | `pallet-recovery` `45.0.0` | upstream | yes |
-| 17 | `Assets` | `pallet-assets` `48.1.0` | upstream | yes |
-| 18 | `AssetsHolder` | `pallet-assets-holder` `0.8.0` | upstream | (no extrinsics) |
+| 16 | `Recovery` | `pallet-recovery` `45.0.0` | **Inlined** (`pallets/recovery`) | yes |
+| 17 | `Assets` | `pallet-assets` `48.1.0` | **Inlined** (`pallets/assets`) | yes |
+| 18 | `AssetsHolder` | `pallet-assets-holder` `0.8.0` | **Inlined** (`pallets/assets-holder`) | (no extrinsics) |
 | 19 | `Multisig` | `pallet-multisig` | **Local** (`pallets/multisig`) | yes |
 | 20 | `Wormhole` | `pallet-wormhole` | **Local** (`pallets/wormhole`) | yes |
 | 21 | `ZkTree` | `pallet-zk-tree` | **Local** (`pallets/zk-tree`) | no |
@@ -244,7 +244,35 @@ Signed-extension pipeline applied to every extrinsic, in order:
 
 ---
 
-## 8. Workspace primitive crates compiled into the runtime
+## 8. In-tree FRAME core (`frame/`)
+
+All FRAME runtime glue compiled into the WASM is now vendored in-tree (copied from
+polkadot-sdk, with `[patch.crates-io]` ensuring transitive resolution):
+
+| Crate | Path | Role in runtime |
+| --- | --- | --- |
+| `frame-support-procedural-tools-derive` | `frame/support-procedural-tools-derive` | Proc-macro helper for parsing struct fields. |
+| `frame-support-procedural-tools` | `frame/support-procedural-tools` | Proc-macro utilities shared by `frame-support-procedural`. |
+| `frame-support-procedural` | `frame/support-procedural` | `#[pallet::…]` and `#[frame_support::runtime]` proc macros. |
+| `frame-support` `45.1.0` | `frame/support` | Storage, dispatch, origins, pallet traits, runtime composition. |
+| `frame-metadata` `23.0.1` | `frame/metadata` | Metadata type definitions consumed by `frame-support`. |
+| `frame-executive` `45.0.1` | `frame/executive` | Block execution engine (`Executive`). |
+| `frame-metadata-hash-extension` `0.13.0` | `frame/metadata-hash-extension` | `CheckMetadataHash` signed extension. |
+| `frame-system-rpc-runtime-api` `40.0.0` | `frame/system-rpc-runtime-api` | `AccountNonceApi` runtime API. |
+| `frame-try-runtime` `0.51.0` | `frame/try-runtime` | Try-runtime helpers *(only `try-runtime` feature)*. |
+| `frame-benchmarking` `45.0.3` | `frame/benchmarking` | Benchmark harness *(only `runtime-benchmarks` feature)*. |
+| `frame-system-benchmarking` `45.0.0` | `frame/system-benchmarking` | System pallet benchmarks *(only `runtime-benchmarks` feature)*. |
+
+Related transaction-payment RPC surface (patched for WASM + node builds):
+
+| Crate | Path | In WASM? |
+| --- | --- | --- |
+| `pallet-transaction-payment-rpc-runtime-api` `45.0.0` | `pallets/transaction-payment-rpc-runtime-api` | **yes** — runtime API declarations |
+| `pallet-transaction-payment-rpc` `48.0.0` | `pallets/transaction-payment-rpc` | no — node RPC only; patched so the family stays in-tree |
+
+---
+
+## 9. Workspace primitive crates compiled into the runtime
 
 | Crate | Path | Role in runtime |
 | --- | --- | --- |
@@ -260,20 +288,20 @@ External Quantus crates (crates.io, used by wormhole/zk-tree): `qp-plonky2`,
 `qp-poseidon-core`, `qp-rusty-crystals-dilithium`, `qp-wormhole-*` (aggregator,
 circuit, circuit-builder, inputs, prover, verifier), `qp-zk-circuits-common`.
 
-Core FRAME/Substrate runtime crates: `frame-support` `45.1.0`, `frame-executive`
-`45.0.1`, `frame-benchmarking` `45.0.3`, `frame-metadata-hash-extension` `0.13.0`,
-`frame-system-rpc-runtime-api` `40.0.0`, and the `sp-*` primitives (`sp-api`,
-`sp-runtime`, `sp-core`, `sp-version`, `sp-block-builder`, `sp-inherents`,
-`sp-offchain`, `sp-session`, `sp-storage`, `sp-genesis-builder`,
-`sp-transaction-pool`). See `runtime/Cargo.toml` / root `Cargo.toml` for exact versions.
+**Still external (crates.io):** the `sp-*` Substrate primitives (`sp-api`,
+`sp-runtime`, `sp-core`, `sp-io`, `sp-state-machine`, `sp-trie`, …), plus codec
+layer crates (`parity-scale-codec`, `scale-info`, `primitive-types`,
+`binary-merkle-tree`, `bounded-collections`). See `runtime/Cargo.toml` / root
+`Cargo.toml` for exact versions.
 
-> `frame-system` and `pallet-scheduler` are **local forks** (`[patch.crates-io]`
-> and workspace path deps). `sc-cli`, `sc-network*`, `sc-informant`, `litep2p`
-> are also patched but are client-side, not compiled into the runtime WASM.
+> All runtime pallets, FRAME core crates, and the transaction-payment family are
+> **in-tree** via workspace path deps and `[patch.crates-io]`. Client-only patches
+> (`sc-cli`, `sc-network*`, `sc-informant`, `litep2p`) are not compiled into
+> the runtime WASM.
 
 ---
 
-## 9. Cargo features affecting the compiled runtime (`runtime/Cargo.toml`)
+## 10. Cargo features affecting the compiled runtime (`runtime/Cargo.toml`)
 
 | Feature | Effect on compiled runtime |
 | --- | --- |
@@ -286,7 +314,7 @@ Core FRAME/Substrate runtime crates: `frame-support` `45.1.0`, `frame-executive`
 
 ---
 
-## 10. Lifecycle hooks (per-block execution surface)
+## 11. Lifecycle hooks (per-block execution surface)
 
 | Pallet | Hooks implemented |
 | --- | --- |
