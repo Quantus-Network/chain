@@ -24,6 +24,8 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_PROFILE_DEV_DEBUG: 1
   CARGO_PROFILE_TEST_DEBUG: 1
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 
 jobs:
   fast-checks:
@@ -35,7 +37,10 @@ jobs:
       - name: Install required components
         run: rustup component add rustfmt --toolchain nightly
       - name: Install taplo
-        run: cargo install taplo-cli --locked
+        run: |
+          curl -fsSL https://github.com/tamasfe/taplo/releases/latest/download/taplo-linux-x86_64.gz | gunzip > taplo
+          chmod +x taplo
+          sudo mv taplo /usr/local/bin/
       - name: Run format checks
         run: |
           taplo format --check --config taplo.toml
@@ -59,14 +64,19 @@ jobs:
       - name: Setup macOS
         if: matrix.os == 'macos-latest'
         uses: ./.github/actions/macos
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "build-${{ matrix.os }}"
+          cache-on-failure: true
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
       - name: compile
         run: cargo build --locked --workspace --features runtime-benchmarks,try-runtime
-      - name: Clean build artifacts to free space
-        run: |
-          cargo clean
-          df -h
       - name: test
-        run: SKIP_WASM_BUILD=1 cargo test --locked --workspace --features quantus-runtime/fast-governance
+        run: SKIP_WASM_BUILD=1 cargo nextest run --locked --workspace --features quantus-runtime/fast-governance
 
   analysis:
     name: 🤖 Analysis (Clippy & Doc)
@@ -76,6 +86,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Ubuntu
         uses: ./.github/actions/ubuntu
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "analysis"
+          cache-on-failure: true
       - name: Install required components
         run: rustup component add rust-src clippy
       - name: Run clippy
