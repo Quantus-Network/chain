@@ -75,7 +75,13 @@ impl<
 	}
 
 	fn approval(&self, _: Class) -> Perbill {
-		Perbill::from_rational(self.ayes, self.ayes.saturating_add(self.nays))
+		// Fix for zero-denominator bug (F-91141): when ayes + nays = 0, return 0% not 100%
+		let total = self.ayes.saturating_add(self.nays);
+		if total.is_zero() {
+			Perbill::zero()
+		} else {
+			Perbill::from_rational(self.ayes, total)
+		}
 	}
 
 	#[cfg(feature = "runtime-benchmarks")]
