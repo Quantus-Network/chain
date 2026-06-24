@@ -1,22 +1,17 @@
-use crate::{
-	AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT,
-	UNIT,
-};
+use crate::{AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, UNIT};
 use alloc::borrow::Cow;
-use codec::{Decode, Encode, EncodeLike, MaxEncodedLen};
+use codec::{Decode, Encode, MaxEncodedLen};
 use core::marker::PhantomData;
 #[cfg(feature = "runtime-benchmarks")]
 use frame_support::traits::Currency;
 use frame_support::{
 	pallet_prelude::TypeInfo,
 	traits::{
-		CallerTrait, Consideration, EnsureOrigin, EnsureOriginWithArg, Footprint, Get, OriginTrait,
+		CallerTrait, Consideration, EnsureOriginWithArg, Footprint, Get, OriginTrait,
 		ReservableCurrency,
 	},
 };
 use lazy_static::lazy_static;
-use pallet_ranked_collective::Rank;
-use pallet_referenda::Track;
 use sp_core::crypto::AccountId32;
 use sp_runtime::{
 	str_array,
@@ -32,9 +27,9 @@ pub struct PreimageDeposit {
 
 impl Consideration<AccountId, Footprint> for PreimageDeposit {
 	fn new(who: &AccountId, footprint: Footprint) -> Result<Self, DispatchError> {
-		// Simple fee model: 0.1 UNIT + 0.0001 UNIT for one byte
+		// Fee model: 0.1 UNIT base + 0.0001 UNIT/byte (#91165: per-byte was 1000x too low).
 		let base = UNIT / 10;
-		let per_byte = MICRO_UNIT / 10;
+		let per_byte = UNIT / 10_000;
 		let size = (footprint.size as u128).saturating_add(footprint.count as u128);
 		let amount = base.saturating_add(per_byte.saturating_mul(size));
 
@@ -45,7 +40,7 @@ impl Consideration<AccountId, Footprint> for PreimageDeposit {
 	fn update(self, who: &AccountId, new_footprint: Footprint) -> Result<Self, DispatchError> {
 		// Calculate new amount
 		let base = UNIT / 10;
-		let per_byte = MICRO_UNIT / 10;
+		let per_byte = UNIT / 10_000;
 		let size = (new_footprint.size as u128).saturating_add(new_footprint.count as u128);
 		let new_amount = base.saturating_add(per_byte.saturating_mul(size));
 
@@ -69,7 +64,7 @@ impl Consideration<AccountId, Footprint> for PreimageDeposit {
 	#[cfg(feature = "runtime-benchmarks")]
 	fn ensure_successful(who: &AccountId, footprint: Footprint) {
 		let base = UNIT / 10;
-		let per_byte = MICRO_UNIT / 10;
+		let per_byte = UNIT / 10_000;
 		let size = (footprint.size as u128).saturating_add(footprint.count as u128);
 		let amount = base.saturating_add(per_byte.saturating_mul(size));
 
@@ -94,71 +89,8 @@ fn apply_test_timing(
 	info
 }
 
-// Define tracks for referenda
-pub struct CommunityTracksInfo;
-
-impl CommunityTracksInfo {
-	/// Creates the base track configurations with production values.
-	/// Only one track (Signed) - RawOrigin::None removed to fix F-04 (inherent-only call
-	/// vulnerability).
-	fn create_community_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] {
-		let info = pallet_referenda::TrackInfo {
-			name: str_array("signed"),
-			max_deciding: 5,
-			decision_deposit: 500_u128 * UNIT,
-			prepare_period: 12 * HOURS,
-			decision_period: 7 * DAYS,
-			confirm_period: 12 * HOURS,
-			min_enactment_period: DAYS,
-			min_approval: pallet_referenda::Curve::LinearDecreasing {
-				length: Perbill::from_percent(100),
-				floor: Perbill::from_percent(55),
-				ceil: Perbill::from_percent(70),
-			},
-			min_support: pallet_referenda::Curve::LinearDecreasing {
-				length: Perbill::from_percent(100),
-				floor: Perbill::from_percent(5),
-				ceil: Perbill::from_percent(25),
-			},
-		};
-		#[cfg(feature = "fast-governance")]
-		let info = apply_test_timing(info);
-		[pallet_referenda::Track { id: 0, info }]
-	}
-}
-
-impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo {
-	type Id = u16;
-	type RuntimeOrigin = <RuntimeOrigin as frame_support::traits::OriginTrait>::PalletsOrigin;
-
-	fn tracks(
-	) -> impl Iterator<Item = alloc::borrow::Cow<'static, Track<Self::Id, Balance, BlockNumber>>> {
-		lazy_static! {
-			static ref TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] =
-				CommunityTracksInfo::create_community_tracks();
-		}
-		TRACKS.iter().map(Cow::Borrowed)
-	}
-
-	fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
-		// RawOrigin::None rejected - F-04 fix (inherent-only call vulnerability)
-		if let Some(system_origin) = id.as_system_ref() {
-			match system_origin {
-				frame_system::RawOrigin::None => return Err(()),
-				frame_system::RawOrigin::Root => return Ok(0),
-				_ => {},
-			}
-		}
-
-		// Signed users use track 0
-		if let Some(_signer) = id.as_signed() {
-			return Ok(0);
-		}
-
-		Err(())
-	}
-}
-
+// The community/public referenda lane (and its `CommunityTracksInfo`) was removed. The
+// tech-collective lane below is the sole governance lane (runtime upgrades + other Root calls).
 pub struct TechCollectiveTracksInfo;
 
 impl TechCollectiveTracksInfo {
@@ -171,7 +103,10 @@ impl TechCollectiveTracksInfo {
 			name: str_array("tech_collective_members"),
 			max_deciding: 1,
 			decision_deposit: 1000 * UNIT,
-			prepare_period: 20,
+			// Advance-notice window before deciding starts. Raised from 4 min to give the
+			// collective (and observers) visibility of a pending Root proposal before voting can
+			// conclude.
+			prepare_period: 2 * HOURS,
 			decision_period: DAYS,
 			confirm_period: DAYS,
 			min_enactment_period: DAYS,
@@ -207,20 +142,16 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
 	}
 
 	fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
-		// Check for system origins first
-		if let Some(system_origin) = id.as_system_ref() {
-			match system_origin {
-				frame_system::RawOrigin::Root => return Ok(0), // Root can use track 0
-				frame_system::RawOrigin::None => return Err(()), // F-04 fix: None rejected
-				_ => {},
-			}
+		// #91247/#91270: only a `Root` proposal origin is accepted. A referendum's
+		// `proposal_origin` is stored and dispatched verbatim on approval, so accepting
+		// `Signed(_)` here would let a passed referendum execute calls as an arbitrary account
+		// (impersonation) and route Root- level dispatch through this single low-threshold track.
+		// The tech lane exists solely to authorize Root governance (e.g. runtime upgrades);
+		// members submit via `SubmitOrigin`.
+		match id.as_system_ref() {
+			Some(frame_system::RawOrigin::Root) => Ok(0),
+			_ => Err(()),
 		}
-
-		// Signed members use track 0 (same as Root)
-		if let Some(_signer) = id.as_signed() {
-			return Ok(0);
-		}
-		Err(())
 	}
 }
 
@@ -250,50 +181,6 @@ impl<MaxVal: Get<u32>> MaybeConvert<u16, u32> for GlobalMaxMembers<MaxVal> {
 	}
 }
 
-pub struct RootOrMemberForCollectiveOriginImpl<Runtime, I>(PhantomData<(Runtime, I)>);
-
-impl<Runtime, I> EnsureOrigin<Runtime::RuntimeOrigin>
-	for RootOrMemberForCollectiveOriginImpl<Runtime, I>
-where
-	Runtime: pallet_ranked_collective::Config<I> + frame_system::Config,
-	<Runtime as frame_system::Config>::RuntimeOrigin:
-		OriginTrait<PalletsOrigin = crate::OriginCaller>,
-	for<'a> &'a AccountId32: EncodeLike<<Runtime as frame_system::Config>::AccountId>,
-	I: 'static,
-{
-	type Success = Rank;
-
-	fn try_origin(o: Runtime::RuntimeOrigin) -> Result<Self::Success, Runtime::RuntimeOrigin> {
-		if <frame_system::EnsureRoot<Runtime::AccountId> as EnsureOrigin<
-            Runtime::RuntimeOrigin,
-        >>::try_origin(o.clone())
-        .is_ok()
-        {
-            return Ok(0);
-        }
-
-		let original_o_for_error = o.clone();
-		let pallets_origin = o.into_caller();
-
-		match pallets_origin {
-			crate::OriginCaller::system(frame_system::RawOrigin::Signed(who)) =>
-				if pallet_ranked_collective::Members::<Runtime, I>::contains_key(&who) {
-					Ok(0)
-				} else {
-					Err(original_o_for_error)
-				},
-			_ => Err(original_o_for_error),
-		}
-	}
-
-	#[cfg(feature = "runtime-benchmarks")]
-	fn try_successful_origin() -> Result<Runtime::RuntimeOrigin, ()> {
-		Ok(frame_system::RawOrigin::<Runtime::AccountId>::Root.into())
-	}
-}
-
-pub type RootOrMemberForCollectiveOrigin = RootOrMemberForCollectiveOriginImpl<Runtime, ()>;
-
 pub struct RootOrMemberForTechReferendaOriginImpl<Runtime, I>(PhantomData<(Runtime, I)>);
 
 impl<Runtime, I> EnsureOriginWithArg<Runtime::RuntimeOrigin, crate::OriginCaller>
@@ -310,17 +197,9 @@ where
 		o: Runtime::RuntimeOrigin,
 		_: &crate::OriginCaller,
 	) -> Result<Self::Success, Runtime::RuntimeOrigin> {
-		let pallets_origin = o.clone().into_caller();
-
-		if let crate::OriginCaller::system(frame_system::RawOrigin::Root) = pallets_origin {
-			if let Ok(signer) = <frame_system::EnsureSigned<Runtime::AccountId> as EnsureOrigin<
-				Runtime::RuntimeOrigin,
-			>>::try_origin(o.clone())
-			{
-				return Ok(signer);
-			}
-		}
-
+		// #91248: the previous `Root` branch re-authenticated with `EnsureSigned`, which can never
+		// succeed for `Root`, so it was silently dead. Tech referenda are submitted by collective
+		// members (a `Signed` origin); there is no meaningful submitter account for `Root`.
 		let original_o_for_error = o.clone();
 		let pallets_origin = o.into_caller();
 

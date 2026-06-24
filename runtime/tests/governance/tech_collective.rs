@@ -318,15 +318,19 @@ mod tests {
 				"Root should be able to add a member"
 			);
 
-			// VERIFY 2: Existing members can add new members
-			assert_ok!(TechCollective::add_member(
-				RuntimeOrigin::signed(existing_member.clone()),
-				MultiAddress::from(candidate_to_add.clone())
-			));
+			// VERIFY 2: a single member can no longer add members (#91267: Root/referenda only)
+			assert!(
+				TechCollective::add_member(
+					RuntimeOrigin::signed(existing_member.clone()),
+					MultiAddress::from(candidate_to_add.clone())
+				)
+				.is_err(),
+				"A single member must not be able to add a new member"
+			);
 
 			assert!(
-				pallet_ranked_collective::Members::<Runtime, ()>::contains_key(&candidate_to_add),
-				"Existing member should be able to add a new member"
+				!pallet_ranked_collective::Members::<Runtime, ()>::contains_key(&candidate_to_add),
+				"Member-initiated add must not change membership"
 			);
 
 			// VERIFY 3: Non-members cannot add members
@@ -347,25 +351,29 @@ mod tests {
 			// VERIFY 4: Root can remove members
 			assert_ok!(TechCollective::remove_member(
 				RuntimeOrigin::root(),
-				MultiAddress::from(candidate_to_add.clone()),
-				0 // min_rank parameter
-			));
-
-			assert!(
-				!pallet_ranked_collective::Members::<Runtime, ()>::contains_key(&candidate_to_add),
-				"Root should be able to remove a member"
-			);
-
-			// VERIFY 5: Existing members can remove other members
-			assert_ok!(TechCollective::remove_member(
-				RuntimeOrigin::signed(existing_member.clone()),
 				MultiAddress::from(member_to_remove.clone()),
 				0 // min_rank parameter
 			));
 
 			assert!(
 				!pallet_ranked_collective::Members::<Runtime, ()>::contains_key(&member_to_remove),
-				"Existing member should be able to remove another member"
+				"Root should be able to remove a member"
+			);
+
+			// VERIFY 5: a single member can no longer remove members (#91267: Root/referenda only)
+			assert!(
+				TechCollective::remove_member(
+					RuntimeOrigin::signed(existing_member.clone()),
+					MultiAddress::from(root_member.clone()),
+					0 // min_rank parameter
+				)
+				.is_err(),
+				"A single member must not be able to remove another member"
+			);
+
+			assert!(
+				pallet_ranked_collective::Members::<Runtime, ()>::contains_key(&root_member),
+				"Member-initiated removal must not change membership"
 			);
 
 			// VERIFY 6: Non-members cannot remove members

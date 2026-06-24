@@ -145,7 +145,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - **Calls:** `vote`, `delegate`, `undelegate`, `unlock`, `remove_vote`, `remove_other_vote`.
 
 ### Index 13 — `TechCollective` (`pallet-ranked-collective`)
-- `AddOrigin/RemoveOrigin = RootOrMemberForCollectiveOrigin`, `Promote/Demote/ExchangeOrigin = NeverEnsureOrigin`, `Polls = TechReferenda (Instance1)`, `VoteWeight = Linear`, `MaxMemberCount = 13` (via `GlobalMaxMembers`).
+- `AddOrigin/RemoveOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>` (Root-only, i.e. a passed TechReferenda vote; #91267), `Promote/Demote/ExchangeOrigin = NeverEnsureOrigin`, `Polls = TechReferenda (Instance1)`, `VoteWeight = Linear`, `MaxMemberCount = 13` (via `GlobalMaxMembers`).
 - **Calls:** `add_member`, `promote_member`, `demote_member`, `remove_member`, `vote`, `cleanup_poll`, `exchange_member`.
 
 ### Index 14 — `TechReferenda` (`pallet-referenda`, `Instance1`)
@@ -228,7 +228,7 @@ Signed-extension pipeline applied to every extrinsic, in order:
 - `CommunityTracksInfo` — public referenda; single "signed" track (max_deciding 5, 500 UNIT decision deposit, 7-day decision, linear-decreasing approval 70→55% / support 25→5%).
 - `TechCollectiveTracksInfo` — tech-collective referenda; single track (1000 UNIT deposit, 61% approval / 60% support constant curves, 1-day decision/confirm/enactment).
 - `MinRankOfClassConverter`, `GlobalMaxMembers` — rank/membership converters.
-- `RootOrMemberForCollectiveOrigin`, `RootOrMemberForTechReferendaOrigin` — custom origins (Root or ranked-collective member).
+- `RootOrMemberForTechReferendaOrigin` — custom origin for TechReferenda submission (Root or ranked-collective member).
 - `apply_test_timing` — compiled only under `fast-governance` (collapses all timing windows to 2 blocks for CI).
 
 ---

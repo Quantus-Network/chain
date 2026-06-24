@@ -11,7 +11,7 @@ Track definition: `runtime/src/governance/definitions.rs:165-192` (`TechCollecti
 ```rust
 max_deciding: 1,
 decision_deposit: 1000 * UNIT,
-prepare_period: 20,
+prepare_period: 2 * HOURS,
 decision_period: DAYS,
 confirm_period: DAYS,
 min_enactment_period: DAYS,
@@ -19,7 +19,7 @@ min_enactment_period: DAYS,
 
 | Parameter | Current (blocks) | Wall clock | Meaning |
 |---|---|---|---|
-| `prepare_period` | 20 | 4 min | Delay between submission and decision start |
+| `prepare_period` | 600 | 2 h | Delay between submission and decision start |
 | `decision_period` | 7200 (`DAYS`) | 24 h | Window in which the referendum must reach passing state |
 | `confirm_period` | 7200 (`DAYS`) | 24 h | Must remain continuously passing this long to be approved |
 | `min_enactment_period` | 7200 (`DAYS`) | 24 h | Min delay between approval and dispatch of the upgrade |
@@ -85,7 +85,7 @@ Requirements: (a) 3/5 ayes execute ✓ (rows 1–2); (b) 2 nays block ✓ (row 3
 
 ### Confirm/decision periods are security parameters
 
-A referendum must be *continuously* passing for the whole `confirm_period`; any nay that drops it below threshold aborts confirmation (`ConfirmAborted`, `pallet-referenda-45.0.0/src/lib.rs:1235-1240`) and confirmation must restart. Approval only happens at `lib.rs:1190-1208` after the confirm deadline elapses while still passing. So `confirm_period` is the honest members' reaction window: at the current 24 h, even if all ayes land in the first block, approval cannot conclude before a full day has passed — dissenting nays always have that window. Worst case (ayes arrive at the end of the decision window) approval takes up to ~48 h; if the referendum is not passing when `decision_period` ends and is not confirming, it is rejected. `prepare_period` (currently 4 min) bounds advance notice before deciding starts and could be raised to hours on mainnet.
+A referendum must be *continuously* passing for the whole `confirm_period`; any nay that drops it below threshold aborts confirmation (`ConfirmAborted`, `pallet-referenda-45.0.0/src/lib.rs:1235-1240`) and confirmation must restart. Approval only happens at `lib.rs:1190-1208` after the confirm deadline elapses while still passing. So `confirm_period` is the honest members' reaction window: at the current 24 h, even if all ayes land in the first block, approval cannot conclude before a full day has passed — dissenting nays always have that window. Worst case (ayes arrive at the end of the decision window) approval takes up to ~48 h; if the referendum is not passing when `decision_period` ends and is not confirming, it is rejected. `prepare_period` (now 2 h, #91247-era hardening) bounds advance notice before deciding starts.
 
 ## 3. Vote changing
 
@@ -119,7 +119,7 @@ type KillOrigin = EnsureRoot<AccountId>;
 
 Both are Root-only. Root is only reachable via a passed referendum, so cancelling a malicious tech referendum requires winning *another* referendum on the same track before the first one enacts — a chicken-and-egg problem, made worse by `max_deciding: 1` (`definitions.rs:172`): a second referendum cannot even enter deciding until the first leaves it. During an attack the practical defense is votes (2 honest nays), not cancellation. Recommendation: give `CancelOrigin` to a smaller quorum (e.g. `EnsureRoot` OR a 2-of-5 ranked-collective origin via `EitherOf<EnsureRoot<...>, EnsureRankedMember<...>>`-style construct, or a dedicated fast cancel track), keep `kill` Root-only.
 
-Member removal mid-flight: `remove_member` (`pallet-ranked-collective-45.0.0/src/lib.rs:600-617`) requires `RemoveOrigin`, which this runtime sets to `RootOrMemberForCollectiveOrigin` (`configs/mod.rs:319`) — **Root or any single collective member** (`definitions.rs:266-287`). `AddOrigin` (line 318) is the same. This is currently the weakest link: one compromised member can unilaterally remove the other four (all rank 0, so the `max_rank >= rank` check at lib.rs:609 always passes) or stuff the collective up to `MaxMemberCount = 13`, invalidating all threshold math above. For mainnet, membership changes must require Root (i.e. a passed referendum) or an equivalent quorum.
+Member removal mid-flight: `remove_member` (`pallet-ranked-collective/src/lib.rs:600-617`) requires `RemoveOrigin`, which this runtime now sets to `EnsureRootWithSuccess<AccountId, ConstU16<0>>` (`configs/mod.rs`) — **Root only**; `AddOrigin` is the same (#91267 fixed). Membership changes therefore require a passed referendum: a single member can no longer unilaterally remove the others or stuff the collective up to `MaxMemberCount = 13`. (Genesis seeding bypasses the origin via `do_add_member_to_rank`, as before.)
 
 Removal does **not** touch ongoing tallies: `do_remove_member_from_rank` (lib.rs:886-892) clears member indices only — cast votes stay counted, but the support denominator `MemberCount[0]` shrinks immediately, *raising* the support percentage of remaining ayes (e.g. after removing 2 of 5 members, 3 ayes = 100% support). Membership changes during a live referendum therefore shift its outcome.
 

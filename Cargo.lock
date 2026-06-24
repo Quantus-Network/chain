@@ -6526,23 +6526,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-conviction-voting"
-version = "45.0.0"
-dependencies = [
- "assert_matches",
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "pallet-balances",
- "parity-scale-codec",
- "scale-info",
- "serde",
- "sp-core",
- "sp-io",
- "sp-runtime",
-]
-
-[[package]]
 name = "pallet-mining-rewards"
 version = "0.1.0"
 dependencies = [
@@ -8441,7 +8424,6 @@ dependencies = [
  "pallet-assets",
  "pallet-assets-holder",
  "pallet-balances",
- "pallet-conviction-voting",
  "pallet-mining-rewards",
  "pallet-multisig",
  "pallet-preimage",
