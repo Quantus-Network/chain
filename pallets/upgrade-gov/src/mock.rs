@@ -65,15 +65,15 @@ pub fn account_id(id: u8) -> AccountId {
 }
 
 /// Build externalities seeding the given members / threshold / delay.
-pub fn new_test_ext(members: Vec<AccountId>, threshold: u32, delay: u64) -> sp_io::TestExternalities {
+pub fn new_test_ext(
+	members: Vec<AccountId>,
+	threshold: u32,
+	delay: u64,
+) -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-	pallet_upgrade_gov::GenesisConfig::<Test> {
-		members,
-		threshold,
-		enactment_delay: delay,
-	}
-	.assimilate_storage(&mut t)
-	.unwrap();
+	pallet_upgrade_gov::GenesisConfig::<Test> { members, threshold, enactment_delay: delay }
+		.assimilate_storage(&mut t)
+		.unwrap();
 	let mut ext = sp_io::TestExternalities::new(t);
 	ext.execute_with(|| frame_system::Pallet::<Test>::set_block_number(1));
 	ext

@@ -71,7 +71,10 @@ fn authorize_upgrade_flows_through_threshold_and_timelock() {
 #[test]
 fn threshold_one_arms_on_propose() {
 	new_test_ext(members(), 1, 0).execute_with(|| {
-		assert_ok!(UpgradeGov::propose(signed(1), GovAction::AuthorizeUpgrade(H256::repeat_byte(2))));
+		assert_ok!(UpgradeGov::propose(
+			signed(1),
+			GovAction::AuthorizeUpgrade(H256::repeat_byte(2))
+		));
 		// delay 0 => enact_at == now.
 		assert_eq!(Proposals::<Test>::get(0).unwrap().enact_at, Some(1));
 		run_to_block(2);
@@ -82,7 +85,10 @@ fn threshold_one_arms_on_propose() {
 #[test]
 fn double_approve_and_armed_guards() {
 	new_test_ext(members(), 2, 5).execute_with(|| {
-		assert_ok!(UpgradeGov::propose(signed(1), GovAction::AuthorizeUpgrade(H256::repeat_byte(3))));
+		assert_ok!(UpgradeGov::propose(
+			signed(1),
+			GovAction::AuthorizeUpgrade(H256::repeat_byte(3))
+		));
 		assert_noop!(UpgradeGov::approve(signed(1), 0), Error::<Test>::AlreadyApproved);
 		assert_ok!(UpgradeGov::approve(signed(2), 0));
 		// Already armed; further approvals rejected.
@@ -123,7 +129,10 @@ fn remove_member_blocked_when_threshold_would_exceed_members() {
 #[test]
 fn cancel_removes_proposal() {
 	new_test_ext(members(), 2, 5).execute_with(|| {
-		assert_ok!(UpgradeGov::propose(signed(1), GovAction::AuthorizeUpgrade(H256::repeat_byte(7))));
+		assert_ok!(UpgradeGov::propose(
+			signed(1),
+			GovAction::AuthorizeUpgrade(H256::repeat_byte(7))
+		));
 		assert_ok!(UpgradeGov::cancel(signed(3), 0));
 		assert!(Proposals::<Test>::get(0).is_none());
 		System::assert_has_event(Event::Cancelled { id: 0 }.into());
@@ -142,7 +151,10 @@ fn enactment_revalidates_membership() {
 
 		// Proposal 1 is created later (block 3) and armed by m1 + m2 for block 8.
 		run_to_block(3);
-		assert_ok!(UpgradeGov::propose(signed(1), GovAction::AuthorizeUpgrade(H256::repeat_byte(9))));
+		assert_ok!(UpgradeGov::propose(
+			signed(1),
+			GovAction::AuthorizeUpgrade(H256::repeat_byte(9))
+		));
 		assert_ok!(UpgradeGov::approve(signed(2), 1));
 		assert_eq!(Proposals::<Test>::get(1).unwrap().enact_at, Some(8));
 

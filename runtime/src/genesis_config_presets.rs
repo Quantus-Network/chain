@@ -19,8 +19,8 @@
 #![allow(clippy::expect_used)]
 
 use crate::{
-	AccountId, AssetsConfig, BalancesConfig, BlockNumber, RuntimeGenesisConfig, EXISTENTIAL_DEPOSIT,
-	MINUTES, UNIT,
+	AccountId, AssetsConfig, BalancesConfig, BlockNumber, RuntimeGenesisConfig,
+	EXISTENTIAL_DEPOSIT, MINUTES, UNIT,
 };
 use alloc::{
 	string::{String, ToString},

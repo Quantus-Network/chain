@@ -55,8 +55,7 @@ pub mod pallet {
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
 		/// The aggregated event type.
-		type RuntimeEvent: From<Event<Self>>
-			+ IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
 		/// Maximum number of members in the collective.
 		#[pallet::constant]
@@ -162,7 +161,11 @@ pub mod pallet {
 
 	impl<T: Config> Default for GenesisConfig<T> {
 		fn default() -> Self {
-			Self { members: Vec::new(), threshold: 1, enactment_delay: BlockNumberFor::<T>::from(0u32) }
+			Self {
+				members: Vec::new(),
+				threshold: 1,
+				enactment_delay: BlockNumberFor::<T>::from(0u32),
+			}
 		}
 	}
 
@@ -176,10 +179,7 @@ pub mod pallet {
 			let len_before = sorted.len();
 			sorted.sort();
 			sorted.dedup();
-			assert!(
-				sorted.len() == len_before,
-				"upgrade-gov genesis members contain duplicates"
-			);
+			assert!(sorted.len() == len_before, "upgrade-gov genesis members contain duplicates");
 
 			if !self.members.is_empty() {
 				assert!(self.threshold > 0, "upgrade-gov threshold must be > 0");
@@ -300,7 +300,10 @@ pub mod pallet {
 			let mut proposal = Proposals::<T>::get(id).ok_or(Error::<T>::UnknownProposal)?;
 			ensure!(proposal.enact_at.is_none(), Error::<T>::AlreadyArmed);
 			ensure!(!proposal.approvals.contains(&who), Error::<T>::AlreadyApproved);
-			proposal.approvals.try_push(who.clone()).map_err(|_| Error::<T>::TooManyMembers)?;
+			proposal
+				.approvals
+				.try_push(who.clone())
+				.map_err(|_| Error::<T>::TooManyMembers)?;
 			proposal.enact_at = Self::arm_if_threshold(&proposal.approvals);
 			let enact_at = proposal.enact_at;
 			Proposals::<T>::insert(id, proposal);
@@ -400,10 +403,8 @@ pub mod pallet {
 				},
 				Action::RemoveMember(who) => {
 					Members::<T>::try_mutate(|members| -> DispatchResult {
-						let pos = members
-							.iter()
-							.position(|m| m == who)
-							.ok_or(Error::<T>::NotMember)?;
+						let pos =
+							members.iter().position(|m| m == who).ok_or(Error::<T>::NotMember)?;
 						ensure!(
 							Threshold::<T>::get() <= (members.len() as u32).saturating_sub(1),
 							Error::<T>::InvalidThreshold
@@ -415,10 +416,7 @@ pub mod pallet {
 				},
 				Action::SetThreshold(t) => {
 					ensure!(*t > 0, Error::<T>::InvalidThreshold);
-					ensure!(
-						*t <= Members::<T>::get().len() as u32,
-						Error::<T>::InvalidThreshold
-					);
+					ensure!(*t <= Members::<T>::get().len() as u32, Error::<T>::InvalidThreshold);
 					Threshold::<T>::put(*t);
 					Self::deposit_event(Event::ThresholdChanged { threshold: *t });
 				},
