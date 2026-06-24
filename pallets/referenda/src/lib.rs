@@ -846,7 +846,9 @@ impl<T: Config<I>, I: 'static> Polling<T::Tally> for Pallet<T, I> {
 		let info = if approved {
 			ReferendumInfo::Approved(now, Some(status.submission_deposit), status.decision_deposit)
 		} else {
-			ReferendumInfo::Rejected(now, Some(status.submission_deposit), status.decision_deposit)
+			// F-91272 fix: Slash submission deposit on rejection
+			Self::slash_deposit(Some(status.submission_deposit));
+			ReferendumInfo::Rejected(now, None, status.decision_deposit)
 		};
 		ReferendumInfoFor::<T, I>::insert(index, info);
 		Ok(())
@@ -1164,11 +1166,13 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 				if status.deciding.is_none() && now >= timeout && !status.in_queue {
 					// Too long without being decided - end it.
 					Self::ensure_no_alarm(&mut status);
+					// F-91272 fix: Slash submission deposit on timeout (was locked forever)
+					Self::slash_deposit(Some(status.submission_deposit));
 					Self::deposit_event(Event::<T, I>::TimedOut { index, tally: status.tally });
 					return (
 						ReferendumInfo::TimedOut(
 							now,
-							Some(status.submission_deposit),
+							None,
 							status.decision_deposit,
 						),
 						true,
@@ -1221,11 +1225,13 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 						// Failed!
 						Self::ensure_no_alarm(&mut status);
 						Self::note_one_fewer_deciding(status.track);
+						// F-91272 fix: Slash submission deposit on rejection (was locked forever)
+						Self::slash_deposit(Some(status.submission_deposit));
 						Self::deposit_event(Event::<T, I>::Rejected { index, tally: status.tally });
 						return (
 							ReferendumInfo::Rejected(
 								now,
-								Some(status.submission_deposit),
+								None,
 								status.decision_deposit,
 							),
 							true,
