@@ -594,14 +594,14 @@ pub mod pallet {
 			if let Some((_, last_alarm)) = status.alarm {
 				let _ = T::Scheduler::cancel(last_alarm);
 			}
-		// #91213: only release a deciding slot if this referendum actually occupied one. Cancelling
-		// a queued/undecided referendum must not decrement `DecidingCount` (or promote another via
-		// `one_fewer_deciding`), which would corrupt the count and let more than `max_deciding`
-		// referenda decide at once.
-		if status.deciding.is_some() {
-			Self::note_one_fewer_deciding(status.track);
-		}
-		Self::deposit_event(Event::<T, I>::Cancelled { index, tally: status.tally });
+			// #91213: only release a deciding slot if this referendum actually occupied one.
+			// Cancelling a queued/undecided referendum must not decrement `DecidingCount` (or
+			// promote another via `one_fewer_deciding`), which would corrupt the count and let
+			// more than `max_deciding` referenda decide at once.
+			if status.deciding.is_some() {
+				Self::note_one_fewer_deciding(status.track);
+			}
+			Self::deposit_event(Event::<T, I>::Cancelled { index, tally: status.tally });
 			let info = ReferendumInfo::Cancelled(
 				T::BlockNumberProvider::current_block_number(),
 				Some(status.submission_deposit),
@@ -625,11 +625,11 @@ pub mod pallet {
 			if let Some((_, last_alarm)) = status.alarm {
 				let _ = T::Scheduler::cancel(last_alarm);
 			}
-		// #91213: as in `cancel`, only release a deciding slot if this referendum held one.
-		if status.deciding.is_some() {
-			Self::note_one_fewer_deciding(status.track);
-		}
-		Self::deposit_event(Event::<T, I>::Killed { index, tally: status.tally });
+			// #91213: as in `cancel`, only release a deciding slot if this referendum held one.
+			if status.deciding.is_some() {
+				Self::note_one_fewer_deciding(status.track);
+			}
+			Self::deposit_event(Event::<T, I>::Killed { index, tally: status.tally });
 			Self::slash_deposit(Some(status.submission_deposit.clone()));
 			Self::slash_deposit(status.decision_deposit.clone());
 			Self::do_clear_metadata(index);
@@ -1032,9 +1032,10 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 			let r = Self::begin_deciding(status, index, now, track);
 			(r.0, r.1.into())
 		} else {
-			// Add to queue. #91271: honor the bounded-insertion result. If the item sorts beyond the
-			// queue bound it is NOT inserted, so it must not be marked `in_queue` — otherwise it is
-			// skipped by timeout yet absent from `TrackQueue`, stranding it (ghost-queued).
+			// Add to queue. #91271: honor the bounded-insertion result. If the item sorts beyond
+			// the queue bound it is NOT inserted, so it must not be marked `in_queue` —
+			// otherwise it is skipped by timeout yet absent from `TrackQueue`, stranding it
+			// (ghost-queued).
 			let item = (index, status.tally.ayes(status.track));
 			status.in_queue =
 				TrackQueue::<T, I>::mutate(status.track, |q| q.insert_sorted_by_key(item, |x| x.1));

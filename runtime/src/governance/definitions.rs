@@ -103,8 +103,9 @@ impl TechCollectiveTracksInfo {
 			name: str_array("tech_collective_members"),
 			max_deciding: 1,
 			decision_deposit: 1000 * UNIT,
-			// Advance-notice window before deciding starts. Raised from 4 min to give the collective
-			// (and observers) visibility of a pending Root proposal before voting can conclude.
+			// Advance-notice window before deciding starts. Raised from 4 min to give the
+			// collective (and observers) visibility of a pending Root proposal before voting can
+			// conclude.
 			prepare_period: 2 * HOURS,
 			decision_period: DAYS,
 			confirm_period: DAYS,
@@ -141,11 +142,12 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
 	}
 
 	fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
-		// #91247/#91270: only a `Root` proposal origin is accepted. A referendum's `proposal_origin`
-		// is stored and dispatched verbatim on approval, so accepting `Signed(_)` here would let a
-		// passed referendum execute calls as an arbitrary account (impersonation) and route Root-
-		// level dispatch through this single low-threshold track. The tech lane exists solely to
-		// authorize Root governance (e.g. runtime upgrades); members submit via `SubmitOrigin`.
+		// #91247/#91270: only a `Root` proposal origin is accepted. A referendum's
+		// `proposal_origin` is stored and dispatched verbatim on approval, so accepting
+		// `Signed(_)` here would let a passed referendum execute calls as an arbitrary account
+		// (impersonation) and route Root- level dispatch through this single low-threshold track.
+		// The tech lane exists solely to authorize Root governance (e.g. runtime upgrades);
+		// members submit via `SubmitOrigin`.
 		match id.as_system_ref() {
 			Some(frame_system::RawOrigin::Root) => Ok(0),
 			_ => Err(()),
