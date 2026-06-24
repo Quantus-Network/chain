@@ -795,9 +795,8 @@ pub mod pallet {
 				poll,
 				|mut status| -> Result<TallyOf<T, I>, DispatchError> {
 					match status {
-						PollStatus::None | PollStatus::Completed(..) => {
-							Err(Error::<T, I>::NotPolling)?
-						},
+						PollStatus::None | PollStatus::Completed(..) =>
+							Err(Error::<T, I>::NotPolling)?,
 						PollStatus::Ongoing(ref mut tally, _class) => {
 							match vote {
 								Aye(votes) => {
