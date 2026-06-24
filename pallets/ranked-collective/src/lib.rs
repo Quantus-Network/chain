@@ -515,6 +515,14 @@ pub mod pallet {
 		Voted { who: T::AccountId, poll: PollIndexOf<T, I>, vote: VoteRecord, tally: TallyOf<T, I> },
 		/// The member `who` had their `AccountId` changed to `new_who`.
 		MemberExchanged { who: T::AccountId, new_who: T::AccountId },
+		/// A vote from a non-member `who` was removed from `poll`, updating the `tally`.
+		/// F-91265 fix: allows cleanup of stale votes after member removal.
+		VoteRemovedForNonMember {
+			who: T::AccountId,
+			poll: PollIndexOf<T, I>,
+			vote: VoteRecord,
+			tally: TallyOf<T, I>,
+		},
 	}
 
 	#[pallet::error]
@@ -541,6 +549,10 @@ pub mod pallet {
 		SameMember,
 		/// The max member count for the rank has been reached.
 		TooManyMembers,
+		/// The account has not voted on this poll.
+		NotVoted,
+		/// Cannot remove vote of a current member - they must remove it themselves.
+		StillMember,
 	}
 
 	#[pallet::call]
@@ -742,6 +754,69 @@ pub mod pallet {
 			T::MemberSwappedHandler::swapped(&who, &new_who, rank);
 
 			Ok(())
+		}
+
+		/// Remove the vote of a non-member from an ongoing poll, correcting the tally.
+		///
+		/// This is used to clean up stale votes after a member has been removed from the
+		/// collective. Anyone can call this extrinsic, but it will only succeed if:
+		/// - The target account is NOT a current member of the collective
+		/// - The target account has a vote recorded for the given poll
+		/// - The poll is still ongoing
+		///
+		/// F-91265 fix: Allows cleanup of stale votes that would otherwise persist and
+		/// incorrectly influence the referendum outcome.
+		///
+		/// - `origin`: Must be `Signed` by any account.
+		/// - `who`: Account of the non-member whose vote should be removed.
+		/// - `poll`: Index of an ongoing poll.
+		///
+		/// Weight: `O(1)`
+		#[pallet::call_index(7)]
+		#[pallet::weight(T::WeightInfo::vote())] // Similar weight to vote()
+		pub fn remove_vote_for_non_member(
+			origin: OriginFor<T>,
+			who: AccountIdLookupOf<T>,
+			poll: PollIndexOf<T, I>,
+		) -> DispatchResultWithPostInfo {
+			ensure_signed(origin)?;
+			let who = T::Lookup::lookup(who)?;
+
+			// Ensure the account is NOT a member (only stale votes can be removed this way)
+			ensure!(Members::<T, I>::get(&who).is_none(), Error::<T, I>::StillMember);
+
+			// Get the existing vote
+			let vote = Voting::<T, I>::get(&poll, &who).ok_or(Error::<T, I>::NotVoted)?;
+
+			use VoteRecord::*;
+
+			// Update the tally by removing this vote
+			let tally = T::Polls::try_access_poll(
+				poll,
+				|mut status| -> Result<TallyOf<T, I>, DispatchError> {
+					match status {
+						PollStatus::None | PollStatus::Completed(..) => {
+							Err(Error::<T, I>::NotPolling)?
+						},
+						PollStatus::Ongoing(ref mut tally, _class) => {
+							match vote {
+								Aye(votes) => {
+									tally.bare_ayes.saturating_dec();
+									tally.ayes.saturating_reduce(votes);
+								},
+								Nay(votes) => tally.nays.saturating_reduce(votes),
+							}
+							Ok(tally.clone())
+						},
+					}
+				},
+			)?;
+
+			// Remove the vote from storage
+			Voting::<T, I>::remove(&poll, &who);
+
+			Self::deposit_event(Event::VoteRemovedForNonMember { who, poll, vote, tally });
+			Ok(Pays::No.into()) // Fee waived as this is a cleanup operation
 		}
 	}
 
