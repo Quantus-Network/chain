@@ -505,7 +505,7 @@ pub trait DefensiveMin<T> {
 	/// When the assumption is violated, the other value is returned and a defensive
 	/// error is logged. With `debug_assertions` enabled, this also panics.
 	///
-	/// ```
+	/// ```should_panic
 	/// use frame_support::traits::DefensiveMin;
 	/// assert_eq!(3, 4_u32.defensive_min(3_u32));
 	/// ```
@@ -524,7 +524,7 @@ pub trait DefensiveMin<T> {
 	/// When the assumption is violated, the other value is returned and a defensive
 	/// error is logged. With `debug_assertions` enabled, this also panics.
 	///
-	/// ```
+	/// ```should_panic
 	/// use frame_support::traits::DefensiveMin;
 	/// assert_eq!(4, 4_u32.defensive_strict_min(4_u32));
 	/// ```
@@ -573,7 +573,7 @@ pub trait DefensiveMax<T> {
 	/// When the assumption is violated, the other value is returned and a defensive
 	/// error is logged. With `debug_assertions` enabled, this also panics.
 	///
-	/// ```
+	/// ```should_panic
 	/// use frame_support::traits::DefensiveMax;
 	/// assert_eq!(5, 4_u32.defensive_max(5_u32));
 	/// ```
@@ -592,7 +592,7 @@ pub trait DefensiveMax<T> {
 	/// When the assumption is violated, the other value is returned and a defensive
 	/// error is logged. With `debug_assertions` enabled, this also panics.
 	///
-	/// ```
+	/// ```should_panic
 	/// use frame_support::traits::DefensiveMax;
 	/// assert_eq!(4, 4_u32.defensive_strict_max(4_u32));
 	/// ```
