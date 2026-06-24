@@ -406,10 +406,13 @@ impl<
 	pub fn take_submission_deposit(&mut self) -> Result<Option<Deposit<AccountId, Balance>>, ()> {
 		use ReferendumInfo::*;
 		match self {
-			// Can only refund deposit if it's approved or cancelled.
-			Approved(_, s, _) | Cancelled(_, s, _) => Ok(s.take()),
-			// Cannot refund deposit if Ongoing as this breaks assumptions.
-			Ongoing(..) | Rejected(..) | TimedOut(..) | Killed(..) => Err(()),
+			// #91272: rejected/timed-out referenda also hold a submission deposit and must be
+			// refundable; previously only approved/cancelled were, freezing the rest.
+			Approved(_, s, _) | Cancelled(_, s, _) | Rejected(_, s, _) | TimedOut(_, s, _) =>
+				Ok(s.take()),
+			// Killed referenda already had their deposit slashed; ongoing ones must keep it.
+			Killed(..) => Ok(None),
+			Ongoing(..) => Err(()),
 		}
 	}
 }

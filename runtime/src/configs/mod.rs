@@ -26,16 +26,15 @@
 // Substrate and Polkadot dependencies
 use crate::{
 	governance::definitions::{
-		CommunityTracksInfo, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
-		RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin,
-		TechCollectiveTracksInfo,
+		GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
+		RootOrMemberForTechReferendaOrigin, TechCollectiveTracksInfo,
 	},
 	MILLI_UNIT,
 };
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, Contains, Get, NeverEnsureOrigin,
+		AsEnsureOriginWithArg, ConstU128, ConstU16, ConstU32, ConstU8, Contains, NeverEnsureOrigin,
 		VariantCountOf,
 	},
 	weights::{
@@ -47,7 +46,7 @@ use frame_support::{
 };
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
-	EnsureRoot, EnsureSigned,
+	EnsureRoot, EnsureRootWithSuccess, EnsureSigned,
 };
 use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
@@ -63,7 +62,7 @@ use sp_version::RuntimeVersion;
 // Local module imports
 use super::{
 	AccountId, Assets, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
-	PalletInfo, Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
+	PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
 	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Wormhole, ZkTree,
 	DAYS, EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
@@ -209,33 +208,12 @@ impl pallet_balances::Config for Runtime {
 	type DoneSlashHandler = ();
 }
 
-parameter_types! {
-	pub const VoteLockingPeriod: BlockNumber = 7 * DAYS;
-	pub const MaxVotes: u32 = 4096;
-}
-
-/// Dynamic MaxTurnout that uses the current total issuance of tokens
-/// This makes governance support thresholds automatically scale with token supply
-pub struct DynamicMaxTurnout;
-
-impl Get<Balance> for DynamicMaxTurnout {
-	fn get() -> Balance {
-		// Use current total issuance as MaxTurnout
-		// This ensures support thresholds scale with actual token supply
-		Balances::total_issuance()
-	}
-}
-
-impl pallet_conviction_voting::Config for Runtime {
-	type WeightInfo = pallet_conviction_voting::weights::SubstrateWeight<Runtime>;
-	type Currency = Balances;
+// Minimal runtime-upgrade governance. Replaces the public/token-weighted community lane.
+impl pallet_upgrade_gov::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type VoteLockingPeriod = VoteLockingPeriod;
-	type MaxVotes = MaxVotes;
-	type MaxTurnout = DynamicMaxTurnout;
-	type Polls = Referenda;
-	type BlockNumberProvider = System;
-	type VotingHooks = ();
+	type MaxMembers = ConstU32<13>;
+	type MaxProposals = ConstU32<20>;
+	type WeightInfo = pallet_upgrade_gov::weights::SubstrateWeight<Runtime>;
 }
 
 parameter_types! {
@@ -265,50 +243,6 @@ parameter_types! {
 	pub const AlarmInterval: BlockNumber = 1;
 }
 
-impl pallet_referenda::Config for Runtime {
-	/// Provides weights for the pallet operations to properly charge transaction fees.
-	type WeightInfo = pallet_referenda::weights::SubstrateWeight<Runtime>;
-	type RuntimeEvent = RuntimeEvent;
-	/// The type of call dispatched by referenda upon approval and execution.
-	type RuntimeCall = RuntimeCall;
-	/// The scheduler pallet used to delay execution of successful referenda.
-	type Scheduler = Scheduler;
-	/// The currency mechanism used for handling deposits and voting.
-	type Currency = Balances;
-	/// The origin allowed to submit referenda - in this case any signed account.
-	type SubmitOrigin = frame_system::EnsureSigned<AccountId>;
-	/// The privileged origin allowed to cancel an ongoing referendum - only root can do this.
-	type CancelOrigin = EnsureRoot<AccountId>;
-	/// The privileged origin allowed to kill a referendum that's not passing - only root can do
-	/// this.
-	type KillOrigin = EnsureRoot<AccountId>;
-	/// Destination for slashed deposits when a referendum is cancelled or killed.
-	/// Leaving () here, will burn all slashed deposits. It's possible to use here the same idea
-	/// as we have for TransactionFees (OnUnbalanced) - with this it should be possible to
-	/// do something more sophisticated with this.
-	type Slash = (); // Will discard any slashed deposits
-	/// The voting mechanism used to collect votes and determine how they're counted.
-	/// Connected to the conviction voting pallet to allow conviction-weighted votes.
-	type Votes = pallet_conviction_voting::VotesOf<Runtime>;
-	/// The method to tally votes and determine referendum outcome.
-	/// Uses conviction voting's tally system with a maximum turnout threshold.
-	type Tally = pallet_conviction_voting::Tally<Balance, DynamicMaxTurnout>;
-	/// The deposit required to submit a referendum proposal.
-	type SubmissionDeposit = ReferendumSubmissionDeposit;
-	/// Maximum number of referenda that can be in the deciding phase simultaneously.
-	type MaxQueued = ReferendumMaxProposals;
-	/// Time period after which an undecided referendum will be automatically rejected.
-	type UndecidingTimeout = UndecidingTimeout;
-	/// The frequency at which the pallet checks for expired or ready-to-timeout referenda.
-	type AlarmInterval = AlarmInterval;
-	/// Defines the different referendum tracks (categories with distinct parameters).
-	type Tracks = CommunityTracksInfo;
-	/// The pallet used to store preimages (detailed proposal content) for referenda.
-	type Preimages = Preimage;
-	/// Blocknumber provider
-	type BlockNumberProvider = System;
-}
-
 parameter_types! {
 	pub const MinRankOfClassDelta: u16 = 0;
 	pub const MaxMemberCount: u32 = 13;
@@ -316,8 +250,11 @@ parameter_types! {
 impl pallet_ranked_collective::Config for Runtime {
 	type WeightInfo = pallet_ranked_collective::weights::SubstrateWeight<Runtime>;
 	type RuntimeEvent = RuntimeEvent;
-	type AddOrigin = RootOrMemberForCollectiveOrigin;
-	type RemoveOrigin = RootOrMemberForCollectiveOrigin;
+	// #91267: membership changes go through Root only (i.e. a passed TechReferenda vote), so no
+	// single member can unilaterally add/remove others or stuff the collective. Root operates at
+	// rank 0, matching the flat collective.
+	type AddOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>;
+	type RemoveOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>;
 	type PromoteOrigin = NeverEnsureOrigin<u16>;
 	type DemoteOrigin = NeverEnsureOrigin<u16>;
 	type ExchangeOrigin = NeverEnsureOrigin<u16>;

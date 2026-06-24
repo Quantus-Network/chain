@@ -19,7 +19,8 @@
 #![allow(clippy::expect_used)]
 
 use crate::{
-	AccountId, AssetsConfig, BalancesConfig, RuntimeGenesisConfig, EXISTENTIAL_DEPOSIT, UNIT,
+	AccountId, AssetsConfig, BalancesConfig, BlockNumber, RuntimeGenesisConfig, EXISTENTIAL_DEPOSIT,
+	MINUTES, UNIT,
 };
 use alloc::{
 	string::{String, ToString},
@@ -110,6 +111,15 @@ fn heisenberg_treasury_account() -> AccountId {
 /// Total supply used for genesis (same portion% goes to treasury at genesis as in pallet).
 const GENESIS_SUPPLY: u128 = 21_000_000;
 
+/// Initial enactment delay for `pallet-upgrade-gov` proposals. Adjustable on-chain post-genesis
+/// via a `SetEnactmentDelay` proposal.
+const UPGRADE_GOV_ENACTMENT_DELAY: BlockNumber = 10 * MINUTES;
+
+/// Majority threshold for the upgrade-gov collective given a member count.
+fn upgrade_gov_threshold(member_count: usize) -> u32 {
+	(member_count as u32 / 2) + 1
+}
+
 /// Treasury genesis params per profile. Initial balance = portion of GENESIS_SUPPLY (same as
 /// pallet portion).
 #[derive(Clone)]
@@ -178,6 +188,12 @@ fn genesis_template(
 			// Record transfer proofs for ALL endowed addresses, enabling ZK spending.
 			// Events are emitted in on_initialize at block 1 for indexer compatibility.
 			endowed_addresses: balances,
+		},
+		// Seed upgrade-gov with the same trusted set as the tech collective during the transition.
+		upgrade_gov: pallet_upgrade_gov::GenesisConfig::<crate::Runtime> {
+			members: tech_collective_members.clone(),
+			threshold: upgrade_gov_threshold(tech_collective_members.len()),
+			enactment_delay: UPGRADE_GOV_ENACTMENT_DELAY,
 		},
 		..Default::default()
 	};

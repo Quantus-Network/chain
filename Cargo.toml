@@ -21,7 +21,6 @@ members = [
 	"pallets/assets",
 	"pallets/assets-holder",
 	"pallets/balances",
-	"pallets/conviction-voting",
 	"pallets/frame-system",
 	"pallets/mining-rewards",
 	"pallets/multisig",
@@ -37,6 +36,7 @@ members = [
 	"pallets/transaction-payment-rpc",
 	"pallets/transaction-payment-rpc-runtime-api",
 	"pallets/treasury",
+	"pallets/upgrade-gov",
 	"pallets/utility",
 	"pallets/wormhole",
 	"pallets/zk-tree",
@@ -185,6 +185,7 @@ pallet-multisig = { path = "./pallets/multisig", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false }
 pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
 pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
+pallet-upgrade-gov = { path = "./pallets/upgrade-gov", default-features = false }
 pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
 pallet-zk-tree = { path = "./pallets/zk-tree", default-features = false }
 qp-dilithium-crypto = { path = "./primitives/dilithium-crypto", version = "0.4.0", default-features = false }
@@ -224,7 +225,6 @@ frame-try-runtime = { version = "0.51.0", default-features = false }
 hickory-resolver = { version = "0.26.1" }
 pallet-assets = { path = "./pallets/assets", default-features = false }
 pallet-assets-holder = { path = "./pallets/assets-holder", default-features = false }
-pallet-conviction-voting = { path = "./pallets/conviction-voting", default-features = false }
 pallet-preimage = { path = "./pallets/preimage", default-features = false }
 pallet-ranked-collective = { path = "./pallets/ranked-collective", default-features = false }
 pallet-recovery = { path = "./pallets/recovery", default-features = false }

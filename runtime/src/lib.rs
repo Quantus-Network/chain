@@ -73,7 +73,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	//   `spec_version`, and `authoring_version` are the same between Wasm and native.
 	// This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
 	//   the compatible custom types.
-	spec_version: 132,
+	spec_version: 133,
 	impl_version: 1,
 	apis: apis::RUNTIME_API_VERSIONS,
 	transaction_version: 2,
@@ -228,14 +228,13 @@ mod runtime {
 	#[runtime::pallet_index(9)]
 	pub type Utility = pallet_utility;
 
-	#[runtime::pallet_index(10)]
-	pub type Referenda = pallet_referenda;
+	// Index 10 was the community `Referenda` instance (removed with the public/token-weighted
+	// governance lane). Kept vacant so downstream pallet indices stay stable.
 
 	#[runtime::pallet_index(11)]
 	pub type ReversibleTransfers = pallet_reversible_transfers;
 
-	#[runtime::pallet_index(12)]
-	pub type ConvictionVoting = pallet_conviction_voting;
+	// Index 12 was `ConvictionVoting` (removed with the community lane). Kept vacant.
 
 	#[runtime::pallet_index(13)]
 	pub type TechCollective = pallet_ranked_collective;
@@ -263,4 +262,10 @@ mod runtime {
 
 	#[runtime::pallet_index(21)]
 	pub type ZkTree = pallet_zk_tree;
+
+	// Minimal runtime-upgrade governance: M-of-N member approval + timelock. Coexists with the
+	// tech-collective referenda lane during the transition; that lane is removed once upgrades
+	// via this pallet are proven.
+	#[runtime::pallet_index(22)]
+	pub type UpgradeGov = pallet_upgrade_gov;
 }
