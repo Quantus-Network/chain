@@ -42,7 +42,7 @@ Referenda's `Tally = pallet_ranked_collective::TallyOf<Runtime>` and
 ### `TechCollective` (ranked-collective)
 | Call | Origin in this runtime | Notes |
 |---|---|---|
-| `add_member` / `remove_member` | `RootOrMemberForCollectiveOrigin` | Add/remove at rank 0 |
+| `add_member` / `remove_member` | `EnsureRootWithSuccess` (Root only, #91267) | Add/remove at rank 0; requires a passed referendum |
 | `promote_member` / `demote_member` | `NeverEnsureOrigin` → **disabled** | Rank changes frozen post-genesis |
 | `exchange_member` | `NeverEnsureOrigin` → **disabled** | Account swap unreachable |
 | `vote(poll, aye)` | member | Rank-weighted aye/nay; re-votable while Ongoing |
@@ -196,8 +196,7 @@ force a re-evaluation immediately instead of waiting for the scheduled alarm.
   *deposits* (100 UNIT submission, 1000 UNIT decision) that gate participation
   but never weight a vote. Balance-weighted conviction voting was the separate
   *community lane* (`pallet-conviction-voting` + community `Referenda`), which
-  `runtime/src/governance/definitions.rs:93-94` notes has been removed, leaving
-  this tech lane as the transitional fallback alongside `pallet-upgrade-gov`.
+  has been removed, leaving this tech lane as the **sole governance lane**.
 
 ---
 
@@ -210,7 +209,7 @@ force a re-evaluation immediately instead of waiting for the scheduled alarm.
 | Approval curve ("unity") | Linear / Stepped / Reciprocal, time-decaying | constant **61%** |
 | Support curve ("quorum") | same three curve types | constant **60%** (head-count) |
 | `max_deciding` | configurable | 1 |
-| `prepare / decision / confirm / enactment` | per-track | 20 blocks / 1d / 1d / 1d |
+| `prepare / decision / confirm / enactment` | per-track | 2 h / 1d / 1d / 1d |
 | Deposits | submission + decision | 100 UNIT + 1000 UNIT |
 | Max members | `GlobalMaxMembers` | 13 |
 | Early resolution | confirm-period pass + `nudge_referendum` | enabled |
@@ -223,4 +222,3 @@ force a re-evaluation immediately instead of waiting for the scheduled alarm.
 - [`TECH_COLLECTIVE_GOVERNANCE_TUNING.md`](./TECH_COLLECTIVE_GOVERNANCE_TUNING.md) — threshold math, security tables, incident response.
 - [`RUNTIME_UPGRADE_VIA_GOVERNANCE.md`](./RUNTIME_UPGRADE_VIA_GOVERNANCE.md) — using this lane to authorize runtime upgrades.
 - [`RUNTIME_SURFACE.md`](./RUNTIME_SURFACE.md) — full runtime pallet inventory.
-- `node/src/GOVERNANCE_AUDIT_AND_REDESIGN.md` — audit findings and the `pallet-upgrade-gov` proposal.

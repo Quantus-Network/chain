@@ -11,7 +11,7 @@ Track definition: `runtime/src/governance/definitions.rs:165-192` (`TechCollecti
 ```rust
 max_deciding: 1,
 decision_deposit: 1000 * UNIT,
-prepare_period: 20,
+prepare_period: 2 * HOURS,
 decision_period: DAYS,
 confirm_period: DAYS,
 min_enactment_period: DAYS,
@@ -19,7 +19,7 @@ min_enactment_period: DAYS,
 
 | Parameter | Current (blocks) | Wall clock | Meaning |
 |---|---|---|---|
-| `prepare_period` | 20 | 4 min | Delay between submission and decision start |
+| `prepare_period` | 600 | 2 h | Delay between submission and decision start |
 | `decision_period` | 7200 (`DAYS`) | 24 h | Window in which the referendum must reach passing state |
 | `confirm_period` | 7200 (`DAYS`) | 24 h | Must remain continuously passing this long to be approved |
 | `min_enactment_period` | 7200 (`DAYS`) | 24 h | Min delay between approval and dispatch of the upgrade |
@@ -85,7 +85,7 @@ Requirements: (a) 3/5 ayes execute ✓ (rows 1–2); (b) 2 nays block ✓ (row 3
 
 ### Confirm/decision periods are security parameters
 
-A referendum must be *continuously* passing for the whole `confirm_period`; any nay that drops it below threshold aborts confirmation (`ConfirmAborted`, `pallet-referenda-45.0.0/src/lib.rs:1235-1240`) and confirmation must restart. Approval only happens at `lib.rs:1190-1208` after the confirm deadline elapses while still passing. So `confirm_period` is the honest members' reaction window: at the current 24 h, even if all ayes land in the first block, approval cannot conclude before a full day has passed — dissenting nays always have that window. Worst case (ayes arrive at the end of the decision window) approval takes up to ~48 h; if the referendum is not passing when `decision_period` ends and is not confirming, it is rejected. `prepare_period` (currently 4 min) bounds advance notice before deciding starts and could be raised to hours on mainnet.
+A referendum must be *continuously* passing for the whole `confirm_period`; any nay that drops it below threshold aborts confirmation (`ConfirmAborted`, `pallet-referenda-45.0.0/src/lib.rs:1235-1240`) and confirmation must restart. Approval only happens at `lib.rs:1190-1208` after the confirm deadline elapses while still passing. So `confirm_period` is the honest members' reaction window: at the current 24 h, even if all ayes land in the first block, approval cannot conclude before a full day has passed — dissenting nays always have that window. Worst case (ayes arrive at the end of the decision window) approval takes up to ~48 h; if the referendum is not passing when `decision_period` ends and is not confirming, it is rejected. `prepare_period` (now 2 h, #91247-era hardening) bounds advance notice before deciding starts.
 
 ## 3. Vote changing
 

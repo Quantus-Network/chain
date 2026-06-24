@@ -6791,21 +6791,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-upgrade-gov"
-version = "0.1.0"
-dependencies = [
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "log",
- "parity-scale-codec",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
-]
-
-[[package]]
 name = "pallet-utility"
 version = "45.0.0"
 dependencies = [
@@ -8452,7 +8437,6 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
  "pallet-treasury",
- "pallet-upgrade-gov",
  "pallet-utility",
  "pallet-wormhole",
  "pallet-zk-tree",

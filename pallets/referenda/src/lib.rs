@@ -594,8 +594,14 @@ pub mod pallet {
 			if let Some((_, last_alarm)) = status.alarm {
 				let _ = T::Scheduler::cancel(last_alarm);
 			}
+		// #91213: only release a deciding slot if this referendum actually occupied one. Cancelling
+		// a queued/undecided referendum must not decrement `DecidingCount` (or promote another via
+		// `one_fewer_deciding`), which would corrupt the count and let more than `max_deciding`
+		// referenda decide at once.
+		if status.deciding.is_some() {
 			Self::note_one_fewer_deciding(status.track);
-			Self::deposit_event(Event::<T, I>::Cancelled { index, tally: status.tally });
+		}
+		Self::deposit_event(Event::<T, I>::Cancelled { index, tally: status.tally });
 			let info = ReferendumInfo::Cancelled(
 				T::BlockNumberProvider::current_block_number(),
 				Some(status.submission_deposit),
@@ -619,8 +625,11 @@ pub mod pallet {
 			if let Some((_, last_alarm)) = status.alarm {
 				let _ = T::Scheduler::cancel(last_alarm);
 			}
+		// #91213: as in `cancel`, only release a deciding slot if this referendum held one.
+		if status.deciding.is_some() {
 			Self::note_one_fewer_deciding(status.track);
-			Self::deposit_event(Event::<T, I>::Killed { index, tally: status.tally });
+		}
+		Self::deposit_event(Event::<T, I>::Killed { index, tally: status.tally });
 			Self::slash_deposit(Some(status.submission_deposit.clone()));
 			Self::slash_deposit(status.decision_deposit.clone());
 			Self::do_clear_metadata(index);
@@ -910,16 +919,25 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		// Earliest allowed block is always at minimum the next block.
 		let earliest_allowed = now.saturating_add(track.min_enactment_period.max(One::one()));
 		let desired = desired.evaluate(now);
-		let ok = T::Scheduler::schedule_named(
+		let result = T::Scheduler::schedule_named(
 			(ASSEMBLY_ID, "enactment", index).using_encoded(sp_io::hashing::blake2_256),
 			DispatchTime::At(desired.max(earliest_allowed)),
 			None,
 			63,
 			origin,
 			call,
-		)
-		.is_ok();
-		debug_assert!(ok, "LOGIC ERROR: bake_referendum/schedule_named failed");
+		);
+		if let Err(e) = result.as_ref() {
+			// #91210: never fail silently. A full scheduler agenda here means an approved
+			// referendum's enacted call is never scheduled and the governance action will not run.
+			log::error!(
+				target: "runtime::referenda",
+				"referendum {:?} approved but enactment scheduling failed: {:?}",
+				index,
+				e,
+			);
+		}
+		debug_assert!(result.is_ok(), "LOGIC ERROR: bake_referendum/schedule_named failed");
 	}
 
 	/// Set an alarm to dispatch `call` at block number `when`.
@@ -940,13 +958,18 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 			frame_system::RawOrigin::Root.into(),
 			call,
 		);
-		debug_assert!(
-			result.is_ok(),
-			"Unable to schedule a new alarm at #{:?} (now: #{:?}), scheduler error: `{:?}`",
-			when,
-			T::BlockNumberProvider::current_block_number(),
-			result.unwrap_err(),
-		);
+		if let Err(e) = result.as_ref() {
+			// #91210: never fail silently. A missing alarm means the referendum will not be
+			// serviced (confirm/timeout/queue progression) until something else nudges it.
+			log::error!(
+				target: "runtime::referenda",
+				"unable to schedule referendum alarm at #{:?} (now #{:?}): {:?}",
+				when,
+				T::BlockNumberProvider::current_block_number(),
+				e,
+			);
+			debug_assert!(false, "scheduler alarm scheduling failed: {:?}", e);
+		}
 		result.ok().map(|x| (when, x))
 	}
 
@@ -1009,10 +1032,12 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 			let r = Self::begin_deciding(status, index, now, track);
 			(r.0, r.1.into())
 		} else {
-			// Add to queue.
+			// Add to queue. #91271: honor the bounded-insertion result. If the item sorts beyond the
+			// queue bound it is NOT inserted, so it must not be marked `in_queue` — otherwise it is
+			// skipped by timeout yet absent from `TrackQueue`, stranding it (ghost-queued).
 			let item = (index, status.tally.ayes(status.track));
-			status.in_queue = true;
-			TrackQueue::<T, I>::mutate(status.track, |q| q.insert_sorted_by_key(item, |x| x.1));
+			status.in_queue =
+				TrackQueue::<T, I>::mutate(status.track, |q| q.insert_sorted_by_key(item, |x| x.1));
 			(None, ServiceBranch::Queued)
 		}
 	}

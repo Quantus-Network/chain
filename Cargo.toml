@@ -36,7 +36,6 @@ members = [
 	"pallets/transaction-payment-rpc",
 	"pallets/transaction-payment-rpc-runtime-api",
 	"pallets/treasury",
-	"pallets/upgrade-gov",
 	"pallets/utility",
 	"pallets/wormhole",
 	"pallets/zk-tree",
@@ -185,7 +184,6 @@ pallet-multisig = { path = "./pallets/multisig", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false }
 pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
 pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
-pallet-upgrade-gov = { path = "./pallets/upgrade-gov", default-features = false }
 pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
 pallet-zk-tree = { path = "./pallets/zk-tree", default-features = false }
 qp-dilithium-crypto = { path = "./primitives/dilithium-crypto", version = "0.4.0", default-features = false }

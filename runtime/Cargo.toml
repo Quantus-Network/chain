@@ -43,7 +43,6 @@ pallet-timestamp.workspace = true
 pallet-transaction-payment.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
 pallet-treasury.workspace = true
-pallet-upgrade-gov.workspace = true
 pallet-utility.workspace = true
 pallet-wormhole.workspace = true
 pallet-zk-tree.workspace = true
@@ -109,7 +108,6 @@ std = [
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
 	"pallet-treasury/std",
-	"pallet-upgrade-gov/std",
 	"pallet-utility/std",
 	"pallet-wormhole/std",
 	"pallet-zk-tree/std",
@@ -156,7 +154,6 @@ runtime-benchmarks = [
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"pallet-treasury/runtime-benchmarks",
-	"pallet-upgrade-gov/runtime-benchmarks",
 	"pallet-wormhole/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
@@ -174,7 +171,6 @@ try-runtime = [
 	"pallet-recovery/try-runtime",
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
-	"pallet-upgrade-gov/try-runtime",
 	"pallet-wormhole/try-runtime",
 	"sp-runtime/try-runtime",
 ]

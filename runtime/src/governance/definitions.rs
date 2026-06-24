@@ -1,4 +1,4 @@
-use crate::{AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, UNIT};
+use crate::{AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, UNIT};
 use alloc::borrow::Cow;
 use codec::{Decode, Encode, MaxEncodedLen};
 use core::marker::PhantomData;
@@ -89,8 +89,8 @@ fn apply_test_timing(
 	info
 }
 
-// The community/public referenda lane (and its `CommunityTracksInfo`) was removed. Only the
-// tech-collective lane below remains, as a transitional fallback alongside `pallet-upgrade-gov`.
+// The community/public referenda lane (and its `CommunityTracksInfo`) was removed. The
+// tech-collective lane below is the sole governance lane (runtime upgrades + other Root calls).
 pub struct TechCollectiveTracksInfo;
 
 impl TechCollectiveTracksInfo {
@@ -103,7 +103,9 @@ impl TechCollectiveTracksInfo {
 			name: str_array("tech_collective_members"),
 			max_deciding: 1,
 			decision_deposit: 1000 * UNIT,
-			prepare_period: 20,
+			// Advance-notice window before deciding starts. Raised from 4 min to give the collective
+			// (and observers) visibility of a pending Root proposal before voting can conclude.
+			prepare_period: 2 * HOURS,
 			decision_period: DAYS,
 			confirm_period: DAYS,
 			min_enactment_period: DAYS,
@@ -139,20 +141,15 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
 	}
 
 	fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
-		// Check for system origins first
-		if let Some(system_origin) = id.as_system_ref() {
-			match system_origin {
-				frame_system::RawOrigin::Root => return Ok(0), // Root can use track 0
-				frame_system::RawOrigin::None => return Err(()), // F-04 fix: None rejected
-				_ => {},
-			}
+		// #91247/#91270: only a `Root` proposal origin is accepted. A referendum's `proposal_origin`
+		// is stored and dispatched verbatim on approval, so accepting `Signed(_)` here would let a
+		// passed referendum execute calls as an arbitrary account (impersonation) and route Root-
+		// level dispatch through this single low-threshold track. The tech lane exists solely to
+		// authorize Root governance (e.g. runtime upgrades); members submit via `SubmitOrigin`.
+		match id.as_system_ref() {
+			Some(frame_system::RawOrigin::Root) => Ok(0),
+			_ => Err(()),
 		}
-
-		// Signed members use track 0 (same as Root)
-		if let Some(_signer) = id.as_signed() {
-			return Ok(0);
-		}
-		Err(())
 	}
 }
 

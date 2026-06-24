@@ -262,10 +262,4 @@ mod runtime {
 
 	#[runtime::pallet_index(21)]
 	pub type ZkTree = pallet_zk_tree;
-
-	// Minimal runtime-upgrade governance: M-of-N member approval + timelock. Coexists with the
-	// tech-collective referenda lane during the transition; that lane is removed once upgrades
-	// via this pallet are proven.
-	#[runtime::pallet_index(22)]
-	pub type UpgradeGov = pallet_upgrade_gov;
 }

@@ -208,14 +208,6 @@ impl pallet_balances::Config for Runtime {
 	type DoneSlashHandler = ();
 }
 
-// Minimal runtime-upgrade governance. Replaces the public/token-weighted community lane.
-impl pallet_upgrade_gov::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type MaxMembers = ConstU32<13>;
-	type MaxProposals = ConstU32<20>;
-	type WeightInfo = pallet_upgrade_gov::weights::SubstrateWeight<Runtime>;
-}
-
 parameter_types! {
 	pub const PreimageBaseDeposit: Balance = UNIT;
 	pub const PreimageByteDeposit: Balance = MICRO_UNIT;
@@ -238,7 +230,8 @@ parameter_types! {
 	pub const ReferendumMaxProposals: u32 = 100;
 	// Submission deposit for referenda
 	pub const ReferendumSubmissionDeposit: Balance = 100 * UNIT;
-	// Undeciding timeout (90 days)
+	// Undeciding timeout (45 days): a submitted referendum that never receives a decision deposit
+	// (or never gets a free deciding slot) is rejected as TimedOut after this long.
 	pub const UndecidingTimeout: BlockNumber = 45 * DAYS;
 	pub const AlarmInterval: BlockNumber = 1;
 }
