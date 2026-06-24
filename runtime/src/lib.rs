@@ -228,14 +228,14 @@ mod runtime {
 	#[runtime::pallet_index(9)]
 	pub type Utility = pallet_utility;
 
-	#[runtime::pallet_index(10)]
-	pub type Referenda = pallet_referenda;
+	// Index 10 was `pallet_referenda` (community referenda, removed). Kept vacant for index
+	// stability.
 
 	#[runtime::pallet_index(11)]
 	pub type ReversibleTransfers = pallet_reversible_transfers;
 
-	#[runtime::pallet_index(12)]
-	pub type ConvictionVoting = pallet_conviction_voting;
+	// Index 12 was `pallet_conviction_voting` (removed with community referenda). Kept vacant for
+	// index stability.
 
 	#[runtime::pallet_index(13)]
 	pub type TechCollective = pallet_ranked_collective;

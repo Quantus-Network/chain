@@ -1,6 +1,5 @@
 use crate::{
-	AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT,
-	UNIT,
+	AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, MICRO_UNIT, UNIT,
 };
 use alloc::borrow::Cow;
 use codec::{Decode, Encode, EncodeLike, MaxEncodedLen};
@@ -16,7 +15,6 @@ use frame_support::{
 };
 use lazy_static::lazy_static;
 use pallet_ranked_collective::Rank;
-use pallet_referenda::Track;
 use sp_core::crypto::AccountId32;
 use sp_runtime::{
 	str_array,
@@ -94,70 +92,8 @@ fn apply_test_timing(
 	info
 }
 
-// Define tracks for referenda
-pub struct CommunityTracksInfo;
-
-impl CommunityTracksInfo {
-	/// Creates the base track configurations with production values.
-	/// Only one track (Signed) - RawOrigin::None removed to fix F-04 (inherent-only call
-	/// vulnerability).
-	fn create_community_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] {
-		let info = pallet_referenda::TrackInfo {
-			name: str_array("signed"),
-			max_deciding: 5,
-			decision_deposit: 500_u128 * UNIT,
-			prepare_period: 12 * HOURS,
-			decision_period: 7 * DAYS,
-			confirm_period: 12 * HOURS,
-			min_enactment_period: DAYS,
-			min_approval: pallet_referenda::Curve::LinearDecreasing {
-				length: Perbill::from_percent(100),
-				floor: Perbill::from_percent(55),
-				ceil: Perbill::from_percent(70),
-			},
-			min_support: pallet_referenda::Curve::LinearDecreasing {
-				length: Perbill::from_percent(100),
-				floor: Perbill::from_percent(5),
-				ceil: Perbill::from_percent(25),
-			},
-		};
-		#[cfg(feature = "fast-governance")]
-		let info = apply_test_timing(info);
-		[pallet_referenda::Track { id: 0, info }]
-	}
-}
-
-impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo {
-	type Id = u16;
-	type RuntimeOrigin = <RuntimeOrigin as frame_support::traits::OriginTrait>::PalletsOrigin;
-
-	fn tracks(
-	) -> impl Iterator<Item = alloc::borrow::Cow<'static, Track<Self::Id, Balance, BlockNumber>>> {
-		lazy_static! {
-			static ref TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] =
-				CommunityTracksInfo::create_community_tracks();
-		}
-		TRACKS.iter().map(Cow::Borrowed)
-	}
-
-	fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
-		// RawOrigin::None rejected - F-04 fix (inherent-only call vulnerability)
-		if let Some(system_origin) = id.as_system_ref() {
-			match system_origin {
-				frame_system::RawOrigin::None => return Err(()),
-				frame_system::RawOrigin::Root => return Ok(0),
-				_ => {},
-			}
-		}
-
-		// Signed users use track 0
-		if let Some(_signer) = id.as_signed() {
-			return Ok(0);
-		}
-
-		Err(())
-	}
-}
+// CommunityTracksInfo removed - community referenda disabled due to security vulnerability
+// F-91247/91270
 
 pub struct TechCollectiveTracksInfo;
 
