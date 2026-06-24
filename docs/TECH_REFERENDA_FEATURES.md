@@ -47,6 +47,7 @@ Referenda's `Tally = pallet_ranked_collective::TallyOf<Runtime>` and
 | `exchange_member` | `NeverEnsureOrigin` → **disabled** | Account swap unreachable |
 | `vote(poll, aye)` | member | Rank-weighted aye/nay; re-votable while Ongoing |
 | `cleanup_poll` | signed | GC vote records after a poll ends |
+| `remove_vote_for_non_member` | **permissionless** | Clear a removed member's stale vote from an Ongoing poll's tally (#91265) |
 
 ### `TechReferenda` (referenda `Instance1`)
 | Call | Origin | Notes |
@@ -77,7 +78,7 @@ pub struct Geometric;   // votes = (r+1)(r+2)/2      (1,3,6,10,15,...) triangula
 
 Excess rank = member rank − the track's minimum rank:
 
-```761:764:pallets/ranked-collective/src/lib.rs
+```836:839:pallets/ranked-collective/src/lib.rs
 fn rank_to_votes(rank: Rank, min: Rank) -> Result<Votes, DispatchError> {
 	let excess = rank.checked_sub(min).ok_or(Error::<T, I>::RankTooLow)?;
 	Ok(T::VoteWeight::convert(excess))
