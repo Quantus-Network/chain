@@ -1,0 +1,59 @@
+[package]
+authors.workspace = true
+description = "FRAME executives engine"
+edition.workspace = true
+homepage.workspace = true
+license = "Apache-2.0"
+name = "frame-executive"
+readme = "README.md"
+repository.workspace = true
+version = "45.0.1"
+
+# Vendored upstream FRAME crate.
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+aquamarine.workspace = true
+codec = { features = ["derive"], workspace = true }
+frame-support.workspace = true
+frame-system.workspace = true
+frame-try-runtime = { optional = true, workspace = true }
+log.workspace = true
+scale-info = { features = ["derive"], workspace = true }
+sp-core.workspace = true
+sp-io.workspace = true
+sp-runtime.workspace = true
+sp-tracing.workspace = true
+
+[dev-dependencies]
+array-bytes = { workspace = true, default-features = true }
+pallet-balances = { workspace = true, default-features = true }
+pallet-transaction-payment = { workspace = true, default-features = true }
+qp-header = { workspace = true, default-features = true }
+sp-inherents = { workspace = true, default-features = true }
+sp-version = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"frame-support/experimental",
+	"frame-support/std",
+	"frame-system/std",
+	"frame-try-runtime/std",
+	"log/std",
+	"scale-info/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-runtime/std",
+	"sp-tracing/std",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"frame-try-runtime/try-runtime",
+	"sp-runtime/try-runtime",
+]
+with-tracing = ["sp-tracing/with-tracing"]

@@ -1,0 +1,41 @@
+[package]
+authors = ["Parity Technologies <admin@parity.io>"]
+description = "Metadata types for Substrate runtimes"
+edition = "2021"
+homepage = "https://substrate.dev"
+license = "Apache-2.0"
+name = "frame-metadata"
+readme = "README.md"
+repository = "https://github.com/paritytech/frame-metadata/"
+version = "23.0.1"
+
+# Vendored upstream FRAME crate.
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+cfg-if.workspace = true
+codec = { features = ["derive"], workspace = true }
+scale-info = { optional = true, features = ["derive"], workspace = true }
+serde = { optional = true, features = ["derive"], workspace = true, default-features = false }
+
+[features]
+current = ["scale-info"]
+decode = ["scale-info/decode"]
+default = ["current", "std"]
+legacy = []
+serde_full = [
+	"codec/serde",
+	"scale-info/serde",
+	"serde",
+	"serde/alloc",
+]
+std = [
+	"codec/std",
+	"decode",
+	"scale-info/std",
+	"serde/std",
+	"serde_full",
+]
+unstable = ["current"]

@@ -49,7 +49,7 @@ pallet-zk-tree.workspace = true
 primitive-types.workspace = true
 qp-dilithium-crypto.workspace = true
 qp-header = { workspace = true, features = ["serde"] }
-qp-high-security = { path = "../primitives/high-security", default-features = false }
+qp-high-security.workspace = true
 qp-scheduler.workspace = true
 qp-wormhole.workspace = true
 scale-info = { features = ["derive", "serde"], workspace = true }

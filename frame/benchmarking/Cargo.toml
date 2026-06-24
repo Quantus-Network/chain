@@ -1,0 +1,68 @@
+[package]
+authors.workspace = true
+description = "Macro for benchmarking a FRAME runtime."
+edition.workspace = true
+homepage.workspace = true
+license = "Apache-2.0"
+name = "frame-benchmarking"
+readme = "README.md"
+repository.workspace = true
+version = "45.0.3"
+
+# Vendored upstream FRAME crate.
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec.workspace = true
+frame-support.workspace = true
+frame-support-procedural.workspace = true
+frame-system.workspace = true
+linregress = { optional = true, workspace = true }
+log.workspace = true
+paste = { workspace = true, default-features = true }
+scale-info = { features = ["derive"], workspace = true }
+serde = { optional = true, workspace = true, default-features = true }
+sp-api.workspace = true
+sp-application-crypto.workspace = true
+sp-core.workspace = true
+sp-io.workspace = true
+sp-runtime.workspace = true
+sp-runtime-interface.workspace = true
+sp-storage.workspace = true
+static_assertions = { workspace = true, default-features = true }
+
+[dev-dependencies]
+array-bytes = { workspace = true, default-features = true }
+rusty-fork.workspace = true
+sc-client-db = { workspace = true, default-features = false }
+sp-externalities = { workspace = true, default-features = true }
+sp-io = { workspace = true, default-features = true }
+sp-keystore = { workspace = true, default-features = true }
+sp-state-machine = { workspace = true, default-features = false }
+
+[features]
+default = ["std"]
+runtime-benchmarks = [
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
+]
+std = [
+	"codec/std",
+	"frame-support-procedural/std",
+	"frame-support/std",
+	"frame-system/std",
+	"linregress",
+	"log/std",
+	"scale-info/std",
+	"serde",
+	"sp-api/std",
+	"sp-application-crypto/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-runtime-interface/std",
+	"sp-runtime/std",
+	"sp-storage/std",
+]

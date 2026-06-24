@@ -1,0 +1,57 @@
+[package]
+authors.workspace = true
+description = "Proc macro of Support code for the runtime."
+edition.workspace = true
+homepage.workspace = true
+license = "Apache-2.0"
+name = "frame-support-procedural"
+repository.workspace = true
+version = "36.0.0"
+
+# Vendored upstream FRAME crate: proc macros expand to code that uses
+# expect/unwrap, so we deliberately don't apply the workspace restriction lints.
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lib]
+proc-macro = true
+
+[[example]]
+name = "proc_main"
+path = "examples/proc_main/main.rs"
+
+[dependencies]
+Inflector = "0.11.4"
+cfg-expr = "0.15.8"
+derive-syn-parse = "0.2.0"
+docify.workspace = true
+expander = "2.2.1"
+frame-support-procedural-tools = { workspace = true, default-features = true }
+itertools.workspace = true
+macro_magic = { features = ["proc_support"], version = "0.5.1" }
+proc-macro-warning = { version = "1.84.1", default-features = false }
+proc-macro2 = "1.0.86"
+quote = "1.0.37"
+sp-crypto-hashing.workspace = true
+syn = { version = "2.0.87", features = ["full", "parsing", "visit-mut"] }
+
+[dev-dependencies]
+codec = { features = ["derive", "max-encoded-len"], workspace = true, default-features = true }
+frame-benchmarking = { workspace = true, default-features = true }
+frame-support = { workspace = true, default-features = true }
+frame-system = { workspace = true, default-features = true }
+pretty_assertions.workspace = true
+regex.workspace = true
+scale-info = { features = ["derive"], workspace = true, default-features = true }
+sp-io = { workspace = true, default-features = true }
+sp-metadata-ir = { workspace = true, default-features = true }
+sp-runtime = { features = ["serde"], workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+experimental = []
+no-metadata-docs = []
+std = ["sp-crypto-hashing/std"]
+tuples-128 = []
+tuples-96 = []

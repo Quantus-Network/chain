@@ -2461,6 +2461,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "diff"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
+
+[[package]]
 name = "digest"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3089,9 +3095,8 @@ checksum = "28dd6caf6059519a65843af8fe2a3ae298b14b80179855aeb4adc2c1934ee619"
 [[package]]
 name = "frame-benchmarking"
 version = "45.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f3226faf3dbf5311c1ab352850d680f487f4f675c4590b1c905572b0de611df"
 dependencies = [
+ "array-bytes 6.2.3",
  "frame-support",
  "frame-support-procedural",
  "frame-system",
@@ -3099,14 +3104,19 @@ dependencies = [
  "log",
  "parity-scale-codec",
  "paste",
+ "rusty-fork",
+ "sc-client-db",
  "scale-info",
  "serde",
  "sp-api",
  "sp-application-crypto",
  "sp-core",
+ "sp-externalities",
  "sp-io",
+ "sp-keystore",
  "sp-runtime",
  "sp-runtime-interface",
+ "sp-state-machine",
  "sp-storage",
  "static_assertions",
 ]
@@ -3194,27 +3204,29 @@ dependencies = [
 [[package]]
 name = "frame-executive"
 version = "45.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7110e75b540e49ebf54e368e8117c8bf25109a1eb619890c55715093f1a1e04f"
 dependencies = [
  "aquamarine",
+ "array-bytes 6.2.3",
  "frame-support",
  "frame-system",
  "frame-try-runtime",
  "log",
+ "pallet-balances",
+ "pallet-transaction-payment",
  "parity-scale-codec",
+ "qp-header",
  "scale-info",
  "sp-core",
+ "sp-inherents",
  "sp-io",
  "sp-runtime",
  "sp-tracing",
+ "sp-version",
 ]
 
 [[package]]
 name = "frame-metadata"
 version = "23.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ba5be0edbdb824843a0f9c6f0906ecfc66c5316218d74457003218b24909ed0"
 dependencies = [
  "cfg-if",
  "parity-scale-codec",
@@ -3225,8 +3237,6 @@ dependencies = [
 [[package]]
 name = "frame-metadata-hash-extension"
 version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70b849ff6fbe4e7e238293bf42bacbdcd9aaed4b2d98aec204de6fc221f74638"
 dependencies = [
  "array-bytes 6.2.3",
  "const-hex",
@@ -3252,9 +3262,8 @@ dependencies = [
 [[package]]
 name = "frame-support"
 version = "45.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3ac9c3d0a7e3669bfcd1d549bcbeae941fd0181aea9edc71447f8d785b567de"
 dependencies = [
+ "Inflector",
  "aquamarine",
  "array-bytes 6.2.3",
  "binary-merkle-tree",
@@ -3263,18 +3272,21 @@ dependencies = [
  "environmental",
  "frame-metadata",
  "frame-support-procedural",
+ "frame-system",
  "impl-trait-for-tuples",
  "k256",
  "log",
  "macro_magic",
  "parity-scale-codec",
  "paste",
+ "pretty_assertions",
  "scale-info",
  "serde",
  "serde_json",
  "sp-api",
  "sp-arithmetic",
  "sp-core",
+ "sp-crypto-hashing",
  "sp-crypto-hashing-proc-macro",
  "sp-debug-derive",
  "sp-genesis-builder",
@@ -3285,6 +3297,7 @@ dependencies = [
  "sp-staking",
  "sp-state-machine",
  "sp-std",
+ "sp-timestamp",
  "sp-tracing",
  "sp-trie",
  "sp-weights",
@@ -3294,29 +3307,35 @@ dependencies = [
 [[package]]
 name = "frame-support-procedural"
 version = "36.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "916d7474058f97fe1d6fc66c43c9891eeaed47e694cdd1aba8ec0f551cabca27"
 dependencies = [
  "Inflector",
  "cfg-expr",
  "derive-syn-parse",
  "docify",
  "expander",
+ "frame-benchmarking",
+ "frame-support",
  "frame-support-procedural-tools",
+ "frame-system",
  "itertools 0.11.0",
  "macro_magic",
+ "parity-scale-codec",
+ "pretty_assertions",
  "proc-macro-warning",
  "proc-macro2",
  "quote",
+ "regex",
+ "scale-info",
  "sp-crypto-hashing",
+ "sp-io",
+ "sp-metadata-ir",
+ "sp-runtime",
  "syn 2.0.106",
 ]
 
 [[package]]
 name = "frame-support-procedural-tools"
 version = "13.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81a088fd6fda5f53ff0c17fc7551ce8bd0ead14ba742228443c8196296a7369b"
 dependencies = [
  "frame-support-procedural-tools-derive",
  "proc-macro-crate 3.4.0",
@@ -3328,8 +3347,6 @@ dependencies = [
 [[package]]
 name = "frame-support-procedural-tools-derive"
 version = "12.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed971c6435503a099bdac99fe4c5bea08981709e5b5a0a8535a1856f48561191"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3361,8 +3378,6 @@ dependencies = [
 [[package]]
 name = "frame-system-benchmarking"
 version = "45.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64ef073183476960babf0c7e5a169375c9698709b407c7beedb6c2dc8690d73f"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -3376,8 +3391,6 @@ dependencies = [
 [[package]]
 name = "frame-system-rpc-runtime-api"
 version = "40.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8405cc4c9564cd87521065b7607a85a2a56bfab2c6f12afdf3df32c4da66f804"
 dependencies = [
  "docify",
  "parity-scale-codec",
@@ -3387,8 +3400,6 @@ dependencies = [
 [[package]]
 name = "frame-try-runtime"
 version = "0.51.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af1745c6b30778a7c5aa682b87e59d6c0f6f1b00087cb4861f7ecd22fcda17f0"
 dependencies = [
  "frame-support",
  "parity-scale-codec",
@@ -7693,6 +7704,16 @@ dependencies = [
  "either",
  "ipnet",
  "num-traits",
+]
+
+[[package]]
+name = "pretty_assertions"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ae130e2f271fbc2ac3a40fb1d07180839cdbbe443c7a27e1e3c13c5cac0116d"
+dependencies = [
+ "diff",
+ "yansi",
 ]
 
 [[package]]
@@ -14580,6 +14601,12 @@ dependencies = [
  "static_assertions",
  "web-time",
 ]
+
+[[package]]
+name = "yansi"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "yap"
