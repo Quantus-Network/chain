@@ -684,3 +684,118 @@ fn max_member_count_works() {
 		assert_eq!(member_count(12), 2);
 	});
 }
+
+#[test]
+fn remove_vote_for_non_member_works() {
+	ExtBuilder::default().build_and_execute(|| {
+		// Setup: Add members and have them vote
+		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::promote_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::add_member(RuntimeOrigin::root(), 2));
+		assert_ok!(Club::promote_member(RuntimeOrigin::root(), 2));
+
+		// Both members vote on poll 3
+		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, true));
+		assert_ok!(Club::vote(RuntimeOrigin::signed(2), 3, false));
+		assert_eq!(tally(3), Tally::from_parts(1, 1, 1));
+
+		// Remove member 1 from the collective
+		assert_ok!(Club::remove_member(RuntimeOrigin::root(), 1, 1));
+
+		// Tally still shows the old vote (this is the bug we're fixing)
+		assert_eq!(tally(3), Tally::from_parts(1, 1, 1));
+
+		// Now anyone can clean up the stale vote
+		assert_ok!(Club::remove_vote_for_non_member(RuntimeOrigin::signed(99), 1, 3));
+
+		// Tally is now corrected - member 1's aye vote is removed
+		assert_eq!(tally(3), Tally::from_parts(0, 0, 1));
+
+		// Verify the vote is actually removed from storage
+		assert!(Voting::<Test>::get(3, 1).is_none());
+	});
+}
+
+#[test]
+fn remove_vote_for_non_member_fails_if_still_member() {
+	ExtBuilder::default().build_and_execute(|| {
+		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::promote_member(RuntimeOrigin::root(), 1));
+
+		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, true));
+		assert_eq!(tally(3), Tally::from_parts(1, 1, 0));
+
+		// Cannot remove vote of a current member
+		assert_noop!(
+			Club::remove_vote_for_non_member(RuntimeOrigin::signed(99), 1, 3),
+			Error::<Test>::StillMember
+		);
+
+		// Tally unchanged
+		assert_eq!(tally(3), Tally::from_parts(1, 1, 0));
+	});
+}
+
+#[test]
+fn remove_vote_for_non_member_fails_if_not_voted() {
+	ExtBuilder::default().build_and_execute(|| {
+		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::promote_member(RuntimeOrigin::root(), 1));
+
+		// Member votes, then is removed
+		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, true));
+		assert_ok!(Club::remove_member(RuntimeOrigin::root(), 1, 1));
+
+		// Cannot remove vote for account that never voted
+		assert_noop!(
+			Club::remove_vote_for_non_member(RuntimeOrigin::signed(99), 2, 3),
+			Error::<Test>::NotVoted
+		);
+	});
+}
+
+#[test]
+fn remove_vote_for_non_member_fails_on_completed_poll() {
+	ExtBuilder::default().build_and_execute(|| {
+		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::promote_member(RuntimeOrigin::root(), 1));
+
+		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, true));
+		assert_ok!(Club::remove_member(RuntimeOrigin::root(), 1, 1));
+
+		// Complete the poll
+		Polls::set(
+			vec![(1, Completed(1, true)), (2, Completed(2, false)), (3, Completed(3, true))]
+				.into_iter()
+				.collect(),
+		);
+
+		// Cannot remove vote from completed poll
+		assert_noop!(
+			Club::remove_vote_for_non_member(RuntimeOrigin::signed(99), 1, 3),
+			Error::<Test>::NotPolling
+		);
+	});
+}
+
+#[test]
+fn remove_vote_for_non_member_removes_nay_vote() {
+	ExtBuilder::default().build_and_execute(|| {
+		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::promote_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::promote_member(RuntimeOrigin::root(), 1)); // rank 2
+
+		// Vote nay with higher rank (more vote weight)
+		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, false));
+		assert_eq!(tally(3), Tally::from_parts(0, 0, 3)); // 3 nay votes due to rank
+
+		// Remove member
+		assert_ok!(Club::remove_member(RuntimeOrigin::root(), 1, 2));
+
+		// Clean up stale nay vote
+		assert_ok!(Club::remove_vote_for_non_member(RuntimeOrigin::signed(99), 1, 3));
+
+		// Tally corrected
+		assert_eq!(tally(3), Tally::from_parts(0, 0, 0));
+	});
+}
