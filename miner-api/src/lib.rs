@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-/// Maximum message size (16 MB) to prevent memory exhaustion attacks.
-pub const MAX_MESSAGE_SIZE: u32 = 16 * 1024 * 1024;
+/// Maximum message size (1 KB) to prevent memory exhaustion attacks.
+///
+/// Real MinerMessage payloads are only a few hundred bytes (Ready, NewJob, JobResult).
+/// 1 KB provides sufficient headroom while minimizing the amplification attack surface.
+pub const MAX_MESSAGE_SIZE: u32 = 1024;
 
 /// Status codes returned in API responses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
