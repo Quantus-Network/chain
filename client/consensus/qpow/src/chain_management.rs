@@ -270,8 +270,8 @@ where
 	log::debug!("✓ Finalized block #{:?} ({:?})", finalize_number, finalize_hash);
 
 	// Clean up achieved work entries for blocks that are now below the finalized tip.
-	// Only clean up if finalization actually advanced (last_finalized_after > last_finalized_before),
-	// and only delete entries strictly below the new finalized height.
+	// Only clean up if finalization actually advanced (last_finalized_after >
+	// last_finalized_before), and only delete entries strictly below the new finalized height.
 	// The finalized tip's entry must be preserved as it's the parent work source for children.
 	if last_finalized_after > last_finalized_before && last_finalized_before > Zero::zero() {
 		if let Ok(Some(old_finalized_hash)) = client.hash(last_finalized_before) {
