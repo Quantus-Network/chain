@@ -77,12 +77,12 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
-			let initial_difficulty = T::InitialDifficulty::get();
-
-			<CurrentDifficulty<T>>::put(initial_difficulty);
+			// Use the genesis config value, not the runtime constant.
+			// This allows chain-spec overrides of initial difficulty.
+			<CurrentDifficulty<T>>::put(self.initial_difficulty);
 
 			log::info!(target: "qpow", "Genesis: Set initial difficulty to {:x}",
-				initial_difficulty.low_u64());
+				self.initial_difficulty.low_u64());
 		}
 	}
 
