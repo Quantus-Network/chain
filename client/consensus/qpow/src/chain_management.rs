@@ -163,8 +163,10 @@ pub fn is_heavier<N: PartialOrd>(
 /// This should be called synchronously after each block import to ensure finalization
 /// happens before the next block is imported.
 ///
-/// Also cleans up achieved work entries for blocks that are now deep enough in the
-/// finalized chain that they can never be involved in fork choice again.
+/// Cleans up achieved work entries for canonical blocks that are now finalized.
+/// Note: Non-canonical fork blocks are not cleaned up since we cannot enumerate them
+/// by height. This is acceptable because fork blocks require valid PoW to create,
+/// making accumulation attacks expensive, and the entries are small (~96 bytes each).
 pub fn finalize_canonical_at_depth<B, C, BE>(client: &C) -> Result<(), ConsensusError>
 where
 	B: BlockT<Hash = H256>,
