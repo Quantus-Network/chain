@@ -438,16 +438,21 @@ pub mod pallet {
 			ensure!(threshold > 0, Error::<T>::ThresholdZero);
 			ensure!(signers.len() >= 2, Error::<T>::NotEnoughSigners);
 
+			// SECURITY: Bound raw input size BEFORE normalization to prevent DoS.
+			// An attacker could submit a huge duplicate-heavy vector; clone/sort/dedup
+			// is O(n log n) on the raw length, but benchmarks only cover MaxSigners.
+			// Reject oversized inputs before doing any expensive work.
+			ensure!(
+				signers.len() <= T::MaxSigners::get() as usize,
+				Error::<T>::TooManySigners
+			);
+
 			// Normalize signers: sort and deduplicate (single authoritative place)
 			let normalized_signers = Self::normalize_signers(&signers);
 
 			// Validate against normalized count (after dedup) - must have at least 2 unique signers
 			ensure!(normalized_signers.len() >= 2, Error::<T>::NotEnoughSigners);
 			ensure!(threshold <= normalized_signers.len() as u32, Error::<T>::ThresholdTooHigh);
-			ensure!(
-				normalized_signers.len() <= T::MaxSigners::get() as usize,
-				Error::<T>::TooManySigners
-			);
 
 			// Generate deterministic multisig address from normalized signers
 			let multisig_address =
