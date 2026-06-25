@@ -777,17 +777,24 @@ pub mod pallet {
 					}
 				})?;
 
-			// Calculate actual weight based on real call size
+			// Calculate actual weight based on real call size - use this for ALL paths
+			// after proposal is loaded, since reading the proposal incurs size-dependent cost.
 			let actual_call_size = proposal.call.len() as u32;
 			let actual_weight = <T as Config>::WeightInfo::approve(actual_call_size);
 
 			let current_block = frame_system::Pallet::<T>::block_number();
 			if current_block > proposal.expiry {
-				return Self::err_with_weight(Error::<T>::ProposalExpired, 2);
+				return Err(DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes },
+					error: Error::<T>::ProposalExpired.into(),
+				});
 			}
 
 			if proposal.approvals.contains(&approver) {
-				return Self::err_with_weight(Error::<T>::AlreadyApproved, 2);
+				return Err(DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes },
+					error: Error::<T>::AlreadyApproved.into(),
+				});
 			}
 
 			// Add approval
@@ -856,19 +863,28 @@ pub mod pallet {
 					}
 				})?;
 
+			// Calculate actual weight based on real call size - use for ALL paths
+			// after proposal is loaded, since reading the proposal incurs size-dependent cost.
+			let call_size = proposal.call.len() as u32;
+			let actual_weight = <T as Config>::WeightInfo::cancel(call_size);
+
 			// Check if caller is the proposer (1 read already performed)
 			if canceller != proposal.proposer {
-				return Self::err_with_weight(Error::<T>::NotProposer, 1);
+				return Err(DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes },
+					error: Error::<T>::NotProposer.into(),
+				});
 			}
 
 			// Check if proposal is cancellable (Active or Approved)
 			if proposal.status != ProposalStatus::Active &&
 				proposal.status != ProposalStatus::Approved
 			{
-				return Self::err_with_weight(Error::<T>::ProposalNotActive, 1);
+				return Err(DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes },
+					error: Error::<T>::ProposalNotActive.into(),
+				});
 			}
-
-			let call_size = proposal.call.len() as u32;
 
 			// Remove proposal from storage and return deposit immediately
 			Self::remove_proposal_and_return_deposit(
@@ -885,7 +901,6 @@ pub mod pallet {
 				proposal_id,
 			});
 
-			let actual_weight = <T as Config>::WeightInfo::cancel(call_size);
 			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 
@@ -935,19 +950,30 @@ pub mod pallet {
 					}
 				})?;
 
+			// Calculate actual weight based on real call size - use for ALL paths
+			// after proposal is loaded, since reading the proposal incurs size-dependent cost.
+			let call_size = proposal.call.len() as u32;
+			let actual_weight = <T as Config>::WeightInfo::remove_expired(call_size);
+
 			// Active or Approved proposals can be removed when expired (Executed/Cancelled
 			// are auto-removed). Approved+expired would otherwise be stuck if proposer
 			// unavailable.
 			if proposal.status != ProposalStatus::Active &&
 				proposal.status != ProposalStatus::Approved
 			{
-				return Self::err_with_weight(Error::<T>::ProposalNotActive, 2);
+				return Err(DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes },
+					error: Error::<T>::ProposalNotActive.into(),
+				});
 			}
 
 			// Check if expired
 			let current_block = frame_system::Pallet::<T>::block_number();
 			if current_block <= proposal.expiry {
-				return Self::err_with_weight(Error::<T>::ProposalNotExpired, 2);
+				return Err(DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes },
+					error: Error::<T>::ProposalNotExpired.into(),
+				});
 			}
 
 			// Remove proposal from storage and return deposit
@@ -966,9 +992,6 @@ pub mod pallet {
 				removed_by: caller,
 			});
 
-			// Return actual weight based on proposal call size
-			let actual_weight =
-				<T as Config>::WeightInfo::remove_expired(proposal.call.len() as u32);
 			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 
@@ -1094,37 +1117,60 @@ pub mod pallet {
 					}
 				})?;
 
+			// Calculate bookkeeping weight based on real call size - use for ALL paths
+			// after proposal is loaded, since reading the proposal incurs size-dependent cost.
+			let call_size = proposal.call.len() as u32;
+			let bookkeeping_weight = <T as Config>::WeightInfo::execute(call_size);
+
 			// Must be Approved status
 			if proposal.status != ProposalStatus::Approved {
-				return Self::err_with_weight(Error::<T>::ProposalNotApproved, 2);
+				return Err(DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo { actual_weight: Some(bookkeeping_weight), pays_fee: Pays::Yes },
+					error: Error::<T>::ProposalNotApproved.into(),
+				});
 			}
 
 			// Must not be expired
 			let current_block = frame_system::Pallet::<T>::block_number();
 			if current_block > proposal.expiry {
-				return Self::err_with_weight(Error::<T>::ProposalExpired, 2);
+				return Err(DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo { actual_weight: Some(bookkeeping_weight), pays_fee: Pays::Yes },
+					error: Error::<T>::ProposalExpired.into(),
+				});
 			}
 
 			// Decode the call
+			// After decode, we've done size-dependent work, so failures should burn full weight.
 			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
-				.map_err(|_| Self::err_with_weight_raw(Error::<T>::InvalidCall, 2))?;
+				.map_err(|_| DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo { actual_weight: None, pays_fee: Pays::Yes },
+					error: Error::<T>::InvalidCall.into(),
+				})?;
 
 			// Re-check call weight at execute time (belt-and-suspenders).
 			// MaxInnerCallWeight could have been lowered via runtime upgrade since propose time.
+			// After decode + get_dispatch_info, don't refund - burn the full reserved weight.
 			let current_call_weight = call.get_dispatch_info().call_weight;
 			let max_inner_weight = T::MaxInnerCallWeight::get();
 			if current_call_weight.any_gt(max_inner_weight) {
-				return Self::err_with_weight(Error::<T>::CallWeightExceedsLimit, 2);
+				return Err(DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo { actual_weight: None, pays_fee: Pays::Yes },
+					error: Error::<T>::CallWeightExceedsLimit.into(),
+				});
 			}
 
 			// Re-check high-security whitelist at execute time.
 			// The multisig's HS status may have changed since the proposal was created,
 			// or the whitelist may have been updated via runtime upgrade.
 			// This prevents bypassing HS restrictions by proposing before enabling HS.
+			// After decode + get_dispatch_info, don't refund - burn the full reserved weight.
 			if T::HighSecurity::is_high_security(&multisig_address) &&
 				!T::HighSecurity::is_whitelisted(&call)
 			{
-				return Self::err_with_weight(Error::<T>::CallNotAllowedForHighSecurityMultisig, 2);
+				return Err(DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo { actual_weight: None, pays_fee: Pays::Yes },
+					error: Error::<T>::CallNotAllowedForHighSecurityMultisig.into(),
+				});
 			}
 
 			// Calculate bookkeeping weight based on call size
