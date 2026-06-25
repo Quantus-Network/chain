@@ -516,10 +516,19 @@ pub mod pallet {
 		/// **For threshold=1:** The proposal is created with `Approved` status immediately
 		/// and can be executed via `execute()` without additional approvals.
 		///
-		/// **Weight:** Charged upfront for worst-case (high-security path with decode).
-		/// Refunded to actual cost on success based on whether HS path was taken.
+		/// **Weight:** Charged upfront includes bookkeeping + MaxInnerCallWeight to cover
+		/// the cost of decoding arbitrary RuntimeCall structures and calling get_dispatch_info().
+		/// On success, refunds based on actual inner call weight. On rejection after decode
+		/// (e.g., CallWeightExceedsLimit, CallNotAllowedForHighSecurityMultisig), the full
+		/// reserved weight is burned to prevent griefing with complex calls that get rejected.
 		#[pallet::call_index(1)]
-		#[pallet::weight(<T as Config>::WeightInfo::propose_high_security(call.len() as u32))]
+		#[pallet::weight({
+			// Bookkeeping weight + MaxInnerCallWeight to cover decode + get_dispatch_info cost.
+			// Structured RuntimeCall decode is O(inner_call_count), not O(bytes), so we must
+			// reserve weight for the worst-case inner call to prevent block time overruns.
+			<T as Config>::WeightInfo::propose_high_security(call.len() as u32)
+				.saturating_add(T::MaxInnerCallWeight::get())
+		})]
 		#[allow(clippy::useless_conversion)]
 		pub fn propose(
 			origin: OriginFor<T>,
@@ -583,11 +592,14 @@ pub mod pallet {
 			// ===== PHASE 3: Decode call (validates call is well-formed for ALL proposals) =====
 			// This catches malformed calls at propose time rather than execute time,
 			// providing consistent error behavior for both HS and non-HS multisigs.
+			// NOTE: Decode cost is O(inner_call_count) for nested calls, not O(bytes).
+			// On decode failure, we burn the full reserved weight to prevent griefing.
 			let decoded_call =
 				<T as Config>::RuntimeCall::decode(&mut &call[..]).map_err(|_| {
 					DispatchErrorWithPostInfo {
 						post_info: PostDispatchInfo {
-							actual_weight: Some(T::DbWeight::get().reads(1)),
+							// Don't refund - decode has been attempted and burned CPU
+							actual_weight: None,
 							pays_fee: Pays::Yes,
 						},
 						error: Error::<T>::InvalidCall.into(),
@@ -599,14 +611,24 @@ pub mod pallet {
 			let call_weight = decoded_call.get_dispatch_info().call_weight;
 			let max_inner_weight = T::MaxInnerCallWeight::get();
 			if call_weight.any_gt(max_inner_weight) {
-				return Self::err_with_weight(Error::<T>::CallWeightExceedsLimit, 1);
+				// Don't refund after decode - the expensive work (decode + get_dispatch_info)
+				// has already been done. Returning None burns the full reserved weight,
+				// preventing griefing with complex calls that get rejected.
+				return Err(DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo { actual_weight: None, pays_fee: Pays::Yes },
+					error: Error::<T>::CallWeightExceedsLimit.into(),
+				});
 			}
 
 			// ===== PHASE 4: High-security whitelist check (if applicable) =====
 			// (additional read: HighSecurityAccounts)
 			let is_high_security = T::HighSecurity::is_high_security(&multisig_address);
 			if is_high_security && !T::HighSecurity::is_whitelisted(&decoded_call) {
-				return Self::err_with_weight(Error::<T>::CallNotAllowedForHighSecurityMultisig, 2);
+				// Don't refund after decode - same reasoning as above.
+				return Err(DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo { actual_weight: None, pays_fee: Pays::Yes },
+					error: Error::<T>::CallNotAllowedForHighSecurityMultisig.into(),
+				});
 			}
 
 			// Calculate dynamic fee based on number of signers
@@ -692,12 +714,14 @@ pub mod pallet {
 				});
 			}
 
-			// Refund weight: HS path was charged upfront, refund if non-HS
-			let actual_weight = if is_high_security {
+			// Calculate actual weight: bookkeeping + actual inner call weight (from get_dispatch_info).
+			// We reserved MaxInnerCallWeight upfront; refund the difference.
+			let bookkeeping_weight = if is_high_security {
 				<T as Config>::WeightInfo::propose_high_security(call_len)
 			} else {
 				<T as Config>::WeightInfo::propose(call_len)
 			};
+			let actual_weight = bookkeeping_weight.saturating_add(call_weight);
 
 			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
