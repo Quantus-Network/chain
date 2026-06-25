@@ -109,7 +109,7 @@ pub mod pallet {
 
 		/// Called at the end of each block to adjust mining difficulty.
 		fn on_finalize(block_number: BlockNumberFor<T>) {
-			let current_difficulty = <CurrentDifficulty<T>>::get();
+			let current_difficulty = Self::get_difficulty();
 			log::debug!(target: "qpow",
 				"📢 QPoW: before submit at block {:?}, current_difficulty={:?}",
 				block_number,
@@ -137,7 +137,10 @@ pub mod pallet {
 		fn adjust_difficulty() {
 			let now = pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>();
 			let last_time = <LastBlockTime<T>>::get();
-			let current_difficulty = <CurrentDifficulty<T>>::get();
+			// Use get_difficulty() to handle zero/missing storage consistently with verification.
+			// This ensures we use InitialDifficulty as the base when storage is unset,
+			// rather than computing from zero which would clamp to min_difficulty.
+			let current_difficulty = Self::get_difficulty();
 			let current_block_number = <frame_system::Pallet<T>>::block_number();
 
 			// Calculate block time (use target for genesis block)
