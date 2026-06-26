@@ -306,9 +306,8 @@ where
 		};
 
 		let free_balance = C::free_balance(who);
-		let new_balance = free_balance
-			.checked_sub(&fee_with_tip)
-			.ok_or(InvalidTransaction::Payment)?;
+		let new_balance =
+			free_balance.checked_sub(&fee_with_tip).ok_or(InvalidTransaction::Payment)?;
 
 		// Mirror the keep-alive check from withdraw_fee: reject if this would kill the account.
 		// An account is "killed" if it was alive (>= ED) and would become dead (< ED).

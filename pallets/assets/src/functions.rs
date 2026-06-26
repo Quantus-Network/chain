@@ -404,7 +404,11 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 
 		// Emit Burned event if we burned a non-zero balance
 		if !burned.is_zero() {
-			Self::deposit_event(Event::Burned { asset_id: id.clone(), owner: who.clone(), balance: burned });
+			Self::deposit_event(Event::Burned {
+				asset_id: id.clone(),
+				owner: who.clone(),
+				balance: burned,
+			});
 		}
 
 		// Executing a hook here is safe, since it is not in a `mutate`.
