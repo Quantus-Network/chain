@@ -1,4 +1,4 @@
-use crate::{mock::*, Config};
+use crate::{mock::*, Config, CurrentDifficulty};
 use frame_support::{pallet_prelude::TypedGet, traits::Hooks};
 use primitive_types::U512;
 use qpow_math::{get_nonce_hash, is_valid_nonce};
@@ -390,5 +390,60 @@ fn test_difficulty_below_min_clips_up() {
 		let result_slow = QPow::calculate_difficulty(U512::from(1u64), 100_000, 1000);
 		assert_eq!(result_fast, min_diff);
 		assert_eq!(result_slow, min_diff);
+	});
+}
+
+/// Regression test for V12 audit fix #2: adjust_difficulty must use get_difficulty()
+/// (which falls back to InitialDifficulty) rather than reading raw storage (which
+/// would return zero if unset, causing difficulty to collapse to min_difficulty).
+#[test]
+fn test_adjust_difficulty_with_zero_storage_uses_initial_difficulty() {
+	new_test_ext().execute_with(|| {
+		let initial_difficulty = <Test as Config>::InitialDifficulty::get();
+		let target_time = <Test as Config>::TargetBlockTime::get();
+
+		// Clear the CurrentDifficulty storage to simulate unset state.
+		// This could happen if genesis wasn't properly initialized or storage was corrupted.
+		CurrentDifficulty::<Test>::kill();
+
+		// Verify storage is indeed zero
+		assert_eq!(CurrentDifficulty::<Test>::get(), U512::zero());
+
+		// But get_difficulty() should return InitialDifficulty, not zero
+		assert_eq!(QPow::get_difficulty(), initial_difficulty);
+
+		// Set up timestamp for block 1
+		pallet_timestamp::Pallet::<Test>::set_timestamp(target_time);
+		System::set_block_number(1);
+
+		// Run on_finalize which calls adjust_difficulty
+		QPow::on_finalize(1);
+
+		// The new difficulty should be based on InitialDifficulty, not zero.
+		// With target_time == observed_time, difficulty should remain close to initial.
+		let new_difficulty = QPow::get_difficulty();
+
+		// Key assertion: difficulty should NOT have collapsed to min_difficulty.
+		// If the bug existed (using raw storage zero), we'd get min_difficulty.
+		let min_difficulty = QPow::get_min_difficulty();
+		assert!(
+			new_difficulty > min_difficulty,
+			"Difficulty collapsed to min! Bug: adjust_difficulty used raw zero storage. \
+			 Expected near {}, got {} (min={})",
+			initial_difficulty.low_u64(),
+			new_difficulty.low_u64(),
+			min_difficulty.low_u64()
+		);
+
+		// Difficulty should be close to initial (within adjustment bounds)
+		// Ethereum-style adjustment is at most ±1/2048 per block
+		let max_change = initial_difficulty / 2048;
+		assert!(
+			new_difficulty >= initial_difficulty.saturating_sub(max_change) &&
+				new_difficulty <= initial_difficulty.saturating_add(max_change),
+			"Difficulty {} not within ±1/2048 of initial {}",
+			new_difficulty.low_u64(),
+			initial_difficulty.low_u64()
+		);
 	});
 }
