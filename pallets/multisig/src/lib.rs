@@ -532,6 +532,10 @@ pub mod pallet {
 			// Bookkeeping weight + MaxInnerCallWeight to cover decode + get_dispatch_info cost.
 			// Structured RuntimeCall decode is O(inner_call_count), not O(bytes), so we must
 			// reserve weight for the worst-case inner call to prevent block time overruns.
+			//
+			// Note: MaxInnerCallWeight is a proxy for decode cost, not exact. Decode cost ≠
+			// dispatch weight, but they're correlated (complex calls = more variants to decode).
+			// This is intentionally conservative: over-reservation is refunded on success.
 			<T as Config>::WeightInfo::propose_high_security(call.len() as u32)
 				.saturating_add(T::MaxInnerCallWeight::get())
 		})]
