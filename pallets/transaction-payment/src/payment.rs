@@ -305,20 +305,9 @@ where
 			WithdrawReasons::TRANSACTION_PAYMENT | WithdrawReasons::TIP
 		};
 
-		let free_balance = C::free_balance(who);
-		let new_balance =
-			free_balance.checked_sub(&fee_with_tip).ok_or(InvalidTransaction::Payment)?;
-
-		// Mirror the keep-alive check from withdraw_fee: reject if this would kill the account.
-		// An account is "killed" if it was alive (>= ED) and would become dead (< ED).
-		// This prevents transactions from passing pool validation but failing during prepare.
-		let ed = C::minimum_balance();
-		let would_be_dead = new_balance < ed;
-		let would_kill = would_be_dead && free_balance >= ed;
-		if would_kill {
-			return Err(InvalidTransaction::Payment.into());
-		}
-
+		let new_balance = C::free_balance(who)
+			.checked_sub(&fee_with_tip)
+			.ok_or(InvalidTransaction::Payment)?;
 		C::ensure_can_withdraw(who, fee_with_tip, withdraw_reason, new_balance)
 			.map(|_| ())
 			.map_err(|_| InvalidTransaction::Payment.into())
