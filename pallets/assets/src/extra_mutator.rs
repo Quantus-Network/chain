@@ -34,7 +34,11 @@ pub struct ExtraMutator<T: Config<I>, I: 'static = ()> {
 
 impl<T: Config<I>, I: 'static> Drop for ExtraMutator<T, I> {
 	fn drop(&mut self) {
-		debug_assert!(self.commit().is_ok(), "attempt to write to non-existent asset account");
+		// Always commit pending changes, not just in debug builds.
+		// The commit() call was previously inside debug_assert!, which meant
+		// release builds would silently discard uncommitted sidecar mutations.
+		let result = self.commit();
+		debug_assert!(result.is_ok(), "attempt to write to non-existent asset account");
 	}
 }
 
