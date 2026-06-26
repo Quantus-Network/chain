@@ -1032,8 +1032,20 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		// Execute hook outside of `mutate`.
 		if let Some(Remove) = owner_died {
 			T::Freezer::died(id.clone(), owner);
-			T::Holder::died(id, owner);
+			T::Holder::died(id.clone(), owner);
 		}
+
+		// Emit TransferredApproved to identify the delegate responsible for the spend.
+		// Note: transfer_and_die already emits Event::Transferred, but that event doesn't
+		// include the delegate. This event allows indexers/monitoring to track delegated activity.
+		Self::deposit_event(Event::TransferredApproved {
+			asset_id: id,
+			owner: owner.clone(),
+			delegate: delegate.clone(),
+			destination: destination.clone(),
+			amount,
+		});
+
 		Ok(())
 	}
 
