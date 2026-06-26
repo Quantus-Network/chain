@@ -83,7 +83,7 @@ pub fn mine_range(
 			return Some((nonce_bytes, hash));
 		}
 
-		nonce = nonce.saturating_add(U512::from(1u64));
+		nonce = nonce.overflowing_add(U512::from(1u64)).0;
 	}
 
 	None

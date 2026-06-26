@@ -212,12 +212,7 @@ async fn handle_external_mining(
 			},
 		};
 
-		// Verify the seal before attempting to submit (submit consumes the build)
-		if !worker_handle.verify_seal(&seal) {
-			continue;
-		}
-
-		// Seal is valid, submit it
+		// Submit the seal (submit verifies atomically before consuming the build)
 		if worker_handle.submit(seal.clone()).await {
 			let mining_time = mining_start_time.elapsed().as_secs();
 			log::info!(
@@ -229,9 +224,9 @@ async fn handle_external_mining(
 			return ExternalMiningOutcome::Success;
 		}
 
-		// Submit failed for some other reason (should be rare after verify_seal passed)
+		// Submit failed (seal invalid or import error)
 		log::warn!(
-			"⛏️ Failed to submit verified seal from miner {}, continuing to wait (job {})",
+			"⛏️ Failed to submit seal from miner {}, continuing to wait (job {})",
 			miner_id,
 			job_id
 		);
