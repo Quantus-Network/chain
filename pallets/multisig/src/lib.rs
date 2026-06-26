@@ -442,10 +442,7 @@ pub mod pallet {
 			// An attacker could submit a huge duplicate-heavy vector; clone/sort/dedup
 			// is O(n log n) on the raw length, but benchmarks only cover MaxSigners.
 			// Reject oversized inputs before doing any expensive work.
-			ensure!(
-				signers.len() <= T::MaxSigners::get() as usize,
-				Error::<T>::TooManySigners
-			);
+			ensure!(signers.len() <= T::MaxSigners::get() as usize, Error::<T>::TooManySigners);
 
 			// Normalize signers: sort and deduplicate (single authoritative place)
 			let normalized_signers = Self::normalize_signers(&signers);
@@ -719,8 +716,8 @@ pub mod pallet {
 				});
 			}
 
-			// Calculate actual weight: bookkeeping + actual inner call weight (from get_dispatch_info).
-			// We reserved MaxInnerCallWeight upfront; refund the difference.
+			// Calculate actual weight: bookkeeping + actual inner call weight (from
+			// get_dispatch_info). We reserved MaxInnerCallWeight upfront; refund the difference.
 			let bookkeeping_weight = if is_high_security {
 				<T as Config>::WeightInfo::propose_high_security(call_len)
 			} else {
@@ -785,14 +782,20 @@ pub mod pallet {
 			let current_block = frame_system::Pallet::<T>::block_number();
 			if current_block > proposal.expiry {
 				return Err(DispatchErrorWithPostInfo {
-					post_info: PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes },
+					post_info: PostDispatchInfo {
+						actual_weight: Some(actual_weight),
+						pays_fee: Pays::Yes,
+					},
 					error: Error::<T>::ProposalExpired.into(),
 				});
 			}
 
 			if proposal.approvals.contains(&approver) {
 				return Err(DispatchErrorWithPostInfo {
-					post_info: PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes },
+					post_info: PostDispatchInfo {
+						actual_weight: Some(actual_weight),
+						pays_fee: Pays::Yes,
+					},
 					error: Error::<T>::AlreadyApproved.into(),
 				});
 			}
@@ -871,7 +874,10 @@ pub mod pallet {
 			// Check if caller is the proposer (1 read already performed)
 			if canceller != proposal.proposer {
 				return Err(DispatchErrorWithPostInfo {
-					post_info: PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes },
+					post_info: PostDispatchInfo {
+						actual_weight: Some(actual_weight),
+						pays_fee: Pays::Yes,
+					},
 					error: Error::<T>::NotProposer.into(),
 				});
 			}
@@ -881,7 +887,10 @@ pub mod pallet {
 				proposal.status != ProposalStatus::Approved
 			{
 				return Err(DispatchErrorWithPostInfo {
-					post_info: PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes },
+					post_info: PostDispatchInfo {
+						actual_weight: Some(actual_weight),
+						pays_fee: Pays::Yes,
+					},
 					error: Error::<T>::ProposalNotActive.into(),
 				});
 			}
@@ -962,7 +971,10 @@ pub mod pallet {
 				proposal.status != ProposalStatus::Approved
 			{
 				return Err(DispatchErrorWithPostInfo {
-					post_info: PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes },
+					post_info: PostDispatchInfo {
+						actual_weight: Some(actual_weight),
+						pays_fee: Pays::Yes,
+					},
 					error: Error::<T>::ProposalNotActive.into(),
 				});
 			}
@@ -971,7 +983,10 @@ pub mod pallet {
 			let current_block = frame_system::Pallet::<T>::block_number();
 			if current_block <= proposal.expiry {
 				return Err(DispatchErrorWithPostInfo {
-					post_info: PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes },
+					post_info: PostDispatchInfo {
+						actual_weight: Some(actual_weight),
+						pays_fee: Pays::Yes,
+					},
 					error: Error::<T>::ProposalNotExpired.into(),
 				});
 			}
@@ -1125,7 +1140,10 @@ pub mod pallet {
 			// Must be Approved status
 			if proposal.status != ProposalStatus::Approved {
 				return Err(DispatchErrorWithPostInfo {
-					post_info: PostDispatchInfo { actual_weight: Some(bookkeeping_weight), pays_fee: Pays::Yes },
+					post_info: PostDispatchInfo {
+						actual_weight: Some(bookkeeping_weight),
+						pays_fee: Pays::Yes,
+					},
 					error: Error::<T>::ProposalNotApproved.into(),
 				});
 			}
@@ -1134,17 +1152,22 @@ pub mod pallet {
 			let current_block = frame_system::Pallet::<T>::block_number();
 			if current_block > proposal.expiry {
 				return Err(DispatchErrorWithPostInfo {
-					post_info: PostDispatchInfo { actual_weight: Some(bookkeeping_weight), pays_fee: Pays::Yes },
+					post_info: PostDispatchInfo {
+						actual_weight: Some(bookkeeping_weight),
+						pays_fee: Pays::Yes,
+					},
 					error: Error::<T>::ProposalExpired.into(),
 				});
 			}
 
 			// Decode the call
 			// After decode, we've done size-dependent work, so failures should burn full weight.
-			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
-				.map_err(|_| DispatchErrorWithPostInfo {
-					post_info: PostDispatchInfo { actual_weight: None, pays_fee: Pays::Yes },
-					error: Error::<T>::InvalidCall.into(),
+			let call =
+				<T as Config>::RuntimeCall::decode(&mut &proposal.call[..]).map_err(|_| {
+					DispatchErrorWithPostInfo {
+						post_info: PostDispatchInfo { actual_weight: None, pays_fee: Pays::Yes },
+						error: Error::<T>::InvalidCall.into(),
+					}
 				})?;
 
 			// Re-check call weight at execute time (belt-and-suspenders).
