@@ -382,6 +382,15 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 			T::Currency::unreserve(&who, deposit);
 		}
 
+		// If allow_burn is true and account has a non-zero balance, we must decrement
+		// the total supply to maintain accounting invariants. Otherwise total_supply
+		// would report phantom issuance that no longer corresponds to any live balances.
+		let burned = account.balance;
+		if !burned.is_zero() {
+			debug_assert!(details.supply >= burned, "account balance exceeds total supply");
+			details.supply = details.supply.saturating_sub(burned);
+		}
+
 		if let Remove = Self::dead_account(&who, &mut details, &account.reason, false) {
 			Account::<T, I>::remove(&id, &who);
 		} else {
@@ -392,6 +401,12 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		}
 
 		Asset::<T, I>::insert(&id, details);
+
+		// Emit Burned event if we burned a non-zero balance
+		if !burned.is_zero() {
+			Self::deposit_event(Event::Burned { asset_id: id.clone(), owner: who.clone(), balance: burned });
+		}
+
 		// Executing a hook here is safe, since it is not in a `mutate`.
 		T::Freezer::died(id.clone(), &who);
 		T::Holder::died(id, &who);
