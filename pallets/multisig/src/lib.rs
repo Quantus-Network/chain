@@ -1228,18 +1228,6 @@ pub mod pallet {
 			})
 		}
 
-		/// Return a raw DispatchErrorWithPostInfo (not wrapped in Result).
-		/// Use when you need to map_err with a custom error.
-		fn err_with_weight_raw(error: Error<T>, reads: u64) -> DispatchErrorWithPostInfo {
-			DispatchErrorWithPostInfo {
-				post_info: PostDispatchInfo {
-					actual_weight: Some(T::DbWeight::get().reads(reads)),
-					pays_fee: Pays::Yes,
-				},
-				error: error.into(),
-			}
-		}
-
 		/// Returns the multisig bookkeeping weight for execute (excludes inner call weight).
 		fn bookkeeping_weight(call_size: u32) -> Weight {
 			<T as Config>::WeightInfo::execute(call_size)
