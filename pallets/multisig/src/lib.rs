@@ -442,6 +442,10 @@ pub mod pallet {
 			// An attacker could submit a huge duplicate-heavy vector; clone/sort/dedup
 			// is O(n log n) on the raw length, but benchmarks only cover MaxSigners.
 			// Reject oversized inputs before doing any expensive work.
+			//
+			// BREAKING CHANGE: This rejects inputs with len > MaxSigners even if they would
+			// deduplicate to ≤ MaxSigners. Previously such inputs were accepted. This is the
+			// correct security tradeoff: users must pre-deduplicate their signer lists.
 			ensure!(signers.len() <= T::MaxSigners::get() as usize, Error::<T>::TooManySigners);
 
 			// Normalize signers: sort and deduplicate (single authoritative place)
@@ -1203,11 +1207,6 @@ pub mod pallet {
 				post_info: PostDispatchInfo { actual_weight: None, pays_fee: Pays::Yes },
 				error: error.into(),
 			}
-		}
-
-		/// Returns the multisig bookkeeping weight for execute (excludes inner call weight).
-		fn bookkeeping_weight(call_size: u32) -> Weight {
-			<T as Config>::WeightInfo::execute(call_size)
 		}
 
 		/// Normalize signers: sort and deduplicate.
