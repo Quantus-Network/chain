@@ -306,19 +306,8 @@ fn create_multisig_rejects_oversized_raw_input_even_if_would_dedup_to_valid() {
 		// MaxSigners is 10 in mock. Create 11 signers that would dedup to just 2.
 		// Old behavior: would accept (dedup first, then check).
 		// New behavior: rejects immediately (check raw length first).
-		let signers = vec![
-			bob(),
-			bob(),
-			bob(),
-			bob(),
-			bob(),
-			bob(),
-			bob(),
-			bob(),
-			bob(),
-			bob(),
-			charlie(),
-		]; // 11 elements, but only 2 unique
+		let signers =
+			vec![bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), charlie()]; // 11 elements, but only 2 unique
 		assert_eq!(signers.len(), 11);
 
 		// Should fail with TooManySigners even though dedup would yield only 2
