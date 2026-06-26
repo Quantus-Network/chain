@@ -802,7 +802,7 @@ pub mod pallet {
 			Self::deposit_event(Event::Created {
 				asset_id: id,
 				creator: owner.clone(),
-				owner: admin,
+				owner,
 			});
 
 			Ok(())
