@@ -65,7 +65,14 @@ pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6892), added: 9367, mode: `MaxEncodedLen`)
+	/// Storage: `System::Account` (r:1 w:0)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	/// Storage: `Wormhole::PotentialWormholeBalance` (r:1 w:1)
+	/// Proof: `Wormhole::PotentialWormholeBalance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
 	/// The range of component `s` is `[2, 100]`.
+	///
+	/// Note: Weight includes worst-case Wormhole reveal_address path where a pre-funded
+	/// multisig address has nonzero balance, triggering PotentialWormholeBalance mutation.
 	fn create_multisig(s: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `42`
@@ -74,8 +81,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(20_952_861, 10357)
 			// Standard Error: 991
 			.saturating_add(Weight::from_parts(17_405, 0).saturating_mul(s.into()))
-			.saturating_add(T::DbWeight::get().reads(1_u64))
-			.saturating_add(T::DbWeight::get().writes(1_u64))
+			// Base: 1 read (Multisigs) + 1 write (Multisigs)
+			// Wormhole reveal_address worst-case: 1 read (System::Account for balance)
+			//   + 1 read (PotentialWormholeBalance) + 1 write (PotentialWormholeBalance)
+			.saturating_add(T::DbWeight::get().reads(3_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6892), added: 9367, mode: `MaxEncodedLen`)
@@ -212,7 +222,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 impl WeightInfo for () {
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6892), added: 9367, mode: `MaxEncodedLen`)
+	/// Storage: `System::Account` (r:1 w:0)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	/// Storage: `Wormhole::PotentialWormholeBalance` (r:1 w:1)
+	/// Proof: `Wormhole::PotentialWormholeBalance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
 	/// The range of component `s` is `[2, 100]`.
+	///
+	/// Note: Weight includes worst-case Wormhole reveal_address path where a pre-funded
+	/// multisig address has nonzero balance, triggering PotentialWormholeBalance mutation.
 	fn create_multisig(s: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `42`
@@ -221,8 +238,11 @@ impl WeightInfo for () {
 		Weight::from_parts(20_952_861, 10357)
 			// Standard Error: 991
 			.saturating_add(Weight::from_parts(17_405, 0).saturating_mul(s.into()))
-			.saturating_add(RocksDbWeight::get().reads(1_u64))
-			.saturating_add(RocksDbWeight::get().writes(1_u64))
+			// Base: 1 read (Multisigs) + 1 write (Multisigs)
+			// Wormhole reveal_address worst-case: 1 read (System::Account for balance)
+			//   + 1 read (PotentialWormholeBalance) + 1 write (PotentialWormholeBalance)
+			.saturating_add(RocksDbWeight::get().reads(3_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6892), added: 9367, mode: `MaxEncodedLen`)
