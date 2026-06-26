@@ -1904,6 +1904,29 @@ fn set_min_balance_should_work() {
 	});
 }
 
+/// Regression test: set_min_balance must reject zero to prevent consumer reference griefing.
+///
+/// A zero min_balance would allow zero-balance accounts to persist (since the reaping check
+/// is `balance < min_balance`, which is never true when min_balance is 0). An attacker could
+/// then strand consumer references on victim accounts.
+#[test]
+fn set_min_balance_rejects_zero() {
+	new_test_ext().execute_with(|| {
+		let id = 42;
+		Balances::make_free_balance_be(&1, 10);
+		assert_ok!(Assets::create(RuntimeOrigin::signed(1), id, 1, 30));
+
+		// Attempting to set min_balance to zero should fail
+		assert_noop!(
+			Assets::set_min_balance(RuntimeOrigin::signed(1), id, 0),
+			Error::<Test>::MinBalanceZero
+		);
+
+		// Verify min_balance is unchanged
+		assert_eq!(Asset::<Test>::get(id).unwrap().min_balance, 30);
+	});
+}
+
 #[test]
 fn balance_conversion_should_work() {
 	new_test_ext().execute_with(|| {

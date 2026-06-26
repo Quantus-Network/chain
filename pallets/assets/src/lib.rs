@@ -1706,6 +1706,11 @@ pub mod pallet {
 			let mut details = Asset::<T, I>::get(&id).ok_or(Error::<T, I>::Unknown)?;
 			ensure!(origin == details.owner, Error::<T, I>::NoPermission);
 
+			// Reject zero min_balance to maintain the invariant enforced by create/force_create.
+			// A zero min_balance would allow zero-balance accounts to persist (since the reaping
+			// check is `balance < min_balance`), enabling consumer reference griefing attacks.
+			ensure!(!min_balance.is_zero(), Error::<T, I>::MinBalanceZero);
+
 			let old_min_balance = details.min_balance;
 			// If the asset is marked as sufficient it won't be allowed to
 			// change the min_balance.
