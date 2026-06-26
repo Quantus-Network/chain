@@ -1128,9 +1128,6 @@ pub mod pallet {
 				return Self::err_burn_full(Error::<T>::CallNotAllowedForHighSecurityMultisig);
 			}
 
-			// Calculate bookkeeping weight based on call size
-			let bookkeeping_weight = Self::bookkeeping_weight(proposal.call.len() as u32);
-
 			// EFFECTS: Remove proposal and return deposit BEFORE dispatch (reentrancy protection)
 			Self::remove_proposal_and_return_deposit(
 				&multisig_address,
