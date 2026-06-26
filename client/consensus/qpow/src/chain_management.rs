@@ -5,7 +5,7 @@ use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_consensus::Error as ConsensusError;
 use sp_consensus_qpow::QPoWApi;
-use sp_runtime::traits::{Block as BlockT, Header, Zero};
+use sp_runtime::traits::{Block as BlockT, Header, One, Zero};
 use std::fmt;
 
 const ACHIEVED_WORK_PREFIX: &[u8] = b"QPow:AchievedWork:";
@@ -270,21 +270,26 @@ where
 	log::debug!("✓ Finalized block #{:?} ({:?})", finalize_number, finalize_hash);
 
 	// Clean up achieved work entries for blocks that are now below the finalized tip.
-	// Only clean up if finalization actually advanced (last_finalized_after >
-	// last_finalized_before), and only delete entries strictly below the new finalized height.
+	// Delete entries from last_finalized_before up to (not including) last_finalized_after.
 	// The finalized tip's entry must be preserved as it's the parent work source for children.
-	if last_finalized_after > last_finalized_before && last_finalized_before > Zero::zero() {
-		if let Ok(Some(old_finalized_hash)) = client.hash(last_finalized_before) {
-			if let Err(e) = delete_cumulative_achieved_work::<B, C>(client, old_finalized_hash) {
+	//
+	// The loop naturally handles edge cases:
+	// - If finalization didn't advance (after <= before): zero iterations
+	// - If multi-step jump (e.g., bursty sync): cleans all intermediate entries
+	let mut height_to_clean = last_finalized_before;
+	while height_to_clean < last_finalized_after {
+		if let Ok(Some(hash_to_clean)) = client.hash(height_to_clean) {
+			if let Err(e) = delete_cumulative_achieved_work::<B, C>(client, hash_to_clean) {
 				// Non-fatal: log warning but don't fail the finalization
 				log::warn!(
 					target: "qpow",
-					"Failed to clean up achieved work for old finalized block #{:?}: {:?}",
-					last_finalized_before,
+					"Failed to clean up achieved work for block #{:?}: {:?}",
+					height_to_clean,
 					e
 				);
 			}
 		}
+		height_to_clean = height_to_clean + One::one();
 	}
 
 	Ok(())
