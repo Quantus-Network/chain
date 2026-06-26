@@ -1002,6 +1002,13 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		destination: &T::AccountId,
 		amount: T::Balance,
 	) -> DispatchResult {
+		// Early return for zero amounts - don't emit events or consume approvals.
+		// Without this, zero-amount transfers would emit TransferredApproved even though
+		// transfer_and_die returns early without moving tokens or emitting Transferred.
+		if amount.is_zero() {
+			return Ok(())
+		}
+
 		let mut owner_died: Option<DeadConsequence> = None;
 
 		let d = Asset::<T, I>::get(&id).ok_or(Error::<T, I>::Unknown)?;
