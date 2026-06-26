@@ -462,6 +462,13 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		amount: T::Balance,
 		maybe_check_issuer: Option<T::AccountId>,
 	) -> DispatchResult {
+		// Early return for zero amounts - don't emit events or bypass permission checks.
+		// Without this, zero-amount mints would skip the issuer check in increase_balance's
+		// callback (which returns early for zero) but still emit the Issued event.
+		if amount.is_zero() {
+			return Ok(())
+		}
+
 		Self::increase_balance(id.clone(), beneficiary, amount, |details| -> DispatchResult {
 			if let Some(check_issuer) = maybe_check_issuer {
 				ensure!(check_issuer == details.issuer, Error::<T, I>::NoPermission);
@@ -540,6 +547,13 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		maybe_check_admin: Option<T::AccountId>,
 		f: DebitFlags,
 	) -> Result<T::Balance, DispatchError> {
+		// Early return for zero amounts - don't emit events or bypass permission checks.
+		// Without this, zero-amount burns would skip the admin check in decrease_balance's
+		// callback (which returns early for zero) but still emit the Burned event.
+		if amount.is_zero() {
+			return Ok(amount)
+		}
+
 		let d = Asset::<T, I>::get(&id).ok_or(Error::<T, I>::Unknown)?;
 		ensure!(
 			d.status == AssetStatus::Live || d.status == AssetStatus::Frozen,
