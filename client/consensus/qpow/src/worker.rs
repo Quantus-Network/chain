@@ -141,8 +141,10 @@ where
 		// This prevents TOCTOU issues where a rebuild could land between verify and consume.
 		let build = {
 			let mut build_guard = self.build.lock();
-			let build_ref = match build_guard.as_ref() {
-				Some(b) => b,
+
+			// Extract metadata for verification while keeping the build in place
+			let (pre_hash, best_hash) = match build_guard.as_ref() {
+				Some(b) => (b.metadata.pre_hash.0, b.metadata.best_hash),
 				None => {
 					warn!(target: LOG_TARGET, "Unable to import mined block: build does not exist");
 					return false;
@@ -158,18 +160,30 @@ where
 				},
 			};
 
-			let pre_hash = build_ref.metadata.pre_hash.0;
-			let best_hash = build_ref.metadata.best_hash;
-
 			match self.client.runtime_api().verify_nonce_local_mining(best_hash, pre_hash, nonce) {
 				Ok(true) => {
-					// Seal is valid, now take the build
-					let value = build_guard.take();
+					// Seal is valid, take the build. This cannot be None because:
+					// - We hold the lock continuously since checking as_ref() above
+					// - No other code path modifies build_guard between check and take
+					let build = build_guard.take();
 					self.increment_version();
-					value.unwrap() // Safe: we checked it exists above
+					match build {
+						Some(b) => b,
+						None => {
+							// This branch is unreachable given the lock invariants, but we handle
+							// it explicitly rather than using unwrap() to satisfy safety
+							// guidelines.
+							warn!(target: LOG_TARGET, "Build disappeared while holding lock (should be unreachable)");
+							return false;
+						},
+					}
 				},
 				Ok(false) => {
-					warn!(target: LOG_TARGET, "Seal verification failed, not consuming build");
+					warn!(
+						target: LOG_TARGET,
+						"Seal verification failed: pre_hash={:?}, best_hash={:?}",
+						pre_hash, best_hash
+					);
 					return false;
 				},
 				Err(e) => {
