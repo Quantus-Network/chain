@@ -1130,9 +1130,7 @@ pub mod pallet {
 			// or the whitelist may have been updated via runtime upgrade.
 			// This prevents bypassing HS restrictions by proposing before enabling HS.
 			// After decode + get_dispatch_info, don't refund - burn the full reserved weight.
-			if T::HighSecurity::is_high_security(&multisig_address) &&
-				!T::HighSecurity::is_whitelisted(&call)
-			{
+			if !T::HighSecurity::is_call_allowed(&multisig_address, &call) {
 				return Self::err_burn_full(Error::<T>::CallNotAllowedForHighSecurityMultisig);
 			}
 

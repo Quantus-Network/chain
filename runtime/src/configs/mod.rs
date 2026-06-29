@@ -52,6 +52,7 @@ use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use smallvec::smallvec;
 
+use qp_high_security::HighSecurityInspector;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
 	traits::{AccountIdConversion, BlakeTwo256, One},
@@ -622,6 +623,66 @@ impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSec
 	fn guardian(who: &AccountId) -> Option<AccountId> {
 		// Delegate to reversible-transfers pallet
 		pallet_reversible_transfers::Pallet::<Runtime>::get_guardian(who)
+	}
+
+	fn is_call_allowed(who: &AccountId, call: &RuntimeCall) -> bool {
+		Self::call_allowed_for(who, call)
+	}
+}
+
+impl HighSecurityConfig {
+	/// Recursively verify that `call`, dispatched with `signer` as the effective signed
+	/// origin, never reaches a non-whitelisted call as a high-security account.
+	///
+	/// Origin-rewriting wrappers (`Utility::as_derivative`, `Recovery::as_recovered`)
+	/// synthesize a fresh `Signed` origin *after* top-level transaction validation, so the
+	/// high-security whitelist must be re-checked at the effective origin. Origin-preserving
+	/// combinators (`batch`/`batch_all`/`force_batch`/`if_else`) are traversed with the same
+	/// signer. `dispatch_as`/`with_weight` and the scheduler are root-only, so they are not an
+	/// unprivileged bypass and are intentionally not traversed.
+	fn call_allowed_for(signer: &AccountId, call: &RuntimeCall) -> bool {
+		if Self::is_high_security(signer) && !Self::is_whitelisted(call) {
+			return false;
+		}
+		match call {
+			RuntimeCall::Utility(pallet_utility::Call::as_derivative { index, call }) => {
+				let pseudonym = pallet_utility::derivative_account_id(signer.clone(), *index);
+				Self::call_allowed_for(&pseudonym, call)
+			},
+			RuntimeCall::Recovery(pallet_recovery::Call::as_recovered { account, call }) =>
+				match account {
+					sp_runtime::MultiAddress::Id(target) => Self::call_allowed_for(target, call),
+					// Other address kinds are unresolvable by the runtime lookup and cannot
+					// dispatch, so there is no effective origin to enforce.
+					_ => true,
+				},
+			RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
+			RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) =>
+				calls.iter().all(|c| Self::call_allowed_for(signer, c)),
+			RuntimeCall::Utility(pallet_utility::Call::if_else { main, fallback }) =>
+				Self::call_allowed_for(signer, main) && Self::call_allowed_for(signer, fallback),
+			_ => true,
+		}
+	}
+
+	/// Upper bound on the `is_high_security` storage reads `call_allowed_for` performs for
+	/// `call` (one per traversed node), used to weight the transaction extension.
+	pub(crate) fn high_security_read_count(call: &RuntimeCall) -> u64 {
+		let inner = match call {
+			RuntimeCall::Utility(pallet_utility::Call::as_derivative { call, .. }) |
+			RuntimeCall::Recovery(pallet_recovery::Call::as_recovered { call, .. }) =>
+				Self::high_security_read_count(call),
+			RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
+			RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) =>
+				calls.iter().map(Self::high_security_read_count).sum(),
+			RuntimeCall::Utility(pallet_utility::Call::if_else { main, fallback }) =>
+				Self::high_security_read_count(main)
+					.saturating_add(Self::high_security_read_count(fallback)),
+			_ => 0,
+		};
+		inner.saturating_add(1)
 	}
 }
 

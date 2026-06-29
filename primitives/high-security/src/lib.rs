@@ -122,6 +122,15 @@ pub trait HighSecurityInspector<AccountId, RuntimeCall> {
 	/// `Some(guardian_account)` if the account has a guardian, `None` otherwise
 	fn guardian(who: &AccountId) -> Option<AccountId>;
 
+	/// Whether `call` may be dispatched with `who` as the effective signed origin.
+	///
+	/// Non-High-Security accounts may dispatch anything; High-Security accounts are
+	/// restricted to whitelisted calls. Origin-rewriting wrappers (multisig execution,
+	/// `as_recovered`, `as_derivative`) must consult this before dispatching as `who`.
+	fn is_call_allowed(who: &AccountId, call: &RuntimeCall) -> bool {
+		!Self::is_high_security(who) || Self::is_whitelisted(call)
+	}
+
 	// NOTE: No benchmarking-specific methods in the trait!
 	// Production API should not be polluted by test/benchmark requirements.
 	// Use pallet-specific helpers instead (e.g.,
