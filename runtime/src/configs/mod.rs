@@ -626,11 +626,17 @@ impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSec
 	}
 
 	fn is_call_allowed(who: &AccountId, call: &RuntimeCall) -> bool {
-		Self::call_allowed_for(who, call)
+		Self::call_allowed_for(who, call, 0)
 	}
 }
 
 impl HighSecurityConfig {
+	/// Maximum wrapper nesting the high-security resolver traverses. Far above any realistic
+	/// legitimate nesting yet far below `frame_support::MAX_EXTRINSIC_DEPTH` (256, enforced at
+	/// decode), so it bounds resolver work even if the decode limit ever changed. Calls nested
+	/// deeper fail closed (the transaction is rejected) rather than escaping the whitelist.
+	const MAX_CALL_DEPTH: u32 = 16;
+
 	/// Recursively verify that `call`, dispatched with `signer` as the effective signed
 	/// origin, never reaches a non-whitelisted call as a high-security account.
 	///
@@ -640,18 +646,22 @@ impl HighSecurityConfig {
 	/// combinators (`batch`/`batch_all`/`force_batch`/`if_else`) are traversed with the same
 	/// signer. `dispatch_as`/`with_weight` and the scheduler are root-only, so they are not an
 	/// unprivileged bypass and are intentionally not traversed.
-	fn call_allowed_for(signer: &AccountId, call: &RuntimeCall) -> bool {
+	fn call_allowed_for(signer: &AccountId, call: &RuntimeCall, depth: u32) -> bool {
+		if depth > Self::MAX_CALL_DEPTH {
+			return false;
+		}
 		if Self::is_high_security(signer) && !Self::is_whitelisted(call) {
 			return false;
 		}
 		match call {
 			RuntimeCall::Utility(pallet_utility::Call::as_derivative { index, call }) => {
 				let pseudonym = pallet_utility::derivative_account_id(signer.clone(), *index);
-				Self::call_allowed_for(&pseudonym, call)
+				Self::call_allowed_for(&pseudonym, call, depth + 1)
 			},
 			RuntimeCall::Recovery(pallet_recovery::Call::as_recovered { account, call }) =>
 				match account {
-					sp_runtime::MultiAddress::Id(target) => Self::call_allowed_for(target, call),
+					sp_runtime::MultiAddress::Id(target) =>
+						Self::call_allowed_for(target, call, depth + 1),
 					// Other address kinds are unresolvable by the runtime lookup and cannot
 					// dispatch, so there is no effective origin to enforce.
 					_ => true,
@@ -659,9 +669,10 @@ impl HighSecurityConfig {
 			RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
 			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
 			RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) =>
-				calls.iter().all(|c| Self::call_allowed_for(signer, c)),
+				calls.iter().all(|c| Self::call_allowed_for(signer, c, depth + 1)),
 			RuntimeCall::Utility(pallet_utility::Call::if_else { main, fallback }) =>
-				Self::call_allowed_for(signer, main) && Self::call_allowed_for(signer, fallback),
+				Self::call_allowed_for(signer, main, depth + 1) &&
+					Self::call_allowed_for(signer, fallback, depth + 1),
 			_ => true,
 		}
 	}

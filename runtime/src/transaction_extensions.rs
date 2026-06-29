@@ -675,6 +675,31 @@ mod tests {
 		});
 	}
 
+	#[test]
+	fn over_nested_call_is_rejected_fail_closed() {
+		new_test_ext().execute_with(|| {
+			// Wrap a (harmless) call in `n` nested batches.
+			let nest = |levels: u32| {
+				let mut call =
+					RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
+				for _ in 0..levels {
+					call = RuntimeCall::Utility(pallet_utility::Call::batch { calls: vec![call] });
+				}
+				call
+			};
+
+			// Within the depth bound the call is resolved normally and allowed.
+			assert_ok!(validate_with(bob(), &nest(8)));
+
+			// Beyond the bound the resolver fails closed: the transaction is rejected rather than
+			// allowed to escape the whitelist, capping resolver work regardless of contents.
+			assert_eq!(
+				validate_with(bob(), &nest(20)).unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
+			);
+		});
+	}
+
 	// =========================================================================
 	// Tests for event-based WormholeProofRecorderExtension
 	// =========================================================================
