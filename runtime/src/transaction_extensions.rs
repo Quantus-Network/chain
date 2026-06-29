@@ -44,8 +44,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 
 	fn weight(&self, call: &RuntimeCall) -> Weight {
 		// One `is_high_security` read per node traversed by the recursive whitelist check.
-		T::DbWeight::get()
-			.reads(crate::configs::HighSecurityConfig::high_security_read_count(call))
+		T::DbWeight::get().reads(crate::configs::HighSecurityConfig::high_security_read_count(call))
 	}
 
 	fn prepare(
@@ -442,7 +441,10 @@ mod tests {
 	}
 
 	// Run the reversible transaction extension's `validate` for `call` signed by `signer`.
-	fn validate_with(signer: AccountId, call: &RuntimeCall) -> Result<(), TransactionValidityError> {
+	fn validate_with(
+		signer: AccountId,
+		call: &RuntimeCall,
+	) -> Result<(), TransactionValidityError> {
 		ReversibleTransactionExtension::<Runtime>::new()
 			.validate(
 				RuntimeOrigin::signed(signer),
@@ -653,8 +655,7 @@ mod tests {
 				account: MultiAddress::Id(charlie()),
 				call: boxed(non_whitelisted_transfer()),
 			});
-			let batch =
-				RuntimeCall::Utility(pallet_utility::Call::batch { calls: vec![inner] });
+			let batch = RuntimeCall::Utility(pallet_utility::Call::batch { calls: vec![inner] });
 			assert_eq!(
 				validate_with(bob(), &batch).unwrap_err(),
 				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
@@ -680,8 +681,7 @@ mod tests {
 		new_test_ext().execute_with(|| {
 			// Wrap a (harmless) call in `n` nested batches.
 			let nest = |levels: u32| {
-				let mut call =
-					RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
+				let mut call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
 				for _ in 0..levels {
 					call = RuntimeCall::Utility(pallet_utility::Call::batch { calls: vec![call] });
 				}
