@@ -382,6 +382,15 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 			T::Currency::unreserve(&who, deposit);
 		}
 
+		// If allow_burn is true and account has a non-zero balance, we must decrement
+		// the total supply to maintain accounting invariants. Otherwise total_supply
+		// would report phantom issuance that no longer corresponds to any live balances.
+		let burned = account.balance;
+		if !burned.is_zero() {
+			debug_assert!(details.supply >= burned, "account balance exceeds total supply");
+			details.supply = details.supply.saturating_sub(burned);
+		}
+
 		if let Remove = Self::dead_account(&who, &mut details, &account.reason, false) {
 			Account::<T, I>::remove(&id, &who);
 		} else {
@@ -392,6 +401,16 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		}
 
 		Asset::<T, I>::insert(&id, details);
+
+		// Emit Burned event if we burned a non-zero balance
+		if !burned.is_zero() {
+			Self::deposit_event(Event::Burned {
+				asset_id: id.clone(),
+				owner: who.clone(),
+				balance: burned,
+			});
+		}
+
 		// Executing a hook here is safe, since it is not in a `mutate`.
 		T::Freezer::died(id.clone(), &who);
 		T::Holder::died(id, &who);
@@ -447,6 +466,13 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		amount: T::Balance,
 		maybe_check_issuer: Option<T::AccountId>,
 	) -> DispatchResult {
+		// Early return for zero amounts - don't emit events or bypass permission checks.
+		// Without this, zero-amount mints would skip the issuer check in increase_balance's
+		// callback (which returns early for zero) but still emit the Issued event.
+		if amount.is_zero() {
+			return Ok(())
+		}
+
 		Self::increase_balance(id.clone(), beneficiary, amount, |details| -> DispatchResult {
 			if let Some(check_issuer) = maybe_check_issuer {
 				ensure!(check_issuer == details.issuer, Error::<T, I>::NoPermission);
@@ -525,6 +551,13 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		maybe_check_admin: Option<T::AccountId>,
 		f: DebitFlags,
 	) -> Result<T::Balance, DispatchError> {
+		// Early return for zero amounts - don't emit events or bypass permission checks.
+		// Without this, zero-amount burns would skip the admin check in decrease_balance's
+		// callback (which returns early for zero) but still emit the Burned event.
+		if amount.is_zero() {
+			return Ok(amount)
+		}
+
 		let d = Asset::<T, I>::get(&id).ok_or(Error::<T, I>::Unknown)?;
 		ensure!(
 			d.status == AssetStatus::Live || d.status == AssetStatus::Frozen,
@@ -969,6 +1002,13 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		destination: &T::AccountId,
 		amount: T::Balance,
 	) -> DispatchResult {
+		// Early return for zero amounts - don't emit events or consume approvals.
+		// Without this, zero-amount transfers would emit TransferredApproved even though
+		// transfer_and_die returns early without moving tokens or emitting Transferred.
+		if amount.is_zero() {
+			return Ok(())
+		}
+
 		let mut owner_died: Option<DeadConsequence> = None;
 
 		let d = Asset::<T, I>::get(&id).ok_or(Error::<T, I>::Unknown)?;
@@ -1003,8 +1043,20 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		// Execute hook outside of `mutate`.
 		if let Some(Remove) = owner_died {
 			T::Freezer::died(id.clone(), owner);
-			T::Holder::died(id, owner);
+			T::Holder::died(id.clone(), owner);
 		}
+
+		// Emit TransferredApproved to identify the delegate responsible for the spend.
+		// Note: transfer_and_die already emits Event::Transferred, but that event doesn't
+		// include the delegate. This event allows indexers/monitoring to track delegated activity.
+		Self::deposit_event(Event::TransferredApproved {
+			asset_id: id,
+			owner: owner.clone(),
+			delegate: delegate.clone(),
+			destination: destination.clone(),
+			amount,
+		});
+
 		Ok(())
 	}
 

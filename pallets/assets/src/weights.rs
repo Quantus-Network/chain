@@ -120,10 +120,12 @@ pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `Assets::Asset` (r:1 w:1)
 	/// Proof: `Assets::Asset` (`max_values`: None, `max_size`: Some(210), added: 2685, mode: `MaxEncodedLen`)
-	/// Storage: `Assets::NextAssetId` (r:1 w:0)
+	/// Storage: `Assets::NextAssetId` (r:1 w:1)
 	/// Proof: `Assets::NextAssetId` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Account` (r:1 w:1)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	///
+	/// Note: NextAssetId write accounts for AutoIncAssetId callback which increments the ID.
 	fn create() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `326`
@@ -131,12 +133,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Minimum execution time: 30_517_000 picoseconds.
 		Weight::from_parts(31_518_000, 3675)
 			.saturating_add(T::DbWeight::get().reads(3_u64))
-			.saturating_add(T::DbWeight::get().writes(2_u64))
+			.saturating_add(T::DbWeight::get().writes(3_u64))
 	}
 	/// Storage: `Assets::Asset` (r:1 w:1)
 	/// Proof: `Assets::Asset` (`max_values`: None, `max_size`: Some(210), added: 2685, mode: `MaxEncodedLen`)
-	/// Storage: `Assets::NextAssetId` (r:1 w:0)
+	/// Storage: `Assets::NextAssetId` (r:1 w:1)
 	/// Proof: `Assets::NextAssetId` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	///
+	/// Note: NextAssetId write accounts for AutoIncAssetId callback which increments the ID.
 	fn force_create() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `186`
@@ -144,7 +148,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Minimum execution time: 12_469_000 picoseconds.
 		Weight::from_parts(13_002_000, 3675)
 			.saturating_add(T::DbWeight::get().reads(2_u64))
-			.saturating_add(T::DbWeight::get().writes(1_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Assets::Asset` (r:1 w:1)
 	/// Proof: `Assets::Asset` (`max_values`: None, `max_size`: Some(210), added: 2685, mode: `MaxEncodedLen`)
@@ -614,8 +618,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(31_972_000, 3675)
 			// Standard Error: 13_748
 			.saturating_add(Weight::from_parts(198_975, 0).saturating_mul(n.into()))
-			.saturating_add(RocksDbWeight::get().reads(1_u64))
-			.saturating_add(RocksDbWeight::get().writes(1_u64))
+			.saturating_add(T::DbWeight::get().reads(1_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 }
 
@@ -623,10 +627,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 impl WeightInfo for () {
 	/// Storage: `Assets::Asset` (r:1 w:1)
 	/// Proof: `Assets::Asset` (`max_values`: None, `max_size`: Some(210), added: 2685, mode: `MaxEncodedLen`)
-	/// Storage: `Assets::NextAssetId` (r:1 w:0)
+	/// Storage: `Assets::NextAssetId` (r:1 w:1)
 	/// Proof: `Assets::NextAssetId` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Account` (r:1 w:1)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	///
+	/// Note: NextAssetId write accounts for AutoIncAssetId callback which increments the ID.
 	fn create() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `326`
@@ -634,12 +640,14 @@ impl WeightInfo for () {
 		// Minimum execution time: 30_517_000 picoseconds.
 		Weight::from_parts(31_518_000, 3675)
 			.saturating_add(RocksDbWeight::get().reads(3_u64))
-			.saturating_add(RocksDbWeight::get().writes(2_u64))
+			.saturating_add(RocksDbWeight::get().writes(3_u64))
 	}
 	/// Storage: `Assets::Asset` (r:1 w:1)
 	/// Proof: `Assets::Asset` (`max_values`: None, `max_size`: Some(210), added: 2685, mode: `MaxEncodedLen`)
-	/// Storage: `Assets::NextAssetId` (r:1 w:0)
+	/// Storage: `Assets::NextAssetId` (r:1 w:1)
 	/// Proof: `Assets::NextAssetId` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	///
+	/// Note: NextAssetId write accounts for AutoIncAssetId callback which increments the ID.
 	fn force_create() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `186`
@@ -647,7 +655,7 @@ impl WeightInfo for () {
 		// Minimum execution time: 12_469_000 picoseconds.
 		Weight::from_parts(13_002_000, 3675)
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
-			.saturating_add(RocksDbWeight::get().writes(1_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Assets::Asset` (r:1 w:1)
 	/// Proof: `Assets::Asset` (`max_values`: None, `max_size`: Some(210), added: 2685, mode: `MaxEncodedLen`)

@@ -1500,6 +1500,44 @@ fn calling_dead_account_fails_if_freezes_or_balances_on_hold_exist_2() {
 	})
 }
 
+/// Regression test: refund with allow_burn=true must decrement total_supply.
+///
+/// Previously, do_refund would destroy a non-zero balance account without
+/// updating AssetDetails.supply, leaving phantom issuance in total_supply.
+#[test]
+fn refund_with_allow_burn_decrements_total_supply() {
+	new_test_ext().execute_with(|| {
+		// Create asset with admin=1, min_balance=1
+		assert_ok!(Assets::force_create(RuntimeOrigin::root(), 0, 1, false, 1));
+
+		// Give account 2 native balance for deposit
+		Balances::make_free_balance_be(&2, 100);
+
+		// Account 2 touches the asset (creates deposit-held account)
+		assert_ok!(Assets::touch(RuntimeOrigin::signed(2), 0));
+
+		// Mint 50 tokens to account 2
+		assert_ok!(Assets::mint(RuntimeOrigin::signed(1), 0, 2, 50));
+
+		// Verify initial state
+		assert_eq!(Assets::total_supply(0), 50);
+		assert_eq!(Assets::balance(0, 2), 50);
+
+		// Account 2 refunds with allow_burn=true, burning their 50 tokens
+		assert_ok!(Assets::refund(RuntimeOrigin::signed(2), 0, true));
+
+		// Key assertion: total_supply must be decremented by the burned amount
+		assert_eq!(
+			Assets::total_supply(0),
+			0,
+			"total_supply should be 0 after burning 50 tokens via refund"
+		);
+
+		// Account should be gone
+		assert!(Account::<Test>::get(&0, &2).is_none());
+	});
+}
+
 /// Destroying an asset calls the `FrozenBalance::died` hooks of all accounts.
 #[test]
 fn destroy_accounts_calls_died_hooks() {
@@ -1863,6 +1901,29 @@ fn set_min_balance_should_work() {
 
 		assert_ok!(Assets::set_min_balance(RuntimeOrigin::signed(1), id, 50));
 		assert_eq!(Asset::<Test>::get(id).unwrap().min_balance, 50);
+	});
+}
+
+/// Regression test: set_min_balance must reject zero to prevent consumer reference griefing.
+///
+/// A zero min_balance would allow zero-balance accounts to persist (since the reaping check
+/// is `balance < min_balance`, which is never true when min_balance is 0). An attacker could
+/// then strand consumer references on victim accounts.
+#[test]
+fn set_min_balance_rejects_zero() {
+	new_test_ext().execute_with(|| {
+		let id = 42;
+		Balances::make_free_balance_be(&1, 10);
+		assert_ok!(Assets::create(RuntimeOrigin::signed(1), id, 1, 30));
+
+		// Attempting to set min_balance to zero should fail
+		assert_noop!(
+			Assets::set_min_balance(RuntimeOrigin::signed(1), id, 0),
+			Error::<Test>::MinBalanceZero
+		);
+
+		// Verify min_balance is unchanged
+		assert_eq!(Asset::<Test>::get(id).unwrap().min_balance, 30);
 	});
 }
 
