@@ -1480,6 +1480,93 @@ fn asset_hold_prevents_spend_over_free() {
 }
 
 #[test]
+fn recover_funds_is_atomic_when_release_fails() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let protected = alice(); // high-security from genesis, guardian = bob
+		let guardian = bob();
+		let asset_operator = charlie();
+		let recipient = eve();
+		let asset_id: u32 = 4_343;
+		let amount: Balance = 1_000;
+
+		// Create an asset and block the guardian's asset account so it cannot receive funds.
+		create_asset(asset_id, asset_operator.clone(), Some(10_000));
+		assert_ok!(pallet_assets::Pallet::<Test>::mint(
+			RuntimeOrigin::signed(asset_operator.clone()),
+			codec::Compact(asset_id),
+			protected.clone(),
+			10_000,
+		));
+		assert_ok!(pallet_assets::Pallet::<Test>::mint(
+			RuntimeOrigin::signed(asset_operator.clone()),
+			codec::Compact(asset_id),
+			guardian.clone(),
+			1,
+		));
+		assert_ok!(pallet_assets::Pallet::<Test>::block(
+			RuntimeOrigin::signed(asset_operator.clone()),
+			codec::Compact(asset_id),
+			guardian.clone(),
+		));
+
+		let asset_call: RuntimeCall = pallet_assets::Call::<Test>::transfer_keep_alive {
+			id: codec::Compact(asset_id),
+			target: recipient.clone(),
+			amount,
+		}
+		.into();
+		let tx_id = calculate_tx_id::<Test>(protected.clone(), &asset_call);
+
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer(
+			RuntimeOrigin::signed(protected.clone()),
+			asset_id,
+			recipient,
+			amount,
+		));
+
+		let hold_before = asset_holds(asset_id, &protected);
+		let issuance_before =
+			<pallet_assets::Pallet<Test> as AssetsInspect<_>>::total_issuance(asset_id);
+		assert_eq!(hold_before, amount);
+		assert_eq!(ReversibleTransfers::pending_dispatches(tx_id).unwrap().amount, amount);
+
+		// Recovery cannot deliver to the blocked guardian, so the release must roll back fully:
+		// no fee is burned and the pending transfer is preserved for retry.
+		assert_ok!(ReversibleTransfers::recover_funds(
+			RuntimeOrigin::signed(guardian.clone()),
+			protected.clone(),
+		));
+		System::assert_has_event(Event::TransferRecoveryFailed { tx_id }.into());
+		assert_eq!(asset_holds(asset_id, &protected), hold_before);
+		assert_eq!(
+			<pallet_assets::Pallet<Test> as AssetsInspect<_>>::total_issuance(asset_id),
+			issuance_before
+		);
+		let pending_after = ReversibleTransfers::pending_dispatches(tx_id).unwrap();
+		assert_eq!(pending_after.amount, asset_holds(asset_id, &protected));
+		assert!(ReversibleTransfers::pending_transfers_by_sender(&protected).contains(&tx_id));
+
+		// Repeated recovery stays idempotent: the hold is never partially burned.
+		assert_ok!(Balances::transfer_keep_alive(
+			RuntimeOrigin::signed(asset_operator),
+			protected.clone(),
+			100,
+		));
+		assert_ok!(ReversibleTransfers::recover_funds(
+			RuntimeOrigin::signed(guardian),
+			protected.clone(),
+		));
+		assert_eq!(asset_holds(asset_id, &protected), hold_before);
+		assert_eq!(
+			<pallet_assets::Pallet<Test> as AssetsInspect<_>>::total_issuance(asset_id),
+			issuance_before
+		);
+	});
+}
+
+#[test]
 fn schedule_transfer_with_error_short_delay() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
