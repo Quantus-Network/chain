@@ -610,6 +610,22 @@ mod tests {
 	}
 
 	#[test]
+	fn as_recovered_alternate_address_encoding_is_not_a_bypass() {
+		new_test_ext().execute_with(|| {
+			// Charlie is `[3; 32]` and high-security. Re-encoding the same key as a non-`Id`
+			// address does not smuggle a non-whitelisted call past the whitelist: `AccountIdLookup`
+			// resolves only `MultiAddress::Id`, so `as_recovered` aborts at lookup before dispatch
+			// and the inner call never runs as the high-security account. The resolver resolves the
+			// target the same way, so it has no effective origin to protect here.
+			let call = RuntimeCall::Recovery(pallet_recovery::Call::as_recovered {
+				account: MultiAddress::Address32([3u8; 32]),
+				call: boxed(non_whitelisted_transfer()),
+			});
+			assert_ok!(validate_with(bob(), &call));
+		});
+	}
+
+	#[test]
 	fn as_derivative_cannot_bypass_high_security() {
 		new_test_ext().execute_with(|| {
 			// Make alice's index-0 derivative a high-security account.

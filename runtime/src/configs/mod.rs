@@ -55,7 +55,7 @@ use smallvec::smallvec;
 use qp_high_security::HighSecurityInspector;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
-	traits::{AccountIdConversion, BlakeTwo256, One},
+	traits::{AccountIdConversion, BlakeTwo256, One, StaticLookup},
 	AccountId32, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
@@ -659,12 +659,15 @@ impl HighSecurityConfig {
 				Self::call_allowed_for(&pseudonym, call, depth + 1)
 			},
 			RuntimeCall::Recovery(pallet_recovery::Call::as_recovered { account, call }) =>
-				match account {
-					sp_runtime::MultiAddress::Id(target) =>
-						Self::call_allowed_for(target, call, depth + 1),
-					// Other address kinds are unresolvable by the runtime lookup and cannot
-					// dispatch, so there is no effective origin to enforce.
-					_ => true,
+			// Resolve the target exactly as `as_recovered` does, so the effective origin is
+			// enforced for any address the lookup accepts, not only `MultiAddress::Id`. An
+			// address the lookup rejects aborts `as_recovered` before dispatch, so there is no
+			// effective origin to protect.
+				match <<Runtime as frame_system::Config>::Lookup as StaticLookup>::lookup(
+					account.clone(),
+				) {
+					Ok(target) => Self::call_allowed_for(&target, call, depth + 1),
+					Err(_) => true,
 				},
 			RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
 			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
