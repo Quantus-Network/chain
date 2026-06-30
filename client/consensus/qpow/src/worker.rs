@@ -134,77 +134,63 @@ where
 		self.build.lock().as_ref().map(|b| b.metadata.clone())
 	}
 
-	/// Verify a seal without consuming the build.
-	///
-	/// Returns `true` if the seal is valid for the current block, `false` otherwise.
-	/// Returns `false` if there's no current build.
-	/// Logs detailed information on failure for debugging.
-	pub fn verify_seal(&self, seal: &Seal) -> bool {
-		let build = self.build.lock();
-		let build = match build.as_ref() {
-			Some(b) => b,
-			None => {
-				warn!(target: LOG_TARGET, "verify_seal: No current build available");
-				return false;
-			},
-		};
-
-		// Convert seal to nonce [u8; 64]
-		let nonce: [u8; 64] = match seal.as_slice().try_into() {
-			Ok(arr) => arr,
-			Err(_) => {
-				warn!(target: LOG_TARGET, "Seal does not have exactly 64 bytes, got {}", seal.len());
-				return false;
-			},
-		};
-
-		let pre_hash = build.metadata.pre_hash.0;
-		let best_hash = build.metadata.best_hash;
-		let difficulty = build.metadata.difficulty;
-		let extrinsic_count = build.proposal.block.extrinsics().len();
-
-		// Verify using runtime API
-		match self.client.runtime_api().verify_nonce_local_mining(best_hash, pre_hash, nonce) {
-			Ok(true) => true,
-			Ok(false) => {
-				log::error!(
-					target: LOG_TARGET,
-					"verify_seal FAILED:\n\
-					  pre_hash (block template):  {}\n\
-					  best_hash (parent block):   {}\n\
-					  difficulty:                 {}\n\
-					  nonce (seal):               {}\n\
-					  extrinsics in block:        {}",
-					hex::encode(pre_hash),
-					best_hash,
-					difficulty,
-					hex::encode(nonce),
-					extrinsic_count,
-				);
-				false
-			},
-			Err(e) => {
-				warn!(target: LOG_TARGET, "Runtime API error verifying seal: {:?}", e);
-				false
-			},
-		}
-	}
-
-	/// Submit a mined seal. The seal will be validated again. Returns true if the submission is
-	/// successful.
+	/// Submit a mined seal. The seal will be validated before consuming the build.
+	/// Returns true if the submission is successful.
 	pub async fn submit(&self, seal: Seal) -> bool {
-		let build = if let Some(build) = {
-			let mut build = self.build.lock();
-			let value = build.take();
-			if value.is_some() {
-				self.increment_version();
+		// Atomically verify and take the build in a single lock acquisition.
+		// This prevents TOCTOU issues where a rebuild could land between verify and consume.
+		let build = {
+			let mut build_guard = self.build.lock();
+
+			// Extract metadata for verification while keeping the build in place
+			let (pre_hash, best_hash) = match build_guard.as_ref() {
+				Some(b) => (b.metadata.pre_hash.0, b.metadata.best_hash),
+				None => {
+					warn!(target: LOG_TARGET, "Unable to import mined block: build does not exist");
+					return false;
+				},
+			};
+
+			// Verify seal before consuming the build
+			let nonce: [u8; 64] = match seal.as_slice().try_into() {
+				Ok(arr) => arr,
+				Err(_) => {
+					warn!(target: LOG_TARGET, "Seal does not have exactly 64 bytes, got {}", seal.len());
+					return false;
+				},
+			};
+
+			match self.client.runtime_api().verify_nonce_local_mining(best_hash, pre_hash, nonce) {
+				Ok(true) => {
+					// Seal is valid, take the build. This cannot be None because:
+					// - We hold the lock continuously since checking as_ref() above
+					// - No other code path modifies build_guard between check and take
+					let build = build_guard.take();
+					self.increment_version();
+					match build {
+						Some(b) => b,
+						None => {
+							// This branch is unreachable given the lock invariants, but we handle
+							// it explicitly rather than using unwrap() to satisfy safety
+							// guidelines.
+							warn!(target: LOG_TARGET, "Build disappeared while holding lock (should be unreachable)");
+							return false;
+						},
+					}
+				},
+				Ok(false) => {
+					warn!(
+						target: LOG_TARGET,
+						"Seal verification failed: pre_hash={:?}, best_hash={:?}",
+						pre_hash, best_hash
+					);
+					return false;
+				},
+				Err(e) => {
+					warn!(target: LOG_TARGET, "Runtime API error verifying seal: {:?}", e);
+					return false;
+				},
 			}
-			value
-		} {
-			build
-		} else {
-			warn!(target: LOG_TARGET, "Unable to import mined block: build does not exist",);
-			return false;
 		};
 
 		let seal = DigestItem::Seal(POW_ENGINE_ID, seal);

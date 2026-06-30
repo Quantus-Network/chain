@@ -293,6 +293,31 @@ fn create_multisig_deduplicates_signers() {
 	});
 }
 
+/// Regression test: raw signer input is bounded BEFORE deduplication to prevent DoS.
+/// An attacker could submit a huge duplicate-heavy vector that would dedup to ≤ MaxSigners,
+/// but the sort/dedup cost is O(n log n) on the raw length. We reject oversized raw inputs
+/// even if they would normalize to a valid count.
+#[test]
+fn create_multisig_rejects_oversized_raw_input_even_if_would_dedup_to_valid() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let creator = alice();
+
+		// MaxSigners is 10 in mock. Create 11 signers that would dedup to just 2.
+		// Old behavior: would accept (dedup first, then check).
+		// New behavior: rejects immediately (check raw length first).
+		let signers =
+			vec![bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), charlie()]; // 11 elements, but only 2 unique
+		assert_eq!(signers.len(), 11);
+
+		// Should fail with TooManySigners even though dedup would yield only 2
+		assert_noop!(
+			Multisig::create_multisig(RuntimeOrigin::signed(creator), signers, 2, 0),
+			Error::<Test>::TooManySigners
+		);
+	});
+}
+
 #[test]
 fn create_multiple_multisigs_increments_nonce() {
 	new_test_ext().execute_with(|| {

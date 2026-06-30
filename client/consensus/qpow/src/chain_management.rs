@@ -5,7 +5,7 @@ use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_consensus::Error as ConsensusError;
 use sp_consensus_qpow::QPoWApi;
-use sp_runtime::traits::{Block as BlockT, Header, Zero};
+use sp_runtime::traits::{Block as BlockT, Header, One, Zero};
 use std::fmt;
 
 const ACHIEVED_WORK_PREFIX: &[u8] = b"QPow:AchievedWork:";
@@ -163,8 +163,10 @@ pub fn is_heavier<N: PartialOrd>(
 /// This should be called synchronously after each block import to ensure finalization
 /// happens before the next block is imported.
 ///
-/// Also cleans up achieved work entries for blocks that are now deep enough in the
-/// finalized chain that they can never be involved in fork choice again.
+/// Cleans up achieved work entries for canonical blocks that are now finalized.
+/// Note: Non-canonical fork blocks are not cleaned up since we cannot enumerate them
+/// by height. This is acceptable because fork blocks require valid PoW to create,
+/// making accumulation attacks expensive, and the entries are small (~96 bytes each).
 pub fn finalize_canonical_at_depth<B, C, BE>(client: &C) -> Result<(), ConsensusError>
 where
 	B: BlockT<Hash = H256>,
@@ -267,21 +269,27 @@ where
 
 	log::debug!("✓ Finalized block #{:?} ({:?})", finalize_number, finalize_hash);
 
-	// Clean up achieved work for the previously finalized block.
-	// Once a block is finalized and we've moved past it, its achieved work
-	// is no longer needed for fork choice decisions.
-	if last_finalized_before > Zero::zero() {
-		if let Ok(Some(old_finalized_hash)) = client.hash(last_finalized_before) {
-			if let Err(e) = delete_cumulative_achieved_work::<B, C>(client, old_finalized_hash) {
+	// Clean up achieved work entries for blocks that are now below the finalized tip.
+	// Delete entries from last_finalized_before up to (not including) last_finalized_after.
+	// The finalized tip's entry must be preserved as it's the parent work source for children.
+	//
+	// The loop naturally handles edge cases:
+	// - If finalization didn't advance (after <= before): zero iterations
+	// - If multi-step jump (e.g., bursty sync): cleans all intermediate entries
+	let mut height_to_clean = last_finalized_before;
+	while height_to_clean < last_finalized_after {
+		if let Ok(Some(hash_to_clean)) = client.hash(height_to_clean) {
+			if let Err(e) = delete_cumulative_achieved_work::<B, C>(client, hash_to_clean) {
 				// Non-fatal: log warning but don't fail the finalization
 				log::warn!(
 					target: "qpow",
-					"Failed to clean up achieved work for old finalized block #{:?}: {:?}",
-					last_finalized_before,
+					"Failed to clean up achieved work for block #{:?}: {:?}",
+					height_to_clean,
 					e
 				);
 			}
 		}
+		height_to_clean = height_to_clean + One::one();
 	}
 
 	Ok(())

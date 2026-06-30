@@ -911,6 +911,10 @@ pub mod pallet {
 				(pending.from.clone(), false)
 			};
 
+			// Release funds before mutating metadata so a failure leaves the pending transfer
+			// intact and retryable.
+			Self::release_held_funds_with_fee(&pending, &recipient, apply_fee)?;
+
 			// Remove from storage
 			PendingTransfers::<T>::remove(tx_id);
 			PendingTransfersBySender::<T>::mutate(&pending.from, |list| {
@@ -924,15 +928,17 @@ pub mod pallet {
 			T::Scheduler::cancel_named(schedule_id)
 				.defensive_map_err(|_| Error::<T>::CancellationFailed)?;
 
-			// Release funds (must succeed for normal cancel)
-			Self::release_held_funds_with_fee(&pending, &recipient, apply_fee)?;
-
 			Self::deposit_event(Event::TransactionCancelled { who: who.clone(), tx_id });
 			Ok(())
 		}
 
 		/// Releases held funds from a pending transfer, optionally applying volume fee.
 		/// Burns the fee portion and transfers the remainder to the recipient.
+		///
+		/// Wrapped in a storage layer so a partial failure (e.g. the recipient cannot receive
+		/// the funds) rolls back any fee burn, leaving the original hold intact and the pending
+		/// transfer retryable.
+		#[frame_support::transactional]
 		fn release_held_funds_with_fee(
 			pending: &PendingTransferOf<T>,
 			recipient: &T::AccountId,

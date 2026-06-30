@@ -438,16 +438,22 @@ pub mod pallet {
 			ensure!(threshold > 0, Error::<T>::ThresholdZero);
 			ensure!(signers.len() >= 2, Error::<T>::NotEnoughSigners);
 
+			// SECURITY: Bound raw input size BEFORE normalization to prevent DoS.
+			// An attacker could submit a huge duplicate-heavy vector; clone/sort/dedup
+			// is O(n log n) on the raw length, but benchmarks only cover MaxSigners.
+			// Reject oversized inputs before doing any expensive work.
+			//
+			// BREAKING CHANGE: This rejects inputs with len > MaxSigners even if they would
+			// deduplicate to ≤ MaxSigners. Previously such inputs were accepted. This is the
+			// correct security tradeoff: users must pre-deduplicate their signer lists.
+			ensure!(signers.len() <= T::MaxSigners::get() as usize, Error::<T>::TooManySigners);
+
 			// Normalize signers: sort and deduplicate (single authoritative place)
 			let normalized_signers = Self::normalize_signers(&signers);
 
 			// Validate against normalized count (after dedup) - must have at least 2 unique signers
 			ensure!(normalized_signers.len() >= 2, Error::<T>::NotEnoughSigners);
 			ensure!(threshold <= normalized_signers.len() as u32, Error::<T>::ThresholdTooHigh);
-			ensure!(
-				normalized_signers.len() <= T::MaxSigners::get() as usize,
-				Error::<T>::TooManySigners
-			);
 
 			// Generate deterministic multisig address from normalized signers
 			let multisig_address =
@@ -516,10 +522,23 @@ pub mod pallet {
 		/// **For threshold=1:** The proposal is created with `Approved` status immediately
 		/// and can be executed via `execute()` without additional approvals.
 		///
-		/// **Weight:** Charged upfront for worst-case (high-security path with decode).
-		/// Refunded to actual cost on success based on whether HS path was taken.
+		/// **Weight:** Charged upfront includes bookkeeping + MaxInnerCallWeight to cover
+		/// the cost of decoding arbitrary RuntimeCall structures and calling get_dispatch_info().
+		/// On success, refunds based on actual inner call weight. On rejection after decode
+		/// (e.g., CallWeightExceedsLimit, CallNotAllowedForHighSecurityMultisig), the full
+		/// reserved weight is burned to prevent griefing with complex calls that get rejected.
 		#[pallet::call_index(1)]
-		#[pallet::weight(<T as Config>::WeightInfo::propose_high_security(call.len() as u32))]
+		#[pallet::weight({
+			// Bookkeeping weight + MaxInnerCallWeight to cover decode + get_dispatch_info cost.
+			// Structured RuntimeCall decode is O(inner_call_count), not O(bytes), so we must
+			// reserve weight for the worst-case inner call to prevent block time overruns.
+			//
+			// Note: MaxInnerCallWeight is a proxy for decode cost, not exact. Decode cost ≠
+			// dispatch weight, but they're correlated (complex calls = more variants to decode).
+			// This is intentionally conservative: over-reservation is refunded on success.
+			<T as Config>::WeightInfo::propose_high_security(call.len() as u32)
+				.saturating_add(T::MaxInnerCallWeight::get())
+		})]
 		#[allow(clippy::useless_conversion)]
 		pub fn propose(
 			origin: OriginFor<T>,
@@ -583,30 +602,28 @@ pub mod pallet {
 			// ===== PHASE 3: Decode call (validates call is well-formed for ALL proposals) =====
 			// This catches malformed calls at propose time rather than execute time,
 			// providing consistent error behavior for both HS and non-HS multisigs.
-			let decoded_call =
-				<T as Config>::RuntimeCall::decode(&mut &call[..]).map_err(|_| {
-					DispatchErrorWithPostInfo {
-						post_info: PostDispatchInfo {
-							actual_weight: Some(T::DbWeight::get().reads(1)),
-							pays_fee: Pays::Yes,
-						},
-						error: Error::<T>::InvalidCall.into(),
-					}
-				})?;
+			// NOTE: Decode cost is O(inner_call_count) for nested calls, not O(bytes).
+			// On decode failure, we burn the full reserved weight to prevent griefing.
+			let decoded_call = <T as Config>::RuntimeCall::decode(&mut &call[..])
+				.map_err(|_| Self::err_burn_full_raw(Error::<T>::InvalidCall))?;
 
 			// ===== PHASE 3b: Check inner call weight against limit =====
 			// This ensures execute() can safely reserve weight at pre-dispatch time.
 			let call_weight = decoded_call.get_dispatch_info().call_weight;
 			let max_inner_weight = T::MaxInnerCallWeight::get();
 			if call_weight.any_gt(max_inner_weight) {
-				return Self::err_with_weight(Error::<T>::CallWeightExceedsLimit, 1);
+				// Don't refund after decode - the expensive work (decode + get_dispatch_info)
+				// has already been done. Returning None burns the full reserved weight,
+				// preventing griefing with complex calls that get rejected.
+				return Self::err_burn_full(Error::<T>::CallWeightExceedsLimit);
 			}
 
 			// ===== PHASE 4: High-security whitelist check (if applicable) =====
 			// (additional read: HighSecurityAccounts)
 			let is_high_security = T::HighSecurity::is_high_security(&multisig_address);
 			if is_high_security && !T::HighSecurity::is_whitelisted(&decoded_call) {
-				return Self::err_with_weight(Error::<T>::CallNotAllowedForHighSecurityMultisig, 2);
+				// Don't refund after decode - same reasoning as above.
+				return Self::err_burn_full(Error::<T>::CallNotAllowedForHighSecurityMultisig);
 			}
 
 			// Calculate dynamic fee based on number of signers
@@ -692,12 +709,14 @@ pub mod pallet {
 				});
 			}
 
-			// Refund weight: HS path was charged upfront, refund if non-HS
-			let actual_weight = if is_high_security {
+			// Calculate actual weight: bookkeeping + actual inner call weight (from
+			// get_dispatch_info). We reserved MaxInnerCallWeight upfront; refund the difference.
+			let bookkeeping_weight = if is_high_security {
 				<T as Config>::WeightInfo::propose_high_security(call_len)
 			} else {
 				<T as Config>::WeightInfo::propose(call_len)
 			};
+			let actual_weight = bookkeeping_weight.saturating_add(call_weight);
 
 			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
@@ -748,17 +767,18 @@ pub mod pallet {
 					}
 				})?;
 
-			// Calculate actual weight based on real call size
+			// Calculate actual weight based on real call size - use this for ALL paths
+			// after proposal is loaded, since reading the proposal incurs size-dependent cost.
 			let actual_call_size = proposal.call.len() as u32;
 			let actual_weight = <T as Config>::WeightInfo::approve(actual_call_size);
 
 			let current_block = frame_system::Pallet::<T>::block_number();
 			if current_block > proposal.expiry {
-				return Self::err_with_weight(Error::<T>::ProposalExpired, 2);
+				return Self::err_with_actual_weight(Error::<T>::ProposalExpired, actual_weight);
 			}
 
 			if proposal.approvals.contains(&approver) {
-				return Self::err_with_weight(Error::<T>::AlreadyApproved, 2);
+				return Self::err_with_actual_weight(Error::<T>::AlreadyApproved, actual_weight);
 			}
 
 			// Add approval
@@ -827,19 +847,22 @@ pub mod pallet {
 					}
 				})?;
 
+			// Calculate actual weight based on real call size - use for ALL paths
+			// after proposal is loaded, since reading the proposal incurs size-dependent cost.
+			let call_size = proposal.call.len() as u32;
+			let actual_weight = <T as Config>::WeightInfo::cancel(call_size);
+
 			// Check if caller is the proposer (1 read already performed)
 			if canceller != proposal.proposer {
-				return Self::err_with_weight(Error::<T>::NotProposer, 1);
+				return Self::err_with_actual_weight(Error::<T>::NotProposer, actual_weight);
 			}
 
 			// Check if proposal is cancellable (Active or Approved)
 			if proposal.status != ProposalStatus::Active &&
 				proposal.status != ProposalStatus::Approved
 			{
-				return Self::err_with_weight(Error::<T>::ProposalNotActive, 1);
+				return Self::err_with_actual_weight(Error::<T>::ProposalNotActive, actual_weight);
 			}
-
-			let call_size = proposal.call.len() as u32;
 
 			// Remove proposal from storage and return deposit immediately
 			Self::remove_proposal_and_return_deposit(
@@ -856,7 +879,6 @@ pub mod pallet {
 				proposal_id,
 			});
 
-			let actual_weight = <T as Config>::WeightInfo::cancel(call_size);
 			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 
@@ -906,19 +928,24 @@ pub mod pallet {
 					}
 				})?;
 
+			// Calculate actual weight based on real call size - use for ALL paths
+			// after proposal is loaded, since reading the proposal incurs size-dependent cost.
+			let call_size = proposal.call.len() as u32;
+			let actual_weight = <T as Config>::WeightInfo::remove_expired(call_size);
+
 			// Active or Approved proposals can be removed when expired (Executed/Cancelled
 			// are auto-removed). Approved+expired would otherwise be stuck if proposer
 			// unavailable.
 			if proposal.status != ProposalStatus::Active &&
 				proposal.status != ProposalStatus::Approved
 			{
-				return Self::err_with_weight(Error::<T>::ProposalNotActive, 2);
+				return Self::err_with_actual_weight(Error::<T>::ProposalNotActive, actual_weight);
 			}
 
 			// Check if expired
 			let current_block = frame_system::Pallet::<T>::block_number();
 			if current_block <= proposal.expiry {
-				return Self::err_with_weight(Error::<T>::ProposalNotExpired, 2);
+				return Self::err_with_actual_weight(Error::<T>::ProposalNotExpired, actual_weight);
 			}
 
 			// Remove proposal from storage and return deposit
@@ -937,9 +964,6 @@ pub mod pallet {
 				removed_by: caller,
 			});
 
-			// Return actual weight based on proposal call size
-			let actual_weight =
-				<T as Config>::WeightInfo::remove_expired(proposal.call.len() as u32);
 			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 
@@ -1065,41 +1089,52 @@ pub mod pallet {
 					}
 				})?;
 
+			// Calculate bookkeeping weight based on real call size - use for ALL paths
+			// after proposal is loaded, since reading the proposal incurs size-dependent cost.
+			let call_size = proposal.call.len() as u32;
+			let bookkeeping_weight = <T as Config>::WeightInfo::execute(call_size);
+
 			// Must be Approved status
 			if proposal.status != ProposalStatus::Approved {
-				return Self::err_with_weight(Error::<T>::ProposalNotApproved, 2);
+				return Self::err_with_actual_weight(
+					Error::<T>::ProposalNotApproved,
+					bookkeeping_weight,
+				);
 			}
 
 			// Must not be expired
 			let current_block = frame_system::Pallet::<T>::block_number();
 			if current_block > proposal.expiry {
-				return Self::err_with_weight(Error::<T>::ProposalExpired, 2);
+				return Self::err_with_actual_weight(
+					Error::<T>::ProposalExpired,
+					bookkeeping_weight,
+				);
 			}
 
 			// Decode the call
+			// After decode, we've done size-dependent work, so failures should burn full weight.
 			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
-				.map_err(|_| Self::err_with_weight_raw(Error::<T>::InvalidCall, 2))?;
+				.map_err(|_| Self::err_burn_full_raw(Error::<T>::InvalidCall))?;
 
 			// Re-check call weight at execute time (belt-and-suspenders).
 			// MaxInnerCallWeight could have been lowered via runtime upgrade since propose time.
+			// After decode + get_dispatch_info, don't refund - burn the full reserved weight.
 			let current_call_weight = call.get_dispatch_info().call_weight;
 			let max_inner_weight = T::MaxInnerCallWeight::get();
 			if current_call_weight.any_gt(max_inner_weight) {
-				return Self::err_with_weight(Error::<T>::CallWeightExceedsLimit, 2);
+				return Self::err_burn_full(Error::<T>::CallWeightExceedsLimit);
 			}
 
 			// Re-check high-security whitelist at execute time.
 			// The multisig's HS status may have changed since the proposal was created,
 			// or the whitelist may have been updated via runtime upgrade.
 			// This prevents bypassing HS restrictions by proposing before enabling HS.
+			// After decode + get_dispatch_info, don't refund - burn the full reserved weight.
 			if T::HighSecurity::is_high_security(&multisig_address) &&
 				!T::HighSecurity::is_whitelisted(&call)
 			{
-				return Self::err_with_weight(Error::<T>::CallNotAllowedForHighSecurityMultisig, 2);
+				return Self::err_burn_full(Error::<T>::CallNotAllowedForHighSecurityMultisig);
 			}
-
-			// Calculate bookkeeping weight based on call size
-			let bookkeeping_weight = Self::bookkeeping_weight(proposal.call.len() as u32);
 
 			// EFFECTS: Remove proposal and return deposit BEFORE dispatch (reentrancy protection)
 			Self::remove_proposal_and_return_deposit(
@@ -1142,7 +1177,7 @@ pub mod pallet {
 
 	impl<T: Config> Pallet<T> {
 		/// Return an error with actual weight consumed instead of charging full upfront weight.
-		/// Use for early exits where minimal work was performed.
+		/// Use for early exits where minimal work was performed (only DB reads).
 		fn err_with_weight(error: Error<T>, reads: u64) -> DispatchResultWithPostInfo {
 			Err(DispatchErrorWithPostInfo {
 				post_info: PostDispatchInfo {
@@ -1153,21 +1188,29 @@ pub mod pallet {
 			})
 		}
 
-		/// Return a raw DispatchErrorWithPostInfo (not wrapped in Result).
-		/// Use when you need to map_err with a custom error.
-		fn err_with_weight_raw(error: Error<T>, reads: u64) -> DispatchErrorWithPostInfo {
-			DispatchErrorWithPostInfo {
-				post_info: PostDispatchInfo {
-					actual_weight: Some(T::DbWeight::get().reads(reads)),
-					pays_fee: Pays::Yes,
-				},
+		/// Return an error with a specific actual weight.
+		/// Use for failures after size-dependent work (e.g., after loading a proposal).
+		fn err_with_actual_weight(error: Error<T>, weight: Weight) -> DispatchResultWithPostInfo {
+			Err(DispatchErrorWithPostInfo {
+				post_info: PostDispatchInfo { actual_weight: Some(weight), pays_fee: Pays::Yes },
 				error: error.into(),
-			}
+			})
 		}
 
-		/// Returns the multisig bookkeeping weight for execute (excludes inner call weight).
-		fn bookkeeping_weight(call_size: u32) -> Weight {
-			<T as Config>::WeightInfo::execute(call_size)
+		/// Return an error that burns the full reserved weight (no refund).
+		/// Use for failures after expensive work like call decoding where we want to
+		/// prevent griefing with complex calls that get rejected.
+		fn err_burn_full(error: Error<T>) -> DispatchResultWithPostInfo {
+			Err(Self::err_burn_full_raw(error))
+		}
+
+		/// Return a raw DispatchErrorWithPostInfo that burns the full reserved weight.
+		/// Use in map_err closures where the raw error type is needed.
+		fn err_burn_full_raw(error: Error<T>) -> DispatchErrorWithPostInfo {
+			DispatchErrorWithPostInfo {
+				post_info: PostDispatchInfo { actual_weight: None, pays_fee: Pays::Yes },
+				error: error.into(),
+			}
 		}
 
 		/// Normalize signers: sort and deduplicate.
