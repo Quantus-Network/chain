@@ -153,7 +153,7 @@ proptest = { version = "1" }
 prost = { version = "0.13.5" }
 prost-build = { version = "0.14" }
 quickcheck = { version = "1.0.3" }
-quinn = { version = "0.11.9", default-features = false, features = ["bloom", "log", "runtime-tokio", "rustls-ring"] }
+quinn = { version = "0.11.11", default-features = false, features = ["bloom", "log", "runtime-tokio", "rustls-ring"] }
 rand = { version = "0.8.5", default-features = false }
 rcgen = { version = "0.13" }
 regex = { version = "1.10.2" }
