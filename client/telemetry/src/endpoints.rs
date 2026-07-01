@@ -86,6 +86,31 @@ fn parse_telemetry_url(url_str: &str) -> Result<Url, EndpointError> {
 	Err(EndpointError::InvalidUrl(url_str.to_string()))
 }
 
+/// Decode percent-encoded string (e.g., `%2Fsubmit%2F` -> `/submit/`).
+fn percent_decode(input: &str) -> String {
+	let mut result = Vec::with_capacity(input.len());
+	let mut chars = input.bytes();
+
+	while let Some(b) = chars.next() {
+		if b == b'%' {
+			let hex: Vec<u8> = chars.by_ref().take(2).collect();
+			if hex.len() == 2 {
+				if let Ok(decoded) = u8::from_str_radix(&String::from_utf8_lossy(&hex), 16) {
+					result.push(decoded);
+					continue;
+				}
+			}
+			// Invalid percent encoding, keep as-is
+			result.push(b);
+			result.extend(hex);
+		} else {
+			result.push(b);
+		}
+	}
+
+	String::from_utf8_lossy(&result).into_owned()
+}
+
 /// Attempts to convert a multiaddr-style string to a WebSocket URL.
 /// Supports formats like:
 /// - /dns/example.com/tcp/443/wss
@@ -137,9 +162,10 @@ fn multiaddr_to_url(addr: &str) -> Option<Url> {
 			},
 			other => {
 				// Might be a path component after ws/wss
+				// Multiaddr uses percent-encoding for path segments, so decode them
 				if host.is_some() && (secure || port.is_some()) {
-					path.push('/');
-					path.push_str(other);
+					let decoded = percent_decode(other);
+					path.push_str(&decoded);
 				}
 				i += 1;
 			},
@@ -172,7 +198,7 @@ fn multiaddr_to_url(addr: &str) -> Option<Url> {
 
 #[cfg(test)]
 mod tests {
-	use super::{parse_telemetry_url, TelemetryEndpoints, Url};
+	use super::{parse_telemetry_url, TelemetryEndpoints};
 
 	#[test]
 	fn valid_wss_url() {
@@ -244,5 +270,25 @@ mod tests {
 		let endp = vec![("http://example.com".into(), 3)];
 		let telem = TelemetryEndpoints::new(endp);
 		assert!(telem.is_err());
+	}
+
+	#[test]
+	fn multiaddr_with_percent_encoded_path() {
+		// Substrate multiaddr format uses percent-encoding for path segments
+		// e.g., /submit/ is encoded as %2Fsubmit%2F
+		let url = parse_telemetry_url("/dns/telemetry.example.io/tcp/443/wss/%2Fsubmit%2F")
+			.expect("Should parse multiaddr with percent-encoded path");
+		assert_eq!(url.scheme(), "wss");
+		assert_eq!(url.host_str(), Some("telemetry.example.io"));
+		// port() returns None for default ports, use port_or_known_default()
+		assert_eq!(url.port_or_known_default(), Some(443));
+		assert_eq!(url.path(), "/submit/");
+	}
+
+	#[test]
+	fn multiaddr_with_multiple_encoded_path_segments() {
+		let url = parse_telemetry_url("/dns/telemetry.example.io/tcp/443/wss/%2Fapi%2Fv1%2Fsubmit")
+			.expect("Should parse multiaddr with multiple encoded path segments");
+		assert_eq!(url.path(), "/api/v1/submit");
 	}
 }
