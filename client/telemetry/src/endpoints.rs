@@ -146,30 +146,26 @@ fn multiaddr_to_url(addr: &str) -> Option<Url> {
 		}
 	}
 
-    let host = host?;
-    let scheme = if secure { "wss" } else { "ws" };
+	let host = host?;
+	let scheme = if secure { "wss" } else { "ws" };
 
-    // IPv6 addresses need brackets in URLs
-    let host_for_url = if host.contains(':') {
-        format!("[{}]", host)
-    } else {
-        host
-    };
+	// IPv6 addresses need brackets in URLs
+	let host_for_url = if host.contains(':') { format!("[{}]", host) } else { host };
 
-    let url_str = if let Some(p) = port {
-        if path.is_empty() {
-            format!("{}://{}:{}/", scheme, host_for_url, p)
-        } else {
-            format!("{}://{}:{}{}", scheme, host_for_url, p, path)
-        }
-    } else {
-        let default_port = if secure { 443 } else { 80 };
-        if path.is_empty() {
-            format!("{}://{}:{}/", scheme, host_for_url, default_port)
-        } else {
-            format!("{}://{}:{}{}", scheme, host_for_url, default_port, path)
-        }
-    };
+	let url_str = if let Some(p) = port {
+		if path.is_empty() {
+			format!("{}://{}:{}/", scheme, host_for_url, p)
+		} else {
+			format!("{}://{}:{}{}", scheme, host_for_url, p, path)
+		}
+	} else {
+		let default_port = if secure { 443 } else { 80 };
+		if path.is_empty() {
+			format!("{}://{}:{}/", scheme, host_for_url, default_port)
+		} else {
+			format!("{}://{}:{}{}", scheme, host_for_url, default_port, path)
+		}
+	};
 
 	Url::parse(&url_str).ok()
 }
