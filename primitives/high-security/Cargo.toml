@@ -15,4 +15,4 @@ codec = { workspace = true, default-features = false, optional = true }
 [features]
 default = ["std"]
 # `codec` is only needed by the `std`-only `testing` inspector.
-std = ["dep:codec", "codec/std"]
+std = ["codec/std", "dep:codec"]
