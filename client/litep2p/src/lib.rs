@@ -155,8 +155,19 @@ impl Litep2p {
 		let mut listen_addresses = vec![];
 
 		let (resolver_config, resolver_opts) = if litep2p_config.use_system_dns_config {
-			hickory_resolver::system_conf::read_system_conf()
-				.map_err(|e| Error::CannotReadSystemDnsConfig(e.into()))?
+			// Some hosts advertise nameservers hickory can't parse (e.g. macOS zoned
+			// link-local IPv6 `fe80::1%en0`); log and fall back instead of aborting startup.
+			match hickory_resolver::system_conf::read_system_conf() {
+				Ok(conf) => conf,
+				Err(error) => {
+					tracing::error!(
+						target: LOG_TARGET,
+						?error,
+						"failed to read system DNS config; falling back to default resolver",
+					);
+					(Default::default(), Default::default())
+				},
+			}
 		} else {
 			(Default::default(), Default::default())
 		};
