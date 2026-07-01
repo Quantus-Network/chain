@@ -50,7 +50,10 @@ use crate::{
 #[cfg(feature = "websocket")]
 use crate::transport::websocket::WebSocketTransport;
 
-use hickory_resolver::TokioResolver;
+use hickory_resolver::{
+	config::{ResolverConfig, GOOGLE},
+	TokioResolver,
+};
 use multiaddr::{Multiaddr, Protocol};
 use transport::Endpoint;
 use types::ConnectionId;
@@ -155,17 +158,18 @@ impl Litep2p {
 		let mut listen_addresses = vec![];
 
 		let (resolver_config, resolver_opts) = if litep2p_config.use_system_dns_config {
-			// Some hosts advertise nameservers hickory can't parse (e.g. macOS zoned
-			// link-local IPv6 `fe80::1%en0`); log and fall back instead of aborting startup.
+			// `ResolverConfig::default()` has no nameservers since hickory 0.26, so on a
+			// failed system read fall back to public DNS rather than leave the node unable
+			// to resolve `/dns/` peers.
 			match hickory_resolver::system_conf::read_system_conf() {
 				Ok(conf) => conf,
 				Err(error) => {
 					tracing::error!(
 						target: LOG_TARGET,
 						?error,
-						"failed to read system DNS config; falling back to default resolver",
+						"failed to read system DNS config; falling back to public DNS",
 					);
-					(Default::default(), Default::default())
+					(ResolverConfig::udp_and_tcp(&GOOGLE), Default::default())
 				},
 			}
 		} else {
