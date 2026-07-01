@@ -9,6 +9,10 @@ publish = false
 repository.workspace = true
 version = "0.1.0"
 
+[dependencies]
+codec = { workspace = true, default-features = false, optional = true }
+
 [features]
 default = ["std"]
-std = []
+# `codec` is only needed by the `std`-only `testing` inspector.
+std = ["dep:codec", "codec/std"]
