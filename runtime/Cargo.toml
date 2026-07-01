@@ -7,7 +7,7 @@ license = "Apache-2.0"
 name = "quantus-runtime"
 publish = false
 repository.workspace = true
-version = "0.7.1-q-day-2"
+version = "0.7.2-rsn"
 
 [lints]
 workspace = true
