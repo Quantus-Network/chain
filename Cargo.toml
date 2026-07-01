@@ -15,6 +15,7 @@ members = [
 	"client/network-sync",
 	"client/network-types",
 	"client/service",
+	"client/telemetry",
 	"client/transaction-pool",
 	"frame/benchmarking",
 	"frame/executive",
@@ -352,6 +353,7 @@ sc-network = { path = "client/network" }
 sc-network-sync = { path = "client/network-sync" }
 sc-network-types = { path = "client/network-types" }
 sc-service = { path = "client/service" }
+sc-telemetry = { path = "client/telemetry" }
 sc-transaction-pool = { path = "client/transaction-pool" }
 
 [profile.release]

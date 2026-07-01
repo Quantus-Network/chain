@@ -18,132 +18,117 @@
 
 use futures::{
 	prelude::*,
-	ready,
 	task::{Context, Poll},
 };
-use libp2p::{core::transport::timeout::TransportTimeout, Transport};
 use std::{io, pin::Pin, time::Duration};
+use tokio::time::timeout;
+use tokio_tungstenite::{
+	connect_async,
+	tungstenite::{Error as WsError, Message},
+	MaybeTlsStream, WebSocketStream,
+};
+use url::Url;
 
 /// Timeout after which a connection attempt is considered failed. Includes the WebSocket HTTP
 /// upgrading.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 
-pub(crate) fn initialize_transport() -> Result<WsTrans, io::Error> {
-	let transport = {
-		let tcp_transport = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::new());
-		let inner = libp2p::dns::tokio::Transport::system(tcp_transport)?;
-		libp2p::websocket::framed::WsConfig::new(inner).and_then(|connec, _| {
-			let connec = connec
-				.with(|item| {
-					let item = libp2p::websocket::framed::OutgoingData::Binary(item);
-					future::ready(Ok::<_, io::Error>(item))
-				})
-				.try_filter_map(|item| async move {
-					if let libp2p::websocket::framed::Incoming::Data(data) = item {
-						Ok(Some(data.into_bytes()))
-					} else {
-						Ok(None)
-					}
-				});
-			future::ready(Ok::<_, io::Error>(connec))
-		})
-	};
-
-	Ok(TransportTimeout::new(
-		transport.map(|out, _| {
-			let out = out
-				.map_err(|err| io::Error::new(io::ErrorKind::Other, err))
-				.sink_map_err(|err| io::Error::new(io::ErrorKind::Other, err));
-			Box::pin(out) as Pin<Box<_>>
-		}),
-		CONNECT_TIMEOUT,
-	)
-	.boxed())
+/// Error type for WebSocket transport operations.
+#[derive(Debug, thiserror::Error)]
+pub enum TransportError {
+	/// WebSocket error.
+	#[error("WebSocket error: {0}")]
+	WebSocket(#[from] WsError),
+	/// Connection timeout.
+	#[error("Connection timeout")]
+	Timeout,
+	/// IO error.
+	#[error("IO error: {0}")]
+	Io(#[from] io::Error),
 }
 
-/// A trait that implements `Stream` and `Sink`.
-pub(crate) trait StreamAndSink<I>: Stream + Sink<I> {}
-impl<T: ?Sized + Stream + Sink<I>, I> StreamAndSink<I> for T {}
+/// The WebSocket connection type using tokio-tungstenite.
+pub(crate) type WsConnection = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
-/// A type alias for the WebSocket transport.
-pub(crate) type WsTrans = libp2p::core::transport::Boxed<
-	Pin<
-		Box<
-			dyn StreamAndSink<Vec<u8>, Item = Result<Vec<u8>, io::Error>, Error = io::Error> + Send,
-		>,
-	>,
->;
-
-/// Wraps around an `AsyncWrite` and implements `Sink`. Guarantees that each item being sent maps
-/// to one call of `write`.
+/// A wrapper around a WebSocket connection that implements Stream and Sink for Vec<u8>.
 #[pin_project::pin_project]
-pub(crate) struct StreamSink<T>(#[pin] T, Option<Vec<u8>>);
+pub(crate) struct WsTransport {
+	#[pin]
+	inner: WsConnection,
+}
 
-impl<T> From<T> for StreamSink<T> {
-	fn from(inner: T) -> StreamSink<T> {
-		StreamSink(inner, None)
+impl WsTransport {
+	/// Create a new WsTransport from a WebSocket connection.
+	pub fn new(inner: WsConnection) -> Self {
+		Self { inner }
 	}
 }
 
-impl<T: AsyncRead> Stream for StreamSink<T> {
+impl Stream for WsTransport {
 	type Item = Result<Vec<u8>, io::Error>;
 
-	fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+	fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
 		let this = self.project();
-		let mut buf = vec![0; 128];
-		match ready!(AsyncRead::poll_read(this.0, cx, &mut buf)) {
-			Ok(0) => Poll::Ready(None),
-			Ok(n) => {
-				buf.truncate(n);
-				Poll::Ready(Some(Ok(buf)))
+		match this.inner.poll_next(cx) {
+			Poll::Ready(Some(Ok(msg))) => match msg {
+				Message::Binary(data) => Poll::Ready(Some(Ok(data.to_vec()))),
+				Message::Text(text) => Poll::Ready(Some(Ok(text.as_bytes().to_vec()))),
+				Message::Close(_) => Poll::Ready(None),
+				// Ping/Pong are handled automatically by tungstenite
+				Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => {
+					cx.waker().wake_by_ref();
+					Poll::Pending
+				},
 			},
-			Err(err) => Poll::Ready(Some(Err(err))),
+			Poll::Ready(Some(Err(e))) =>
+				Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, e)))),
+			Poll::Ready(None) => Poll::Ready(None),
+			Poll::Pending => Poll::Pending,
 		}
 	}
 }
 
-impl<T: AsyncWrite> StreamSink<T> {
-	fn poll_flush_buffer(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), io::Error>> {
-		let this = self.project();
-
-		if let Some(buffer) = this.1 {
-			if ready!(this.0.poll_write(cx, &buffer[..]))? != buffer.len() {
-				log::error!(target: "telemetry",
-					"Detected some internal buffering happening in the telemetry");
-				let err = io::Error::new(io::ErrorKind::Other, "Internal buffering detected");
-				return Poll::Ready(Err(err))
-			}
-		}
-
-		*this.1 = None;
-		Poll::Ready(Ok(()))
-	}
-}
-
-impl<T: AsyncWrite> Sink<Vec<u8>> for StreamSink<T> {
+impl Sink<Vec<u8>> for WsTransport {
 	type Error = io::Error;
 
-	fn poll_ready(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
-		ready!(StreamSink::poll_flush_buffer(self, cx))?;
-		Poll::Ready(Ok(()))
+	fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+		let this = self.project();
+		this.inner.poll_ready(cx).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 	}
 
 	fn start_send(self: Pin<&mut Self>, item: Vec<u8>) -> Result<(), Self::Error> {
 		let this = self.project();
-		debug_assert!(this.1.is_none());
-		*this.1 = Some(item);
-		Ok(())
+		this.inner
+			.start_send(Message::Binary(item.into()))
+			.map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 	}
 
-	fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
-		ready!(self.as_mut().poll_flush_buffer(cx))?;
+	fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
 		let this = self.project();
-		AsyncWrite::poll_flush(this.0, cx)
+		this.inner.poll_flush(cx).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 	}
 
-	fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
-		ready!(self.as_mut().poll_flush_buffer(cx))?;
+	fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
 		let this = self.project();
-		AsyncWrite::poll_close(this.0, cx)
+		this.inner.poll_close(cx).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 	}
+}
+
+/// Connect to a WebSocket endpoint with timeout.
+pub(crate) async fn connect_to_endpoint(url: &Url) -> Result<WsTransport, TransportError> {
+	let result = timeout(CONNECT_TIMEOUT, connect_async(url.as_str())).await;
+
+	match result {
+		Ok(Ok((ws_stream, _response))) => Ok(WsTransport::new(ws_stream)),
+		Ok(Err(e)) => Err(TransportError::WebSocket(e)),
+		Err(_) => Err(TransportError::Timeout),
+	}
+}
+
+/// Validates that transport can be initialized (for early error detection).
+/// With tokio-tungstenite, this is always successful as we don't need to pre-initialize
+/// anything like we did with libp2p's DNS transport.
+pub(crate) fn initialize_transport() -> Result<(), io::Error> {
+	// tokio-tungstenite doesn't require pre-initialization
+	Ok(())
 }

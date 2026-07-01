@@ -37,8 +37,7 @@
 #![warn(missing_docs)]
 
 use futures::{channel::mpsc, prelude::*};
-use libp2p::Multiaddr;
-use log::{error, warn};
+use log::error;
 use parking_lot::Mutex;
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
 use serde::Serialize;
@@ -49,6 +48,7 @@ use std::{
 	},
 	sync::{atomic, Arc},
 };
+use url::Url;
 
 pub use log;
 pub use serde_json;
@@ -191,9 +191,9 @@ impl TelemetryWorker {
 	///
 	/// This should be run in a background task.
 	pub async fn run(mut self) {
-		let mut node_map: HashMap<Id, Vec<(VerbosityLevel, Multiaddr)>> = HashMap::new();
-		let mut node_pool: HashMap<Multiaddr, _> = HashMap::new();
-		let mut pending_connection_notifications: Vec<_> = Vec::new();
+		let mut node_map: HashMap<Id, Vec<(VerbosityLevel, Url)>> = HashMap::new();
+		let mut node_pool: HashMap<Url, Node> = HashMap::new();
+		let mut pending_connection_notifications: Vec<(Url, ConnectionNotifierSender)> = Vec::new();
 
 		loop {
 			futures::select! {
@@ -214,9 +214,9 @@ impl TelemetryWorker {
 
 	async fn process_register(
 		input: Option<Register>,
-		node_pool: &mut HashMap<Multiaddr, Node<WsTrans>>,
-		node_map: &mut HashMap<Id, Vec<(VerbosityLevel, Multiaddr)>>,
-		pending_connection_notifications: &mut Vec<(Multiaddr, ConnectionNotifierSender)>,
+		node_pool: &mut HashMap<Url, Node>,
+		node_map: &mut HashMap<Id, Vec<(VerbosityLevel, Url)>>,
+		pending_connection_notifications: &mut Vec<(Url, ConnectionNotifierSender)>,
 	) {
 		let input = input.expect("the stream is never closed; qed");
 
@@ -255,21 +255,8 @@ impl TelemetryWorker {
 
 					let node = match node_pool.entry(addr.clone()) {
 						Occupied(entry) => entry.into_mut(),
-						Vacant(entry) => {
-							let transport = initialize_transport();
-							let transport = match transport {
-								Ok(t) => t,
-								Err(err) => {
-									log::error!(
-										target: "telemetry",
-										"Could not initialise transport: {}",
-										err,
-									);
-									continue
-								},
-							};
-							entry.insert(Node::new(transport, addr.clone(), Vec::new(), Vec::new()))
-						},
+						Vacant(entry) =>
+							entry.insert(Node::new(addr.clone(), Vec::new(), Vec::new())),
 					};
 
 					node.connection_messages.extend(connection_message.clone());
@@ -303,8 +290,8 @@ impl TelemetryWorker {
 	// dispatch messages to the telemetry nodes
 	async fn process_message(
 		input: Option<TelemetryMessage>,
-		node_pool: &mut HashMap<Multiaddr, Node<WsTrans>>,
-		node_map: &HashMap<Id, Vec<(VerbosityLevel, Multiaddr)>>,
+		node_pool: &mut HashMap<Url, Node>,
+		node_map: &HashMap<Id, Vec<(VerbosityLevel, Url)>>,
 	) {
 		let (id, verbosity, payload) = input.expect("the stream is never closed; qed");
 
@@ -330,12 +317,12 @@ impl TelemetryWorker {
 						message,
 					)),
 			);
-			return
+			return;
 		};
 
 		for (node_max_verbosity, addr) in nodes {
 			if verbosity > *node_max_verbosity {
-				continue
+				continue;
 			}
 
 			if let Some(node) = node_pool.get_mut(addr) {
@@ -463,7 +450,7 @@ impl TelemetryHandle {
 #[derive(Clone, Debug)]
 pub struct TelemetryConnectionNotifier {
 	register_sender: TracingUnboundedSender<Register>,
-	addresses: Vec<Multiaddr>,
+	addresses: Vec<Url>,
 }
 
 impl TelemetryConnectionNotifier {
@@ -487,7 +474,7 @@ impl TelemetryConnectionNotifier {
 #[derive(Debug)]
 enum Register {
 	Telemetry { id: Id, endpoints: TelemetryEndpoints, connection_message: ConnectionMessage },
-	Notifier { addresses: Vec<Multiaddr>, connection_notifier: ConnectionNotifierSender },
+	Notifier { addresses: Vec<Url>, connection_notifier: ConnectionNotifierSender },
 }
 
 /// Report a telemetry.
@@ -515,58 +502,58 @@ enum Register {
 /// ```
 #[macro_export(local_inner_macros)]
 macro_rules! telemetry {
-	( $telemetry:expr; $verbosity:expr; $msg:expr; $( $t:tt )* ) => {{
-		if let Some(telemetry) = $telemetry.as_ref() {
-			let verbosity: $crate::VerbosityLevel = $verbosity;
-			match format_fields_to_json!($($t)*) {
-				Err(err) => {
-					$crate::log::debug!(
-						target: "telemetry",
-						"Could not serialize value for telemetry: {}",
-						err,
-					);
-				},
-				Ok(mut json) => {
-					json.insert("msg".into(), $msg.into());
-					telemetry.send_telemetry(verbosity, json);
-				},
-			}
-		}
-	}};
+    ( $telemetry:expr; $verbosity:expr; $msg:expr; $( $t:tt )* ) => {{
+        if let Some(telemetry) = $telemetry.as_ref() {
+            let verbosity: $crate::VerbosityLevel = $verbosity;
+            match format_fields_to_json!($($t)*) {
+                Err(err) => {
+                    $crate::log::debug!(
+                        target: "telemetry",
+                        "Could not serialize value for telemetry: {}",
+                        err,
+                    );
+                },
+                Ok(mut json) => {
+                    json.insert("msg".into(), $msg.into());
+                    telemetry.send_telemetry(verbosity, json);
+                },
+            }
+        }
+    }};
 }
 
 #[macro_export(local_inner_macros)]
 #[doc(hidden)]
 macro_rules! format_fields_to_json {
-	( $k:literal => $v:expr $(,)? $(, $($t:tt)+ )? ) => {{
-		$crate::serde_json::to_value(&$v)
-			.map(|value| {
-				let mut map = $crate::serde_json::Map::new();
-				map.insert($k.into(), value);
-				map
-			})
-			$(
-				.and_then(|mut prev_map| {
-					format_fields_to_json!($($t)*)
-						.map(move |mut other_map| {
-							prev_map.append(&mut other_map);
-							prev_map
-						})
-				})
-			)*
-	}};
-	( $k:literal => ? $v:expr $(,)? $(, $($t:tt)+ )? ) => {{
-		let mut map = $crate::serde_json::Map::new();
-		map.insert($k.into(), std::format!("{:?}", &$v).into());
-		$crate::serde_json::Result::Ok(map)
-		$(
-			.and_then(|mut prev_map| {
-				format_fields_to_json!($($t)*)
-					.map(move |mut other_map| {
-						prev_map.append(&mut other_map);
-						prev_map
-					})
-			})
-		)*
-	}};
+    ( $k:literal => $v:expr $(,)? $(, $($t:tt)+ )? ) => {{
+        $crate::serde_json::to_value(&$v)
+            .map(|value| {
+                let mut map = $crate::serde_json::Map::new();
+                map.insert($k.into(), value);
+                map
+            })
+            $(
+                .and_then(|mut prev_map| {
+                    format_fields_to_json!($($t)*)
+                        .map(move |mut other_map| {
+                            prev_map.append(&mut other_map);
+                            prev_map
+                        })
+                })
+            )*
+    }};
+    ( $k:literal => ? $v:expr $(,)? $(, $($t:tt)+ )? ) => {{
+        let mut map = $crate::serde_json::Map::new();
+        map.insert($k.into(), std::format!("{:?}", &$v).into());
+        $crate::serde_json::Result::Ok(map)
+        $(
+            .and_then(|mut prev_map| {
+                format_fields_to_json!($($t)*)
+                    .map(move |mut other_map| {
+                        prev_map.append(&mut other_map);
+                        prev_map
+                    })
+            })
+        )*
+    }};
 }
