@@ -43,6 +43,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 	const IDENTIFIER: &'static str = "ReversibleTransactionExtension";
 
 	fn weight(&self, _call: &RuntimeCall) -> Weight {
+		// One `is_high_security` storage read for the flat whitelist check.
 		T::DbWeight::get().reads(1)
 	}
 
@@ -70,14 +71,11 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 		let who = ensure_signed(origin.clone())
 			.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::BadSigner))?;
 
-		// Check if account is high-security using the same inspector as multisig
-		if crate::configs::HighSecurityConfig::is_high_security(&who) {
-			// Use the same whitelist check as multisig
-			if crate::configs::HighSecurityConfig::is_whitelisted(call) {
-				return Ok((ValidTransaction::default(), (), origin));
-			} else {
-				return Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(1)));
-			}
+		// Enforce the high-security whitelist on the top-level signer. Origin-rewriting wrappers
+		// (`as_derivative`/`as_recovered`) re-check the whitelist at the effective origin inside
+		// their own pallets at dispatch time, so this flat check needs no call traversal.
+		if !crate::configs::HighSecurityConfig::is_call_allowed(&who, call) {
+			return Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(1)));
 		}
 
 		Ok((ValidTransaction::default(), (), origin))
@@ -312,7 +310,10 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use frame_support::{assert_ok, pallet_prelude::TransactionValidityError, traits::Currency};
+	use frame_support::{
+		assert_err_ignore_postinfo, assert_noop, assert_ok,
+		pallet_prelude::TransactionValidityError, traits::Currency,
+	};
 	use sp_runtime::{traits::TxBaseImplication, AccountId32};
 	fn alice() -> AccountId {
 		AccountId32::from([1; 32])
@@ -441,32 +442,37 @@ mod tests {
 		});
 	}
 
-	fn check_call(call: RuntimeCall) -> Result<(), TransactionValidityError> {
-		// Test the reversible transaction extension
-		let ext = ReversibleTransactionExtension::<Runtime>::new();
+	// Run the reversible transaction extension's `validate` for `call` signed by `signer`.
+	fn validate_with(
+		signer: AccountId,
+		call: &RuntimeCall,
+	) -> Result<(), TransactionValidityError> {
+		ReversibleTransactionExtension::<Runtime>::new()
+			.validate(
+				RuntimeOrigin::signed(signer),
+				call,
+				&Default::default(),
+				0,
+				(),
+				&TxBaseImplication::<()>(()),
+				frame_support::pallet_prelude::TransactionSource::External,
+			)
+			.map(|_| ())
+	}
 
+	fn check_call(call: RuntimeCall) -> Result<(), TransactionValidityError> {
 		// Verify Charlie is high-security
 		assert!(ReversibleTransfers::is_high_security(&charlie()).is_some());
 
 		let origin = RuntimeOrigin::signed(charlie());
 
 		// Test the prepare method
-		ext.clone().prepare((), &origin, &call, &Default::default(), 0).unwrap();
-
-		assert_eq!((), ());
+		ReversibleTransactionExtension::<Runtime>::new()
+			.prepare((), &origin, &call, &Default::default(), 0)
+			.unwrap();
 
 		// Test the validate method
-		let result = ext.validate(
-			origin,
-			&call,
-			&Default::default(),
-			0,
-			(),
-			&TxBaseImplication::<()>(()),
-			frame_support::pallet_prelude::TransactionSource::External,
-		);
-
-		result.map(|_| ())
+		validate_with(charlie(), &call)
 	}
 
 	#[test]
@@ -555,6 +561,111 @@ mod tests {
 					tx_id: sp_core::H256::default(),
 				});
 			assert_ok!(check_call(call));
+		});
+	}
+
+	// =========================================================================
+	// Origin-rewriting wrappers must not bypass high-security restrictions.
+	// `as_recovered` / `as_derivative` re-check the whitelist at the effective
+	// (rewritten) origin inside their own pallets, so a non-whitelisted call
+	// cannot be dispatched as a high-security account, including under `batch`.
+	// =========================================================================
+
+	fn boxed(call: RuntimeCall) -> alloc::boxed::Box<RuntimeCall> {
+		alloc::boxed::Box::new(call)
+	}
+
+	fn non_whitelisted_transfer() -> RuntimeCall {
+		RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+			dest: MultiAddress::Id(bob()),
+			value: 10 * EXISTENTIAL_DEPOSIT,
+		})
+	}
+
+	fn whitelisted_schedule() -> RuntimeCall {
+		RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::schedule_transfer {
+			dest: MultiAddress::Id(bob()),
+			amount: 10 * EXISTENTIAL_DEPOSIT,
+		})
+	}
+
+	#[test]
+	fn as_recovered_high_security_call_is_blocked() {
+		new_test_ext().execute_with(|| {
+			// bob is charlie's recovery proxy; charlie is high-security (from genesis).
+			pallet_recovery::Proxy::<Runtime>::insert(bob(), charlie());
+
+			// A non-whitelisted call dispatched as the high-security account is rejected.
+			assert_noop!(
+				Recovery::as_recovered(
+					RuntimeOrigin::signed(bob()),
+					MultiAddress::Id(charlie()),
+					boxed(non_whitelisted_transfer()),
+				),
+				pallet_recovery::Error::<Runtime>::CallNotAllowedForHighSecurity
+			);
+
+			// A whitelisted call is allowed through as the high-security account.
+			assert_ok!(Recovery::as_recovered(
+				RuntimeOrigin::signed(bob()),
+				MultiAddress::Id(charlie()),
+				boxed(whitelisted_schedule()),
+			));
+		});
+	}
+
+	#[test]
+	fn as_derivative_high_security_call_is_blocked() {
+		new_test_ext().execute_with(|| {
+			// Make alice's index-0 derivative a high-security account.
+			let derivative = pallet_utility::derivative_account_id(alice(), 0u16);
+			Balances::make_free_balance_be(&derivative, EXISTENTIAL_DEPOSIT * 100);
+			assert_ok!(ReversibleTransfers::set_high_security(
+				RuntimeOrigin::signed(derivative.clone()),
+				qp_scheduler::BlockNumberOrTimestamp::BlockNumber(10),
+				bob(),
+			));
+
+			// A non-whitelisted call dispatched as the high-security derivative is rejected.
+			assert_err_ignore_postinfo!(
+				Utility::as_derivative(
+					RuntimeOrigin::signed(alice()),
+					0,
+					boxed(non_whitelisted_transfer()),
+				),
+				pallet_utility::Error::<Runtime>::CallNotAllowedForHighSecurity
+			);
+
+			// A whitelisted call as the derivative is allowed.
+			assert_ok!(Utility::as_derivative(
+				RuntimeOrigin::signed(alice()),
+				0,
+				boxed(whitelisted_schedule()),
+			));
+
+			// A different, non-high-security derivative is unaffected.
+			assert_ok!(Utility::as_derivative(
+				RuntimeOrigin::signed(alice()),
+				1,
+				boxed(RuntimeCall::System(frame_system::Call::remark { remark: vec![1] })),
+			));
+		});
+	}
+
+	#[test]
+	fn batch_wrapped_high_security_call_is_blocked() {
+		new_test_ext().execute_with(|| {
+			// Wrapping the origin-rewriter in a batch does not bypass the check: `batch_all`
+			// re-dispatches `as_recovered`, whose own check rejects the non-whitelisted call.
+			pallet_recovery::Proxy::<Runtime>::insert(bob(), charlie());
+			let inner = RuntimeCall::Recovery(pallet_recovery::Call::as_recovered {
+				account: MultiAddress::Id(charlie()),
+				call: boxed(non_whitelisted_transfer()),
+			});
+			assert_err_ignore_postinfo!(
+				Utility::batch_all(RuntimeOrigin::signed(bob()), vec![inner]),
+				pallet_recovery::Error::<Runtime>::CallNotAllowedForHighSecurity
+			);
 		});
 	}
 

@@ -224,6 +224,15 @@ impl Config for Test {
 	type RuntimeCall = RuntimeCall;
 	type PalletsOrigin = OriginCaller;
 	type WeightInfo = ();
+	type HighSecurity = qp_high_security::testing::TestHighSecurity<HighSecurityWhitelist>;
+}
+
+/// High-security accounts in tests may only dispatch `System::remark`.
+pub struct HighSecurityWhitelist;
+impl qp_high_security::testing::Whitelist<RuntimeCall> for HighSecurityWhitelist {
+	fn contains(call: &RuntimeCall) -> bool {
+		matches!(call, RuntimeCall::System(frame_system::Call::remark { .. }))
+	}
 }
 
 type ExampleCall = example::Call<Test>;
@@ -1088,5 +1097,46 @@ fn if_else_with_nested_if_else_works() {
 
 		// Ensure the correct event was triggered for the main call(nested if_else).
 		System::assert_last_event(utility::Event::IfElseMainSuccess.into());
+	});
+}
+
+fn remark_call() -> RuntimeCall {
+	RuntimeCall::System(frame_system::Call::remark { remark: vec![] })
+}
+
+#[test]
+fn as_derivative_blocks_high_security_non_whitelisted_call() {
+	new_test_ext().execute_with(|| {
+		qp_high_security::testing::reset();
+		// Make account 6's index-0 derivative a high-security account.
+		let derivative = crate::derivative_account_id(6u64, 0);
+		qp_high_security::testing::set_high_security(&derivative);
+
+		// A non-whitelisted inner call is rejected at the derivative origin before dispatch.
+		assert_err_ignore_postinfo!(
+			Utility::as_derivative(RuntimeOrigin::signed(6), 0, Box::new(call_transfer(2, 1))),
+			crate::Error::<Test>::CallNotAllowedForHighSecurity
+		);
+	});
+}
+
+#[test]
+fn as_derivative_allows_high_security_whitelisted_call() {
+	new_test_ext().execute_with(|| {
+		qp_high_security::testing::reset();
+		let derivative = crate::derivative_account_id(6u64, 0);
+		qp_high_security::testing::set_high_security(&derivative);
+
+		// A whitelisted inner call as the high-security derivative is allowed through.
+		assert_ok!(Utility::as_derivative(RuntimeOrigin::signed(6), 0, Box::new(remark_call())));
+	});
+}
+
+#[test]
+fn as_derivative_non_high_security_derivative_is_unaffected() {
+	new_test_ext().execute_with(|| {
+		qp_high_security::testing::reset();
+		// Account 6's index-1 derivative is not high-security, so the check is a no-op.
+		assert_ok!(Utility::as_derivative(RuntimeOrigin::signed(6), 1, Box::new(remark_call())));
 	});
 }

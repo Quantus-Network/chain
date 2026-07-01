@@ -68,10 +68,24 @@ impl Config for Test {
 	type FriendDepositFactor = FriendDepositFactor;
 	type MaxFriends = MaxFriends;
 	type RecoveryDeposit = RecoveryDeposit;
+	type HighSecurity = qp_high_security::testing::TestHighSecurity<HighSecurityWhitelist>;
+}
+
+/// High-security accounts in tests may only dispatch `System::remark`.
+pub struct HighSecurityWhitelist;
+impl qp_high_security::testing::Whitelist<RuntimeCall> for HighSecurityWhitelist {
+	fn contains(call: &RuntimeCall) -> bool {
+		matches!(call, RuntimeCall::System(frame_system::Call::remark { .. }))
+	}
 }
 
 pub type BalancesCall = pallet_balances::Call<Test>;
 pub type RecoveryCall = super::Call<Test>;
+
+/// A whitelisted (`System::remark`) call, for high-security test cases.
+pub fn remark_call() -> RuntimeCall {
+	RuntimeCall::System(frame_system::Call::remark { remark: vec![] })
+}
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();

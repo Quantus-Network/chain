@@ -786,3 +786,52 @@ fn poke_deposit_handles_insufficient_balance() {
 		assert_eq!(Balances::reserved_balance(5), 13);
 	});
 }
+
+#[test]
+fn as_recovered_blocks_high_security_non_whitelisted_call() {
+	new_test_ext().execute_with(|| {
+		qp_high_security::testing::reset();
+		// Account 1 can act for the (high-security) lost account 5.
+		assert_ok!(Recovery::set_recovered(RuntimeOrigin::root(), 5, 1));
+		qp_high_security::testing::set_high_security(&5u64);
+
+		// A non-whitelisted call as the high-security account is rejected before dispatch.
+		let call = Box::new(RuntimeCall::Balances(BalancesCall::transfer_allow_death {
+			dest: 1,
+			value: 100,
+		}));
+		assert_noop!(
+			Recovery::as_recovered(RuntimeOrigin::signed(1), 5, call),
+			Error::<Test>::CallNotAllowedForHighSecurity
+		);
+		// The lost account's funds are untouched.
+		assert_eq!(Balances::free_balance(5), 100);
+	});
+}
+
+#[test]
+fn as_recovered_allows_high_security_whitelisted_call() {
+	new_test_ext().execute_with(|| {
+		qp_high_security::testing::reset();
+		assert_ok!(Recovery::set_recovered(RuntimeOrigin::root(), 5, 1));
+		qp_high_security::testing::set_high_security(&5u64);
+
+		// A whitelisted call as the high-security account is allowed through.
+		assert_ok!(Recovery::as_recovered(RuntimeOrigin::signed(1), 5, Box::new(remark_call())));
+	});
+}
+
+#[test]
+fn as_recovered_non_high_security_is_unaffected() {
+	new_test_ext().execute_with(|| {
+		qp_high_security::testing::reset();
+		// Lost account 5 is not high-security, so arbitrary calls remain allowed.
+		assert_ok!(Recovery::set_recovered(RuntimeOrigin::root(), 5, 1));
+		let call = Box::new(RuntimeCall::Balances(BalancesCall::transfer_allow_death {
+			dest: 1,
+			value: 100,
+		}));
+		assert_ok!(Recovery::as_recovered(RuntimeOrigin::signed(1), 5, call));
+		assert_eq!(Balances::free_balance(1), 200);
+	});
+}

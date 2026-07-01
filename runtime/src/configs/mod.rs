@@ -463,6 +463,7 @@ impl pallet_utility::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type PalletsOrigin = OriginCaller;
 	type WeightInfo = pallet_utility::weights::SubstrateWeight<Runtime>;
+	type HighSecurity = HighSecurityConfig;
 }
 
 parameter_types! {
@@ -486,6 +487,7 @@ impl pallet_recovery::Config for Runtime {
 	type MaxFriends = MaxFriends;
 	type RecoveryDeposit = RecoveryDeposit;
 	type BlockNumberProvider = System;
+	type HighSecurity = HighSecurityConfig;
 }
 
 parameter_types! {

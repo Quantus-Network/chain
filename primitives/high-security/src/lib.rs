@@ -122,6 +122,15 @@ pub trait HighSecurityInspector<AccountId, RuntimeCall> {
 	/// `Some(guardian_account)` if the account has a guardian, `None` otherwise
 	fn guardian(who: &AccountId) -> Option<AccountId>;
 
+	/// Whether `call` may be dispatched with `who` as the effective signed origin.
+	///
+	/// Non-High-Security accounts may dispatch anything; High-Security accounts are
+	/// restricted to whitelisted calls. Origin-rewriting wrappers (multisig execution,
+	/// `as_recovered`, `as_derivative`) must consult this before dispatching as `who`.
+	fn is_call_allowed(who: &AccountId, call: &RuntimeCall) -> bool {
+		!Self::is_high_security(who) || Self::is_whitelisted(call)
+	}
+
 	// NOTE: No benchmarking-specific methods in the trait!
 	// Production API should not be polluted by test/benchmark requirements.
 	// Use pallet-specific helpers instead (e.g.,
@@ -152,5 +161,57 @@ impl<AccountId, RuntimeCall> HighSecurityInspector<AccountId, RuntimeCall> for (
 
 	fn guardian(_who: &AccountId) -> Option<AccountId> {
 		None
+	}
+}
+
+/// Reusable [`HighSecurityInspector`] test double shared by pallet test suites.
+///
+/// Accounts registered via [`testing::set_high_security`] are treated as high-security; the
+/// permitted calls for those accounts are described by the [`testing::Whitelist`] type parameter.
+#[cfg(feature = "std")]
+pub mod testing {
+	use super::HighSecurityInspector;
+	use codec::Encode;
+	use core::marker::PhantomData;
+	use std::cell::RefCell;
+
+	thread_local! {
+		static HIGH_SECURITY: RefCell<Vec<Vec<u8>>> = const { RefCell::new(Vec::new()) };
+	}
+
+	/// Mark `who` as a high-security account for the current test thread.
+	pub fn set_high_security<A: Encode>(who: &A) {
+		let who = who.encode();
+		HIGH_SECURITY.with(|hs| hs.borrow_mut().push(who));
+	}
+
+	/// Forget every account registered via [`set_high_security`].
+	pub fn reset() {
+		HIGH_SECURITY.with(|hs| hs.borrow_mut().clear());
+	}
+
+	/// Compile-time predicate for the calls a high-security account may dispatch.
+	pub trait Whitelist<RuntimeCall> {
+		fn contains(call: &RuntimeCall) -> bool;
+	}
+
+	/// Configurable inspector: registered accounts are high-security and restricted to `W`.
+	pub struct TestHighSecurity<W>(PhantomData<W>);
+
+	impl<AccountId: Encode, RuntimeCall, W: Whitelist<RuntimeCall>>
+		HighSecurityInspector<AccountId, RuntimeCall> for TestHighSecurity<W>
+	{
+		fn is_high_security(who: &AccountId) -> bool {
+			let who = who.encode();
+			HIGH_SECURITY.with(|hs| hs.borrow().contains(&who))
+		}
+
+		fn is_whitelisted(call: &RuntimeCall) -> bool {
+			W::contains(call)
+		}
+
+		fn guardian(_who: &AccountId) -> Option<AccountId> {
+			None
+		}
 	}
 }

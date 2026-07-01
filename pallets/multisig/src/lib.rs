@@ -621,7 +621,8 @@ pub mod pallet {
 			// ===== PHASE 4: High-security whitelist check (if applicable) =====
 			// (additional read: HighSecurityAccounts)
 			let is_high_security = T::HighSecurity::is_high_security(&multisig_address);
-			if is_high_security && !T::HighSecurity::is_whitelisted(&decoded_call) {
+			// Use the shared `is_call_allowed` policy so `propose` and `execute` stay consistent.
+			if !T::HighSecurity::is_call_allowed(&multisig_address, &decoded_call) {
 				// Don't refund after decode - same reasoning as above.
 				return Self::err_burn_full(Error::<T>::CallNotAllowedForHighSecurityMultisig);
 			}
@@ -1130,9 +1131,7 @@ pub mod pallet {
 			// or the whitelist may have been updated via runtime upgrade.
 			// This prevents bypassing HS restrictions by proposing before enabling HS.
 			// After decode + get_dispatch_info, don't refund - burn the full reserved weight.
-			if T::HighSecurity::is_high_security(&multisig_address) &&
-				!T::HighSecurity::is_whitelisted(&call)
-			{
+			if !T::HighSecurity::is_call_allowed(&multisig_address, &call) {
 				return Self::err_burn_full(Error::<T>::CallNotAllowedForHighSecurityMultisig);
 			}
 

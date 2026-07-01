@@ -6642,6 +6642,7 @@ dependencies = [
  "pallet-balances",
  "parity-scale-codec",
  "polkadot-sdk-frame",
+ "qp-high-security",
  "scale-info",
 ]
 
@@ -6813,6 +6814,7 @@ dependencies = [
  "pallet-root-testing",
  "pallet-timestamp",
  "parity-scale-codec",
+ "qp-high-security",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -8077,6 +8079,9 @@ dependencies = [
 [[package]]
 name = "qp-high-security"
 version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+]
 
 [[package]]
 name = "qp-plonky2"
