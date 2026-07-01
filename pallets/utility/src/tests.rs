@@ -224,6 +224,7 @@ impl Config for Test {
 	type RuntimeCall = RuntimeCall;
 	type PalletsOrigin = OriginCaller;
 	type WeightInfo = ();
+	type HighSecurity = ();
 }
 
 type ExampleCall = example::Call<Test>;

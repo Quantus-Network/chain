@@ -68,6 +68,7 @@ impl Config for Test {
 	type FriendDepositFactor = FriendDepositFactor;
 	type MaxFriends = MaxFriends;
 	type RecoveryDeposit = RecoveryDeposit;
+	type HighSecurity = ();
 }
 
 pub type BalancesCall = pallet_balances::Call<Test>;

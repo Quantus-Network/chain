@@ -158,6 +158,7 @@ use frame::{
 	prelude::*,
 	traits::{Currency, ReservableCurrency},
 };
+use qp_high_security::HighSecurityInspector;
 
 pub use pallet::*;
 pub use weights::WeightInfo;
@@ -247,6 +248,12 @@ pub mod pallet {
 			+ Dispatchable<RuntimeOrigin = Self::RuntimeOrigin, PostInfo = PostDispatchInfo>
 			+ GetDispatchInfo
 			+ From<frame_system::Call<Self>>;
+
+		/// Enforces high-security whitelist restrictions at the recovered (effective) origin.
+		type HighSecurity: qp_high_security::HighSecurityInspector<
+			Self::AccountId,
+			<Self as Config>::RuntimeCall,
+		>;
 
 		/// Query the current block number.
 		///
@@ -343,6 +350,8 @@ pub mod pallet {
 	pub enum Error<T> {
 		/// User is not allowed to make a call on behalf of this account
 		NotAllowed,
+		/// Call is not allowed for a high-security account
+		CallNotAllowedForHighSecurity,
 		/// Threshold must be greater than zero
 		ZeroThreshold,
 		/// Friends list must be greater than zero and threshold
@@ -434,6 +443,10 @@ pub mod pallet {
 			// Check `who` is allowed to make a call on behalf of `account`
 			let target = Self::proxy(&who).ok_or(Error::<T>::NotAllowed)?;
 			ensure!(target == account, Error::<T>::NotAllowed);
+			ensure!(
+				T::HighSecurity::is_call_allowed(&account, &call),
+				Error::<T>::CallNotAllowedForHighSecurity
+			);
 			call.dispatch(frame_system::RawOrigin::Signed(account).into())
 				.map(|_| ())
 				.map_err(|e| e.error)

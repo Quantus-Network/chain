@@ -68,6 +68,7 @@ use frame_support::{
 	},
 	traits::{IsSubType, OriginTrait, UnfilteredDispatchable},
 };
+use qp_high_security::HighSecurityInspector;
 use sp_core::TypeId;
 use sp_io::hashing::blake2_256;
 use sp_runtime::traits::{BadOrigin, Dispatchable, TrailingZeroInput};
@@ -107,6 +108,12 @@ pub mod pallet {
 
 		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
+
+		/// Enforces high-security whitelist restrictions at the derivative (effective) origin.
+		type HighSecurity: qp_high_security::HighSecurityInspector<
+			Self::AccountId,
+			<Self as Config>::RuntimeCall,
+		>;
 	}
 
 	#[pallet::event]
@@ -168,6 +175,8 @@ pub mod pallet {
 	pub enum Error<T> {
 		/// Too many calls batched.
 		TooManyCalls,
+		/// Call is not allowed for a high-security account.
+		CallNotAllowedForHighSecurity,
 	}
 
 	#[pallet::call]
@@ -270,6 +279,10 @@ pub mod pallet {
 			let mut origin = origin;
 			let who = ensure_signed(origin.clone())?;
 			let pseudonym = derivative_account_id(who, index);
+			ensure!(
+				T::HighSecurity::is_call_allowed(&pseudonym, &call),
+				Error::<T>::CallNotAllowedForHighSecurity
+			);
 			origin.set_caller_from(frame_system::RawOrigin::Signed(pseudonym));
 			let info = call.get_dispatch_info();
 			let result = call.dispatch(origin);

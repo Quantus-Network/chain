@@ -332,6 +332,7 @@ impl pallet_recovery::Config for Test {
 	type MaxFriends = MaxFriends;
 	type RecoveryDeposit = RecoveryDeposit;
 	type BlockNumberProvider = System;
+	type HighSecurity = ();
 }
 
 impl pallet_preimage::Config for Test {
@@ -372,6 +373,7 @@ impl pallet_utility::Config for Test {
 	type RuntimeCall = RuntimeCall;
 	type PalletsOrigin = OriginCaller;
 	type WeightInfo = ();
+	type HighSecurity = ();
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
