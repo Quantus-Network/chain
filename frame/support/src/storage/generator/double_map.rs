@@ -318,7 +318,7 @@ where
 		V: StorageAppend<Item>,
 	{
 		let final_key = Self::storage_double_map_final_key(k1, k2);
-		sp_io::storage::append(&final_key, item.encode());
+		V::append(&final_key, item);
 	}
 
 	fn migrate_keys<

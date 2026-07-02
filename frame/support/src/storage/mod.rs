@@ -1465,10 +1465,19 @@ pub trait StoragePrefixedMap<Value: FullCodec> {
 	}
 }
 
-/// Marker trait that will be implemented for types that support the `storage::append` api.
+/// Trait that will be implemented for types that support the `storage::append` api.
 ///
 /// This trait is sealed.
-pub trait StorageAppend<Item: Encode>: private::Sealed {}
+pub trait StorageAppend<Item: Encode>: private::Sealed {
+	/// Append `item` to the storage entry at `key`.
+	///
+	/// The default implementation performs a raw SCALE append, which is only sound for
+	/// sequence-like encodings whose raw representation cannot violate the container's
+	/// invariants (e.g. `Vec`). Containers with uniqueness invariants must override this.
+	fn append<EncodeLikeItem: EncodeLike<Item>>(key: &[u8], item: EncodeLikeItem) {
+		sp_io::storage::append(key, item.encode());
+	}
+}
 
 /// It is expected that the length is at the beginning of the encoded object
 /// and that the length is a `Compact<u32>`.
@@ -1562,7 +1571,20 @@ mod private {
 impl<T: Encode> StorageAppend<T> for Vec<T> {}
 impl<T: Encode> StorageDecodeLength for Vec<T> {}
 
-impl<T: Encode> StorageAppend<T> for BTreeSet<T> {}
+impl<T: FullCodec + Ord> StorageAppend<T> for BTreeSet<T> {
+	fn append<EncodeLikeItem: EncodeLike<T>>(key: &[u8], item: EncodeLikeItem) {
+		// A raw SCALE append can store duplicate raw entries that a decoded `BTreeSet`
+		// silently deduplicates, letting repeated appends of the same element grow state and
+		// decode cost without changing the logical set. Instead, decode the stored set,
+		// insert the item, and write the canonical deduplicated representation back.
+		let mut value: Self = unhashed::get(key).unwrap_or_default();
+		let item = item
+			.using_encoded(|mut encoded| T::decode(&mut encoded))
+			.expect("an `EncodeLike<T>` value must encode to a decodable `T`; qed");
+		value.insert(item);
+		unhashed::put(key, &value);
+	}
+}
 impl<T: Encode> StorageDecodeNonDedupLength for BTreeSet<T> {}
 
 // Blanket implementation StorageDecodeNonDedupLength for all types that are StorageDecodeLength.
@@ -2316,6 +2338,20 @@ mod test {
 		});
 	}
 
+	#[test]
+	fn btree_set_append_deduplicates() {
+		TestExternalities::default().execute_with(|| {
+			FooSet::append(4);
+			FooSet::append(4); // duplicate value
+			FooSet::append(5);
+
+			// The append path canonicalizes the set: the duplicate raw entry is not stored, so
+			// repeated appends of the same element cannot grow state.
+			assert_eq!(FooSet::decode_non_dedup_len().unwrap(), 2);
+			assert_eq!(FooSet::get().unwrap(), BTreeSet::from([4, 5]));
+		});
+	}
+
 	#[docify::export]
 	#[test]
 	fn btree_set_decode_non_dedup_len() {
@@ -2323,13 +2359,16 @@ mod test {
 		type Store = StorageValue<Prefix, BTreeSet<u32>>;
 
 		TestExternalities::default().execute_with(|| {
-			Store::append(4);
-			Store::append(4); // duplicate value
-			Store::append(5);
+			// A raw (non-canonical) encoding, e.g. written by a legacy runtime, can contain
+			// duplicate entries that a decoded `BTreeSet` deduplicates.
+			sp_io::storage::append(&Store::hashed_key(), 4u32.encode());
+			sp_io::storage::append(&Store::hashed_key(), 4u32.encode()); // duplicate value
+			sp_io::storage::append(&Store::hashed_key(), 5u32.encode());
 
 			let length_with_dup_items = 3;
 
 			assert_eq!(Store::decode_non_dedup_len().unwrap(), length_with_dup_items);
+			assert_eq!(Store::get().unwrap().len(), 2);
 		});
 	}
 }

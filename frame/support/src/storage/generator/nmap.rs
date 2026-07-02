@@ -287,7 +287,7 @@ where
 		V: StorageAppend<Item>,
 	{
 		let final_key = Self::storage_n_map_final_key::<K, _>(key);
-		sp_io::storage::append(&final_key, item.encode());
+		V::append(&final_key, item);
 	}
 
 	fn migrate_keys<KArg>(key: KArg, hash_fns: K::HArg) -> Option<V>
