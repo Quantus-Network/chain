@@ -753,6 +753,35 @@ fn reschedule_named_works() {
 }
 
 #[test]
+fn failed_schedule_drops_noted_preimage() {
+	new_test_ext().execute_with(|| {
+		run_to_block(1);
+
+		// A call large enough to be stored as a `Lookup` preimage rather than inline.
+		let call =
+			RuntimeCall::System(frame_system::Call::remark { remark: vec![0u8; 1024] });
+		let bounded = Preimage::bound(call).unwrap();
+		assert!(bounded.lookup_needed(), "the call must be noted as a preimage");
+		// `bound` has already noted the preimage.
+		assert!(Preimage::have(&bounded));
+
+		// Scheduling at a past target fails in `resolve_time`, after the preimage was noted.
+		// Note: this deliberately mutates storage (it drops the preimage), so `assert_noop!`
+		// is not applicable here.
+		assert_err!(
+			Scheduler::do_schedule(DispatchTime::At(1), 127, root(), bounded.clone()),
+			Error::<Test>::TargetBlockNumberInPast,
+		);
+
+		// The failed schedule must not leave the noted preimage behind.
+		assert!(
+			!Preimage::have(&bounded),
+			"a failed schedule must drop the preimage noted by `bound`",
+		);
+	});
+}
+
+#[test]
 fn cancel_named_scheduling_works_with_normal_cancel() {
 	new_test_ext().execute_with(|| {
 		// at #4.

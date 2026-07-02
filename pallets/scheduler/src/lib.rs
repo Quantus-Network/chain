@@ -754,10 +754,26 @@ impl<T: Config> Pallet<T> {
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<TaskAddressOf<T>, DispatchError> {
-		let when = Self::resolve_time(when)?;
+		// `call` may already carry a preimage noted by `StorePreimage::bound` (called by the
+		// scheduler entrypoints before this). If any later fallible step fails, drop that
+		// preimage so a failed schedule cannot leave an unowned, system-requested preimage
+		// behind as state bloat. This mirrors the cleanup performed on cancellation.
+		let when = match Self::resolve_time(when) {
+			Ok(when) => when,
+			Err(e) => {
+				T::Preimages::drop(&call);
+				return Err(e)
+			},
+		};
 		let lookup_hash = call.lookup_hash();
 		let task = Scheduled { maybe_id: None, priority, call, origin, _phantom: PhantomData };
-		let res = Self::place_task(when, task).map_err(|x| x.0)?;
+		let res = match Self::place_task(when, task) {
+			Ok(res) => res,
+			Err((e, task)) => {
+				T::Preimages::drop(&task.call);
+				return Err(e)
+			},
+		};
 		if let Some(hash) = lookup_hash {
 			T::Preimages::request(&hash);
 		}
@@ -826,14 +842,29 @@ impl<T: Config> Pallet<T> {
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<TaskAddressOf<T>, DispatchError> {
+		// See `do_schedule`: drop any preimage noted by `StorePreimage::bound` on every fallible
+		// path so a failed schedule cannot leave an unowned, system-requested preimage behind.
 		if Lookup::<T>::contains_key(id) {
+			T::Preimages::drop(&call);
 			return Err(Error::<T>::FailedToSchedule.into());
 		}
-		let when = Self::resolve_time(when)?;
+		let when = match Self::resolve_time(when) {
+			Ok(when) => when,
+			Err(e) => {
+				T::Preimages::drop(&call);
+				return Err(e)
+			},
+		};
 		let lookup_hash = call.lookup_hash();
 		let task =
 			Scheduled { maybe_id: Some(id), priority, call, origin, _phantom: Default::default() };
-		let res = Self::place_task(when, task).map_err(|x| x.0)?;
+		let res = match Self::place_task(when, task) {
+			Ok(res) => res,
+			Err((e, task)) => {
+				T::Preimages::drop(&task.call);
+				return Err(e)
+			},
+		};
 		if let Some(hash) = lookup_hash {
 			T::Preimages::request(&hash);
 		}
