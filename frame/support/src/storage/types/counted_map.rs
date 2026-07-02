@@ -410,7 +410,15 @@ where
 		Value: StorageTryAppend<Item>,
 	{
 		let bound = Value::bound();
-		let current = <Self as MapWrapper>::Map::decode_len(Ref::from(&key)).unwrap_or_default();
+		// See `TryAppendValue::try_append`: a missing entry may still have a non-empty
+		// query-kind default, so the bound is enforced against the effective value.
+		let current =
+			<Self as MapWrapper>::Map::decode_len(Ref::from(&key)).unwrap_or_else(|| {
+				crate::storage::effective_absent_len::<Value, Item, _, _, _>(
+					QueryKind::from_optional_value_to_query,
+					QueryKind::from_query_to_optional_value,
+				)
+			});
 		if current < bound {
 			CounterFor::<Prefix>::mutate(|value| value.saturating_inc());
 			let key = <Self as MapWrapper>::Map::hashed_key_for(key);
@@ -1126,6 +1134,32 @@ mod test {
 			assert_eq!(B::decode_len(0), Some(3));
 			B::try_append(0, 3).err().unwrap();
 			assert_eq!(B::decode_len(0), Some(3));
+		})
+	}
+
+	#[test]
+	fn try_append_respects_non_empty_default_of_missing_entry() {
+		struct FullBoundedDefault;
+		impl crate::traits::Get<BoundedVec<u32, ConstU32<3>>> for FullBoundedDefault {
+			fn get() -> BoundedVec<u32, ConstU32<3>> {
+				vec![1, 2, 3].try_into().expect("fits the bound")
+			}
+		}
+		type B = CountedStorageMap<
+			Prefix,
+			Twox64Concat,
+			u16,
+			BoundedVec<u32, ConstU32<3>>,
+			ValueQuery,
+			FullBoundedDefault,
+		>;
+
+		TestExternalities::default().execute_with(|| {
+			// No explicit entry exists, but the effective `ValueQuery` value is the full
+			// `OnEmpty` default: appending must be rejected and the counter untouched.
+			assert_eq!(B::get(0).len(), 3);
+			assert!(B::try_append(0, 4).is_err());
+			assert_eq!(B::count(), 0);
 		})
 	}
 

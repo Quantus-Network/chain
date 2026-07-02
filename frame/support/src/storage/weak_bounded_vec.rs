@@ -30,6 +30,10 @@ impl<T, S: Get<u32>> StorageTryAppend<T> for WeakBoundedVec<T, S> {
 	fn bound() -> usize {
 		S::get() as usize
 	}
+
+	fn len(value: &Self) -> usize {
+		value.len()
+	}
 }
 
 #[cfg(test)]

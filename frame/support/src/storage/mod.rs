@@ -1583,6 +1583,33 @@ impl StorageAppend<DigestItem> for Digest {}
 /// This trait is sealed.
 pub trait StorageTryAppend<Item>: StorageDecodeLength + private::Sealed {
 	fn bound() -> usize;
+
+	/// The number of items in `value`.
+	///
+	/// Used by the bounded `try_append` implementations to enforce the bound against the
+	/// effective query value (e.g. a non-empty `OnEmpty` default) when no explicit entry is
+	/// present in storage and `decode_len` therefore returns `None`.
+	fn len(value: &Self) -> usize;
+}
+
+/// Compute the length of the *effective* value of a bounded storage entry that has no explicit
+/// (decodable) trie entry, given the query-kind conversions of its storage type.
+///
+/// A missing explicit entry is not necessarily an empty collection: `ValueQuery` storage falls
+/// back to its `OnEmpty` default, which may be non-empty or even at capacity. Bounded appends
+/// must enforce their bound against that effective default instead of assuming zero.
+fn effective_absent_len<T, I, FromOptional, ToOptional, Query>(
+	from_optional_value_to_query: FromOptional,
+	from_query_to_optional_value: ToOptional,
+) -> usize
+where
+	T: StorageTryAppend<I>,
+	FromOptional: FnOnce(Option<T>) -> Query,
+	ToOptional: FnOnce(Query) -> Option<T>,
+{
+	from_query_to_optional_value(from_optional_value_to_query(None))
+		.map(|value| <T as StorageTryAppend<I>>::len(&value))
+		.unwrap_or(0)
 }
 
 /// Storage value that is capable of [`StorageTryAppend`].
@@ -1601,7 +1628,15 @@ where
 {
 	fn try_append<LikeI: EncodeLike<I>>(item: LikeI) -> Result<(), ()> {
 		let bound = T::bound();
-		let current = Self::decode_len().unwrap_or_default();
+		// `decode_len` only sees explicitly stored entries; with no (decodable) entry the
+		// effective value is the query-kind default, which may be non-empty. Enforce the
+		// bound against that effective value instead of assuming it is empty.
+		let current = Self::decode_len().unwrap_or_else(|| {
+			effective_absent_len::<T, I, _, _, _>(
+				Self::from_optional_value_to_query,
+				Self::from_query_to_optional_value,
+			)
+		});
 		if current < bound {
 			// NOTE: we cannot reuse the implementation for `Vec<T>` here because we never want to
 			// mark `BoundedVec<T, S>` as `StorageAppend`.
@@ -1637,7 +1672,14 @@ where
 		item: LikeI,
 	) -> Result<(), ()> {
 		let bound = T::bound();
-		let current = Self::decode_len(key.clone()).unwrap_or_default();
+		// See `TryAppendValue::try_append`: a missing entry may still have a non-empty
+		// query-kind default, so the bound is enforced against the effective value.
+		let current = Self::decode_len(key.clone()).unwrap_or_else(|| {
+			effective_absent_len::<T, I, _, _, _>(
+				Self::from_optional_value_to_query,
+				Self::from_query_to_optional_value,
+			)
+		});
 		if current < bound {
 			let key = Self::storage_map_final_key(key);
 			sp_io::storage::append(&key, item.encode());
@@ -1682,7 +1724,14 @@ where
 		item: LikeI,
 	) -> Result<(), ()> {
 		let bound = T::bound();
-		let current = Self::decode_len(key1.clone(), key2.clone()).unwrap_or_default();
+		// See `TryAppendValue::try_append`: a missing entry may still have a non-empty
+		// query-kind default, so the bound is enforced against the effective value.
+		let current = Self::decode_len(key1.clone(), key2.clone()).unwrap_or_else(|| {
+			effective_absent_len::<T, I, _, _, _>(
+				Self::from_optional_value_to_query,
+				Self::from_query_to_optional_value,
+			)
+		});
 		if current < bound {
 			let double_map_key = Self::storage_double_map_final_key(key1, key2);
 			sp_io::storage::append(&double_map_key, item.encode());
@@ -1722,7 +1771,14 @@ where
 		item: LikeI,
 	) -> Result<(), ()> {
 		let bound = T::bound();
-		let current = Self::decode_len(key.clone()).unwrap_or_default();
+		// See `TryAppendValue::try_append`: a missing entry may still have a non-empty
+		// query-kind default, so the bound is enforced against the effective value.
+		let current = Self::decode_len(key.clone()).unwrap_or_else(|| {
+			effective_absent_len::<T, I, _, _, _>(
+				Self::from_optional_value_to_query,
+				Self::from_query_to_optional_value,
+			)
+		});
 		if current < bound {
 			let key = Self::storage_n_map_final_key::<K, _>(key);
 			sp_io::storage::append(&key, item.encode());
@@ -2095,6 +2151,61 @@ mod test {
 			assert!(FooTripleMap::contains_prefix((1,)));
 			FooTripleMap::remove((1, 1, 1));
 			assert_eq!(FooTripleMap::contains_prefix((1,)), false);
+		});
+	}
+
+	pub struct FullDefault;
+	impl crate::traits::Get<BoundedVec<u32, ConstU32<3>>> for FullDefault {
+		fn get() -> BoundedVec<u32, ConstU32<3>> {
+			vec![1, 2, 3].try_into().expect("fits the bound")
+		}
+	}
+
+	struct WithDefaultPrefix;
+	impl crate::traits::StorageInstance for WithDefaultPrefix {
+		const STORAGE_PREFIX: &'static str = "with_default";
+		fn pallet_prefix() -> &'static str {
+			"test"
+		}
+	}
+
+	// `#[storage_alias]` does not support an `OnEmpty` parameter, so define these directly.
+	type FooWithDefault = types::StorageValue<
+		WithDefaultPrefix,
+		BoundedVec<u32, ConstU32<3>>,
+		types::ValueQuery,
+		FullDefault,
+	>;
+	type FooMapWithDefault = types::StorageMap<
+		WithDefaultPrefix,
+		Twox128,
+		u32,
+		BoundedVec<u32, ConstU32<3>>,
+		types::ValueQuery,
+		FullDefault,
+	>;
+
+	#[test]
+	fn try_append_respects_non_empty_default_of_missing_entry() {
+		TestExternalities::default().execute_with(|| {
+			// No explicit entry exists, but the effective `ValueQuery` value is the full
+			// `OnEmpty` default: `try_append` must respect the bound of that effective value
+			// instead of treating the missing entry as an empty collection.
+			assert_eq!(FooWithDefault::get().len(), 3);
+			assert!(FooWithDefault::try_append(4).is_err());
+
+			assert_eq!(FooMapWithDefault::get(1).len(), 3);
+			assert!(FooMapWithDefault::try_append(1, 4).is_err());
+
+			// Explicitly stored values below the bound can still be appended to.
+			let bounded: BoundedVec<u32, ConstU32<3>> = vec![1].try_into().unwrap();
+			FooWithDefault::put(bounded.clone());
+			assert_ok!(FooWithDefault::try_append(2));
+			assert_eq!(FooWithDefault::get().into_inner(), vec![1, 2]);
+
+			FooMapWithDefault::insert(1, bounded);
+			assert_ok!(FooMapWithDefault::try_append(1, 2));
+			assert_eq!(FooMapWithDefault::get(1).into_inner(), vec![1, 2]);
 		});
 	}
 
