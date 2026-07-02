@@ -416,6 +416,17 @@ pub fn move_prefix_bounded(
 		return MovePrefixResult { moved: 0, maybe_cursor: None }
 	}
 
+	// The source and destination prefixes must be disjoint. If either is a prefix of the
+	// other, the destination keys written during the drain can fall back inside the source
+	// traversal domain, causing the move to reprocess its own output (unbounded work) or to
+	// terminate leaving values under the source prefix (silent partial migration). A bad
+	// prefix pair is a migration-author error, so fail loudly rather than corrupt storage.
+	assert!(
+		!to_prefix.starts_with(from_prefix) && !from_prefix.starts_with(to_prefix),
+		"move_prefix: `from_prefix` and `to_prefix` must be disjoint (neither may be a prefix \
+		 of the other), otherwise the move would overlap its own traversal domain",
+	);
+
 	let previous_key = maybe_cursor.map(|c| c.to_vec()).unwrap_or_else(|| from_prefix.to_vec());
 	let mut iter = PrefixIterator::<(Vec<u8>, Vec<u8>)>::new(
 		from_prefix.to_vec(),
@@ -508,6 +519,26 @@ mod tests {
 			assert_eq!(OldStorageMap::iter().collect::<Vec<_>>(), vec![]);
 			assert_eq!(NewStorageValue::get(), Some(3));
 			assert_eq!(NewStorageMap::iter().collect::<Vec<_>>(), vec![(1, 2), (3, 4)]);
+		})
+	}
+
+	#[test]
+	#[should_panic(expected = "must be disjoint")]
+	fn move_prefix_rejects_destination_nested_in_source() {
+		TestExternalities::new_empty().execute_with(|| {
+			// `to_prefix` starts with `from_prefix`: moved keys would re-enter the source
+			// traversal domain and get reprocessed. This must be rejected.
+			crate::storage::unhashed::put_raw(b"aab", b"v");
+			move_prefix(b"a", b"aa");
+		})
+	}
+
+	#[test]
+	#[should_panic(expected = "must be disjoint")]
+	fn move_prefix_rejects_source_nested_in_destination() {
+		TestExternalities::new_empty().execute_with(|| {
+			crate::storage::unhashed::put_raw(b"aab", b"v");
+			move_prefix(b"aa", b"a");
 		})
 	}
 
