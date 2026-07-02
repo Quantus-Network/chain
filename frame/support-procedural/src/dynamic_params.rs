@@ -149,6 +149,9 @@ fn ensure_codec_index(attrs: &Vec<syn::Attribute>, span: Span) -> Result<()> {
 ///
 /// This allows the outer `#[dynamic_params(..)]` attribute to specify some arguments that don't
 /// need to be repeated every time.
+///
+/// Arguments already present on the inner attribute take precedence and are left untouched;
+/// the outer arguments are only injected when the inner attribute has none.
 struct MacroInjectArgs {
 	runtime_params: syn::Ident,
 	params_pallet: syn::Type,
@@ -159,20 +162,24 @@ impl VisitMut for MacroInjectArgs {
 		let attr = item.attrs.iter_mut().find(|attr| attr.path().is_ident("dynamic_pallet_params"));
 
 		if let Some(attr) = attr {
-			match &attr.meta {
-				syn::Meta::Path(path) =>
-					assert_eq!(path.to_token_stream().to_string(), "dynamic_pallet_params"),
-				_ => (),
+			// Only inject the outer arguments if the inner attribute does not specify its own:
+			// either a bare `#[dynamic_pallet_params]` or an empty `#[dynamic_pallet_params()]`.
+			let has_own_args = match &attr.meta {
+				syn::Meta::Path(_) => false,
+				syn::Meta::List(list) => !list.tokens.is_empty(),
+				syn::Meta::NameValue(_) => true,
+			};
+
+			if !has_own_args {
+				let runtime_params = &self.runtime_params;
+				let params_pallet = &self.params_pallet;
+
+				attr.meta = syn::parse2::<syn::Meta>(quote! {
+					dynamic_pallet_params(#runtime_params, #params_pallet)
+				})
+				.unwrap()
+				.into();
 			}
-
-			let runtime_params = &self.runtime_params;
-			let params_pallet = &self.params_pallet;
-
-			attr.meta = syn::parse2::<syn::Meta>(quote! {
-				dynamic_pallet_params(#runtime_params, #params_pallet)
-			})
-			.unwrap()
-			.into();
 		}
 
 		visit_mut::visit_item_mod_mut(self, item);
@@ -569,4 +576,97 @@ impl ToTokens for DynamicParamAggregatedEnum {
 /// Get access to the current crate and convert the error to a compile error.
 fn crate_access() -> core::result::Result<syn::Path, TokenStream> {
 	generate_access_from_frame_or_crate("frame-support").map_err(|e| e.to_compile_error())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn inject(module: TokenStream) -> syn::ItemMod {
+		let mut params_mod: syn::ItemMod = parse2(module).unwrap();
+		MacroInjectArgs {
+			runtime_params: syn::Ident::new("RuntimeParameters", Span::call_site()),
+			params_pallet: parse2(quote!(dynamic_params::pallet_parameters::Parameters::<Runtime>))
+				.unwrap(),
+		}
+		.visit_item_mod_mut(&mut params_mod);
+		params_mod
+	}
+
+	fn inner_attr(params_mod: &syn::ItemMod) -> &syn::Attribute {
+		let (_, items) = params_mod.content.as_ref().unwrap();
+		items
+			.iter()
+			.find_map(|i| match i {
+				syn::Item::Mod(m) => m
+					.attrs
+					.iter()
+					.find(|attr| attr.path().is_ident("dynamic_pallet_params")),
+				_ => None,
+			})
+			.unwrap()
+	}
+
+	#[test]
+	fn outer_args_are_injected_into_bare_inner_attribute() {
+		let params_mod = inject(quote! {
+			pub mod dynamic_params {
+				#[dynamic_pallet_params]
+				#[codec(index = 0)]
+				pub mod inner {}
+			}
+		});
+
+		let attr = inner_attr(&params_mod);
+		assert_eq!(
+			attr.meta.to_token_stream().to_string(),
+			quote!(dynamic_pallet_params(
+				RuntimeParameters,
+				dynamic_params::pallet_parameters::Parameters::<Runtime>
+			))
+			.to_string(),
+		);
+	}
+
+	#[test]
+	fn outer_args_are_injected_into_empty_inner_attribute() {
+		let params_mod = inject(quote! {
+			pub mod dynamic_params {
+				#[dynamic_pallet_params()]
+				#[codec(index = 0)]
+				pub mod inner {}
+			}
+		});
+
+		let attr = inner_attr(&params_mod);
+		assert_eq!(
+			attr.meta.to_token_stream().to_string(),
+			quote!(dynamic_pallet_params(
+				RuntimeParameters,
+				dynamic_params::pallet_parameters::Parameters::<Runtime>
+			))
+			.to_string(),
+		);
+	}
+
+	#[test]
+	fn inner_attribute_args_take_precedence_over_outer() {
+		let params_mod = inject(quote! {
+			pub mod dynamic_params {
+				#[dynamic_pallet_params(InnerRuntimeParameters, pallet_other::Parameters::<Runtime>)]
+				#[codec(index = 0)]
+				pub mod inner {}
+			}
+		});
+
+		let attr = inner_attr(&params_mod);
+		assert_eq!(
+			attr.meta.to_token_stream().to_string(),
+			quote!(dynamic_pallet_params(
+				InnerRuntimeParameters,
+				pallet_other::Parameters::<Runtime>
+			))
+			.to_string(),
+		);
+	}
 }
