@@ -215,6 +215,23 @@ pub mod frame_system {
 	#[pallet::storage]
 	pub type Numbers<T: Config> = StorageMap<_, Twox64Concat, u32, u32, OptionQuery>;
 
+	#[pallet::tasks_experimental]
+	impl<T: Config> Pallet<T> {
+		/// Add a number into the total and remove it.
+		#[pallet::task_list(Numbers::<T>::iter_keys())]
+		#[pallet::task_condition(|i| Numbers::<T>::contains_key(i))]
+		#[pallet::task_weight(crate::weights::Weight::zero())]
+		#[pallet::task_index(0)]
+		pub fn add_number_into_total(i: u32) -> crate::dispatch::DispatchResult {
+			let v = Numbers::<T>::take(i).ok_or(Error::<T>::InvalidTask)?;
+			Total::<T>::mutate(|(total_keys, total_values)| {
+				*total_keys += i;
+				*total_values += v;
+			});
+			Ok(())
+		}
+	}
+
 	pub mod pallet_prelude {
 		pub type OriginFor<T> = <T as super::Config>::RuntimeOrigin;
 
@@ -261,6 +278,41 @@ impl Config for Runtime {
 
 fn new_test_ext() -> TestExternalities {
 	RuntimeGenesisConfig::default().build_storage().unwrap().into()
+}
+
+#[test]
+fn runtime_task_enumeration_is_lazy() {
+	use crate::traits::Task as TaskTrait;
+
+	new_test_ext().execute_with(|| {
+		for i in 0..5u32 {
+			frame_system::Numbers::<Runtime>::insert(i, i);
+		}
+
+		// Create the enumeration first, then clear the backing storage. A lazy
+		// enumeration observes the cleared state; an eager implementation would have
+		// collected all five tasks into heap vectors before yielding any of them.
+		let mut tasks = <RuntimeTask as TaskTrait>::iter();
+		let _ = frame_system::Numbers::<Runtime>::clear(u32::MAX, None);
+		assert_eq!(tasks.next(), None);
+	});
+}
+
+#[test]
+fn runtime_task_enumeration_yields_pallet_tasks() {
+	use crate::traits::Task as TaskTrait;
+
+	new_test_ext().execute_with(|| {
+		frame_system::Numbers::<Runtime>::insert(7, 3);
+
+		let tasks = <RuntimeTask as TaskTrait>::iter().collect::<Vec<_>>();
+		assert_eq!(
+			tasks,
+			vec![RuntimeTask::System(frame_system::Task::<Runtime>::AddNumberIntoTotal {
+				i: 7
+			})]
+		);
+	});
 }
 
 #[test]

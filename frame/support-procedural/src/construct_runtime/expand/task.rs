@@ -98,7 +98,9 @@ pub fn expand_outer_task(
 
 		#[automatically_derived]
 		impl #scrate::traits::Task for RuntimeTask {
-			type Enumeration = #prelude::IntoIter<RuntimeTask>;
+			type Enumeration = #scrate::__private::Box<
+				dyn #prelude::Iterator<Item = RuntimeTask>
+			>;
 
 			fn is_valid(&self) -> bool {
 				match self {
@@ -141,12 +143,18 @@ pub fn expand_outer_task(
 			}
 
 			fn iter() -> Self::Enumeration {
-				let mut all_tasks = Vec::new();
+				// Stream the pallet task iterators lazily instead of collecting them into
+				// heap vectors: task sets can be derived from attacker-growable state, so
+				// eager materialization allows unbounded allocation before the first yield.
+				let mut all_tasks =
+					#scrate::__private::Vec::<Self::Enumeration>::new();
 				#(
 					#cfg_attrs
-					all_tasks.extend(<#task_types>::iter().map(RuntimeTask::from).collect::<Vec<_>>());
+					all_tasks.push(#scrate::__private::Box::new(
+						<#task_types>::iter().map(RuntimeTask::from),
+					));
 				)*
-				all_tasks.into_iter()
+				#scrate::__private::Box::new(all_tasks.into_iter().flatten())
 			}
 		}
 
