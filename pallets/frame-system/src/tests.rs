@@ -659,6 +659,37 @@ fn set_code_checks_works() {
 	}
 }
 
+#[test]
+fn set_code_drains_remaining_block_weight() {
+	struct ReadRuntimeVersion(Vec<u8>);
+
+	impl sp_core::traits::ReadRuntimeVersion for ReadRuntimeVersion {
+		fn read_runtime_version(
+			&self,
+			_wasm_code: &[u8],
+			_ext: &mut dyn sp_externalities::Externalities,
+		) -> Result<Vec<u8>, String> {
+			Ok(self.0.clone())
+		}
+	}
+
+	let version = RuntimeVersion { spec_name: "test".into(), spec_version: 2, ..Default::default() };
+	let read_runtime_version = ReadRuntimeVersion(version.encode());
+
+	let mut ext = new_test_ext();
+	ext.register_extension(sp_core::traits::ReadRuntimeVersionExt::new(read_runtime_version));
+	ext.execute_with(|| {
+		let max_block = <mock::Test as pallet::Config>::BlockWeights::get().max_block;
+		assert!(System::block_weight().total().all_lt(max_block));
+
+		// The post-dispatch `actual_weight` returned by `set_code` is capped at the static
+		// pre-dispatch weight, so the block must be drained by direct weight registration.
+		assert_ok!(System::set_code(RawOrigin::Root.into(), vec![1, 2, 3, 4]));
+
+		assert_eq!(System::block_weight().total(), max_block);
+	});
+}
+
 fn assert_runtime_updated_digest(num: usize) {
 	assert_eq!(
 		System::digest()

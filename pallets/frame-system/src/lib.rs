@@ -743,6 +743,7 @@ pub mod pallet {
 			Self::can_set_code(&code, true).into_result()?;
 			T::OnSetCode::set_code(code)?;
 			// consume the rest of the block to prevent further transactions
+			Self::drain_remaining_block_weight();
 			Ok(Some(T::BlockWeights::get().max_block).into())
 		}
 
@@ -759,6 +760,8 @@ pub mod pallet {
 			ensure_root(origin)?;
 			Self::can_set_code(&code, false).into_result()?;
 			T::OnSetCode::set_code(code)?;
+			// consume the rest of the block to prevent further transactions
+			Self::drain_remaining_block_weight();
 			Ok(Some(T::BlockWeights::get().max_block).into())
 		}
 
@@ -911,6 +914,9 @@ pub mod pallet {
 				},
 			};
 			T::OnSetCode::set_code(code)?;
+
+			// consume the rest of the block to prevent further transactions
+			Self::drain_remaining_block_weight();
 
 			Ok(PostDispatchInfo {
 				// consume the rest of the block to prevent further transactions
@@ -1930,6 +1936,20 @@ impl<T: Config> Pallet<T> {
 		BlockWeight::<T>::mutate(|current_weight| {
 			current_weight.accrue(weight, class);
 		});
+	}
+
+	/// Consume all remaining weight of the current block, preventing any further transaction
+	/// from being included after the current one.
+	///
+	/// Used by the runtime-upgrade dispatchables: returning `max_block` as post-dispatch
+	/// `actual_weight` is not enough, since post-dispatch weight is capped at the (much smaller)
+	/// static pre-dispatch weight by `calc_actual_weight`. Registering the missing weight
+	/// directly ensures the block really is drained.
+	fn drain_remaining_block_weight() {
+		let max_block = T::BlockWeights::get().max_block;
+		let remaining = max_block.saturating_sub(Self::block_weight().total());
+		// `Operational` so the consumption also exceeds any operational `reserved` allowance.
+		Self::register_extra_weight_unchecked(remaining, DispatchClass::Operational);
 	}
 
 	/// Start the execution of a particular block.
