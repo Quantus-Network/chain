@@ -186,6 +186,25 @@ pub fn clear_storage(
 	maybe_limit: Option<u32>,
 	_maybe_cursor: Option<&[u8]>,
 ) -> MultiRemovalResults {
+	// The legacy `storage_kill` host function only reports keys removed from the backend; it
+	// also deletes overlay-resident keys (those written earlier in the current block) but does
+	// not count them. Count the visible keys before and after so those overlay-only removals
+	// are still reflected in `unique`/`loops`, which callers may use for weight or cleanup
+	// accounting.
+	fn key_count(child_info: &ChildInfo) -> u32 {
+		let mut count: u32 = if exists(child_info, &[]) { 1 } else { 0 };
+		let mut previous_key = Vec::new();
+		while let Some(next_key) =
+			sp_io::default_child_storage::next_key(child_info.storage_key(), &previous_key)
+		{
+			count = count.saturating_add(1);
+			previous_key = next_key;
+		}
+		count
+	}
+
+	let keys_before = key_count(child_info);
+
 	// TODO: Once the network has upgraded to include the new host functions, this code can be
 	// enabled.
 	// sp_io::default_child_storage::storage_kill(prefix, maybe_limit, maybe_cursor)
@@ -198,7 +217,14 @@ pub fn clear_storage(
 		AllRemoved(db) => (None, db),
 		SomeRemaining(db) => (Some(child_info.storage_key().to_vec()), db),
 	};
-	MultiRemovalResults { maybe_cursor, backend, unique: backend, loops: backend }
+
+	// Overlay-only removals = total keys deleted (before - after) minus those the host call
+	// already accounted for in `backend`.
+	let keys_after = key_count(child_info);
+	let overlay = keys_before.saturating_sub(keys_after).saturating_sub(backend);
+	let total = backend.saturating_add(overlay);
+
+	MultiRemovalResults { maybe_cursor, backend, unique: total, loops: total }
 }
 
 /// Ensure `key` has no explicit entry in storage.
@@ -277,6 +303,26 @@ mod tests {
 			assert!(!exists(&child_info, key));
 			// A subsequent emptiness check now sees the slot as free.
 			assert!(!exists(&child_info, key));
+		});
+	}
+
+	#[test]
+	fn clear_storage_counts_overlay_only_removals() {
+		TestExternalities::new_empty().execute_with(|| {
+			let child_info = ChildInfo::new_default(b"overlay-child");
+			// Stage several keys in the overlay within this block.
+			for i in 0u8..5 {
+				put_raw(&child_info, &[i], &[i]);
+			}
+
+			// Even with a backend limit of zero, the overlay keys are deleted and must be
+			// reported in `unique`/`loops` instead of being counted as zero work.
+			let res = clear_storage(&child_info, Some(0), None);
+			assert_eq!(res.unique, 5);
+			assert_eq!(res.loops, 5);
+			for i in 0u8..5 {
+				assert!(!exists(&child_info, &[i]));
+			}
 		});
 	}
 
