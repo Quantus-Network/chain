@@ -366,6 +366,7 @@ impl pallet_utility::Config for Test {
 	type PalletsOrigin = OriginCaller;
 	type WeightInfo = ();
 	type HighSecurity = ();
+	type AddressRevealer = ();
 }
 
 // Build genesis storage according to the mock runtime.

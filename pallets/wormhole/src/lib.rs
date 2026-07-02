@@ -806,4 +806,14 @@ pub mod pallet {
 			Self::reveal_account(&account.into());
 		}
 	}
+
+	// Narrow reveal-only handle for pallets without balance/asset types (e.g. `pallet-utility`
+	// revealing `as_derivative` pseudonyms).
+	impl<T: Config> qp_wormhole::AddressRevealer<<T as frame_system::Config>::AccountId>
+		for Pallet<T>
+	{
+		fn reveal_address(account: <T as frame_system::Config>::AccountId) {
+			Self::reveal_account(&account);
+		}
+	}
 }

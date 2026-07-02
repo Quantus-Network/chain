@@ -374,6 +374,7 @@ impl pallet_utility::Config for Test {
 	type PalletsOrigin = OriginCaller;
 	type WeightInfo = ();
 	type HighSecurity = ();
+	type AddressRevealer = ();
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {

@@ -464,6 +464,7 @@ impl pallet_utility::Config for Runtime {
 	type PalletsOrigin = OriginCaller;
 	type WeightInfo = pallet_utility::weights::SubstrateWeight<Runtime>;
 	type HighSecurity = HighSecurityConfig;
+	type AddressRevealer = Wormhole;
 }
 
 parameter_types! {
@@ -703,6 +704,13 @@ impl Contains<AccountId> for NonWormholeAccounts {
 		// never signs and never reveals itself. (Funds sent to a pre-computed multisig address
 		// before creation are reconciled by `reveal_address` at creation time.)
 		if pallet_multisig::Pallet::<Runtime>::is_multisig(account) {
+			return true;
+		}
+
+		// `as_derivative` pseudonyms likewise spend through their controller and never sign.
+		// The utility pallet reveals a pseudonym on its first use (deducting its balance from
+		// the pool); afterwards it is excluded here so later receipts don't inflate the pool.
+		if pallet_utility::Pallet::<Runtime>::is_derivative(account) {
 			return true;
 		}
 

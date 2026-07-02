@@ -6815,6 +6815,7 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "qp-high-security",
+ "qp-wormhole",
  "scale-info",
  "sp-core",
  "sp-io",

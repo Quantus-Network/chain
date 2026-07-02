@@ -94,6 +94,20 @@ pub trait TransferProofRecorder<AccountId, AssetId, Balance> {
 	fn reveal_address(account: AccountId);
 }
 
+/// Narrow handle into the wormhole soundness counter for pallets that only need to reveal
+/// addresses (see [`TransferProofRecorder::reveal_address`]) and have no notion of balances or
+/// assets, e.g. `pallet-utility` revealing `as_derivative` pseudonyms on first use.
+pub trait AddressRevealer<AccountId> {
+	/// Reveal `account` to the wormhole soundness counter, removing its current balance from the
+	/// pool of value that could be exited via the wormhole.
+	fn reveal_address(account: AccountId);
+}
+
+/// No-op revealer for tests and runtimes without a wormhole.
+impl<AccountId> AddressRevealer<AccountId> for () {
+	fn reveal_address(_account: AccountId) {}
+}
+
 /// Derive a wormhole address from a 32-byte inner_digest (already hashed).
 ///
 /// This hashes the inner_digest using Poseidon to get the wormhole account address.

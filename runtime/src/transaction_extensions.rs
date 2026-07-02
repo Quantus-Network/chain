@@ -1578,4 +1578,75 @@ mod tests {
 			);
 		});
 	}
+
+	// --- derivative pseudonyms must not inflate the pool without bound ---
+	// An `as_derivative` pseudonym never signs (its controller does), so before the reveal-on-use
+	// fix an attacker could bounce fixed capital between derivative addresses, adding the amount
+	// to `PotentialWormholeBalance` on every hop while never subtracting anything.
+	#[test]
+	fn counter_derivative_hops_do_not_inflate_pool() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let controller = intg_account(70);
+			fund(&controller, SENDER_BAL);
+			mark_revealed(&controller);
+			pallet_wormhole::PotentialWormholeBalance::<Runtime>::put(POOL_BASE);
+
+			let d0 = pallet_utility::derivative_account_id(controller.clone(), 0u16);
+			let d1 = pallet_utility::derivative_account_id(controller.clone(), 1u16);
+
+			// Fund derivative 0: it has never been used, so it looks ambiguous and is counted.
+			let funding = 100 * UNIT;
+			run_transfer(&controller, &d0, funding);
+			assert_eq!(pool(), POOL_BASE + funding, "credit to an unused pseudonym is counted");
+
+			// Hop funds from derivative 0 to derivative 1. First use of derivative 0 reveals it
+			// (subtracting its whole balance), while the credit to (still unused) derivative 1
+			// is counted — so the hop nets to the hopped amount, not a double count.
+			let hop = 40 * UNIT;
+			let inner = transfer_call(&d1, hop);
+			let call = RuntimeCall::Utility(pallet_utility::Call::as_derivative {
+				index: 0,
+				call: alloc::boxed::Box::new(inner.clone()),
+			});
+			run_lifecycle(&controller, call, || {
+				assert_ok!(Utility::as_derivative(
+					RuntimeOrigin::signed(controller.clone()),
+					0,
+					alloc::boxed::Box::new(inner),
+				));
+			});
+			assert_eq!(
+				pool(),
+				POOL_BASE + hop,
+				"first use reveals the pseudonym: its counted funding is subtracted"
+			);
+			assert!(
+				!pallet_wormhole::Pallet::<Runtime>::is_ambiguous_account(&d0),
+				"a used pseudonym must no longer be treated as ambiguous"
+			);
+
+			// Hop back from derivative 1 to derivative 0. Derivative 1 reveals on its first use
+			// (-hop), and the credit to the already-revealed derivative 0 is NOT counted, so the
+			// pool returns to its baseline instead of growing on every bounce.
+			let hop_back = 20 * UNIT;
+			let inner = transfer_call(&d0, hop_back);
+			let call = RuntimeCall::Utility(pallet_utility::Call::as_derivative {
+				index: 1,
+				call: alloc::boxed::Box::new(inner.clone()),
+			});
+			run_lifecycle(&controller, call, || {
+				assert_ok!(Utility::as_derivative(
+					RuntimeOrigin::signed(controller.clone()),
+					1,
+					alloc::boxed::Box::new(inner),
+				));
+			});
+			assert_eq!(
+				pool(),
+				POOL_BASE,
+				"bouncing fixed capital between pseudonyms must not inflate the pool"
+			);
+		});
+	}
 }

@@ -22,6 +22,7 @@
 use super::*;
 
 use crate as utility;
+use core::cell::RefCell;
 use frame_support::{
 	assert_err_ignore_postinfo, assert_noop, assert_ok, derive_impl,
 	dispatch::{DispatchErrorWithPostInfo, Pays},
@@ -225,6 +226,20 @@ impl Config for Test {
 	type PalletsOrigin = OriginCaller;
 	type WeightInfo = ();
 	type HighSecurity = qp_high_security::testing::TestHighSecurity<HighSecurityWhitelist>;
+	type AddressRevealer = MockAddressRevealer;
+}
+
+thread_local! {
+	/// Records addresses passed to `AddressRevealer::reveal_address`, so tests can assert a
+	/// derivative pseudonym is revealed to the wormhole soundness counter on first use.
+	pub static REVEALED_ADDRESSES: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+}
+
+pub struct MockAddressRevealer;
+impl qp_wormhole::AddressRevealer<u64> for MockAddressRevealer {
+	fn reveal_address(account: u64) {
+		REVEALED_ADDRESSES.with(|a| a.borrow_mut().push(account));
+	}
 }
 
 /// High-security accounts in tests may only dispatch `System::remark`.
@@ -296,6 +311,41 @@ fn as_derivative_works() {
 		));
 		assert_eq!(Balances::free_balance(sub_1_0), 2);
 		assert_eq!(Balances::free_balance(2), 13);
+	});
+}
+
+#[test]
+fn as_derivative_reveals_pseudonym_on_first_use_only() {
+	new_test_ext().execute_with(|| {
+		REVEALED_ADDRESSES.with(|a| a.borrow_mut().clear());
+		let sub_1_0 = derivative_account_id(1u64, 0);
+		assert!(!Utility::is_derivative(&sub_1_0));
+
+		// First use reveals the pseudonym to the wormhole soundness counter and marks it known.
+		assert_ok!(Utility::as_derivative(
+			RuntimeOrigin::signed(1),
+			0,
+			Box::new(RuntimeCall::System(frame_system::Call::remark { remark: vec![] })),
+		));
+		assert!(Utility::is_derivative(&sub_1_0));
+		assert_eq!(REVEALED_ADDRESSES.with(|a| a.borrow().clone()), vec![sub_1_0]);
+
+		// A second use must not reveal again.
+		assert_ok!(Utility::as_derivative(
+			RuntimeOrigin::signed(1),
+			0,
+			Box::new(RuntimeCall::System(frame_system::Call::remark { remark: vec![] })),
+		));
+		assert_eq!(REVEALED_ADDRESSES.with(|a| a.borrow().clone()), vec![sub_1_0]);
+
+		// A different index is a different pseudonym and reveals separately.
+		let sub_1_1 = derivative_account_id(1u64, 1);
+		assert_ok!(Utility::as_derivative(
+			RuntimeOrigin::signed(1),
+			1,
+			Box::new(RuntimeCall::System(frame_system::Call::remark { remark: vec![] })),
+		));
+		assert_eq!(REVEALED_ADDRESSES.with(|a| a.borrow().clone()), vec![sub_1_0, sub_1_1]);
 	});
 }
 
