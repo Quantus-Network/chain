@@ -414,12 +414,18 @@ impl BlockWeightsBuilder {
 		}
 		// compute max size of single extrinsic
 		if let Some(init_weight) = init_cost.map(|rate| rate * weights.max_block) {
+			let base_block = weights.base_block;
 			for class in DispatchClass::all() {
 				let per_class = weights.per_class.get_mut(*class);
 				if per_class.max_extrinsic.is_none() && init_cost.is_some() {
+					// Every block starts with `base_block` already consumed (in addition to the
+					// average initialization cost), so it must be subtracted as well; otherwise an
+					// extrinsic at the derived cap validates against `max_extrinsic` but can never
+					// be included, as `base_block + base_extrinsic + weight` exceeds `max_block`.
 					per_class.max_extrinsic = per_class
 						.max_total
 						.map(|x| x.saturating_sub(init_weight))
+						.map(|x| x.saturating_sub(base_block))
 						.map(|x| x.saturating_sub(per_class.base_extrinsic));
 				}
 			}
@@ -446,5 +452,40 @@ mod tests {
 	#[test]
 	fn default_weights_are_valid() {
 		BlockWeights::default().validate().unwrap();
+	}
+
+	#[test]
+	fn derived_max_extrinsic_accounts_for_base_block() {
+		let base_block = Weight::from_parts(100, 5);
+		let base_extrinsic = Weight::from_parts(10, 1);
+		let max_total = Weight::from_parts(1_000, 100);
+		let init_rate = Perbill::from_percent(1);
+
+		let weights = BlockWeights::builder()
+			.base_block(base_block)
+			.for_class(DispatchClass::all(), |w| {
+				w.base_extrinsic = base_extrinsic;
+			})
+			.for_class(DispatchClass::non_mandatory(), |w| {
+				w.max_total = Some(max_total);
+			})
+			.avg_block_initialization(init_rate)
+			.build()
+			.unwrap();
+
+		// A block starts with `base_block` (and on average `init_rate * max_block` of
+		// initialization) already consumed, so an extrinsic at the derived cap must still fit
+		// within `max_block` on top of those.
+		let max_extrinsic = weights.get(DispatchClass::Normal).max_extrinsic.unwrap();
+		let consumed = weights
+			.base_block
+			.saturating_add(init_rate * weights.max_block)
+			.saturating_add(base_extrinsic)
+			.saturating_add(max_extrinsic);
+		assert!(
+			consumed.all_lte(weights.max_block),
+			"an extrinsic at the derived cap must fit in the block: {consumed:?} > {:?}",
+			weights.max_block,
+		);
 	}
 }

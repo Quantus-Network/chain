@@ -383,13 +383,13 @@ mod tests {
 	fn operational_extrinsic_limited_by_operational_space_limit() {
 		new_test_ext().execute_with(|| {
 			let weights = block_weights();
-			let operational_limit = weights
+			// The derived cap already accounts for `base_block`, the class base extrinsic weight
+			// and the average initialization cost, so it is the largest single-extrinsic weight
+			// admitted by validation.
+			let call_weight = weights
 				.get(DispatchClass::Operational)
-				.max_total
-				.unwrap_or_else(|| weights.max_block);
-			let base_weight = weights.get(DispatchClass::Operational).base_extrinsic;
-
-			let call_weight = operational_limit - base_weight;
+				.max_extrinsic
+				.expect("mock sets `avg_block_initialization`, so the cap is derived; qed");
 			let okay = DispatchInfo {
 				call_weight,
 				class: DispatchClass::Operational,
@@ -609,14 +609,17 @@ mod tests {
 	#[test]
 	fn signed_ext_check_weight_works_normal_tx() {
 		new_test_ext().execute_with(|| {
-			let normal_limit = normal_weight_limit();
+			// The derived per-extrinsic cap accounts for `base_block`, the class base extrinsic
+			// weight and the average initialization cost.
+			let max_extrinsic = block_weights()
+				.get(DispatchClass::Normal)
+				.max_extrinsic
+				.expect("mock sets `avg_block_initialization`, so the cap is derived; qed");
 			let small =
 				DispatchInfo { call_weight: Weight::from_parts(100, 0), ..Default::default() };
-			let base_extrinsic = block_weights().get(DispatchClass::Normal).base_extrinsic;
-			let medium =
-				DispatchInfo { call_weight: normal_limit - base_extrinsic, ..Default::default() };
+			let medium = DispatchInfo { call_weight: max_extrinsic, ..Default::default() };
 			let big = DispatchInfo {
-				call_weight: normal_limit - base_extrinsic + Weight::from_parts(1, 0),
+				call_weight: max_extrinsic + Weight::from_parts(1, 0),
 				..Default::default()
 			};
 			let len = 0_usize;
