@@ -80,8 +80,13 @@ pub fn put<T: Encode>(child_info: &ChildInfo, key: &[u8], value: &T) {
 
 /// Remove `key` from storage, returning its value if it had an explicit entry or `None` otherwise.
 pub fn take<T: Decode + Sized>(child_info: &ChildInfo, key: &[u8]) -> Option<T> {
+	// Remove any explicit entry, even one whose bytes fail to decode (in which case `get`
+	// returns `None`). Conditioning the removal on a successful decode would leave a
+	// corrupted entry in place and break the `take_or*` contract that no explicit entry
+	// remains on return.
+	let had_explicit_entry = exists(child_info, key);
 	let r = get(child_info, key);
-	if r.is_some() {
+	if had_explicit_entry {
 		kill(child_info, key);
 	}
 	r
@@ -235,5 +240,56 @@ pub fn len(child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
 			let mut buffer = [0; 0];
 			sp_io::default_child_storage::read(child_info.storage_key(), key, &mut buffer, 0)
 		},
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use sp_io::TestExternalities;
+
+	#[test]
+	fn take_removes_undecodable_explicit_entry() {
+		TestExternalities::new_empty().execute_with(|| {
+			let child_info = ChildInfo::new_default(b"test-child");
+			let key = b"slot";
+			// `[0x02]` is not a valid SCALE `bool` (only `0x00`/`0x01` decode).
+			put_raw(&child_info, key, &[0x02]);
+			assert!(exists(&child_info, key));
+
+			// `take` on a corrupted entry returns `None` (decode fails) but must still
+			// clear the explicit entry.
+			let taken = take::<bool>(&child_info, key);
+			assert_eq!(taken, None);
+			assert!(!exists(&child_info, key), "corrupt explicit entry must be removed by take");
+		});
+	}
+
+	#[test]
+	fn take_or_clears_corrupt_entry_and_returns_default() {
+		TestExternalities::new_empty().execute_with(|| {
+			let child_info = ChildInfo::new_default(b"test-child");
+			let key = b"one-shot";
+			put_raw(&child_info, key, &[0x02]);
+
+			// `take_or` must honor its contract: no explicit entry remains afterwards.
+			assert!(!take_or::<bool>(&child_info, key, false));
+			assert!(!exists(&child_info, key));
+			// A subsequent emptiness check now sees the slot as free.
+			assert!(!exists(&child_info, key));
+		});
+	}
+
+	#[test]
+	fn take_still_returns_and_clears_valid_entry() {
+		TestExternalities::new_empty().execute_with(|| {
+			let child_info = ChildInfo::new_default(b"test-child");
+			let key = b"slot";
+			put(&child_info, key, &123u32);
+			assert_eq!(take::<u32>(&child_info, key), Some(123));
+			assert!(!exists(&child_info, key));
+			// Taking an absent key returns `None` and remains absent.
+			assert_eq!(take::<u32>(&child_info, key), None);
+		});
 	}
 }
