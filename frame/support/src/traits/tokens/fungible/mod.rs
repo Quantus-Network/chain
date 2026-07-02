@@ -359,10 +359,17 @@ impl<
 {
 	fn new(who: &A, footprint: Fp) -> Result<Self, DispatchError> {
 		ensure!(Fx::balance_frozen(&Rx::get(), who).is_zero(), DispatchError::Unavailable);
-		Fx::set_frozen(&Rx::get(), who, D::convert(footprint), Polite).map(|_| Self(PhantomData))
+		// A zero-cost ticket leaves no freeze marker, so it is indistinguishable from a later
+		// paid ticket for the same account/reason. Since `drop` thaws the whole reason bucket,
+		// such a stale zero ticket could later clear a newer ticket's freeze. Reject it.
+		let amount = D::convert(footprint);
+		ensure!(!amount.is_zero(), DispatchError::Unavailable);
+		Fx::set_frozen(&Rx::get(), who, amount, Polite).map(|_| Self(PhantomData))
 	}
 	fn update(self, who: &A, footprint: Fp) -> Result<Self, DispatchError> {
-		Fx::set_frozen(&Rx::get(), who, D::convert(footprint), Polite).map(|_| Self(PhantomData))
+		let amount = D::convert(footprint);
+		ensure!(!amount.is_zero(), DispatchError::Unavailable);
+		Fx::set_frozen(&Rx::get(), who, amount, Polite).map(|_| Self(PhantomData))
 	}
 	fn drop(self, who: &A) -> Result<(), DispatchError> {
 		Fx::thaw(&Rx::get(), who).map(|_| ())
@@ -404,10 +411,18 @@ impl<
 {
 	fn new(who: &A, footprint: Fp) -> Result<Self, DispatchError> {
 		ensure!(F::balance_on_hold(&R::get(), who).is_zero(), DispatchError::Unavailable);
-		F::set_on_hold(&R::get(), who, D::convert(footprint)).map(|_| Self(PhantomData))
+		// A zero-cost ticket leaves no hold marker, so it is indistinguishable from a later paid
+		// ticket for the same account/reason. Since `drop`/`burn` operate on the whole reason
+		// bucket, such a stale zero ticket could later release or burn a newer ticket's hold.
+		// Reject it.
+		let amount = D::convert(footprint);
+		ensure!(!amount.is_zero(), DispatchError::Unavailable);
+		F::set_on_hold(&R::get(), who, amount).map(|_| Self(PhantomData))
 	}
 	fn update(self, who: &A, footprint: Fp) -> Result<Self, DispatchError> {
-		F::set_on_hold(&R::get(), who, D::convert(footprint)).map(|_| Self(PhantomData))
+		let amount = D::convert(footprint);
+		ensure!(!amount.is_zero(), DispatchError::Unavailable);
+		F::set_on_hold(&R::get(), who, amount).map(|_| Self(PhantomData))
 	}
 	fn drop(self, who: &A) -> Result<(), DispatchError> {
 		F::release_all(&R::get(), who, BestEffort).map(|_| ())
