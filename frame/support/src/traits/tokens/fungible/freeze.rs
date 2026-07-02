@@ -93,8 +93,8 @@ pub trait Mutate<AccountId>: Inspect<AccountId> {
 	/// Attempt to set the amount frozen under the given `id` to `amount`, iff this would increase
 	/// the amount frozen under `id`. Do nothing otherwise.
 	///
-	/// Fail if the account of `who` has fewer freezable funds than `amount`, unless `fortitude` is
-	/// [`Fortitude::Force`].
+	/// Fail if this would increase the amount frozen under `id` and the account of `who` has
+	/// fewer freezable funds than `amount`, unless `fortitude` is [`Fortitude::Force`].
 	fn ensure_frozen(
 		id: &Self::Id,
 		who: &AccountId,
@@ -102,7 +102,15 @@ pub trait Mutate<AccountId>: Inspect<AccountId> {
 		fortitude: Fortitude,
 	) -> DispatchResult {
 		let force = fortitude == Fortitude::Force;
-		ensure!(force || Self::balance_freezable(who) >= amount, TokenError::FundsUnavailable);
+		// Only require freezable funds if this call would actually increase the amount frozen
+		// under `id`; otherwise `extend_freeze` is a no-op and must remain idempotent even when
+		// an existing (permitted) over-freeze exceeds the current freezable balance.
+		ensure!(
+			force ||
+				amount <= Self::balance_frozen(id, who) ||
+				Self::balance_freezable(who) >= amount,
+			TokenError::FundsUnavailable
+		);
 		Self::extend_freeze(id, who, amount)
 	}
 
