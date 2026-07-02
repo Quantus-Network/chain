@@ -290,6 +290,18 @@ pub enum Statement {
 
 /// Describes the location within the runtime of a callback, along with other type information such
 /// as parameters passed into the callback.
+///
+/// # Warning: not stable across runtime upgrades
+///
+/// A `Callback` records only the raw `(pallet_index, call_index)` pair, not the pallet/call name,
+/// runtime version, or metadata hash. [`Self::curry`] resolves those indexes against the call
+/// layout that exists *when it runs*, not when the callback was created. If a runtime upgrade
+/// reorders pallets or call variants, a stored callback can decode into a different call than
+/// intended. Implementations of asynchronous consumers such as [`StatementOracle`] must therefore
+/// not persist a caller-provided `Callback` across a runtime upgrade (e.g. resolve pending
+/// judgements before applying an upgrade, or bind the callback to a version/identity that is
+/// revalidated on resolution). Callbacks selected by trusted code within a single runtime version
+/// are unaffected.
 #[derive(
 	CloneNoBound, PartialEqNoBound, EqNoBound, RuntimeDebug, Encode, Decode, MaxEncodedLen, TypeInfo,
 )]
