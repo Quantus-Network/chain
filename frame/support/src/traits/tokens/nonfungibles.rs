@@ -29,7 +29,7 @@
 
 use crate::dispatch::DispatchResult;
 use alloc::vec::Vec;
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeAll, Encode};
 use sp_runtime::{DispatchError, TokenError};
 
 /// Trait for providing an interface to many read-only NFT-like sets of items.
@@ -73,7 +73,7 @@ pub trait Inspect<AccountId> {
 		key: &K,
 	) -> Option<V> {
 		key.using_encoded(|d| Self::attribute(collection, item, d))
-			.and_then(|v| V::decode(&mut &v[..]).ok())
+			.and_then(|v| V::decode_all(&mut &v[..]).ok())
 	}
 
 	/// Returns the attribute value of `collection` corresponding to `key`.
@@ -91,7 +91,7 @@ pub trait Inspect<AccountId> {
 		key: &K,
 	) -> Option<V> {
 		key.using_encoded(|d| Self::collection_attribute(collection, d))
-			.and_then(|v| V::decode(&mut &v[..]).ok())
+			.and_then(|v| V::decode_all(&mut &v[..]).ok())
 	}
 
 	/// Returns `true` if the `item` of `collection` may be transferred.

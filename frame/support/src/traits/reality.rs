@@ -19,7 +19,7 @@
 
 use core::marker::PhantomData;
 
-use codec::{Decode, DecodeWithMemTracking, Encode, FullCodec, MaxEncodedLen};
+use codec::{Decode, DecodeAll, DecodeWithMemTracking, Encode, FullCodec, MaxEncodedLen};
 use frame_support::{CloneNoBound, EqNoBound, Parameter, PartialEqNoBound};
 use scale_info::TypeInfo;
 use sp_core::ConstU32;
@@ -306,7 +306,10 @@ impl<Params: Encode, RuntimeCall: Decode> Callback<Params, RuntimeCall> {
 		Self { pallet_index, call_index, phantom: PhantomData }
 	}
 	pub fn curry(&self, args: Params) -> Result<RuntimeCall, codec::Error> {
-		(self.pallet_index, self.call_index, args).using_encoded(|mut d| Decode::decode(&mut d))
+		// `decode_all` ensures the resulting call consumes the whole of `args`: a prefix decode
+		// would silently bind the callback to a call with a different signature than documented.
+		(self.pallet_index, self.call_index, args)
+			.using_encoded(|mut d| DecodeAll::decode_all(&mut d))
 	}
 }
 
@@ -344,5 +347,39 @@ impl<C> StatementOracle<C> for () {
 		_: Callback<(Self::Ticket, JudgementContext, Judgement), C>,
 	) -> Result<(), DispatchError> {
 		Err(DispatchError::Unavailable)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[derive(Encode, Decode, PartialEq, Eq, Debug)]
+	enum TestRuntimeCall {
+		#[codec(index = 7)]
+		Oracle(OracleCall),
+	}
+
+	#[derive(Encode, Decode, PartialEq, Eq, Debug)]
+	enum OracleCall {
+		#[codec(index = 3)]
+		OnJudgement { ticket: u32, judgement: u16 },
+	}
+
+	#[test]
+	fn curry_decodes_matching_signature() {
+		let callback = Callback::<(u32, u16), TestRuntimeCall>::from_parts(7, 3);
+		assert_eq!(
+			callback.curry((42, 5)),
+			Ok(TestRuntimeCall::Oracle(OracleCall::OnJudgement { ticket: 42, judgement: 5 })),
+		);
+	}
+
+	#[test]
+	fn curry_rejects_prefix_compatible_signature_mismatch() {
+		// The target call consumes only (u32, u16); the extra trailing u64 must make the curry
+		// fail rather than be silently ignored by a prefix decode.
+		let callback = Callback::<(u32, u16, u64), TestRuntimeCall>::from_parts(7, 3);
+		assert!(callback.curry((42, 5, 99)).is_err());
 	}
 }

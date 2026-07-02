@@ -27,7 +27,7 @@
 use super::nonfungibles;
 use crate::{dispatch::DispatchResult, traits::Get};
 use alloc::vec::Vec;
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeAll, Encode};
 use sp_runtime::TokenError;
 
 /// Trait for providing an interface to a read-only NFT-like set of items.
@@ -51,7 +51,7 @@ pub trait Inspect<AccountId> {
 	/// By default this just attempts to use `attribute`.
 	fn typed_attribute<K: Encode, V: Decode>(item: &Self::ItemId, key: &K) -> Option<V> {
 		key.using_encoded(|d| Self::attribute(item, d))
-			.and_then(|v| V::decode(&mut &v[..]).ok())
+			.and_then(|v| V::decode_all(&mut &v[..]).ok())
 	}
 
 	/// Returns `true` if the `item` may be transferred.
