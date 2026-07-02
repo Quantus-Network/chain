@@ -131,6 +131,7 @@ use frame_support::{
 	MAX_EXTRINSIC_DEPTH,
 };
 use frame_system::pallet_prelude::BlockNumberFor;
+use qp_header::ZkTreeRootProvider;
 use sp_runtime::{
 	generic::Digest,
 	traits::{
@@ -395,6 +396,15 @@ where
 				assert!(
 					header.state_root() == storage_root,
 					"Storage root must match that calculated."
+				);
+
+				// The ZK tree root is derived from storage, so it is only expected to match
+				// when the state itself is expected to match.
+				let zk_tree_root = new_header.zk_tree_root();
+				header.zk_tree_root().check_equal(zk_tree_root);
+				assert!(
+					header.zk_tree_root() == zk_tree_root,
+					"ZK tree root must match that calculated."
 				);
 			}
 
@@ -935,6 +945,16 @@ where
 		assert!(
 			header.extrinsics_root() == new_header.extrinsics_root(),
 			"Transaction trie root must be valid.",
+		);
+
+		// check ZK tree root. This field is part of the block-hash preimage, so it must be
+		// re-derived from state on import; otherwise a block author could commit an arbitrary
+		// root into the header.
+		let zk_tree_root = new_header.zk_tree_root();
+		header.zk_tree_root().check_equal(zk_tree_root);
+		assert!(
+			header.zk_tree_root() == zk_tree_root,
+			"ZK tree root must match that calculated.",
 		);
 	}
 
