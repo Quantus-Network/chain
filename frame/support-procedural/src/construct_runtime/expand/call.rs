@@ -162,7 +162,10 @@ pub fn expand_outer_dispatch(
 							<<#pallet_names as Callable<#runtime>>::RuntimeCall
 								as GetCallName>::get_call_names(),
 					)*
-					_ => unreachable!(),
+					// An unknown module name is a recoverable "not found" rather than an
+					// impossible state: this is public metadata API reachable with
+					// caller-supplied strings, so return an empty slice instead of panicking.
+					_ => &[],
 				}
 			}
 		}

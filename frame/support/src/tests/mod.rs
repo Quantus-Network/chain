@@ -263,6 +263,23 @@ fn new_test_ext() -> TestExternalities {
 	RuntimeGenesisConfig::default().build_storage().unwrap().into()
 }
 
+#[test]
+fn get_call_names_unknown_module_returns_empty_not_panic() {
+	use crate::traits::GetCallMetadata;
+
+	// A known module resolves to its call names.
+	let modules = <RuntimeCall as GetCallMetadata>::get_module_names();
+	assert!(modules.contains(&"System"));
+	assert!(!<RuntimeCall as GetCallMetadata>::get_call_names("System").is_empty());
+
+	// `get_call_names` is public metadata API reachable with caller-supplied strings; an
+	// unknown module must be a recoverable empty result, not a panic.
+	assert_eq!(
+		<RuntimeCall as GetCallMetadata>::get_call_names("DefinitelyMissingPallet"),
+		&[] as &[&str],
+	);
+}
+
 trait Sorted {
 	fn sorted(self) -> Self;
 }
