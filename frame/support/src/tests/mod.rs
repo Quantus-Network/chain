@@ -242,6 +242,27 @@ pub mod frame_system {
 	}
 }
 
+/// A minimal second pallet with a non-zero in-code storage version, used to test the
+/// interaction between new-pallet storage-version initialization and version-gated
+/// migrations.
+#[pallet]
+pub mod pallet2 {
+	use super::frame_system;
+	use crate::pallet_prelude::*;
+
+	pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(3);
+
+	#[pallet::pallet]
+	#[pallet::storage_version(STORAGE_VERSION)]
+	pub struct Pallet<T>(_);
+
+	#[pallet::config]
+	pub trait Config: frame_system::Config {}
+
+	#[pallet::storage]
+	pub type Values<T: Config> = StorageMap<_, Twox64Concat, u32, u32, OptionQuery>;
+}
+
 type BlockNumber = u32;
 type AccountId = u32;
 type Header = generic::Header<BlockNumber, BlakeTwo256>;
@@ -267,6 +288,9 @@ mod runtime {
 
 	#[runtime::pallet_index(0)]
 	pub type System = self::frame_system;
+
+	#[runtime::pallet_index(1)]
+	pub type Example2 = self::pallet2;
 }
 
 #[crate::derive_impl(self::frame_system::config_preludes::TestDefaultConfig as self::frame_system::DefaultConfig)]
@@ -276,8 +300,61 @@ impl Config for Runtime {
 	type ExampleConstant = ();
 }
 
+impl pallet2::Config for Runtime {}
+
 fn new_test_ext() -> TestExternalities {
 	RuntimeGenesisConfig::default().build_storage().unwrap().into()
+}
+
+#[test]
+fn new_pallet_storage_version_initialized_after_migrations_not_before() {
+	use crate::{
+		migrations::VersionedMigration,
+		traits::{
+			BeforeAllRuntimeMigrations, GetStorageVersion, OnRuntimeUpgrade, StorageVersion,
+			UncheckedOnRuntimeUpgrade,
+		},
+		weights::Weight,
+	};
+
+	/// A migration importing state into the (new) `pallet2` prefix, gated on version 0.
+	pub struct ImportIntoPallet2;
+	impl UncheckedOnRuntimeUpgrade for ImportIntoPallet2 {
+		fn on_runtime_upgrade() -> Weight {
+			pallet2::Values::<Runtime>::insert(1, 100);
+			Weight::zero()
+		}
+	}
+	type Migration = VersionedMigration<0, 3, ImportIntoPallet2, pallet2::Pallet<Runtime>, ()>;
+
+	// Empty state: the pallet was just added to the runtime, no genesis ran for it.
+	TestExternalities::default().execute_with(|| {
+		assert!(!StorageVersion::exists::<pallet2::Pallet<Runtime>>());
+
+		// Mirrors `Executive::execute_on_runtime_upgrade` ordering:
+		// 1. `before_all_runtime_migrations` must not pre-seed the storage version,
+		//    otherwise the version-gated migration below is silently skipped.
+		<pallet2::Pallet<Runtime> as BeforeAllRuntimeMigrations>::before_all_runtime_migrations();
+		assert!(!StorageVersion::exists::<pallet2::Pallet<Runtime>>());
+
+		// 2. The custom (version-gated) migration runs and observes version 0.
+		Migration::on_runtime_upgrade();
+		assert_eq!(pallet2::Values::<Runtime>::get(1), Some(100), "migration must not be skipped");
+		assert_eq!(pallet2::Pallet::<Runtime>::on_chain_storage_version(), 3);
+
+		// 3. The pallet's own hook must not clobber the version set by the migration.
+		<pallet2::Pallet<Runtime> as OnRuntimeUpgrade>::on_runtime_upgrade();
+		assert_eq!(pallet2::Pallet::<Runtime>::on_chain_storage_version(), 3);
+	});
+
+	// A genuinely new pallet with no migration still gets its version initialized once
+	// all migrations had the chance to run.
+	TestExternalities::default().execute_with(|| {
+		<pallet2::Pallet<Runtime> as BeforeAllRuntimeMigrations>::before_all_runtime_migrations();
+		<pallet2::Pallet<Runtime> as OnRuntimeUpgrade>::on_runtime_upgrade();
+		assert!(StorageVersion::exists::<pallet2::Pallet<Runtime>>());
+		assert_eq!(pallet2::Pallet::<Runtime>::on_chain_storage_version(), 3);
+	});
 }
 
 #[test]
