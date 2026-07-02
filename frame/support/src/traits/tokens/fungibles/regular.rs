@@ -370,19 +370,22 @@ where
 		amount: Self::Balance,
 		preservation: Preservation,
 	) -> Result<Self::Balance, DispatchError> {
-		let _extra = Self::can_withdraw(asset.clone(), source, amount)
+		let dust = Self::can_withdraw(asset.clone(), source, amount)
 			.into_result(preservation != Expendable)?;
-		Self::can_deposit(asset.clone(), dest, amount, Extant).into_result()?;
+		let actual = amount.saturating_add(dust);
+		Self::can_deposit(asset.clone(), dest, actual, Extant).into_result()?;
 		if source == dest {
-			return Ok(amount)
+			return Ok(actual)
 		}
 
-		Self::decrease_balance(asset.clone(), source, amount, BestEffort, preservation, Polite)?;
-		// This should never fail as we checked `can_deposit` earlier. But we do a best-effort
-		// anyway.
-		let _ = Self::increase_balance(asset.clone(), dest, amount, BestEffort);
-		Self::done_transfer(asset, source, dest, amount);
-		Ok(amount)
+		let debited =
+			Self::decrease_balance(asset.clone(), source, amount, BestEffort, preservation, Polite)?;
+		// Credit the amount actually removed from the source. When an expendable transfer reaps
+		// the source, `debited` can exceed `amount`; ignoring it desynchronizes issuance from
+		// account balances.
+		let _ = Self::increase_balance(asset.clone(), dest, debited, BestEffort);
+		Self::done_transfer(asset, source, dest, debited);
+		Ok(debited)
 	}
 
 	/// Simple infallible function to force an account to have a particular balance, good for use

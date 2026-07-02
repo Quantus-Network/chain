@@ -1021,7 +1021,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 				let remaining =
 					approved.amount.checked_sub(&amount).ok_or(Error::<T, I>::Unapproved)?;
 
-				let f = TransferFlags { keep_alive: false, best_effort: false, burn_dust: false };
+				let f = TransferFlags { keep_alive: false, best_effort: false, burn_dust: true };
 				owner_died =
 					Self::transfer_and_die(id.clone(), owner, destination, amount, None, f)?.1;
 
