@@ -23,7 +23,7 @@ use frame_support::traits::{
 		Fortitude::{Force, Polite},
 		Precision::{BestEffort, Exact},
 		Preservation::{Expendable, Preserve, Protect},
-		Restriction::Free,
+		Restriction::{Free, OnHold},
 	},
 	Consideration, Footprint, LinearStoragePrice, MaybeConsideration,
 };
@@ -277,6 +277,40 @@ fn frozen_hold_balance_cannot_be_moved_without_force() {
 			);
 
 			assert_eq!(Balances::total_balance(&2), 21);
+		});
+}
+
+#[test]
+fn transfer_on_hold_onhold_requires_existing_dest() {
+	ExtBuilder::default()
+		.existential_deposit(1)
+		.monied(true)
+		.build_and_execute_with(|| {
+			assert_ok!(Balances::hold(&TestId::Foo, &1, 7));
+			let dest = 99u64; // does not exist
+			assert_eq!(Balances::total_balance(&dest), 0);
+
+			// `OnHold` mode keeps the funds on hold in `dest`, which must already exist. A
+			// non-existent destination must be rejected rather than gaining orphan hold state.
+			assert_noop!(
+				Balances::transfer_on_hold(&TestId::Foo, &1, &dest, 5, Exact, OnHold, Force),
+				TokenError::CannotCreate,
+			);
+			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &1), 7);
+			assert_eq!(Balances::total_balance(&dest), 0);
+
+			// `Free` mode may create the destination, so it still succeeds.
+			assert_ok!(Balances::transfer_on_hold(
+				&TestId::Foo,
+				&1,
+				&dest,
+				5,
+				Exact,
+				Free,
+				Force
+			));
+			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &1), 2);
+			assert_eq!(Balances::free_balance(dest), 5);
 		});
 }
 
