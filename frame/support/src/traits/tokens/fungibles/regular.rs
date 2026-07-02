@@ -378,8 +378,14 @@ where
 			return Ok(actual)
 		}
 
-		let debited =
-			Self::decrease_balance(asset.clone(), source, amount, BestEffort, preservation, Polite)?;
+		let debited = Self::decrease_balance(
+			asset.clone(),
+			source,
+			amount,
+			BestEffort,
+			preservation,
+			Polite,
+		)?;
 		// Credit the amount actually removed from the source. When an expendable transfer reaps
 		// the source, `debited` can exceed `amount`; ignoring it desynchronizes issuance from
 		// account balances.

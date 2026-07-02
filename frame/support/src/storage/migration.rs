@@ -441,8 +441,9 @@ pub fn move_prefix_bounded(
 	// so hand back a cursor so the caller can resume. The last moved key was drained, but
 	// `next_key` still returns the lexicographically next key regardless.
 	let last = iter.last_raw_key().to_vec();
-	let more_remain =
-		sp_io::storage::next_key(&last).map(|n| n.starts_with(from_prefix)).unwrap_or(false);
+	let more_remain = sp_io::storage::next_key(&last)
+		.map(|n| n.starts_with(from_prefix))
+		.unwrap_or(false);
 	MovePrefixResult { moved, maybe_cursor: more_remain.then_some(last) }
 }
 

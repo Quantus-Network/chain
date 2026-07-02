@@ -432,8 +432,12 @@ pub struct RemoveStorage<
 	DbWeight: Get<RuntimeDbWeight>,
 	Limit: Get<u32>,
 >(PhantomData<(P, S, DbWeight, Limit)>);
-impl<P: Get<&'static str>, S: Get<&'static str>, DbWeight: Get<RuntimeDbWeight>, Limit: Get<u32>>
-	frame_support::traits::OnRuntimeUpgrade for RemoveStorage<P, S, DbWeight, Limit>
+impl<
+		P: Get<&'static str>,
+		S: Get<&'static str>,
+		DbWeight: Get<RuntimeDbWeight>,
+		Limit: Get<u32>,
+	> frame_support::traits::OnRuntimeUpgrade for RemoveStorage<P, S, DbWeight, Limit>
 {
 	fn on_runtime_upgrade() -> frame_support::weights::Weight {
 		let hashed_prefix = storage_prefix(P::get().as_bytes(), S::get().as_bytes());

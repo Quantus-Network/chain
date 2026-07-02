@@ -23,9 +23,11 @@ use frame_support::{
 	assert_noop, assert_ok,
 	dispatch::GetDispatchInfo,
 	traits::{
-		fungibles::Mutate,
-		fungibles::InspectEnumerable,
-		tokens::{Preservation::Expendable, Preservation::Protect, Provenance},
+		fungibles::{InspectEnumerable, Mutate},
+		tokens::{
+			Preservation::{Expendable, Protect},
+			Provenance,
+		},
 		Currency,
 	},
 	BoundedVec,

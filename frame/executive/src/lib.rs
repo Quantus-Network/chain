@@ -952,10 +952,7 @@ where
 		// root into the header.
 		let zk_tree_root = new_header.zk_tree_root();
 		header.zk_tree_root().check_equal(zk_tree_root);
-		assert!(
-			header.zk_tree_root() == zk_tree_root,
-			"ZK tree root must match that calculated.",
-		);
+		assert!(header.zk_tree_root() == zk_tree_root, "ZK tree root must match that calculated.",);
 	}
 
 	/// Check a given signed transaction for validity. This doesn't execute any

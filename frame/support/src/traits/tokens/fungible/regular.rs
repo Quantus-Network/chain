@@ -475,8 +475,7 @@ pub trait Balanced<AccountId>: Inspect<AccountId> + Unbalanced<AccountId> {
 			},
 			// Best-effort: cap the deposit to the remaining issuance headroom.
 			BestEffort => {
-				let headroom =
-					Self::Balance::max_value().saturating_sub(Self::total_issuance());
+				let headroom = Self::Balance::max_value().saturating_sub(Self::total_issuance());
 				value.min(headroom)
 			},
 		};

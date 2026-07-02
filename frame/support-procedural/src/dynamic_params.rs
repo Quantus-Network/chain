@@ -598,10 +598,8 @@ mod tests {
 		items
 			.iter()
 			.find_map(|i| match i {
-				syn::Item::Mod(m) => m
-					.attrs
-					.iter()
-					.find(|attr| attr.path().is_ident("dynamic_pallet_params")),
+				syn::Item::Mod(m) =>
+					m.attrs.iter().find(|attr| attr.path().is_ident("dynamic_pallet_params")),
 				_ => None,
 			})
 			.unwrap()
