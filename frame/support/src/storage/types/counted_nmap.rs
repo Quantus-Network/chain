@@ -269,10 +269,10 @@ where
 		Key: HasKeyPrefix<KP>,
 	{
 		let result = <Self as MapWrapper>::Map::clear_prefix(partial_key, limit, maybe_cursor);
-		match result.maybe_cursor {
-			None => CounterFor::<Prefix>::kill(),
-			Some(_) => CounterFor::<Prefix>::mutate(|x| x.saturating_reduce(result.unique)),
-		}
+		// A `None` cursor only means that no items remain under *this* partial prefix; other
+		// prefixes may still hold entries, so the counter must be decremented by the number of
+		// removed items rather than killed (which would report a non-empty map as empty).
+		CounterFor::<Prefix>::mutate(|x| x.saturating_reduce(result.unique));
 		result
 	}
 
@@ -708,6 +708,37 @@ mod test {
 		fn get() -> u32 {
 			98
 		}
+	}
+
+	#[test]
+	fn clear_prefix_keeps_count_of_other_prefixes() {
+		type A = CountedStorageNMap<
+			Prefix,
+			(NMapKey<Blake2_128Concat, u16>, NMapKey<Twox64Concat, u8>),
+			u32,
+			OptionQuery,
+		>;
+
+		let mut ext = TestExternalities::default();
+		ext.execute_with(|| {
+			A::insert((1, 10), 100);
+			A::insert((1, 11), 101);
+			A::insert((2, 20), 200);
+			assert_eq!(A::count(), 3);
+		});
+		// Commit to the backend so the legacy `kill_prefix` host function reports the
+		// removals in `unique`.
+		ext.commit_all().unwrap();
+		ext.execute_with(|| {
+			// Clearing one partial prefix to completion (cursor `None`) must only subtract the
+			// removed entries, not reset the global counter: entries under other prefixes
+			// remain in the map.
+			let res = A::clear_prefix((1,), u32::MAX, None);
+			assert!(res.maybe_cursor.is_none());
+			assert_eq!(res.unique, 2);
+			assert_eq!(A::count(), 1);
+			assert_eq!(A::get((2, 20)), Some(200));
+		});
 	}
 
 	#[test]
