@@ -37,7 +37,7 @@ use crate::{
 	},
 };
 use core::marker::PhantomData;
-use sp_arithmetic::traits::{CheckedAdd, CheckedSub, One};
+use sp_arithmetic::traits::{Bounded, CheckedAdd, CheckedSub, One};
 use sp_runtime::{traits::Saturating, ArithmeticError, DispatchError, TokenError};
 
 use super::{Credit, Debt, HandleImbalanceDrop, Imbalance};
@@ -460,6 +460,24 @@ pub trait Balanced<AccountId>: Inspect<AccountId> + Unbalanced<AccountId> {
 		value: Self::Balance,
 		precision: Precision,
 	) -> Result<Debt<AccountId, Self>, DispatchError> {
+		// Ensure the credited amount can be represented by total issuance *before* mutating the
+		// account. The returned `Debt` grows total issuance (via its `OnDropDebt` handler) by the
+		// credited amount using *saturating* arithmetic, so without this check a deposit made when
+		// issuance is near the maximum could credit the account by more than issuance can grow,
+		// breaking the `sum(balances) == total_issuance` invariant. Mirrors `Mutate::mint_into`.
+		let value = match precision {
+			// Must credit exactly `value`, so issuance must be able to grow by exactly `value`.
+			Exact => {
+				Self::total_issuance().checked_add(&value).ok_or(ArithmeticError::Overflow)?;
+				value
+			},
+			// Best-effort: cap the deposit to the remaining issuance headroom.
+			BestEffort => {
+				let headroom =
+					Self::Balance::max_value().saturating_sub(Self::total_issuance());
+				value.min(headroom)
+			},
+		};
 		let increase = Self::increase_balance(who, value, precision)?;
 		Self::done_deposit(who, increase);
 		Ok(Imbalance::<Self::Balance, Self::OnDropDebt, Self::OnDropCredit>::new(increase))
