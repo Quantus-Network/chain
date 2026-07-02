@@ -81,6 +81,13 @@ impl<T: Config> CheckNonce<T> {
 		if nonce < account.nonce {
 			return Err(InvalidTransaction::Stale.into());
 		}
+		// The account nonce must remain representable after execution, otherwise the stored
+		// nonce could never move past this transaction and it would be replayable. This makes
+		// `T::Nonce::MAX` itself unusable: an account's nonce space is permanently exhausted
+		// rather than ever wrapping around.
+		if nonce.checked_add(&T::Nonce::one()).is_none() {
+			return Err(InvalidTransaction::Stale.into());
+		}
 
 		let provides = vec![Encode::encode(&(who.clone(), nonce))];
 		let requires = if account.nonce < nonce {
@@ -101,7 +108,12 @@ impl<T: Config> CheckNonce<T> {
 		if nonce > account.nonce {
 			return Err(InvalidTransaction::Future.into());
 		}
-		nonce = nonce.checked_add(&T::Nonce::one()).unwrap_or(T::Nonce::zero());
+		// Never wrap the stored nonce back to zero: that would make previously-executed
+		// transactions with low nonces valid (and thus replayable) again. Instead the maximum
+		// nonce is rejected outright, permanently exhausting the account's nonce space.
+		nonce = nonce
+			.checked_add(&T::Nonce::one())
+			.ok_or(TransactionValidityError::from(InvalidTransaction::Stale))?;
 		crate::Account::<T>::mutate(who, |account| account.nonce = nonce);
 		Ok(())
 	}
@@ -280,6 +292,61 @@ mod tests {
 					.unwrap_err(),
 				TransactionValidityError::Invalid(InvalidTransaction::Future)
 			);
+		})
+	}
+
+	#[test]
+	fn signed_ext_check_nonce_rejects_max_nonce_instead_of_wrapping() {
+		new_test_ext().execute_with(|| {
+			crate::Account::<Test>::insert(
+				1,
+				crate::AccountInfo {
+					nonce: u64::MAX.into(),
+					consumers: 0,
+					providers: 1,
+					sufficients: 0,
+					data: 0,
+				},
+			);
+			let info = DispatchInfo::default();
+			let len = 0_usize;
+
+			// The maximum nonce is unusable: accepting it would require wrapping the stored
+			// nonce back to zero, making previously executed low-nonce transactions replayable.
+			assert_storage_noop!({
+				assert_eq!(
+					CheckNonce::<Test>(u64::MAX.into())
+						.validate_only(Some(1).into(), CALL, &info, len, External, 0)
+						.unwrap_err(),
+					TransactionValidityError::Invalid(InvalidTransaction::Stale)
+				);
+				assert_eq!(
+					CheckNonce::<Test>(u64::MAX.into())
+						.validate_and_prepare(Some(1).into(), CALL, &info, len, 0)
+						.unwrap_err(),
+					TransactionValidityError::Invalid(InvalidTransaction::Stale)
+				);
+			});
+
+			// The stored nonce must not have wrapped, so an old low nonce is still stale.
+			assert_eq!(crate::Account::<Test>::get(1).nonce, u64::MAX.into());
+			assert_eq!(
+				CheckNonce::<Test>(0u64.into())
+					.validate_only(Some(1).into(), CALL, &info, len, External, 0)
+					.unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Stale)
+			);
+
+			// `MAX - 1` is the last usable nonce; afterwards the account nonce sits at `MAX`.
+			crate::Account::<Test>::mutate(1, |account| account.nonce = (u64::MAX - 1).into());
+			assert_ok!(CheckNonce::<Test>((u64::MAX - 1).into()).validate_and_prepare(
+				Some(1).into(),
+				CALL,
+				&info,
+				len,
+				0,
+			));
+			assert_eq!(crate::Account::<Test>::get(1).nonce, u64::MAX.into());
 		})
 	}
 
