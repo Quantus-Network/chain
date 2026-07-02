@@ -1119,8 +1119,28 @@ impl<T: Decode> WrapperKeepOpaque<T> {
 	}
 
 	/// Create from the given encoded `data`.
+	///
+	/// # Warning
+	///
+	/// This does not enforce the [`MaxEncodedLen`] bound advertised by this type: `data` longer
+	/// than [`Self::max_encoded_len`] produces a value that violates the bound and will fail to
+	/// decode again. Prefer [`Self::try_from_encoded`], which rejects oversized input.
+	#[deprecated(note = "use `try_from_encoded`, which enforces the `MaxEncodedLen` bound")]
 	pub fn from_encoded(data: Vec<u8>) -> Self {
 		Self { data, _phantom: core::marker::PhantomData }
+	}
+}
+
+impl<T: MaxEncodedLen> WrapperKeepOpaque<T> {
+	/// Create from the given encoded `data`, enforcing the advertised [`MaxEncodedLen`] bound.
+	///
+	/// Returns `None` if `data` is longer than the maximum encoded length of `T`, since such a
+	/// value would exceed the `max_size` reported for bounded storage and PoV accounting.
+	pub fn try_from_encoded(data: Vec<u8>) -> Option<Self> {
+		(data.len() <= T::max_encoded_len()).then(|| Self {
+			data,
+			_phantom: core::marker::PhantomData,
+		})
 	}
 }
 
@@ -1145,9 +1165,17 @@ impl<T: Encode> Encode for WrapperKeepOpaque<T> {
 	}
 }
 
-impl<T: Decode> Decode for WrapperKeepOpaque<T> {
+impl<T: Decode + MaxEncodedLen> Decode for WrapperKeepOpaque<T> {
 	fn decode<I: Input>(input: &mut I) -> Result<Self, codec::Error> {
-		Ok(Self { data: Vec::<u8>::decode(input)?, _phantom: core::marker::PhantomData })
+		let data = Vec::<u8>::decode(input)?;
+		// Enforce the bound advertised via `MaxEncodedLen`: the opaque bytes are the encoding of
+		// `T`, so they can never legitimately exceed `T::max_encoded_len()`. Rejecting oversized
+		// input keeps decoded values (e.g. read back from storage or an extrinsic) within the
+		// `max_size` used for bounded-storage and PoV accounting.
+		if data.len() > T::max_encoded_len() {
+			return Err("WrapperKeepOpaque: encoded data exceeds `T::max_encoded_len()`".into())
+		}
+		Ok(Self { data, _phantom: core::marker::PhantomData })
 	}
 
 	fn skip<I: Input>(input: &mut I) -> Result<(), codec::Error> {
@@ -1493,6 +1521,23 @@ mod test {
 		let decoded = WrapperKeepOpaque::<u32>::decode(&mut &data[..]).unwrap();
 		let data = decoded.encode();
 		WrapperOpaque::<u32>::decode(&mut &data[..]).unwrap();
+	}
+
+	#[test]
+	fn keep_opaque_wrapper_enforces_max_encoded_len() {
+		// The advertised bound is derived from `T`; opaque bytes longer than
+		// `T::max_encoded_len()` must be rejected on decode so decoded values never exceed the
+		// `max_size` used for bounded storage / PoV accounting.
+		let bound = <WrapperKeepOpaque<u32>>::max_encoded_len();
+
+		let oversized: Vec<u8> = vec![0x41; bound + 32];
+		let encoded = oversized.encode();
+		assert!(WrapperKeepOpaque::<u32>::decode(&mut &encoded[..]).is_err());
+
+		// The checked constructor rejects oversized bytes and accepts in-bound bytes.
+		assert!(WrapperKeepOpaque::<u32>::try_from_encoded(oversized).is_none());
+		let within_bound = 3u32.encode();
+		assert!(WrapperKeepOpaque::<u32>::try_from_encoded(within_bound).is_some());
 	}
 
 	#[test]
