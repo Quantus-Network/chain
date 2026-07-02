@@ -260,6 +260,26 @@ pub fn migrate_from_pallet_version_to_storage_version<
 	Pallets::migrate(db_weight)
 }
 
+/// Count keys under `prefix`, stopping once `up_to` keys have been seen.
+///
+/// Only used by try-runtime hooks; the cap keeps the check bounded for prefixes holding many more
+/// keys than the migration's per-upgrade limit.
+#[cfg(feature = "try-runtime")]
+fn count_prefixed_keys_up_to(prefix: &[u8], up_to: u32) -> u32 {
+	let mut count = 0u32;
+	let mut previous = prefix.to_vec();
+	while count < up_to {
+		match sp_io::storage::next_key(&previous) {
+			Some(next) if next.starts_with(prefix) => {
+				count += 1;
+				previous = next;
+			},
+			_ => break,
+		}
+	}
+	count
+}
+
 /// `RemovePallet` is a utility struct used to remove all storage items associated with a specific
 /// pallet.
 ///
@@ -294,8 +314,8 @@ pub fn migrate_from_pallet_version_to_storage_version<
 /// }
 ///
 /// pub type Migrations = (
-/// 	RemovePallet<SomePalletToRemoveStr, RocksDbWeight>,
-/// 	RemovePallet<AnotherPalletToRemoveStr, RocksDbWeight>,
+/// 	RemovePallet<SomePalletToRemoveStr, RocksDbWeight, ConstU32<1000>>,
+/// 	RemovePallet<AnotherPalletToRemoveStr, RocksDbWeight, ConstU32<1000>>,
 /// 	AnyOtherMigrations...
 /// );
 ///
@@ -304,27 +324,33 @@ pub fn migrate_from_pallet_version_to_storage_version<
 /// }
 /// ```
 ///
-/// WARNING: `RemovePallet` has no guard rails preventing it from bricking the chain if the
-/// operation of removing storage for the given pallet would exceed the block weight limit.
+/// `Limit` bounds how many keys are removed in a single upgrade so the migration cannot exceed
+/// the block weight limit, even for a prefix whose key count can be grown by users before the
+/// upgrade. `Limit` should be chosen so that removing that many keys comfortably fits within a
+/// block.
 ///
-/// If your pallet has too many keys to be removed in a single block, it is advised to wait for
-/// a multi-block scheduler currently under development which will allow for removal of storage
-/// items (and performing other heavy migrations) over multiple blocks
-/// (see <https://github.com/paritytech/substrate/issues/13690>).
-pub struct RemovePallet<P: Get<&'static str>, DbWeight: Get<RuntimeDbWeight>>(
-	PhantomData<(P, DbWeight)>,
+/// If your pallet may hold more than `Limit` keys, the excess keys are left in place (they are
+/// harmless orphaned storage under the removed pallet's prefix). To remove all of them, either
+/// raise `Limit` to a value that is still safely below the block weight limit, or use a
+/// multi-block migration which can spread removal of storage items (and other heavy migrations)
+/// over multiple blocks (see <https://github.com/paritytech/substrate/issues/13690>).
+pub struct RemovePallet<P: Get<&'static str>, DbWeight: Get<RuntimeDbWeight>, Limit: Get<u32>>(
+	PhantomData<(P, DbWeight, Limit)>,
 );
-impl<P: Get<&'static str>, DbWeight: Get<RuntimeDbWeight>> frame_support::traits::OnRuntimeUpgrade
-	for RemovePallet<P, DbWeight>
+impl<P: Get<&'static str>, DbWeight: Get<RuntimeDbWeight>, Limit: Get<u32>>
+	frame_support::traits::OnRuntimeUpgrade for RemovePallet<P, DbWeight, Limit>
 {
 	fn on_runtime_upgrade() -> frame_support::weights::Weight {
 		let hashed_prefix = twox_128(P::get().as_bytes());
-		let keys_removed = match clear_prefix(&hashed_prefix, None) {
+		let keys_removed = match clear_prefix(&hashed_prefix, Some(Limit::get())) {
 			KillStorageResult::AllRemoved(value) => value,
 			KillStorageResult::SomeRemaining(value) => {
-				log::error!(
-					"`clear_prefix` failed to remove all keys for {}. THIS SHOULD NEVER HAPPEN! 🚨",
-					P::get()
+				log::warn!(
+					"`RemovePallet` hit its per-upgrade limit of {} keys for {}; {} keys removed, more remain. \
+					 Raise `Limit` (staying below the block weight limit) or use a multi-block migration to remove the rest.",
+					Limit::get(),
+					P::get(),
+					value,
 				);
 				value
 			},
@@ -337,30 +363,41 @@ impl<P: Get<&'static str>, DbWeight: Get<RuntimeDbWeight>> frame_support::traits
 
 	#[cfg(feature = "try-runtime")]
 	fn pre_upgrade() -> Result<alloc::vec::Vec<u8>, sp_runtime::TryRuntimeError> {
-		use crate::storage::unhashed::contains_prefixed_key;
+		use codec::Encode;
 
 		let hashed_prefix = twox_128(P::get().as_bytes());
-		match contains_prefixed_key(&hashed_prefix) {
+		let key_count = count_prefixed_keys_up_to(&hashed_prefix, Limit::get().saturating_add(1));
+		match key_count > 0 {
 			true => log::info!("Found {} keys pre-removal 👀", P::get()),
 			false => log::warn!(
 				"Migration RemovePallet<{}> can be removed (no keys found pre-removal).",
 				P::get()
 			),
 		};
-		Ok(alloc::vec::Vec::new())
+		// Whether more keys exist than the migration is allowed to remove in one upgrade.
+		Ok((key_count > Limit::get()).encode())
 	}
 
 	#[cfg(feature = "try-runtime")]
-	fn post_upgrade(_state: alloc::vec::Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
+	fn post_upgrade(state: alloc::vec::Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
 		use crate::storage::unhashed::contains_prefixed_key;
+		use codec::Decode;
 
+		let over_limit = bool::decode(&mut &state[..])
+			.map_err(|_| "RemovePallet post_upgrade failed to decode pre_upgrade state")?;
 		let hashed_prefix = twox_128(P::get().as_bytes());
-		match contains_prefixed_key(&hashed_prefix) {
-			true => {
+		match (contains_prefixed_key(&hashed_prefix), over_limit) {
+			(false, _) => log::info!("No {} keys found post-removal 🎉", P::get()),
+			(true, true) => log::warn!(
+				"{} has keys remaining post-removal because the prefix held more than the \
+				 per-upgrade limit of {} keys. Schedule further removals to clear the rest.",
+				P::get(),
+				Limit::get(),
+			),
+			(true, false) => {
 				log::error!("{} has keys remaining post-removal ❗", P::get());
 				return Err("Keys remaining post-removal, this should never happen 🚨".into())
 			},
-			false => log::info!("No {} keys found post-removal 🎉", P::get()),
 		};
 		Ok(())
 	}
@@ -401,8 +438,8 @@ impl<P: Get<&'static str>, DbWeight: Get<RuntimeDbWeight>> frame_support::traits
 /// }
 ///
 /// pub type Migrations = (
-/// 	RemoveStorage<SomePallet, StorageAccounts, RocksDbWeight>,
-/// 	RemoveStorage<SomePallet, StorageAccountCount, RocksDbWeight>,
+/// 	RemoveStorage<SomePallet, StorageAccounts, RocksDbWeight, ConstU32<1000>>,
+/// 	RemoveStorage<SomePallet, StorageAccountCount, RocksDbWeight, ConstU32<1000>>,
 /// 	AnyOtherMigrations...
 /// );
 ///
@@ -411,27 +448,41 @@ impl<P: Get<&'static str>, DbWeight: Get<RuntimeDbWeight>> frame_support::traits
 /// }
 /// ```
 ///
-/// WARNING: `RemoveStorage` has no guard rails preventing it from bricking the chain if the
-/// operation of removing storage for the given pallet would exceed the block weight limit.
+/// `Limit` bounds how many keys are removed in a single upgrade so the migration cannot exceed
+/// the block weight limit, even for a storage item whose key count can be grown by users before
+/// the upgrade. `Limit` should be chosen so that removing that many keys comfortably fits within
+/// a block.
 ///
-/// If your storage has too many keys to be removed in a single block, it is advised to wait for
-/// a multi-block scheduler currently under development which will allow for removal of storage
-/// items (and performing other heavy migrations) over multiple blocks
-/// (see <https://github.com/paritytech/substrate/issues/13690>).
-pub struct RemoveStorage<P: Get<&'static str>, S: Get<&'static str>, DbWeight: Get<RuntimeDbWeight>>(
-	PhantomData<(P, S, DbWeight)>,
-);
-impl<P: Get<&'static str>, S: Get<&'static str>, DbWeight: Get<RuntimeDbWeight>>
-	frame_support::traits::OnRuntimeUpgrade for RemoveStorage<P, S, DbWeight>
+/// If your storage may hold more than `Limit` keys, the excess keys are left in place. To remove
+/// all of them, either raise `Limit` to a value that is still safely below the block weight
+/// limit, or use a multi-block migration which can spread removal of storage items (and other
+/// heavy migrations) over multiple blocks (see <https://github.com/paritytech/substrate/issues/13690>).
+pub struct RemoveStorage<
+	P: Get<&'static str>,
+	S: Get<&'static str>,
+	DbWeight: Get<RuntimeDbWeight>,
+	Limit: Get<u32>,
+>(PhantomData<(P, S, DbWeight, Limit)>);
+impl<
+		P: Get<&'static str>,
+		S: Get<&'static str>,
+		DbWeight: Get<RuntimeDbWeight>,
+		Limit: Get<u32>,
+	> frame_support::traits::OnRuntimeUpgrade for RemoveStorage<P, S, DbWeight, Limit>
 {
 	fn on_runtime_upgrade() -> frame_support::weights::Weight {
 		let hashed_prefix = storage_prefix(P::get().as_bytes(), S::get().as_bytes());
-		let keys_removed = match clear_prefix(&hashed_prefix, None) {
+		let keys_removed = match clear_prefix(&hashed_prefix, Some(Limit::get())) {
 			KillStorageResult::AllRemoved(value) => value,
 			KillStorageResult::SomeRemaining(value) => {
-				log::error!(
-					"`clear_prefix` failed to remove all keys for storage `{}` from pallet `{}`. THIS SHOULD NEVER HAPPEN! 🚨",
-					S::get(), P::get()
+				log::warn!(
+					"`RemoveStorage` hit its per-upgrade limit of {} keys for storage `{}` from pallet `{}`; \
+					 {} keys removed, more remain. Raise `Limit` (staying below the block weight limit) or use a \
+					 multi-block migration to remove the rest.",
+					Limit::get(),
+					S::get(),
+					P::get(),
+					value,
 				);
 				value
 			},
@@ -444,10 +495,11 @@ impl<P: Get<&'static str>, S: Get<&'static str>, DbWeight: Get<RuntimeDbWeight>>
 
 	#[cfg(feature = "try-runtime")]
 	fn pre_upgrade() -> Result<alloc::vec::Vec<u8>, sp_runtime::TryRuntimeError> {
-		use crate::storage::unhashed::contains_prefixed_key;
+		use codec::Encode;
 
 		let hashed_prefix = storage_prefix(P::get().as_bytes(), S::get().as_bytes());
-		match contains_prefixed_key(&hashed_prefix) {
+		let key_count = count_prefixed_keys_up_to(&hashed_prefix, Limit::get().saturating_add(1));
+		match key_count > 0 {
 			true => log::info!("Found `{}` `{}` keys pre-removal 👀", P::get(), S::get()),
 			false => log::warn!(
 				"Migration RemoveStorage<{}, {}> can be removed (no keys found pre-removal).",
@@ -455,20 +507,31 @@ impl<P: Get<&'static str>, S: Get<&'static str>, DbWeight: Get<RuntimeDbWeight>>
 				S::get()
 			),
 		};
-		Ok(Default::default())
+		// Whether more keys exist than the migration is allowed to remove in one upgrade.
+		Ok((key_count > Limit::get()).encode())
 	}
 
 	#[cfg(feature = "try-runtime")]
-	fn post_upgrade(_state: alloc::vec::Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
+	fn post_upgrade(state: alloc::vec::Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
 		use crate::storage::unhashed::contains_prefixed_key;
+		use codec::Decode;
 
+		let over_limit = bool::decode(&mut &state[..])
+			.map_err(|_| "RemoveStorage post_upgrade failed to decode pre_upgrade state")?;
 		let hashed_prefix = storage_prefix(P::get().as_bytes(), S::get().as_bytes());
-		match contains_prefixed_key(&hashed_prefix) {
-			true => {
+		match (contains_prefixed_key(&hashed_prefix), over_limit) {
+			(false, _) => log::info!("No `{}` `{}` keys found post-removal 🎉", P::get(), S::get()),
+			(true, true) => log::warn!(
+				"`{}` `{}` has keys remaining post-removal because the prefix held more than the \
+				 per-upgrade limit of {} keys. Schedule further removals to clear the rest.",
+				P::get(),
+				S::get(),
+				Limit::get(),
+			),
+			(true, false) => {
 				log::error!("`{}` `{}` has keys remaining post-removal ❗", P::get(), S::get());
 				return Err("Keys remaining post-removal, this should never happen 🚨".into())
 			},
-			false => log::info!("No `{}` `{}` keys found post-removal 🎉", P::get(), S::get()),
 		};
 		Ok(())
 	}
@@ -1196,5 +1259,150 @@ mod tests {
 			.unwrap()
 			.is_err());
 		});
+	}
+
+	crate::parameter_types! {
+		pub const RemovePalletTestName: &'static str = "SomePallet";
+		pub const RemoveStorageTestStorage: &'static str = "SomeStorage";
+	}
+
+	type TestDbWeight = crate::weights::constants::RocksDbWeight;
+
+	/// Insert `count` distinct keys under `prefix` so the deletion helpers have something to clear.
+	fn fill_prefix(prefix: &[u8], count: u32) {
+		for i in 0..count {
+			let mut key = prefix.to_vec();
+			key.extend_from_slice(&i.to_le_bytes());
+			unhashed::put(&key, &i);
+		}
+	}
+
+	#[test]
+	fn remove_pallet_is_bounded_by_limit() {
+		use crate::traits::OnRuntimeUpgrade;
+		use sp_core::ConstU32;
+
+		let prefix = twox_128(RemovePalletTestName::get().as_bytes());
+		let mut ext = sp_io::TestExternalities::default();
+		// Pre-fill more keys than the per-upgrade limit allows to be removed, and commit them to
+		// the backend (the `clear_prefix` limit only bounds committed keys).
+		ext.execute_with(|| fill_prefix(&prefix, 10));
+		ext.commit_all().unwrap();
+
+		ext.execute_with(|| {
+			// The migration removes at most `Limit` keys and leaves the rest, so its work is
+			// bounded regardless of how many keys the prefix holds.
+			RemovePallet::<RemovePalletTestName, TestDbWeight, ConstU32<4>>::on_runtime_upgrade();
+
+			assert_eq!(count_prefixed_keys(&prefix), 6, "only `Limit` keys should be removed");
+		});
+	}
+
+	#[test]
+	fn remove_storage_is_bounded_by_limit() {
+		use crate::traits::OnRuntimeUpgrade;
+		use sp_core::ConstU32;
+
+		let prefix = storage_prefix(
+			RemovePalletTestName::get().as_bytes(),
+			RemoveStorageTestStorage::get().as_bytes(),
+		);
+		let mut ext = sp_io::TestExternalities::default();
+		ext.execute_with(|| fill_prefix(&prefix, 10));
+		ext.commit_all().unwrap();
+
+		ext.execute_with(|| {
+			RemoveStorage::<
+				RemovePalletTestName,
+				RemoveStorageTestStorage,
+				TestDbWeight,
+				ConstU32<4>,
+			>::on_runtime_upgrade();
+
+			assert_eq!(count_prefixed_keys(&prefix), 6, "only `Limit` keys should be removed");
+		});
+	}
+
+	/// The try-runtime checks must tolerate keys remaining when the prefix held more keys than
+	/// the per-upgrade `Limit`, since that is the documented (bounded) behaviour, while still
+	/// failing when keys remain unexpectedly.
+	#[test]
+	#[cfg(feature = "try-runtime")]
+	fn remove_pallet_try_runtime_tolerates_bounded_remainder() {
+		use crate::traits::OnRuntimeUpgrade;
+		use sp_core::ConstU32;
+
+		type UnderLimit = RemovePallet<RemovePalletTestName, TestDbWeight, ConstU32<20>>;
+		type OverLimit = RemovePallet<RemovePalletTestName, TestDbWeight, ConstU32<4>>;
+
+		let prefix = twox_128(RemovePalletTestName::get().as_bytes());
+
+		// More keys than `Limit`: keys legitimately remain, post_upgrade must accept.
+		let mut ext = sp_io::TestExternalities::default();
+		ext.execute_with(|| fill_prefix(&prefix, 10));
+		ext.commit_all().unwrap();
+		ext.execute_with(|| {
+			let state = OverLimit::pre_upgrade().unwrap();
+			OverLimit::on_runtime_upgrade();
+			assert_eq!(count_prefixed_keys(&prefix), 6);
+			assert!(OverLimit::post_upgrade(state).is_ok());
+		});
+
+		// Fewer keys than `Limit`: all keys must be gone, otherwise post_upgrade must fail.
+		let mut ext = sp_io::TestExternalities::default();
+		ext.execute_with(|| fill_prefix(&prefix, 10));
+		ext.commit_all().unwrap();
+		ext.execute_with(|| {
+			let state = UnderLimit::pre_upgrade().unwrap();
+			UnderLimit::on_runtime_upgrade();
+			assert_eq!(count_prefixed_keys(&prefix), 0);
+			assert!(UnderLimit::post_upgrade(state.clone()).is_ok());
+
+			// Keys remaining without the over-limit justification is still a fatal error.
+			fill_prefix(&prefix, 1);
+			assert!(UnderLimit::post_upgrade(state).is_err());
+		});
+	}
+
+	#[test]
+	#[cfg(feature = "try-runtime")]
+	fn remove_storage_try_runtime_tolerates_bounded_remainder() {
+		use crate::traits::OnRuntimeUpgrade;
+		use sp_core::ConstU32;
+
+		type OverLimit = RemoveStorage<
+			RemovePalletTestName,
+			RemoveStorageTestStorage,
+			TestDbWeight,
+			ConstU32<4>,
+		>;
+
+		let prefix = storage_prefix(
+			RemovePalletTestName::get().as_bytes(),
+			RemoveStorageTestStorage::get().as_bytes(),
+		);
+		let mut ext = sp_io::TestExternalities::default();
+		ext.execute_with(|| fill_prefix(&prefix, 10));
+		ext.commit_all().unwrap();
+		ext.execute_with(|| {
+			let state = OverLimit::pre_upgrade().unwrap();
+			OverLimit::on_runtime_upgrade();
+			assert_eq!(count_prefixed_keys(&prefix), 6);
+			assert!(OverLimit::post_upgrade(state).is_ok());
+		});
+	}
+
+	/// Count how many keys currently exist under `prefix`.
+	fn count_prefixed_keys(prefix: &[u8]) -> u32 {
+		let mut count = 0u32;
+		let mut previous = prefix.to_vec();
+		while let Some(next) = sp_io::storage::next_key(&previous) {
+			if !next.starts_with(prefix) {
+				break;
+			}
+			count += 1;
+			previous = next;
+		}
+		count
 	}
 }

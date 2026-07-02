@@ -21,7 +21,7 @@
 
 use crate::{
 	self as pallet_balances, AccountData, Config, CreditOf, Error, Pallet, TotalIssuance,
-	DEFAULT_ADDRESS_URI,
+	DEFAULT_ADDRESS_URI, MAX_DEV_ACCOUNTS,
 };
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::{
@@ -357,6 +357,23 @@ fn weights_sane() {
 
 	let info = crate::Call::<Test>::force_unreserve { who: 10, amount: 4 }.get_dispatch_info();
 	assert_eq!(<() as crate::WeightInfo>::force_unreserve(), info.call_weight);
+}
+
+#[test]
+fn derive_dev_account_rejects_counts_above_cap() {
+	ExtBuilder::default().build().execute_with(|| {
+		let ed = ExistentialDeposit::get();
+
+		// A count within the cap is accepted (does real, but bounded, derivation work).
+		assert_ok!(Balances::derive_dev_account(1, ed, DEFAULT_ADDRESS_URI));
+
+		// A count above the cap is rejected before any derivation work is performed, so a
+		// caller cannot force unbounded runtime work through the `dev_accounts` genesis field.
+		assert_err!(
+			Balances::derive_dev_account(MAX_DEV_ACCOUNTS + 1, ed, DEFAULT_ADDRESS_URI),
+			"num_accounts exceeds the maximum allowed dev accounts"
+		);
+	});
 }
 
 #[test]

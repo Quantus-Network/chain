@@ -26,6 +26,18 @@ pub struct SplitTwoWays<Balance, Imbalance, Target1, Target2, const PART1: u32, 
 	PhantomData<(Balance, Imbalance, Target1, Target2)>,
 );
 
+impl<Balance, I, Target1, Target2, const PART1: u32, const PART2: u32>
+	SplitTwoWays<Balance, I, Target1, Target2, PART1, PART2>
+{
+	/// Evaluated at compile time for each instantiation that handles an imbalance: a ratio whose
+	/// sum is zero or overflows `u32` is a configuration bug that would otherwise panic
+	/// (divide-by-zero or add overflow) at runtime while disposing of a nonzero imbalance.
+	const TOTAL: u32 = match PART1.checked_add(PART2) {
+		Some(total) if total > 0 => total,
+		_ => panic!("`SplitTwoWays` requires `0 < PART1 + PART2 <= u32::MAX`"),
+	};
+}
+
 impl<
 		Balance: From<u32> + Saturating + Div<Output = Balance>,
 		I: Imbalance<Balance>,
@@ -36,7 +48,7 @@ impl<
 	> OnUnbalanced<I> for SplitTwoWays<Balance, I, Target1, Target2, PART1, PART2>
 {
 	fn on_nonzero_unbalanced(amount: I) {
-		let total: u32 = PART1 + PART2;
+		let total: u32 = Self::TOTAL;
 		let amount1 = amount.peek().saturating_mul(PART1.into()) / total.into();
 		let (imb1, imb2) = amount.split(amount1);
 		Target1::on_unbalanced(imb1);
