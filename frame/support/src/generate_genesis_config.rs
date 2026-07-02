@@ -64,19 +64,52 @@ impl<'a> InitializedField<'a> {
 	}
 }
 
+/// Converts a single `snake_case` identifier segment to `camelCase`, exactly matching
+/// serde's `#[serde(rename_all = "camelCase")]` field-renaming rule.
+///
+/// Serde first produces `PascalCase` (uppercase the first character of every
+/// underscore-separated word, dropping the underscores) and then lowercases the first
+/// character of the result.
+fn to_camel_case_segment(segment: &str) -> String {
+	let mut pascal = String::new();
+	let mut capitalize = true;
+	for ch in segment.chars() {
+		if ch == '_' {
+			capitalize = true;
+		} else if capitalize {
+			pascal.push(ch.to_ascii_uppercase());
+			capitalize = false;
+		} else {
+			pascal.push(ch);
+		}
+	}
+	match pascal.char_indices().nth(1) {
+		Some((split, _)) => pascal[..split].to_ascii_lowercase() + &pascal[split..],
+		None => pascal.to_ascii_lowercase(),
+	}
+}
+
+/// Converts a dotted field path (e.g. `outer.inner_field`) to its `camelCase` form,
+/// converting each `.`-separated segment individually.
+fn to_camel_case_path(path: &str) -> String {
+	let mut out = String::new();
+	for (i, segment) in path.split('.').enumerate() {
+		if i > 0 {
+			out.push('.');
+		}
+		out.push_str(&to_camel_case_segment(segment));
+	}
+	out
+}
+
 impl PartialEq<String> for InitializedField<'_> {
 	fn eq(&self, other: &String) -> bool {
-		#[inline]
-		/// We need to respect the `camelCase` naming for field names. This means that
-		/// `"camelCaseKey"` should be considered equal to `"camel_case_key"`. This
-		/// function implements this comparison.
-		fn compare_keys(ident_chars: core::str::Chars, camel_chars: core::str::Chars) -> bool {
-			ident_chars
-				.filter(|c| *c != '_')
-				.map(|c| c.to_ascii_uppercase())
-				.eq(camel_chars.map(|c| c.to_ascii_uppercase()))
-		}
-		*self.1 == *other || compare_keys(self.1.chars(), other.chars())
+		// A JSON key matches the recorded identifier either exactly (structs without a
+		// `rename_all` attribute serialize field names verbatim) or as its `camelCase`
+		// rename. The camelCase comparison uses serde's exact rule rather than an
+		// underscore-insensitive match, so distinct identifiers such as `a_b` (=> `aB`)
+		// and `ab` (=> `ab`) never compare equal and retention stays injective.
+		*self.1 == *other || to_camel_case_path(&self.1) == *other
 	}
 }
 
@@ -1183,53 +1216,67 @@ mod retain_keys_test {
 	use super::*;
 	use serde_json::json;
 
-	macro_rules! check_initialized_field_eq_cc(
-		( $s:literal ) => {
-			let field = InitializedField::full($s);
-			let cc = inflector::cases::camelcase::to_camel_case($s);
-			assert_eq!(field,cc);
-		} ;
-		( &[ $f:literal $(, $r:literal)* ]) => {
-			let field = InitializedField::full(
-				concat!( $f $(,".",$r)+ )
-			);
-			let cc = [ $f $(,$r)+  ].into_iter()
-				.map(|s| inflector::cases::camelcase::to_camel_case(s))
-				.collect::<Vec<_>>()
-				.join(".");
-			assert_eq!(field,cc);
-		} ;
-	);
+	// Ground truth is serde's own `rename_all = "camelCase"` rule (see
+	// `serde_derive`'s `RenameRule::CamelCase`): PascalCase, then lowercase the first char.
+	#[track_caller]
+	fn assert_field_eq_cc(ident: &str, expected_camel: &str) {
+		let field = InitializedField::full(ident);
+		// A field is equal to its camelCase rename...
+		assert_eq!(field, expected_camel.to_string(), "{ident} should equal {expected_camel}");
+		// ...and to its verbatim (non-renamed) form.
+		assert_eq!(field, ident.to_string(), "{ident} should equal itself");
+	}
 
 	#[test]
 	fn test_initialized_field_eq_cc_string() {
-		check_initialized_field_eq_cc!("a_");
-		check_initialized_field_eq_cc!("abc");
-		check_initialized_field_eq_cc!("aBc");
-		check_initialized_field_eq_cc!("aBC");
-		check_initialized_field_eq_cc!("ABC");
-		check_initialized_field_eq_cc!("2abs");
-		check_initialized_field_eq_cc!("2Abs");
-		check_initialized_field_eq_cc!("2ABs");
-		check_initialized_field_eq_cc!("2aBs");
-		check_initialized_field_eq_cc!("AlreadyCamelCase");
-		check_initialized_field_eq_cc!("alreadyCamelCase");
-		check_initialized_field_eq_cc!("C");
-		check_initialized_field_eq_cc!("1a");
-		check_initialized_field_eq_cc!("_1a");
-		check_initialized_field_eq_cc!("a_b");
-		check_initialized_field_eq_cc!("_a_b");
-		check_initialized_field_eq_cc!("a___b");
-		check_initialized_field_eq_cc!("__a_b");
-		check_initialized_field_eq_cc!("_a___b_C");
-		check_initialized_field_eq_cc!("__A___B_C");
-		check_initialized_field_eq_cc!(&["a_b", "b_c"]);
-		check_initialized_field_eq_cc!(&["al_pha", "_a___b_C"]);
-		check_initialized_field_eq_cc!(&["al_pha_", "_a___b_C"]);
-		check_initialized_field_eq_cc!(&["first_field", "al_pha_", "_a___b_C"]);
-		check_initialized_field_eq_cc!(&["al_pha_", "__2nd_field", "_a___b_C"]);
-		check_initialized_field_eq_cc!(&["al_pha_", "__2nd3and_field", "_a___b_C"]);
-		check_initialized_field_eq_cc!(&["_a1", "_a2", "_a3_"]);
+		assert_field_eq_cc("a_", "a");
+		assert_field_eq_cc("abc", "abc");
+		assert_field_eq_cc("aBc", "aBc");
+		assert_field_eq_cc("aBC", "aBC");
+		assert_field_eq_cc("ABC", "aBC");
+		assert_field_eq_cc("2abs", "2abs");
+		assert_field_eq_cc("2Abs", "2Abs");
+		assert_field_eq_cc("2ABs", "2ABs");
+		assert_field_eq_cc("2aBs", "2aBs");
+		assert_field_eq_cc("AlreadyCamelCase", "alreadyCamelCase");
+		assert_field_eq_cc("alreadyCamelCase", "alreadyCamelCase");
+		assert_field_eq_cc("C", "c");
+		assert_field_eq_cc("1a", "1a");
+		assert_field_eq_cc("_1a", "1a");
+		assert_field_eq_cc("a_b", "aB");
+		assert_field_eq_cc("_a_b", "aB");
+		assert_field_eq_cc("a___b", "aB");
+		assert_field_eq_cc("__a_b", "aB");
+		assert_field_eq_cc("_a___b_C", "aBC");
+		assert_field_eq_cc("__A___B_C", "aBC");
+		assert_field_eq_cc("a_b.b_c", "aB.bC");
+		assert_field_eq_cc("al_pha._a___b_C", "alPha.aBC");
+		assert_field_eq_cc("al_pha_._a___b_C", "alPha.aBC");
+		assert_field_eq_cc("first_field.al_pha_._a___b_C", "firstField.alPha.aBC");
+	}
+
+	#[test]
+	fn test_camel_case_comparison_is_injective() {
+		// The reported collision: `a_b` (=> `aB`) must not match the JSON key `ab`, and
+		// `ab` must not match the JSON key `aB`.
+		assert_ne!(InitializedField::full("a_b"), "ab".to_string());
+		assert_ne!(InitializedField::full("ab"), "aB".to_string());
+		// Sanity: each still matches its own canonical camelCase / verbatim form.
+		assert_eq!(InitializedField::full("a_b"), "aB".to_string());
+		assert_eq!(InitializedField::full("ab"), "ab".to_string());
+	}
+
+	#[test]
+	fn retain_does_not_keep_colliding_unselected_field() {
+		// Serialized default object exposes both `aB` (from `a_b`) and `ab` (from `ab`).
+		let mut v = json!({
+			"aB": 7,
+			"ab": true,
+		});
+		// Only `a_b` was initialized.
+		retain_initialized_fields(&mut v, &[InitializedField::full("a_b")], String::default());
+		// The unrelated `ab` field must be pruned, not retained by an ambiguous match.
+		assert_eq!(v, json!({ "aB": 7 }));
 	}
 
 	#[test]
