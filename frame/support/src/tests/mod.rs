@@ -332,8 +332,8 @@ fn new_pallet_storage_version_initialized_after_migrations_not_before() {
 		assert!(!StorageVersion::exists::<pallet2::Pallet<Runtime>>());
 
 		// Mirrors `Executive::execute_on_runtime_upgrade` ordering:
-		// 1. `before_all_runtime_migrations` must not pre-seed the storage version,
-		//    otherwise the version-gated migration below is silently skipped.
+		// 1. `before_all_runtime_migrations` must not pre-seed the storage version, otherwise the
+		//    version-gated migration below is silently skipped.
 		<pallet2::Pallet<Runtime> as BeforeAllRuntimeMigrations>::before_all_runtime_migrations();
 		assert!(!StorageVersion::exists::<pallet2::Pallet<Runtime>>());
 
@@ -385,9 +385,7 @@ fn runtime_task_enumeration_yields_pallet_tasks() {
 		let tasks = <RuntimeTask as TaskTrait>::iter().collect::<Vec<_>>();
 		assert_eq!(
 			tasks,
-			vec![RuntimeTask::System(frame_system::Task::<Runtime>::AddNumberIntoTotal {
-				i: 7
-			})]
+			vec![RuntimeTask::System(frame_system::Task::<Runtime>::AddNumberIntoTotal { i: 7 })]
 		);
 	});
 }

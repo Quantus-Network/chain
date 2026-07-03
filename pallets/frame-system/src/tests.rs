@@ -673,7 +673,8 @@ fn set_code_drains_remaining_block_weight() {
 		}
 	}
 
-	let version = RuntimeVersion { spec_name: "test".into(), spec_version: 2, ..Default::default() };
+	let version =
+		RuntimeVersion { spec_name: "test".into(), spec_version: 2, ..Default::default() };
 	let read_runtime_version = ReadRuntimeVersion(version.encode());
 
 	let mut ext = new_test_ext();

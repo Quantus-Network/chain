@@ -119,8 +119,7 @@ pub trait ViewFunction: DecodeWithMemLimit {
 	) -> Result<(), ViewFunctionDispatchError> {
 		// Use the mem-tracked decode (bounded by `MAX_VIEW_FUNCTION_DECODE_MEM`) instead of a
 		// plain `DecodeAll`, and still require the whole input to be consumed.
-		let view_function =
-			Self::decode_with_mem_limit(input, MAX_VIEW_FUNCTION_DECODE_MEM)?;
+		let view_function = Self::decode_with_mem_limit(input, MAX_VIEW_FUNCTION_DECODE_MEM)?;
 		if !input.is_empty() {
 			return Err(ViewFunctionDispatchError::Codec)
 		}

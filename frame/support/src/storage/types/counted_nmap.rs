@@ -613,8 +613,8 @@ where
 	/// Enumerate all keys in the map in no particular order.
 	///
 	/// If you add or remove values to the map while doing this, you'll get undefined results.
-	pub fn iter_keys(
-	) -> crate::storage::KeyPrefixIterator<Key::Key, OnRemovalCounterUpdate<Prefix>> {
+	pub fn iter_keys() -> crate::storage::KeyPrefixIterator<Key::Key, OnRemovalCounterUpdate<Prefix>>
+	{
 		<Self as MapWrapper>::Map::iter_keys().convert_on_removal()
 	}
 

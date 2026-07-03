@@ -1137,10 +1137,8 @@ impl<T: MaxEncodedLen> WrapperKeepOpaque<T> {
 	/// Returns `None` if `data` is longer than the maximum encoded length of `T`, since such a
 	/// value would exceed the `max_size` reported for bounded storage and PoV accounting.
 	pub fn try_from_encoded(data: Vec<u8>) -> Option<Self> {
-		(data.len() <= T::max_encoded_len()).then(|| Self {
-			data,
-			_phantom: core::marker::PhantomData,
-		})
+		(data.len() <= T::max_encoded_len())
+			.then(|| Self { data, _phantom: core::marker::PhantomData })
 	}
 }
 

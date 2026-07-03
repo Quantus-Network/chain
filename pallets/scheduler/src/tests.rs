@@ -758,8 +758,7 @@ fn failed_schedule_drops_noted_preimage() {
 		run_to_block(1);
 
 		// A call large enough to be stored as a `Lookup` preimage rather than inline.
-		let call =
-			RuntimeCall::System(frame_system::Call::remark { remark: vec![0u8; 1024] });
+		let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![0u8; 1024] });
 		let bounded = Preimage::bound(call).unwrap();
 		assert!(bounded.lookup_needed(), "the call must be noted as a preimage");
 		// `bound` has already noted the preimage.

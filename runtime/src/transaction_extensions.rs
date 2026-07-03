@@ -241,11 +241,8 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 
 	fn weight(&self, call: &RuntimeCall) -> Weight {
 		let n = Self::count_transfers(call);
-		let transfer_weight = if n > 0 {
-			Self::per_transfer_weight().saturating_mul(n)
-		} else {
-			Weight::zero()
-		};
+		let transfer_weight =
+			if n > 0 { Self::per_transfer_weight().saturating_mul(n) } else { Weight::zero() };
 
 		// Soundness reveal bookkeeping for the signer. `validate` runs `is_ambiguous_account` on
 		// the signer — nonce (1) + `Multisigs` (1) + `TreasuryAccount` (1) — and, when ambiguous,
@@ -771,10 +768,7 @@ mod tests {
 			let wrapped = RuntimeCall::Utility(pallet_utility::Call::as_derivative {
 				index: 0,
 				call: boxed(RuntimeCall::Utility(pallet_utility::Call::batch {
-					calls: vec![
-						non_whitelisted_transfer(),
-						non_whitelisted_transfer(),
-					],
+					calls: vec![non_whitelisted_transfer(), non_whitelisted_transfer()],
 				})),
 			});
 			let weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
@@ -798,12 +792,8 @@ mod tests {
 			// The presented call is opaque to the static matcher (like `Multisig::execute` or
 			// `ReversibleTransfers::recover_funds`, whose inner call lives on-chain), but the
 			// dispatch emits a real transfer event that post_dispatch must record.
-			let opaque_call =
-				RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
-			assert_eq!(
-				WormholeProofRecorderExtension::<Runtime>::count_transfers(&opaque_call),
-				0
-			);
+			let opaque_call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
+			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&opaque_call), 0);
 
 			let weight_before = frame_system::Pallet::<Runtime>::block_weight().total();
 

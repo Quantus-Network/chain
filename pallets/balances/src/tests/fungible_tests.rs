@@ -300,15 +300,7 @@ fn transfer_on_hold_onhold_requires_existing_dest() {
 			assert_eq!(Balances::total_balance(&dest), 0);
 
 			// `Free` mode may create the destination, so it still succeeds.
-			assert_ok!(Balances::transfer_on_hold(
-				&TestId::Foo,
-				&1,
-				&dest,
-				5,
-				Exact,
-				Free,
-				Force
-			));
+			assert_ok!(Balances::transfer_on_hold(&TestId::Foo, &1, &dest, 5, Exact, Free, Force));
 			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &1), 2);
 			assert_eq!(Balances::free_balance(dest), 5);
 		});

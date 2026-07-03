@@ -423,13 +423,12 @@ where
 		let bound = Value::bound();
 		// See `TryAppendValue::try_append`: a missing entry may still have a non-empty
 		// query-kind default, so the bound is enforced against the effective value.
-		let current =
-			<Self as MapWrapper>::Map::decode_len(Ref::from(&key)).unwrap_or_else(|| {
-				crate::storage::effective_absent_len::<Value, Item, _, _, _>(
-					QueryKind::from_optional_value_to_query,
-					QueryKind::from_query_to_optional_value,
-				)
-			});
+		let current = <Self as MapWrapper>::Map::decode_len(Ref::from(&key)).unwrap_or_else(|| {
+			crate::storage::effective_absent_len::<Value, Item, _, _, _>(
+				QueryKind::from_optional_value_to_query,
+				QueryKind::from_query_to_optional_value,
+			)
+		});
 		if current < bound {
 			// The counter tracks the number of keys in the map, so it must only grow when the
 			// append creates a previously absent key, not on every successful append.
@@ -515,8 +514,7 @@ where
 	/// Enumerate all keys in the counted map.
 	///
 	/// If you alter the map while doing this, you'll get undefined results.
-	pub fn iter_keys(
-	) -> crate::storage::KeyPrefixIterator<Key, OnRemovalCounterUpdate<Prefix>> {
+	pub fn iter_keys() -> crate::storage::KeyPrefixIterator<Key, OnRemovalCounterUpdate<Prefix>> {
 		<Self as MapWrapper>::Map::iter_keys().convert_on_removal()
 	}
 }
