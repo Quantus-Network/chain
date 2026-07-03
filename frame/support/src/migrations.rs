@@ -262,9 +262,9 @@ pub fn migrate_from_pallet_version_to_storage_version<
 
 /// Count keys under `prefix`, stopping once `up_to` keys have been seen.
 ///
-/// Only used by try-runtime hooks; the cap keeps the check bounded for prefixes holding many more
-/// keys than the migration's per-upgrade limit.
-#[cfg(feature = "try-runtime")]
+/// Only used by try-runtime hooks and tests; the cap keeps the check bounded for prefixes holding
+/// many more keys than the migration's per-upgrade limit.
+#[cfg(any(feature = "try-runtime", test))]
 fn count_prefixed_keys_up_to(prefix: &[u8], up_to: u32) -> u32 {
 	let mut count = 0u32;
 	let mut previous = prefix.to_vec();
@@ -1394,15 +1394,6 @@ mod tests {
 
 	/// Count how many keys currently exist under `prefix`.
 	fn count_prefixed_keys(prefix: &[u8]) -> u32 {
-		let mut count = 0u32;
-		let mut previous = prefix.to_vec();
-		while let Some(next) = sp_io::storage::next_key(&previous) {
-			if !next.starts_with(prefix) {
-				break;
-			}
-			count += 1;
-			previous = next;
-		}
-		count
+		count_prefixed_keys_up_to(prefix, u32::MAX)
 	}
 }
