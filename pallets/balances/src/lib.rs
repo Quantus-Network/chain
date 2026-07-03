@@ -203,9 +203,10 @@ const DEFAULT_ADDRESS_URI: &str = "//Sender//{}";
 /// The `dev_accounts` genesis field is attacker-controllable when the genesis config is built
 /// through the externally reachable `GenesisBuilder::build_state` runtime API. Each derived
 /// account performs an expensive sr25519 key derivation and a storage write, so an unbounded
-/// count would let a tiny request force effectively unbounded runtime work. This cap bounds that
-/// work while staying far above any legitimate development setup.
-pub const MAX_DEV_ACCOUNTS: u32 = 10_000;
+/// count would let a tiny request force effectively unbounded runtime work. This cap keeps the
+/// worst-case derivation work small while still covering any legitimate development setup (the
+/// largest in-repo use is exactly this many accounts).
+pub const MAX_DEV_ACCOUNTS: u32 = 1_000;
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 
