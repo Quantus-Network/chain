@@ -325,7 +325,18 @@ where
 	pub fn migrate_key<OldHasher: crate::hash::StorageHasher, KeyArg: EncodeLike<Key>>(
 		key: KeyArg,
 	) -> Option<Value> {
-		<Self as MapWrapper>::Map::migrate_key::<OldHasher, _>(key)
+		// If the same logical key already has an entry under the current hasher, migrating the
+		// old-hasher entry overwrites it and collapses two stored keys into one, so the counter
+		// must be reconciled against the actual pre-migration existence of both entries.
+		let old_hashed = key.using_encoded(OldHasher::hash);
+		let new_hashed = key.using_encoded(Hasher::hash);
+		let collapses = old_hashed.as_ref() != new_hashed.as_ref() &&
+			<Self as MapWrapper>::Map::contains_key(Ref::from(&key));
+		let value = <Self as MapWrapper>::Map::migrate_key::<OldHasher, _>(key);
+		if value.is_some() && collapses {
+			CounterFor::<Prefix>::mutate(|value| value.saturating_dec());
+		}
+		value
 	}
 
 	/// Remove all values in the map.
@@ -420,7 +431,11 @@ where
 				)
 			});
 		if current < bound {
-			CounterFor::<Prefix>::mutate(|value| value.saturating_inc());
+			// The counter tracks the number of keys in the map, so it must only grow when the
+			// append creates a previously absent key, not on every successful append.
+			if !<Self as MapWrapper>::Map::contains_key(Ref::from(&key)) {
+				CounterFor::<Prefix>::mutate(|value| value.saturating_inc());
+			}
 			let key = <Self as MapWrapper>::Map::hashed_key_for(key);
 			sp_io::storage::append(&key, item.encode());
 			Ok(())
@@ -1171,6 +1186,53 @@ mod test {
 			A::insert(1, 1);
 			assert_eq!(B::migrate_key::<Twox64Concat, _>(1), Some(1));
 			assert_eq!(B::get(1), Some(1));
+		})
+	}
+
+	#[test]
+	fn try_append_increments_counter_only_for_new_keys() {
+		type B = CountedStorageMap<Prefix, Twox64Concat, u16, BoundedVec<u32, ConstU32<3u32>>>;
+		TestExternalities::default().execute_with(|| {
+			B::try_append(0, 1).unwrap();
+			assert_eq!(B::count(), 1);
+			// Repeated appends to an existing key must not inflate the key count.
+			B::try_append(0, 2).unwrap();
+			B::try_append(0, 3).unwrap();
+			assert_eq!(B::count(), 1);
+			B::try_append(1, 1).unwrap();
+			assert_eq!(B::count(), 2);
+		})
+	}
+
+	#[test]
+	fn migrate_key_reconciles_counter_when_entries_collapse() {
+		type A = CountedStorageMap<Prefix, Twox64Concat, u16, u32>;
+		type B = CountedStorageMap<Prefix, Blake2_128Concat, u16, u32>;
+		TestExternalities::default().execute_with(|| {
+			// The same logical key exists under both the old and the current hasher.
+			A::insert(1, 1);
+			B::insert(1, 2);
+			assert_eq!(B::count(), 2);
+
+			// Migration overwrites the current-hasher entry: two stored keys collapse into one
+			// and the counter must follow.
+			assert_eq!(B::migrate_key::<Twox64Concat, _>(1), Some(1));
+			assert_eq!(B::get(1), Some(1));
+			assert_eq!(B::count(), 1);
+
+			// A degenerate migration with the current hasher rewrites the same physical key and
+			// must not change the count.
+			assert_eq!(B::migrate_key::<Blake2_128Concat, _>(1), Some(1));
+			assert_eq!(B::count(), 1);
+
+			// Migrating a key that only exists under the old hasher moves it without changing
+			// the count, and migrating a missing key is a no-op.
+			A::insert(2, 4);
+			assert_eq!(B::count(), 2);
+			assert_eq!(B::migrate_key::<Twox64Concat, _>(2), Some(4));
+			assert_eq!(B::count(), 2);
+			assert_eq!(B::migrate_key::<Twox64Concat, _>(3), None);
+			assert_eq!(B::count(), 2);
 		})
 	}
 

@@ -181,16 +181,16 @@ where
 	}
 
 	/// Store or remove the value to be associated with `key` so that `get` returns the `query`.
-	/// It decrements the counter when the value is removed.
+	/// It updates the counter when a key is actually added to or removed from the map.
 	pub fn set<KArg: EncodeLikeTuple<Key::KArg> + TupleToEncodedIter>(
 		key: KArg,
 		query: QueryKind::Query,
 	) {
 		let option = QueryKind::from_query_to_optional_value(query);
-		if option.is_none() {
-			CounterFor::<Prefix>::mutate(|value| value.saturating_dec());
-		}
-		<Self as MapWrapper>::Map::set(key, QueryKind::from_optional_value_to_query(option))
+		// The counter must reflect actual key existence transitions: writing a value can create
+		// a previously absent key and removing one only shrinks the map if the key existed.
+		// `try_mutate_exists` reconciles the counter against both states.
+		Self::mutate_exists(key, |value| *value = option);
 	}
 
 	/// Take a value from storage, removing it afterwards.
@@ -396,7 +396,24 @@ where
 	where
 		KArg: EncodeLikeTuple<Key::KArg> + TupleToEncodedIter,
 	{
-		<Self as MapWrapper>::Map::migrate_keys::<_>(key, hash_fns)
+		// This reimplements the raw map migration (rather than delegating) because the counter
+		// must be reconciled when the same logical key already has an entry under the current
+		// hashers: migrating then collapses two stored keys into one. The single-use `hash_fns`
+		// closures cannot be reused for both a collision check and a delegated call.
+		let old_key = {
+			let mut old_key = Self::map_storage_final_prefix();
+			old_key.extend_from_slice(&Key::migrate_key(&key, hash_fns));
+			old_key
+		};
+		let new_key = <Self as MapWrapper>::Map::hashed_key_for(key);
+		let value = crate::storage::unhashed::take::<Value>(&old_key);
+		if let Some(value) = &value {
+			if old_key != new_key && crate::storage::unhashed::exists(&new_key) {
+				CounterFor::<Prefix>::mutate(|value| value.saturating_dec());
+			}
+			crate::storage::unhashed::put(&new_key, value);
+		}
+		value
 	}
 
 	/// Attempt to remove all items from the map.
@@ -739,6 +756,65 @@ mod test {
 			assert_eq!(A::count(), 1);
 			assert_eq!(A::get((2, 20)), Some(200));
 		});
+	}
+
+	#[test]
+	fn set_reconciles_counter_with_actual_key_existence() {
+		type A = CountedStorageNMap<Prefix, NMapKey<Blake2_128Concat, u16>, u32, OptionQuery>;
+
+		TestExternalities::default().execute_with(|| {
+			// Setting a value on an absent key creates it and must increment the count.
+			A::set((1,), Some(10));
+			assert_eq!(A::count(), 1);
+			// Overwriting an existing key must not change the count.
+			A::set((1,), Some(11));
+			assert_eq!(A::get((1,)), Some(11));
+			assert_eq!(A::count(), 1);
+			// Removing an absent key must not decrement the count.
+			A::set((2,), None);
+			assert_eq!(A::count(), 1);
+			// Removing an existing key decrements.
+			A::set((1,), None);
+			assert!(!A::contains_key((1,)));
+			assert_eq!(A::count(), 0);
+		})
+	}
+
+	#[test]
+	fn migrate_keys_reconciles_counter_when_entries_collapse() {
+		type A = CountedStorageNMap<Prefix, NMapKey<Blake2_128Concat, u16>, u32, OptionQuery>;
+		type B = CountedStorageNMap<Prefix, NMapKey<Blake2_256, u16>, u32, ValueQuery>;
+
+		TestExternalities::default().execute_with(|| {
+			// The same logical key exists under both the old and the current hashers.
+			B::insert((2,), 10);
+			A::insert((2,), 20);
+			assert_eq!(A::count(), 2);
+
+			// Migration overwrites the current-hasher entry: two stored keys collapse into one
+			// and the counter must follow.
+			assert_eq!(
+				A::migrate_keys((2,), (Box::new(|key| Blake2_256::hash(key).to_vec()),)),
+				Some(10)
+			);
+			assert_eq!(A::get((2,)), Some(10));
+			assert_eq!(A::count(), 1);
+
+			// A degenerate migration with the current hasher rewrites the same physical key and
+			// must not change the count.
+			assert_eq!(
+				A::migrate_keys((2,), (Box::new(|key| Blake2_128Concat::hash(key)),)),
+				Some(10)
+			);
+			assert_eq!(A::count(), 1);
+
+			// Migrating a missing key is a no-op.
+			assert_eq!(
+				A::migrate_keys((3,), (Box::new(|key| Blake2_256::hash(key).to_vec()),)),
+				None
+			);
+			assert_eq!(A::count(), 1);
+		})
 	}
 
 	#[test]
