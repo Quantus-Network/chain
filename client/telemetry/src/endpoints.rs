@@ -122,6 +122,7 @@ fn multiaddr_to_url(addr: &str) -> Option<Url> {
 	let mut host = None;
 	let mut port: Option<u16> = None;
 	let mut secure = false;
+	let mut ws_seen = false;
 	let mut path = String::new();
 
 	let mut i = 0;
@@ -150,10 +151,12 @@ fn multiaddr_to_url(addr: &str) -> Option<Url> {
 				},
 			"wss" | "x-parity-wss" => {
 				secure = true;
+				ws_seen = true;
 				i += 1;
 			},
 			"ws" | "x-parity-ws" => {
 				secure = false;
+				ws_seen = true;
 				i += 1;
 			},
 			"p2p" => {
@@ -161,12 +164,13 @@ fn multiaddr_to_url(addr: &str) -> Option<Url> {
 				i += 2;
 			},
 			other => {
-				// Might be a path component after ws/wss
-				// Multiaddr uses percent-encoding for path segments, so decode them
-				if host.is_some() && (secure || port.is_some()) {
-					let decoded = percent_decode(other);
-					path.push_str(&decoded);
+				// Path components are only valid after the ws/wss protocol. Anything else is
+				// an unsupported multiaddr component: fail instead of silently dropping it.
+				if !ws_seen {
+					return None;
 				}
+				// Multiaddr uses percent-encoding for path segments, so decode them.
+				path.push_str(&percent_decode(other));
 				i += 1;
 			},
 		}
@@ -283,6 +287,23 @@ mod tests {
 		// port() returns None for default ports, use port_or_known_default()
 		assert_eq!(url.port_or_known_default(), Some(443));
 		assert_eq!(url.path(), "/submit/");
+	}
+
+	#[test]
+	fn multiaddr_ws_without_port_keeps_path() {
+		let url = parse_telemetry_url("/dns/telemetry.example.io/ws/%2Fsubmit%2F")
+			.expect("Should parse multiaddr without explicit tcp port");
+		assert_eq!(url.scheme(), "ws");
+		assert_eq!(url.port_or_known_default(), Some(80));
+		assert_eq!(url.path(), "/submit/");
+	}
+
+	#[test]
+	fn multiaddr_with_unexpected_component_fails() {
+		// A component that is neither a known protocol nor a path segment after ws/wss
+		// must be a parse failure, not silently dropped.
+		let result = parse_telemetry_url("/dns/telemetry.example.io/tcp/443/%2Fsubmit%2F");
+		assert!(result.is_err());
 	}
 
 	#[test]

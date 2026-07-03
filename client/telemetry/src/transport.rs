@@ -68,22 +68,20 @@ impl Stream for WsTransport {
 	type Item = Result<Vec<u8>, io::Error>;
 
 	fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-		let this = self.project();
-		match this.inner.poll_next(cx) {
-			Poll::Ready(Some(Ok(msg))) => match msg {
-				Message::Binary(data) => Poll::Ready(Some(Ok(data.to_vec()))),
-				Message::Text(text) => Poll::Ready(Some(Ok(text.as_bytes().to_vec()))),
-				Message::Close(_) => Poll::Ready(None),
-				// Ping/Pong are handled automatically by tungstenite
-				Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => {
-					cx.waker().wake_by_ref();
-					Poll::Pending
+		let mut this = self.project();
+		loop {
+			return match futures::ready!(this.inner.as_mut().poll_next(cx)) {
+				Some(Ok(msg)) => match msg {
+					Message::Binary(data) => Poll::Ready(Some(Ok(data.to_vec()))),
+					Message::Text(text) => Poll::Ready(Some(Ok(text.as_bytes().to_vec()))),
+					Message::Close(_) => Poll::Ready(None),
+					// Ping/Pong are handled automatically by tungstenite (reading a Ping
+					// queues a Pong reply); skip them and poll for the next frame.
+					Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => continue,
 				},
-			},
-			Poll::Ready(Some(Err(e))) =>
-				Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, e)))),
-			Poll::Ready(None) => Poll::Ready(None),
-			Poll::Pending => Poll::Pending,
+				Some(Err(e)) => Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, e)))),
+				None => Poll::Ready(None),
+			}
 		}
 	}
 }
@@ -123,12 +121,4 @@ pub(crate) async fn connect_to_endpoint(url: &Url) -> Result<WsTransport, Transp
 		Ok(Err(e)) => Err(TransportError::WebSocket(e)),
 		Err(_) => Err(TransportError::Timeout),
 	}
-}
-
-/// Validates that transport can be initialized (for early error detection).
-/// With tokio-tungstenite, this is always successful as we don't need to pre-initialize
-/// anything like we did with libp2p's DNS transport.
-pub(crate) fn initialize_transport() -> Result<(), io::Error> {
-	// tokio-tungstenite doesn't require pre-initialization
-	Ok(())
 }

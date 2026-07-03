@@ -105,6 +105,35 @@ struct NodeSocketConnected {
 	buf: Vec<Vec<u8>>,
 }
 
+impl NodeSocketConnected {
+	/// Drain the read half of the connection, discarding any inbound messages.
+	///
+	/// The telemetry protocol is write-only from the node's perspective, but the read half
+	/// still needs to be polled: tungstenite only processes incoming control frames (queueing
+	/// a Pong reply to a server Ping) when the socket is read. This also detects
+	/// server-initiated Close frames or disconnects instead of waiting for a write to fail.
+	fn poll_drain_read(&mut self, cx: &mut Context<'_>) -> Result<(), std::io::Error> {
+		loop {
+			match self.sink.poll_next_unpin(cx) {
+				Poll::Ready(Some(Ok(data))) => {
+					log::trace!(
+						target: "telemetry",
+						"Discarding {} bytes received from the server",
+						data.len(),
+					);
+				},
+				Poll::Ready(Some(Err(err))) => return Err(err),
+				Poll::Ready(None) =>
+					return Err(std::io::Error::new(
+						std::io::ErrorKind::ConnectionAborted,
+						"connection closed by the server",
+					)),
+				Poll::Pending => return Ok(()),
+			}
+		}
+	}
+}
+
 impl Node {
 	/// Builds a new node handler.
 	pub(crate) fn new(
@@ -146,31 +175,39 @@ impl Sink<TelemetryPayload> for Node {
 		let mut socket = mem::replace(&mut self.socket, NodeSocket::Poisoned);
 		self.socket = loop {
 			match socket {
-				NodeSocket::Connected(mut conn) => match conn.sink.poll_ready_unpin(cx) {
-					Poll::Ready(Ok(())) => {
-						match self.as_mut().try_send_connection_messages(cx, &mut conn) {
-							Poll::Ready(Err(err)) => {
-								log::warn!(target: "telemetry", "⚠️  Disconnected from {}: {:?}", self.addr, err);
-								socket = NodeSocket::wait_reconnect();
-							},
-							Poll::Ready(Ok(())) => {
-								self.socket = NodeSocket::Connected(conn);
-								return Poll::Ready(Ok(()));
-							},
-							Poll::Pending => {
-								self.socket = NodeSocket::Connected(conn);
-								return Poll::Pending;
-							},
-						}
-					},
-					Poll::Ready(Err(err)) => {
+				NodeSocket::Connected(mut conn) => {
+					if let Err(err) = conn.poll_drain_read(cx) {
 						log::warn!(target: "telemetry", "⚠️  Disconnected from {}: {:?}", self.addr, err);
 						socket = NodeSocket::wait_reconnect();
-					},
-					Poll::Pending => {
-						self.socket = NodeSocket::Connected(conn);
-						return Poll::Pending;
-					},
+						continue;
+					}
+
+					match conn.sink.poll_ready_unpin(cx) {
+						Poll::Ready(Ok(())) => {
+							match self.as_mut().try_send_connection_messages(cx, &mut conn) {
+								Poll::Ready(Err(err)) => {
+									log::warn!(target: "telemetry", "⚠️  Disconnected from {}: {:?}", self.addr, err);
+									socket = NodeSocket::wait_reconnect();
+								},
+								Poll::Ready(Ok(())) => {
+									self.socket = NodeSocket::Connected(conn);
+									return Poll::Ready(Ok(()));
+								},
+								Poll::Pending => {
+									self.socket = NodeSocket::Connected(conn);
+									return Poll::Pending;
+								},
+							}
+						},
+						Poll::Ready(Err(err)) => {
+							log::warn!(target: "telemetry", "⚠️  Disconnected from {}: {:?}", self.addr, err);
+							socket = NodeSocket::wait_reconnect();
+						},
+						Poll::Pending => {
+							self.socket = NodeSocket::Connected(conn);
+							return Poll::Pending;
+						},
+					}
 				},
 				NodeSocket::Dialing(mut fut) => match fut.as_mut().poll(cx) {
 					Poll::Ready(Ok(ws_transport)) => {
