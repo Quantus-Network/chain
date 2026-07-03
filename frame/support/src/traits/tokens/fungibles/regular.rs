@@ -375,7 +375,9 @@ where
 		let actual = amount.saturating_add(dust);
 		Self::can_deposit(asset.clone(), dest, actual, Extant).into_result()?;
 		if source == dest {
-			return Ok(actual)
+			// Nothing is debited and no reap occurs on the self path, so the reported amount must
+			// not include the hypothetical dust.
+			return Ok(amount)
 		}
 
 		let debited = Self::decrease_balance(
