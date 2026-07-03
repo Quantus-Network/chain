@@ -29,7 +29,7 @@
 
 use crate::dispatch::{DispatchResult, Parameter};
 use alloc::vec::Vec;
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeAll, Encode};
 use sp_runtime::{DispatchError, TokenError};
 
 /// Trait for providing an interface to many read-only NFT-like sets of items.
@@ -98,7 +98,7 @@ pub trait Inspect<AccountId> {
 		key: &K,
 	) -> Option<V> {
 		key.using_encoded(|d| Self::attribute(collection, item, d))
-			.and_then(|v| V::decode(&mut &v[..]).ok())
+			.and_then(|v| V::decode_all(&mut &v[..]).ok())
 	}
 
 	/// Returns the strongly-typed custom attribute value of `item` of `collection` corresponding to
@@ -112,7 +112,7 @@ pub trait Inspect<AccountId> {
 		key: &K,
 	) -> Option<V> {
 		key.using_encoded(|d| Self::custom_attribute(account, collection, item, d))
-			.and_then(|v| V::decode(&mut &v[..]).ok())
+			.and_then(|v| V::decode_all(&mut &v[..]).ok())
 	}
 
 	/// Returns the strongly-typed system attribute value of `item` corresponding to `key` if
@@ -126,7 +126,7 @@ pub trait Inspect<AccountId> {
 		key: &K,
 	) -> Option<V> {
 		key.using_encoded(|d| Self::system_attribute(collection, item, d))
-			.and_then(|v| V::decode(&mut &v[..]).ok())
+			.and_then(|v| V::decode_all(&mut &v[..]).ok())
 	}
 
 	/// Returns the attribute value of `collection` corresponding to `key`.
@@ -144,7 +144,7 @@ pub trait Inspect<AccountId> {
 		key: &K,
 	) -> Option<V> {
 		key.using_encoded(|d| Self::collection_attribute(collection, d))
-			.and_then(|v| V::decode(&mut &v[..]).ok())
+			.and_then(|v| V::decode_all(&mut &v[..]).ok())
 	}
 
 	/// Returns `true` if the `item` of `collection` may be transferred.
@@ -440,4 +440,43 @@ pub trait Trading<AccountId, ItemPrice>: Inspect<AccountId> {
 
 	/// Returns the item price of `item` or `None` if the item is not for sale.
 	fn item_price(collection: &Self::CollectionId, item: &Self::ItemId) -> Option<ItemPrice>;
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use core::cell::RefCell;
+
+	thread_local! {
+		static ATTRIBUTE: RefCell<Option<Vec<u8>>> = RefCell::new(None);
+	}
+
+	/// Mock exposing only the raw `attribute` primitive, so the default `typed_attribute` body
+	/// is what gets exercised.
+	struct TestCollection;
+
+	impl Inspect<u64> for TestCollection {
+		type ItemId = u32;
+		type CollectionId = u32;
+		fn owner(_: &u32, _: &u32) -> Option<u64> {
+			None
+		}
+		fn attribute(_: &u32, _: &u32, _: &[u8]) -> Option<Vec<u8>> {
+			ATTRIBUTE.with(|a| a.borrow().clone())
+		}
+	}
+
+	#[test]
+	fn typed_attribute_rejects_trailing_bytes() {
+		// A canonically encoded value decodes as expected.
+		ATTRIBUTE.with(|a| *a.borrow_mut() = Some(42u32.encode()));
+		assert_eq!(TestCollection::typed_attribute::<_, u32>(&0, &0, &b"key"), Some(42));
+
+		// Raw attribute writes are not bound to any type: a value with a valid prefix but
+		// trailing bytes must not be accepted as the typed value.
+		let mut noncanonical = 42u32.encode();
+		noncanonical.extend_from_slice(b"junk");
+		ATTRIBUTE.with(|a| *a.borrow_mut() = Some(noncanonical));
+		assert_eq!(TestCollection::typed_attribute::<_, u32>(&0, &0, &b"key"), None);
+	}
 }

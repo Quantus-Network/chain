@@ -79,13 +79,23 @@ pub trait Imbalance<Balance>: Sized + TryDrop + Default + TryMerge {
 	/// Consume `self` and return two independent instances; the amounts returned will be in
 	/// approximately the same ratio as `first`:`second`.
 	///
-	/// NOTE: This requires up to `first + second` room for a multiply, and `first + second` should
-	/// fit into a `u32`. Overflow will safely saturate in both cases.
+	/// NOTE: This requires up to `first + second` room for a multiply. If `first + second`
+	/// overflows a `u32`, both are halved, which preserves the ratio up to rounding. The multiply
+	/// will safely saturate on overflow.
 	fn ration(self, first: u32, second: u32) -> (Self, Self)
 	where
 		Balance: From<u32> + Saturating + Div<Output = Balance>,
 	{
-		let total: u32 = first.saturating_add(second);
+		// If `first + second` would overflow, halve both: this keeps the ratio (up to rounding)
+		// while keeping the denominator exact. Saturating the denominator to `u32::MAX` instead
+		// would distort the split, e.g. `MAX:MAX` would send (almost) the whole imbalance to the
+		// first leg rather than half of it.
+		let (first, second) = if first.checked_add(second).is_none() {
+			(first >> 1, second >> 1)
+		} else {
+			(first, second)
+		};
+		let total = first + second;
 		if total == 0 {
 			return (Self::zero(), Self::zero())
 		}
@@ -248,5 +258,116 @@ impl<Balance: Default> Imbalance<Balance> for () {
 impl TryMerge for () {
 	fn try_merge(self, _: Self) -> Result<Self, (Self, Self)> {
 		Ok(())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use core::cell::RefCell;
+
+	/// Minimal imbalance over `u64` so the trait's default method bodies are what gets
+	/// exercised.
+	#[derive(Default, Debug, PartialEq, Eq)]
+	struct TestImbalance(u64);
+
+	impl TryDrop for TestImbalance {
+		fn try_drop(self) -> Result<(), Self> {
+			if self.0 == 0 {
+				Ok(())
+			} else {
+				Err(self)
+			}
+		}
+	}
+
+	impl TryMerge for TestImbalance {
+		fn try_merge(self, other: Self) -> Result<Self, (Self, Self)> {
+			Ok(Self(self.0 + other.0))
+		}
+	}
+
+	impl Imbalance<u64> for TestImbalance {
+		type Opposite = TestImbalance;
+		fn zero() -> Self {
+			Self(0)
+		}
+		fn drop_zero(self) -> Result<(), Self> {
+			self.try_drop()
+		}
+		fn split(self, amount: u64) -> (Self, Self) {
+			let first = self.0.min(amount);
+			(Self(first), Self(self.0 - first))
+		}
+		fn extract(&mut self, amount: u64) -> Self {
+			let extracted = self.0.min(amount);
+			self.0 -= extracted;
+			Self(extracted)
+		}
+		fn merge(self, other: Self) -> Self {
+			Self(self.0 + other.0)
+		}
+		fn subsume(&mut self, other: Self) {
+			self.0 += other.0
+		}
+		fn offset(self, other: Self::Opposite) -> SameOrOther<Self, Self::Opposite> {
+			if self.0 >= other.0 {
+				SameOrOther::Same(Self(self.0 - other.0))
+			} else {
+				SameOrOther::Other(Self(other.0 - self.0))
+			}
+		}
+		fn peek(&self) -> u64 {
+			self.0
+		}
+	}
+
+	#[test]
+	fn ration_splits_proportionally() {
+		let (a, b) = TestImbalance(600).ration(1, 2);
+		assert_eq!((a.peek(), b.peek()), (200, 400));
+
+		let (a, b) = TestImbalance(600).ration(0, 0);
+		assert_eq!((a.peek(), b.peek()), (0, 0));
+	}
+
+	#[test]
+	fn ration_keeps_ratio_when_sum_overflows() {
+		// `MAX:MAX` must behave as `1:1`. A denominator saturated to `u32::MAX` would instead
+		// compute `peek * MAX / MAX` and send the whole imbalance to the first leg.
+		let (a, b) = TestImbalance(1000).ration(u32::MAX, u32::MAX);
+		assert_eq!((a.peek(), b.peek()), (500, 500));
+
+		// Heavily skewed overflowing ratios keep their skew.
+		let (a, b) = TestImbalance(1000).ration(1, u32::MAX);
+		assert_eq!((a.peek(), b.peek()), (0, 1000));
+		let (a, b) = TestImbalance(1000).ration(u32::MAX, 1);
+		assert_eq!((a.peek(), b.peek()), (1000, 0));
+	}
+
+	thread_local! {
+		static SPLIT_SINK: RefCell<(u64, u64)> = RefCell::new((0, 0));
+	}
+
+	struct Sink1;
+	impl OnUnbalanced<TestImbalance> for Sink1 {
+		fn on_nonzero_unbalanced(amount: TestImbalance) {
+			SPLIT_SINK.with(|s| s.borrow_mut().0 += amount.peek());
+		}
+	}
+	struct Sink2;
+	impl OnUnbalanced<TestImbalance> for Sink2 {
+		fn on_nonzero_unbalanced(amount: TestImbalance) {
+			SPLIT_SINK.with(|s| s.borrow_mut().1 += amount.peek());
+		}
+	}
+
+	#[test]
+	fn split_two_ways_splits_by_configured_parts() {
+		SPLIT_SINK.with(|s| *s.borrow_mut() = (0, 0));
+		<SplitTwoWays<u64, TestImbalance, Sink1, Sink2, 3, 1> as OnUnbalanced<_>>::on_unbalanced(
+			TestImbalance(100),
+		);
+		assert_eq!(SPLIT_SINK.with(|s| *s.borrow()), (75, 25));
 	}
 }

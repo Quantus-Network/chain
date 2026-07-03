@@ -38,7 +38,7 @@ use crate::{
 		SameOrOther, TryDrop,
 	},
 };
-use sp_arithmetic::traits::{CheckedAdd, CheckedSub, One};
+use sp_arithmetic::traits::{Bounded, CheckedAdd, CheckedSub, One};
 use sp_runtime::{traits::Saturating, ArithmeticError, DispatchError, TokenError};
 
 use super::{Credit, Debt, HandleImbalanceDrop, Imbalance};
@@ -370,19 +370,30 @@ where
 		amount: Self::Balance,
 		preservation: Preservation,
 	) -> Result<Self::Balance, DispatchError> {
-		let _extra = Self::can_withdraw(asset.clone(), source, amount)
+		let dust = Self::can_withdraw(asset.clone(), source, amount)
 			.into_result(preservation != Expendable)?;
-		Self::can_deposit(asset.clone(), dest, amount, Extant).into_result()?;
+		let actual = amount.saturating_add(dust);
+		Self::can_deposit(asset.clone(), dest, actual, Extant).into_result()?;
 		if source == dest {
+			// Nothing is debited and no reap occurs on the self path, so the reported amount must
+			// not include the hypothetical dust.
 			return Ok(amount)
 		}
 
-		Self::decrease_balance(asset.clone(), source, amount, BestEffort, preservation, Polite)?;
-		// This should never fail as we checked `can_deposit` earlier. But we do a best-effort
-		// anyway.
-		let _ = Self::increase_balance(asset.clone(), dest, amount, BestEffort);
-		Self::done_transfer(asset, source, dest, amount);
-		Ok(amount)
+		let debited = Self::decrease_balance(
+			asset.clone(),
+			source,
+			amount,
+			BestEffort,
+			preservation,
+			Polite,
+		)?;
+		// Credit the amount actually removed from the source. When an expendable transfer reaps
+		// the source, `debited` can exceed `amount`; ignoring it desynchronizes issuance from
+		// account balances.
+		let _ = Self::increase_balance(asset.clone(), dest, debited, BestEffort);
+		Self::done_transfer(asset, source, dest, debited);
+		Ok(debited)
 	}
 
 	/// Simple infallible function to force an account to have a particular balance, good for use
@@ -518,6 +529,32 @@ pub trait Balanced<AccountId>: Inspect<AccountId> + Unbalanced<AccountId> {
 		value: Self::Balance,
 		precision: Precision,
 	) -> Result<Debt<AccountId, Self>, DispatchError> {
+		// Ensure the credited amount can be represented by total issuance *before* mutating the
+		// account. The returned `Debt` grows total issuance (via its `OnDropDebt` handler) by the
+		// credited amount using *saturating* arithmetic, so without this check a deposit made when
+		// issuance is near the maximum could credit the account by more than issuance can grow,
+		// breaking the `sum(balances) == total_issuance` invariant. Mirrors `Mutate::mint_into`
+		// and the single-asset `fungible::Balanced::deposit`.
+		//
+		// NOTE: this is a best-effort guard, not a hard invariant. Issuance only grows when the
+		// returned `Debt` is dropped, so concurrent deposits whose debts are still alive can each
+		// pass this check individually yet jointly exceed the remaining headroom and saturate on
+		// drop. Fully preventing that would require reserving headroom at deposit time.
+		let value = match precision {
+			// Must credit exactly `value`, so issuance must be able to grow by exactly `value`.
+			Exact => {
+				Self::total_issuance(asset.clone())
+					.checked_add(&value)
+					.ok_or(ArithmeticError::Overflow)?;
+				value
+			},
+			// Best-effort: cap the deposit to the remaining issuance headroom.
+			BestEffort => {
+				let headroom =
+					Self::Balance::max_value().saturating_sub(Self::total_issuance(asset.clone()));
+				value.min(headroom)
+			},
+		};
 		let increase = Self::increase_balance(asset.clone(), who, value, precision)?;
 		Self::done_deposit(asset.clone(), who, increase);
 		Ok(Imbalance::<Self::AssetId, Self::Balance, Self::OnDropDebt, Self::OnDropCredit>::new(

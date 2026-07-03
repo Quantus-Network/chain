@@ -23,8 +23,11 @@ use frame_support::{
 	assert_noop, assert_ok,
 	dispatch::GetDispatchInfo,
 	traits::{
-		fungibles::InspectEnumerable,
-		tokens::{Preservation::Protect, Provenance},
+		fungibles::{InspectEnumerable, Mutate},
+		tokens::{
+			Preservation::{Expendable, Protect},
+			Provenance,
+		},
 		Currency,
 	},
 	BoundedVec,
@@ -75,6 +78,40 @@ fn transfer_should_never_burn() {
 		}));
 		assert_eq!(Assets::balance(0, 1), 50);
 		assert_eq!(Assets::balance(0, 1) + Assets::balance(0, 2), 100);
+	});
+}
+
+#[test]
+fn fungible_transfer_credits_reaped_dust() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Assets::force_create(RuntimeOrigin::root(), 0, 1, true, 10));
+		assert_ok!(Assets::mint(RuntimeOrigin::signed(1), 0, 1, 100));
+		assert_eq!(Assets::total_supply(0), 100);
+
+		// An expendable transfer that reaps the source debits the full balance, not just the
+		// requested amount. The generic `fungibles::Mutate::transfer` path must credit that
+		// actual debit or total issuance no longer matches the sum of account balances.
+		assert_ok!(<Assets as Mutate<_>>::transfer(0, &1, &2, 91, Expendable));
+		assert!(Assets::maybe_balance(0, 1).is_none());
+		assert_eq!(Assets::balance(0, 2), 100);
+		assert_eq!(Assets::total_supply(0), 100);
+	});
+}
+
+#[test]
+fn transfer_approved_burns_reaping_dust() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Assets::force_create(RuntimeOrigin::root(), 0, 1, true, 10));
+		assert_ok!(Assets::mint(RuntimeOrigin::signed(1), 0, 1, 100));
+		Balances::make_free_balance_be(&1, 2);
+		assert_ok!(Assets::approve_transfer(RuntimeOrigin::signed(1), 0, 2, 91));
+
+		// Reaping dust must be burned, not credited to the delegate's destination beyond the
+		// approved amount.
+		assert_ok!(Assets::transfer_approved(RuntimeOrigin::signed(2), 0, 1, 3, 91));
+		assert!(Assets::maybe_balance(0, 1).is_none());
+		assert_eq!(Assets::balance(0, 3), 91);
+		assert_eq!(Assets::total_supply(0), 91);
 	});
 }
 
@@ -1702,6 +1739,43 @@ fn imbalances_should_work() {
 		assert!(Assets::resolve(&1, imb1).is_ok());
 		assert_eq!(Assets::balance(0, 1), 30);
 		assert_eq!(Assets::total_supply(0), 30);
+	});
+}
+
+#[test]
+fn deposit_checks_total_issuance_headroom() {
+	use frame_support::traits::{
+		fungibles::{Balanced, Unbalanced},
+		tokens::Precision::{BestEffort, Exact},
+	};
+	use sp_runtime::ArithmeticError;
+
+	new_test_ext().execute_with(|| {
+		assert_ok!(Assets::force_create(RuntimeOrigin::root(), 0, 1, true, 1));
+		assert_ok!(Assets::mint(RuntimeOrigin::signed(1), 0, 1, 100));
+
+		// Leave only a small amount of headroom below the balance-type maximum.
+		let headroom = 10u64;
+		Assets::set_total_issuance(0, u64::MAX - headroom);
+
+		// An `Exact` deposit that issuance cannot fully represent must fail and change nothing,
+		// rather than crediting the account and later saturating issuance on debt drop.
+		match <Assets as Balanced<_>>::deposit(0, &1, headroom + 1, Exact) {
+			Err(e) => assert_eq!(e, ArithmeticError::Overflow.into()),
+			Ok(_) => panic!("exact deposit exceeding issuance headroom must fail"),
+		}
+		assert_eq!(Assets::balance(0, 1), 100, "failed deposit must not credit");
+		assert_eq!(Assets::total_supply(0), u64::MAX - headroom);
+
+		// A `BestEffort` deposit is capped to the remaining issuance headroom, so the credited
+		// amount always matches the growth in issuance.
+		let debt = <Assets as Balanced<_>>::deposit(0, &1, headroom + 100, BestEffort)
+			.expect("best-effort deposit should succeed");
+		assert_eq!(Assets::balance(0, 1), 100 + headroom, "credit is capped to headroom");
+
+		// Dropping the debt grows issuance by exactly the credited amount (no saturation loss).
+		drop(debt);
+		assert_eq!(Assets::total_supply(0), u64::MAX);
 	});
 }
 

@@ -424,6 +424,36 @@ fn positive_imbalance_drop_handled_correctly() {
 }
 
 #[test]
+fn deposit_checks_total_issuance_headroom() {
+	ExtBuilder::default().build_and_execute_with(|| {
+		let account = 1;
+		// Leave only a small amount of headroom below the balance-type maximum.
+		let headroom = 10u64;
+		Balances::set_total_issuance(u64::MAX - headroom);
+
+		// An `Exact` deposit that issuance cannot fully represent must fail and change nothing,
+		// rather than crediting the account and later saturating issuance on debt drop.
+		match <Balances as fungible::Balanced<_>>::deposit(&account, headroom + 1, Exact) {
+			Err(e) => assert_eq!(e, ArithmeticError::Overflow.into()),
+			Ok(_) => panic!("exact deposit exceeding issuance headroom must fail"),
+		}
+		assert_eq!(Balances::free_balance(&account), 0, "failed deposit must not credit");
+		assert_eq!(Balances::total_issuance(), u64::MAX - headroom);
+
+		// A `BestEffort` deposit is capped to the remaining issuance headroom, so the credited
+		// amount always matches the growth in issuance.
+		let debt =
+			<Balances as fungible::Balanced<_>>::deposit(&account, headroom + 100, BestEffort)
+				.expect("best-effort deposit should succeed");
+		assert_eq!(Balances::free_balance(&account), headroom, "credit is capped to headroom");
+
+		// Dropping the debt grows issuance by exactly the credited amount (no saturation loss).
+		drop(debt);
+		assert_eq!(Balances::total_issuance(), u64::MAX);
+	});
+}
+
+#[test]
 fn frozen_hold_balance_best_effort_transfer_works() {
 	ExtBuilder::default()
 		.existential_deposit(1)

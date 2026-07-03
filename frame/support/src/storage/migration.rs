@@ -309,6 +309,9 @@ pub fn take_storage_item<K: Encode + Sized, T: Decode + Sized, H: StorageHasher>
 /// `concat(twox_128(old_pallet_name), twox_128(storage_name))` and insert them at the key with
 /// the start replaced by `concat(twox_128(new_pallet_name), twox_128(storage_name))`.
 ///
+/// WARNING: This is an unbounded operation (see [`move_prefix`]). If the moved storage item can be
+/// grown by users, use [`move_prefix_bounded`] from within a multi-block migration instead.
+///
 /// # Example
 ///
 /// If a pallet named "my_example" has 2 storages named "Foo" and "Bar" and the pallet is renamed
@@ -360,35 +363,95 @@ pub fn move_pallet(old_pallet_name: &[u8], new_pallet_name: &[u8]) {
 	move_prefix(&Twox128::hash(old_pallet_name), &Twox128::hash(new_pallet_name))
 }
 
+/// Result of a bounded [`move_prefix_bounded`] call.
+pub struct MovePrefixResult {
+	/// The number of keys moved during this call.
+	pub moved: u32,
+	/// If `Some`, the move is incomplete and another call is required, passing this value back as
+	/// the next call's `maybe_cursor`. If `None`, all matching keys have been moved.
+	pub maybe_cursor: Option<Vec<u8>>,
+}
+
 /// Move all `(key, value)` after some prefix to the another prefix
 ///
 /// This function will remove all value for which the key start with `from_prefix`
 /// and insert them at the key with the start replaced by `to_prefix`.
 ///
 /// NOTE: The value at the key `from_prefix` is not moved.
+///
+/// WARNING: This is an unbounded operation: it reads, deletes, and writes every key below
+/// `from_prefix` in a single call. If the prefix can be grown by users, calling this in a
+/// (mandatory) runtime-upgrade hook lets an attacker inflate the prefix beforehand and force the
+/// first post-upgrade block to perform unbounded work. For such prefixes, use
+/// [`move_prefix_bounded`] to move keys in bounded chunks from within a multi-block migration.
 pub fn move_prefix(from_prefix: &[u8], to_prefix: &[u8]) {
+	// Drive the bounded mover to completion in one shot. `u32::MAX` keys is effectively no bound,
+	// preserving the historical all-at-once behaviour for callers that know the prefix is small.
+	move_prefix_bounded(from_prefix, to_prefix, u32::MAX, None);
+}
+
+/// Move at most `limit` `(key, value)` pairs from `from_prefix` to `to_prefix`, resuming from
+/// `maybe_cursor`.
+///
+/// This is the bounded counterpart to [`move_prefix`]: it moves up to `limit` keys per call and
+/// returns a [`MovePrefixResult`] carrying how many keys were moved and, when the move is not yet
+/// complete, a cursor to pass to the next call. This lets a multi-block migration spread the work
+/// (and charge weight proportional to `moved`) instead of doing an unbounded move in a single
+/// mandatory upgrade hook.
+///
+/// ## Cursors
+///
+/// Pass `None` as `maybe_cursor` for the first call. If the returned `maybe_cursor` is `Some`,
+/// another call is required to continue; pass that value back in. A returned `maybe_cursor` of
+/// `None` means the move is complete.
+///
+/// NOTE: The value at the key `from_prefix` is not moved.
+pub fn move_prefix_bounded(
+	from_prefix: &[u8],
+	to_prefix: &[u8],
+	limit: u32,
+	maybe_cursor: Option<&[u8]>,
+) -> MovePrefixResult {
 	if from_prefix == to_prefix {
-		return
+		return MovePrefixResult { moved: 0, maybe_cursor: None }
 	}
 
-	let iter = PrefixIterator::<_> {
-		prefix: from_prefix.to_vec(),
-		previous_key: from_prefix.to_vec(),
-		drain: true,
-		closure: |key, value| Ok((key.to_vec(), value.to_vec())),
-		phantom: Default::default(),
-	};
+	let previous_key = maybe_cursor.map(|c| c.to_vec()).unwrap_or_else(|| from_prefix.to_vec());
+	let mut iter = PrefixIterator::<(Vec<u8>, Vec<u8>)>::new(
+		from_prefix.to_vec(),
+		previous_key,
+		|key, value| Ok((key.to_vec(), value.to_vec())),
+	)
+	.drain();
 
-	for (key, value) in iter {
-		let full_key = [to_prefix, &key].concat();
-		unhashed::put_raw(&full_key, &value);
+	let mut moved = 0u32;
+	while moved < limit {
+		match iter.next() {
+			Some((key, value)) => {
+				let full_key = [to_prefix, &key].concat();
+				unhashed::put_raw(&full_key, &value);
+				moved += 1;
+			},
+			// Ran out of matching keys before hitting the limit: the move is complete.
+			None => return MovePrefixResult { moved, maybe_cursor: None },
+		}
 	}
+
+	// Hit the limit. Peek past the last moved key to see whether any matching keys remain, and if
+	// so hand back a cursor so the caller can resume. The last moved key was drained, but
+	// `next_key` still returns the lexicographically next key regardless.
+	let last = iter.last_raw_key().to_vec();
+	let more_remain = sp_io::storage::next_key(&last)
+		.map(|n| n.starts_with(from_prefix))
+		.unwrap_or(false);
+	MovePrefixResult { moved, maybe_cursor: more_remain.then_some(last) }
 }
 
 #[cfg(test)]
 mod tests {
 	use super::{
-		move_pallet, move_prefix, move_storage_from_pallet, storage_iter, storage_key_iter,
+		move_pallet, move_prefix, move_prefix_bounded, move_storage_from_pallet, storage_iter,
+		storage_key_iter,
 	};
 	use crate::{
 		hash::StorageHasher,
@@ -445,6 +508,48 @@ mod tests {
 			assert_eq!(OldStorageMap::iter().collect::<Vec<_>>(), vec![]);
 			assert_eq!(NewStorageValue::get(), Some(3));
 			assert_eq!(NewStorageMap::iter().collect::<Vec<_>>(), vec![(1, 2), (3, 4)]);
+		})
+	}
+
+	#[test]
+	fn test_move_prefix_bounded_moves_in_chunks() {
+		TestExternalities::new_empty().execute_with(|| {
+			// Fill the old map with more entries than a single chunk can hold.
+			for i in 0..10u32 {
+				OldStorageMap::insert(i, i * 10);
+			}
+
+			let from = Twox128::hash(b"my_old_pallet");
+			let to = Twox128::hash(b"my_new_pallet");
+
+			// Move in bounded chunks of 4, following the returned cursor to completion.
+			let mut cursor: Option<Vec<u8>> = None;
+			let mut total_moved = 0u32;
+			let mut calls = 0u32;
+			loop {
+				let res = move_prefix_bounded(&from, &to, 4, cursor.as_deref());
+				assert!(res.moved <= 4, "a chunk must never exceed the limit");
+				total_moved += res.moved;
+				calls += 1;
+				assert!(calls < 100, "cursor must make progress and terminate");
+				match res.maybe_cursor {
+					Some(c) => cursor = Some(c),
+					None => break,
+				}
+			}
+
+			// Chunking actually happened (10 keys / 4 per chunk => multiple calls).
+			assert!(calls > 1, "the move should have been split across multiple bounded calls");
+			assert_eq!(total_moved, 10, "every key is moved exactly once across chunks");
+
+			// Old prefix fully drained.
+			assert_eq!(OldStorageMap::iter().count(), 0);
+
+			// New prefix has all entries (Twox64Concat is not key-ordered, so sort before compare).
+			let mut got = NewStorageMap::iter().collect::<Vec<_>>();
+			got.sort();
+			let expected = (0..10u32).map(|i| (i, i * 10)).collect::<Vec<_>>();
+			assert_eq!(got, expected);
 		})
 	}
 

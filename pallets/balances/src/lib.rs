@@ -197,6 +197,17 @@ const LOG_TARGET: &str = "runtime::balances";
 // Default derivation(hard) for development accounts.
 const DEFAULT_ADDRESS_URI: &str = "//Sender//{}";
 
+/// Upper bound on the number of development accounts that may be derived from a single genesis
+/// config.
+///
+/// The `dev_accounts` genesis field is attacker-controllable when the genesis config is built
+/// through the externally reachable `GenesisBuilder::build_state` runtime API. Each derived
+/// account performs an expensive sr25519 key derivation and a storage write, so an unbounded
+/// count would let a tiny request force effectively unbounded runtime work. This cap keeps the
+/// worst-case derivation work small while still covering any legitimate development setup (the
+/// largest in-repo use is exactly this many accounts).
+pub const MAX_DEV_ACCOUNTS: u32 = 1_000;
+
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 
 #[frame_support::pallet]
@@ -1339,6 +1350,12 @@ pub mod pallet {
 		) -> Result<(), &'static str> {
 			// Ensure that the number of accounts is not zero.
 			assert!(num_accounts > 0, "num_accounts must be greater than zero");
+
+			// Bound the attacker-controllable work: reject before deriving anything so an
+			// oversized `dev_accounts` count cannot force unbounded key derivations.
+			if num_accounts > MAX_DEV_ACCOUNTS {
+				return Err("num_accounts exceeds the maximum allowed dev accounts");
+			}
 
 			assert!(
 				balance >= <T as Config<I>>::ExistentialDeposit::get(),
