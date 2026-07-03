@@ -15,6 +15,7 @@ members = [
 	"client/network-sync",
 	"client/network-types",
 	"client/service",
+	"client/telemetry",
 	"client/transaction-pool",
 	"frame/benchmarking",
 	"frame/executive",
@@ -153,7 +154,7 @@ proptest = { version = "1" }
 prost = { version = "0.13.5" }
 prost-build = { version = "0.14" }
 quickcheck = { version = "1.0.3" }
-quinn = { version = "0.11.9", default-features = false, features = ["bloom", "log", "runtime-tokio", "rustls-ring"] }
+quinn = { version = "0.11.11", default-features = false, features = ["bloom", "log", "runtime-tokio", "rustls-ring"] }
 rand = { version = "0.8.5", default-features = false }
 rcgen = { version = "0.13" }
 regex = { version = "1.10.2" }
@@ -352,6 +353,7 @@ sc-network = { path = "client/network" }
 sc-network-sync = { path = "client/network-sync" }
 sc-network-types = { path = "client/network-types" }
 sc-service = { path = "client/service" }
+sc-telemetry = { path = "client/telemetry" }
 sc-transaction-pool = { path = "client/transaction-pool" }
 
 [profile.release]

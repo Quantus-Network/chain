@@ -1,0 +1,28 @@
+[package]
+authors.workspace = true
+description = "Telemetry utils"
+edition.workspace = true
+homepage = "https://paritytech.github.io/polkadot-sdk/"
+license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+name = "sc-telemetry"
+readme = "README.md"
+repository = "https://github.com/paritytech/polkadot-sdk.git"
+version = "30.0.0"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+chrono = { workspace = true }
+futures = { workspace = true }
+log = { workspace = true }
+parking_lot = { workspace = true }
+pin-project = { workspace = true }
+rand = { workspace = true, features = ["std", "std_rng"] }
+sc-utils = { workspace = true }
+serde = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, features = ["std"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+tokio-tungstenite = { workspace = true }
+url = { workspace = true }
