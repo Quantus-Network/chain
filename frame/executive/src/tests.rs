@@ -709,7 +709,7 @@ fn block_import_of_bad_state_root_fails() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "ZK tree root must match that calculated.")]
 fn block_import_of_bad_zk_tree_root_fails() {
 	new_test_ext(1).execute_with(|| {
 		let mut header = Header::new(
