@@ -181,6 +181,12 @@ pub fn kill_storage(child_info: &ChildInfo, limit: Option<u32>) -> KillStorageRe
 ///
 /// Please note that keys which are residing in the overlay for the child are deleted without
 /// counting towards the `limit`.
+///
+/// When a `limit` is given, the pre/post key walks used to attribute overlay-only removals are
+/// themselves bounded (to `limit` plus a fixed allowance), so a child trie holding many more
+/// keys than the limit cannot force unbounded counting work. If the trie holds more keys than
+/// the bound, overlay-only removals may be under-reported (never over-reported) in
+/// `unique`/`loops`; the `backend` count is always exact.
 pub fn clear_storage(
 	child_info: &ChildInfo,
 	maybe_limit: Option<u32>,
@@ -191,19 +197,37 @@ pub fn clear_storage(
 	// not count them. Count the visible keys before and after so those overlay-only removals
 	// are still reflected in `unique`/`loops`, which callers may use for weight or cleanup
 	// accounting.
-	fn key_count(child_info: &ChildInfo) -> u32 {
+	//
+	// Both walks stop after `up_to` keys: without a bound, a limited clear of a large
+	// (potentially user-growable) child trie would perform O(total keys) `next_key` host calls
+	// just for accounting — the very unbounded-work pattern the `limit` exists to prevent.
+	fn key_count(child_info: &ChildInfo, up_to: u32) -> u32 {
 		let mut count: u32 = if exists(child_info, &[]) { 1 } else { 0 };
 		let mut previous_key = Vec::new();
-		while let Some(next_key) =
-			sp_io::default_child_storage::next_key(child_info.storage_key(), &previous_key)
-		{
-			count = count.saturating_add(1);
-			previous_key = next_key;
+		while count < up_to {
+			match sp_io::default_child_storage::next_key(child_info.storage_key(), &previous_key)
+			{
+				Some(next_key) => {
+					count = count.saturating_add(1);
+					previous_key = next_key;
+				},
+				None => break,
+			}
 		}
 		count
 	}
 
-	let keys_before = key_count(child_info);
+	// Extra headroom on top of `limit` for the counting walks. Overlay-resident keys (written
+	// earlier in the current block) do not count towards `limit`, so allow enumerating this many
+	// keys beyond it before giving up on exact overlay attribution. When both walks saturate at
+	// the cap the computed overlay removals collapse to zero rather than going negative.
+	const OVERLAY_ATTRIBUTION_CAP: u32 = 1024;
+	// With no limit the host call itself is already O(total keys), so exact counting does not
+	// change the asymptotic cost.
+	let count_cap =
+		maybe_limit.map_or(u32::MAX, |limit| limit.saturating_add(OVERLAY_ATTRIBUTION_CAP));
+
+	let keys_before = key_count(child_info, count_cap);
 
 	// TODO: Once the network has upgraded to include the new host functions, this code can be
 	// enabled.
@@ -220,7 +244,7 @@ pub fn clear_storage(
 
 	// Overlay-only removals = total keys deleted (before - after) minus those the host call
 	// already accounted for in `backend`.
-	let keys_after = key_count(child_info);
+	let keys_after = key_count(child_info, count_cap);
 	let overlay = keys_before.saturating_sub(keys_after).saturating_sub(backend);
 	let total = backend.saturating_add(overlay);
 
@@ -322,6 +346,35 @@ mod tests {
 			assert_eq!(res.loops, 5);
 			for i in 0u8..5 {
 				assert!(!exists(&child_info, &[i]));
+			}
+		});
+	}
+
+	#[test]
+	fn clear_storage_counting_is_bounded_for_large_tries() {
+		let child_info = ChildInfo::new_default(b"big-child");
+		let mut ext = TestExternalities::new_empty();
+		// Commit more backend keys than the counting cap (limit + 1024) can enumerate.
+		ext.execute_with(|| {
+			for i in 0u32..1_500 {
+				put_raw(&child_info, &i.to_le_bytes(), &[1]);
+			}
+		});
+		ext.commit_all().unwrap();
+
+		ext.execute_with(|| {
+			// Stage a few overlay-only keys on top.
+			for i in 0u8..5 {
+				put_raw(&child_info, &[0xff, i], &[i]);
+			}
+
+			// The counting walks saturate at the cap, so overlay attribution degrades to zero
+			// (documented under-reporting) instead of going negative or walking the whole trie.
+			let res = clear_storage(&child_info, Some(10), None);
+			assert_eq!(res.backend, 10, "backend removals are reported exactly");
+			assert_eq!(res.unique, 10, "saturated counting must not inflate `unique`");
+			for i in 0u8..5 {
+				assert!(!exists(&child_info, &[0xff, i]), "overlay keys are still deleted");
 			}
 		});
 	}
