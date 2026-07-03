@@ -1743,6 +1743,43 @@ fn imbalances_should_work() {
 }
 
 #[test]
+fn deposit_checks_total_issuance_headroom() {
+	use frame_support::traits::{
+		fungibles::{Balanced, Unbalanced},
+		tokens::Precision::{BestEffort, Exact},
+	};
+	use sp_runtime::ArithmeticError;
+
+	new_test_ext().execute_with(|| {
+		assert_ok!(Assets::force_create(RuntimeOrigin::root(), 0, 1, true, 1));
+		assert_ok!(Assets::mint(RuntimeOrigin::signed(1), 0, 1, 100));
+
+		// Leave only a small amount of headroom below the balance-type maximum.
+		let headroom = 10u64;
+		Assets::set_total_issuance(0, u64::MAX - headroom);
+
+		// An `Exact` deposit that issuance cannot fully represent must fail and change nothing,
+		// rather than crediting the account and later saturating issuance on debt drop.
+		match <Assets as Balanced<_>>::deposit(0, &1, headroom + 1, Exact) {
+			Err(e) => assert_eq!(e, ArithmeticError::Overflow.into()),
+			Ok(_) => panic!("exact deposit exceeding issuance headroom must fail"),
+		}
+		assert_eq!(Assets::balance(0, 1), 100, "failed deposit must not credit");
+		assert_eq!(Assets::total_supply(0), u64::MAX - headroom);
+
+		// A `BestEffort` deposit is capped to the remaining issuance headroom, so the credited
+		// amount always matches the growth in issuance.
+		let debt = <Assets as Balanced<_>>::deposit(0, &1, headroom + 100, BestEffort)
+			.expect("best-effort deposit should succeed");
+		assert_eq!(Assets::balance(0, 1), 100 + headroom, "credit is capped to headroom");
+
+		// Dropping the debt grows issuance by exactly the credited amount (no saturation loss).
+		drop(debt);
+		assert_eq!(Assets::total_supply(0), u64::MAX);
+	});
+}
+
+#[test]
 fn force_metadata_should_work() {
 	new_test_ext().execute_with(|| {
 		// force set metadata works

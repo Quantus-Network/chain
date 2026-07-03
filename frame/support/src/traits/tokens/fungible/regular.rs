@@ -328,7 +328,9 @@ where
 		let actual = amount.saturating_add(dust);
 		Self::can_deposit(dest, actual, Extant).into_result()?;
 		if source == dest {
-			return Ok(actual)
+			// Nothing is debited and no reap occurs on the self path, so the reported amount must
+			// not include the hypothetical dust.
+			return Ok(amount)
 		}
 
 		let debited = Self::decrease_balance(source, amount, BestEffort, preservation, Polite)?;
@@ -467,6 +469,11 @@ pub trait Balanced<AccountId>: Inspect<AccountId> + Unbalanced<AccountId> {
 		// credited amount using *saturating* arithmetic, so without this check a deposit made when
 		// issuance is near the maximum could credit the account by more than issuance can grow,
 		// breaking the `sum(balances) == total_issuance` invariant. Mirrors `Mutate::mint_into`.
+		//
+		// NOTE: this is a best-effort guard, not a hard invariant. Issuance only grows when the
+		// returned `Debt` is dropped, so concurrent deposits whose debts are still alive can each
+		// pass this check individually yet jointly exceed the remaining headroom and saturate on
+		// drop. Fully preventing that would require reserving headroom at deposit time.
 		let value = match precision {
 			// Must credit exactly `value`, so issuance must be able to grow by exactly `value`.
 			Exact => {

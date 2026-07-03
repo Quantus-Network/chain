@@ -709,6 +709,28 @@ fn block_import_of_bad_state_root_fails() {
 }
 
 #[test]
+#[should_panic(expected = "ZK tree root must match that calculated.")]
+fn block_import_of_bad_zk_tree_root_fails() {
+	new_test_ext(1).execute_with(|| {
+		let mut header = Header::new(
+			1,
+			array_bytes::hex_n_into_unchecked(
+				"03170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314",
+			),
+			array_bytes::hex_n_into_unchecked(
+				"d6b465f5a50c9f8d5a6edc0f01d285a6b19030f097d3aaf1649b7be81649f118",
+			),
+			[69u8; 32].into(),
+			Digest { logs: vec![] },
+		);
+		// Forge a ZK tree root that does not match on-chain state (which is the default zero
+		// root). Before the `final_checks` fix this block would import successfully.
+		header.set_zk_tree_root([42u8; 32].into());
+		Executive::execute_block(TestBlock { header, extrinsics: vec![] }.into());
+	});
+}
+
+#[test]
 #[should_panic]
 fn block_import_of_bad_zk_tree_root_fails() {
 	new_test_ext(1).execute_with(|| {
