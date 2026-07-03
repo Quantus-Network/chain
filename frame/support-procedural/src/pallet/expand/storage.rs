@@ -66,7 +66,10 @@ fn check_prefix_duplicates(
 		return Err(err);
 	}
 
-	if let Metadata::CountedMap { .. } = storage_def.metadata {
+	// Counted maps and counted N-maps both generate an auxiliary counter storage instance under
+	// the derived `CounterFor...` prefix, so that namespace must be reserved for both kinds;
+	// otherwise another storage item could silently alias the counter's physical key.
+	if let Metadata::CountedMap { .. } | Metadata::CountedNMap { .. } = storage_def.metadata {
 		let counter_prefix = counter_prefix(&prefix);
 		let counter_dup_err = syn::Error::new(
 			storage_def.prefix_span(),
