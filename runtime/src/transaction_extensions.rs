@@ -106,12 +106,31 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		Self(PhantomData)
 	}
 
+	/// Weight charged per recorded transfer proof.
+	///
+	/// Per recorded transfer, `record_transfer` touches (worst case):
+	///   reads:  TransferCount (1) + the `is_ambiguous_account` lookup on the recipient,
+	///           which reads the recipient nonce (1) and, when nonce == 0, the
+	///           `NonWormholeAccounts` membership checks `Multisigs` (1) and the configured
+	///           `TreasuryAccount` (1) => 4 reads.
+	///   writes: TransferProof / ZK-tree leaf (1) + TransferCount (1) + the conditional
+	///           `PotentialWormholeBalance` deposit add (1) => 3 writes.
+	fn per_transfer_weight() -> Weight {
+		T::DbWeight::get().reads_writes(4, 3)
+	}
+
 	fn count_transfers(call: &RuntimeCall) -> u64 {
 		// NOTE: this must stay in sync with the events matched by `record_proofs_from_events_since`
 		// — we only weight calls whose emitted events we actually record. In particular
 		// `Balances::force_set_balance` is deliberately NOT counted here: it emits `BalanceSet`
 		// (an absolute set, not a transfer/mint), which we cannot turn into a transfer proof and
 		// therefore never record. See the soundness-counter caveat on `reduce_potential_balance`.
+		//
+		// Wrappers whose inner call is stored on-chain rather than in the submitted call
+		// (`Multisig::execute`, `ReversibleTransfers::recover_funds`, ...) cannot be counted
+		// statically. Proof-recording work they trigger is reconciled in `post_dispatch`, which
+		// registers any weight shortfall against the block via
+		// `register_extra_weight_unchecked`.
 		match call {
 			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
@@ -130,6 +149,7 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 
 			RuntimeCall::Utility(pallet_utility::Call::dispatch_as { call, .. }) |
 			RuntimeCall::Utility(pallet_utility::Call::with_weight { call, .. }) |
+			RuntimeCall::Utility(pallet_utility::Call::as_derivative { call, .. }) |
 			RuntimeCall::Recovery(pallet_recovery::Call::as_recovered { call, .. }) =>
 				Self::count_transfers(call),
 
@@ -143,7 +163,10 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	///
 	/// `event_count_before` is the value from `frame_system::Pallet::event_count()`
 	/// captured in `prepare()`.
-	fn record_proofs_from_events_since(event_count_before: u32) {
+	///
+	/// Returns the number of transfer proofs recorded, so callers can reconcile the actual
+	/// proof-recording work against the statically charged weight.
+	fn record_proofs_from_events_since(event_count_before: u32) -> u64 {
 		// IMPORTANT: We must collect all transfers FIRST before calling record_transfer_proof,
 		// because record_transfer_proof deposits new events which would invalidate the
 		// stream_iter iterator (causing "Corrupted state" errors).
@@ -191,18 +214,23 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 				.collect();
 
 		// Now record the proofs - this is safe because we're no longer iterating over Events
+		let recorded = transfers_to_record.len() as u64;
 		for (asset_id, from, to, amount) in transfers_to_record {
 			<Wormhole as TransferProofRecorder<AccountId, AssetId, Balance>>::record_transfer_proof(
 				asset_id, from, to, amount,
 			);
 		}
+		recorded
 	}
 }
 
 impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionExtension<RuntimeCall>
 	for WormholeProofRecorderExtension<T>
 {
-	type Pre = u32;
+	/// `(event_count_snapshot, statically_charged_transfer_count)`. The snapshot bounds the
+	/// event scan in `post_dispatch`; the charged count lets `post_dispatch` reconcile actual
+	/// proof-recording work against the weight reserved by `weight()`.
+	type Pre = (u32, u64);
 	/// Carries the pre-fee balance captured in `validate` for a first-time signer that must be
 	/// revealed (subtracted from the potential wormhole pool). `None` when there is nothing to
 	/// reveal. The actual subtraction is committed in `prepare`.
@@ -214,14 +242,7 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 	fn weight(&self, call: &RuntimeCall) -> Weight {
 		let n = Self::count_transfers(call);
 		let transfer_weight = if n > 0 {
-			// Per recorded transfer, `record_transfer` touches (worst case):
-			//   reads:  TransferCount (1) + the `is_ambiguous_account` lookup on the recipient,
-			//           which reads the recipient nonce (1) and, when nonce == 0, the
-			//           `NonWormholeAccounts` membership checks `Multisigs` (1) and the configured
-			//           `TreasuryAccount` (1) => 4 reads.
-			//   writes: TransferProof / ZkTree leaf (1) + TransferCount (1) + the conditional
-			//           `PotentialWormholeBalance` deposit add (1) => 3 writes.
-			T::DbWeight::get().reads_writes(4 * n, 3 * n)
+			Self::per_transfer_weight().saturating_mul(n)
 		} else {
 			Weight::zero()
 		};
@@ -239,7 +260,7 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		self,
 		val: Self::Val,
 		_origin: &sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
-		_call: &RuntimeCall,
+		call: &RuntimeCall,
 		_info: &sp_runtime::traits::DispatchInfoOf<RuntimeCall>,
 		_len: usize,
 	) -> Result<Self::Pre, TransactionValidityError> {
@@ -251,8 +272,9 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		}
 
 		// Snapshot current event count so we only process events added by this tx
-		// (and any events from previous txs in the same block).
-		Ok(frame_system::Pallet::<Runtime>::event_count())
+		// (and any events from previous txs in the same block), and remember how many transfer
+		// proofs were statically charged for so post_dispatch can reconcile.
+		Ok((frame_system::Pallet::<Runtime>::event_count(), Self::count_transfers(call)))
 	}
 
 	fn validate(
@@ -292,7 +314,7 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 
 	fn post_dispatch(
 		pre: Self::Pre,
-		_info: &DispatchInfoOf<RuntimeCall>,
+		info: &DispatchInfoOf<RuntimeCall>,
 		_post_info: &mut PostDispatchInfoOf<RuntimeCall>,
 		_len: usize,
 		result: &DispatchResult,
@@ -300,7 +322,21 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		// Only record proofs if the transaction succeeded.
 		// Use the event count snapshot from prepare() to avoid duplicate recording.
 		if result.is_ok() {
-			Self::record_proofs_from_events_since(pre);
+			let (event_count_before, charged_transfers) = pre;
+			let recorded = Self::record_proofs_from_events_since(event_count_before);
+
+			// Wrappers that dispatch inner calls stored on-chain (`Multisig::execute`,
+			// `ReversibleTransfers::recover_funds`, ...) can emit transfer events the static
+			// `count_transfers` matcher cannot see, so the proof-recording work above may exceed
+			// the weight reserved by `weight()`. Register the shortfall against the block so
+			// block-weight based DoS protection stays sound even when the static count drifts.
+			if recorded > charged_transfers {
+				frame_system::Pallet::<Runtime>::register_extra_weight_unchecked(
+					Self::per_transfer_weight()
+						.saturating_mul(recorded.saturating_sub(charged_transfers)),
+					info.class,
+				);
+			}
 		}
 
 		Ok(())
@@ -720,6 +756,71 @@ mod tests {
 				RuntimeCall,
 			>>::weight(&ext, &batch);
 			assert!(batch_weight.ref_time() > weight.ref_time());
+		});
+	}
+
+	#[test]
+	fn wormhole_proof_recorder_counts_as_derivative_wrapped_transfers() {
+		new_test_ext().execute_with(|| {
+			let ext = WormholeProofRecorderExtension::<Runtime>::new();
+			let reveal_weight =
+				<Runtime as frame_system::Config>::DbWeight::get().reads_writes(4, 1);
+
+			// A transfer hidden behind `as_derivative` (possibly batched) must be charged the
+			// same per-transfer weight as a direct transfer.
+			let wrapped = RuntimeCall::Utility(pallet_utility::Call::as_derivative {
+				index: 0,
+				call: boxed(RuntimeCall::Utility(pallet_utility::Call::batch {
+					calls: vec![
+						non_whitelisted_transfer(),
+						non_whitelisted_transfer(),
+					],
+				})),
+			});
+			let weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
+				RuntimeCall,
+			>>::weight(&ext, &wrapped);
+			assert_eq!(
+				weight,
+				WormholeProofRecorderExtension::<Runtime>::per_transfer_weight()
+					.saturating_mul(2)
+					.saturating_add(reveal_weight),
+				"as_derivative-wrapped transfers must be statically counted"
+			);
+		});
+	}
+
+	#[test]
+	fn wormhole_proof_recorder_registers_extra_weight_for_uncounted_transfers() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			// The presented call is opaque to the static matcher (like `Multisig::execute` or
+			// `ReversibleTransfers::recover_funds`, whose inner call lives on-chain), but the
+			// dispatch emits a real transfer event that post_dispatch must record.
+			let opaque_call =
+				RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
+			assert_eq!(
+				WormholeProofRecorderExtension::<Runtime>::count_transfers(&opaque_call),
+				0
+			);
+
+			let weight_before = frame_system::Pallet::<Runtime>::block_weight().total();
+
+			run_lifecycle(&alice(), opaque_call, || {
+				assert_ok!(Balances::transfer_keep_alive(
+					RuntimeOrigin::signed(alice()),
+					MultiAddress::Id(bob()),
+					EXISTENTIAL_DEPOSIT * 50,
+				));
+			});
+
+			let weight_after = frame_system::Pallet::<Runtime>::block_weight().total();
+			assert_eq!(
+				weight_after.saturating_sub(weight_before),
+				WormholeProofRecorderExtension::<Runtime>::per_transfer_weight(),
+				"the uncounted recorded transfer must be registered as extra block weight"
+			);
 		});
 	}
 
