@@ -515,8 +515,9 @@ where
 	/// Enumerate all keys in the counted map.
 	///
 	/// If you alter the map while doing this, you'll get undefined results.
-	pub fn iter_keys() -> crate::storage::KeyPrefixIterator<Key> {
-		<Self as MapWrapper>::Map::iter_keys()
+	pub fn iter_keys(
+	) -> crate::storage::KeyPrefixIterator<Key, OnRemovalCounterUpdate<Prefix>> {
+		<Self as MapWrapper>::Map::iter_keys().convert_on_removal()
 	}
 }
 
@@ -1186,6 +1187,20 @@ mod test {
 			A::insert(1, 1);
 			assert_eq!(B::migrate_key::<Twox64Concat, _>(1), Some(1));
 			assert_eq!(B::get(1), Some(1));
+		})
+	}
+
+	#[test]
+	fn iter_keys_drain_updates_count() {
+		type A = CountedStorageMap<Prefix, Twox64Concat, u16, u32>;
+		TestExternalities::default().execute_with(|| {
+			A::insert(1, 10);
+			A::insert(2, 20);
+			assert_eq!(A::count(), 2);
+
+			assert_eq!(A::iter_keys().drain().count(), 2);
+			assert_eq!(A::count(), 0);
+			assert_eq!(A::iter().count(), 0);
 		})
 	}
 

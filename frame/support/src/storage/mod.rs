@@ -1132,7 +1132,9 @@ impl<T, OnRemoval: PrefixIteratorOnRemoval> Iterator for PrefixIterator<T, OnRem
 /// Iterate over a prefix and decode raw_key into `T`.
 ///
 /// If any decoding fails it skips it and continues to the next key.
-pub struct KeyPrefixIterator<T> {
+///
+/// If draining, then the hook `OnRemoval::on_removal` is called after each removal.
+pub struct KeyPrefixIterator<T, OnRemoval = ()> {
 	prefix: Vec<u8>,
 	previous_key: Vec<u8>,
 	/// If true then value are removed while iterating
@@ -1140,6 +1142,20 @@ pub struct KeyPrefixIterator<T> {
 	/// Function that take `raw_key_without_prefix` and decode `T`.
 	/// `raw_key_without_prefix` is the raw storage key without the prefix iterated on.
 	closure: fn(&[u8]) -> Result<T, codec::Error>,
+	phantom: core::marker::PhantomData<OnRemoval>,
+}
+
+impl<T, OnRemoval1> KeyPrefixIterator<T, OnRemoval1> {
+	/// Converts to the same iterator but with the different 'OnRemoval' type
+	pub fn convert_on_removal<OnRemoval2>(self) -> KeyPrefixIterator<T, OnRemoval2> {
+		KeyPrefixIterator::<T, OnRemoval2> {
+			prefix: self.prefix,
+			previous_key: self.previous_key,
+			drain: self.drain,
+			closure: self.closure,
+			phantom: Default::default(),
+		}
+	}
 }
 
 impl<T> KeyPrefixIterator<T> {
@@ -1150,14 +1166,25 @@ impl<T> KeyPrefixIterator<T> {
 	/// a `Result` containing the decoded key type `T` if successful, and a `codec::Error` on
 	/// failure. The `&[u8]` argument represents the raw, undecoded key without the prefix of the
 	/// current item.
+	///
+	/// The returned iterator uses the no-op `OnRemoval` hook; use [`Self::convert_on_removal`] to
+	/// attach a different one.
 	pub fn new(
 		prefix: Vec<u8>,
 		previous_key: Vec<u8>,
 		decode_fn: fn(&[u8]) -> Result<T, codec::Error>,
 	) -> Self {
-		KeyPrefixIterator { prefix, previous_key, drain: false, closure: decode_fn }
+		KeyPrefixIterator {
+			prefix,
+			previous_key,
+			drain: false,
+			closure: decode_fn,
+			phantom: Default::default(),
+		}
 	}
+}
 
+impl<T, OnRemoval> KeyPrefixIterator<T, OnRemoval> {
 	/// Get the last key that has been iterated upon and return it.
 	pub fn last_raw_key(&self) -> &[u8] {
 		&self.previous_key
@@ -1180,7 +1207,7 @@ impl<T> KeyPrefixIterator<T> {
 	}
 }
 
-impl<T> Iterator for KeyPrefixIterator<T> {
+impl<T, OnRemoval: PrefixIteratorOnRemoval> Iterator for KeyPrefixIterator<T, OnRemoval> {
 	type Item = T;
 
 	fn next(&mut self) -> Option<Self::Item> {
@@ -1191,7 +1218,20 @@ impl<T> Iterator for KeyPrefixIterator<T> {
 			if let Some(next) = maybe_next {
 				self.previous_key = next;
 				if self.drain {
+					// The raw value is read before removal so the `OnRemoval` hook (e.g. the
+					// counted map counter update) can observe what was deleted.
+					let raw_value = match unhashed::get_raw(&self.previous_key) {
+						Some(raw_value) => raw_value,
+						None => {
+							log::error!(
+								"next_key returned a key with no value at {:?}",
+								self.previous_key,
+							);
+							continue
+						},
+					};
 					unhashed::kill(&self.previous_key);
+					OnRemoval::on_removal(&self.previous_key, &raw_value);
 				}
 				let raw_key_without_prefix = &self.previous_key[self.prefix.len()..];
 

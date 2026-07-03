@@ -356,6 +356,7 @@ impl<K: ReversibleKeyGenerator, V: FullCodec, G: StorageNMap<K, V>>
 			previous_key: prefix,
 			drain: false,
 			closure: K::decode_partial_key,
+			phantom: Default::default(),
 		}
 	}
 
@@ -412,6 +413,7 @@ impl<K: ReversibleKeyGenerator, V: FullCodec, G: StorageNMap<K, V>>
 				let (final_key, _) = K::decode_final_key(raw_key_without_prefix)?;
 				Ok(final_key)
 			},
+			phantom: Default::default(),
 		}
 	}
 

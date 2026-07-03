@@ -277,11 +277,13 @@ where
 	}
 
 	/// Iterate over values that share the first key.
-	pub fn iter_prefix_values<KP>(partial_key: KP) -> PrefixIterator<Value>
+	pub fn iter_prefix_values<KP>(
+		partial_key: KP,
+	) -> PrefixIterator<Value, OnRemovalCounterUpdate<Prefix>>
 	where
 		Key: HasKeyPrefix<KP>,
 	{
-		<Self as MapWrapper>::Map::iter_prefix_values(partial_key)
+		<Self as MapWrapper>::Map::iter_prefix_values(partial_key).convert_on_removal()
 	}
 
 	/// Mutate the value under the given keys.
@@ -451,8 +453,8 @@ where
 	/// Iter over all value of the storage.
 	///
 	/// NOTE: If a value failed to decode because storage is corrupted then it is skipped.
-	pub fn iter_values() -> crate::storage::PrefixIterator<Value> {
-		<Self as MapWrapper>::Map::iter_values()
+	pub fn iter_values() -> crate::storage::PrefixIterator<Value, OnRemovalCounterUpdate<Prefix>> {
+		<Self as MapWrapper>::Map::iter_values().convert_on_removal()
 	}
 
 	/// Translate the values of all elements by a function `f`, in the map in no particular order.
@@ -512,11 +514,14 @@ where
 	/// undefined results.
 	pub fn iter_prefix<KP>(
 		kp: KP,
-	) -> crate::storage::PrefixIterator<(<Key as HasKeyPrefix<KP>>::Suffix, Value)>
+	) -> crate::storage::PrefixIterator<
+		(<Key as HasKeyPrefix<KP>>::Suffix, Value),
+		OnRemovalCounterUpdate<Prefix>,
+	>
 	where
 		Key: HasReversibleKeyPrefix<KP>,
 	{
-		<Self as MapWrapper>::Map::iter_prefix(kp)
+		<Self as MapWrapper>::Map::iter_prefix(kp).convert_on_removal()
 	}
 
 	/// Enumerate all elements in the map with prefix key `kp` after a specified `starting_raw_key`
@@ -543,11 +548,14 @@ where
 	/// undefined results.
 	pub fn iter_key_prefix<KP>(
 		kp: KP,
-	) -> crate::storage::KeyPrefixIterator<<Key as HasKeyPrefix<KP>>::Suffix>
+	) -> crate::storage::KeyPrefixIterator<
+		<Key as HasKeyPrefix<KP>>::Suffix,
+		OnRemovalCounterUpdate<Prefix>,
+	>
 	where
 		Key: HasReversibleKeyPrefix<KP>,
 	{
-		<Self as MapWrapper>::Map::iter_key_prefix(kp)
+		<Self as MapWrapper>::Map::iter_key_prefix(kp).convert_on_removal()
 	}
 
 	/// Enumerate all suffix keys in the map with prefix key `kp` after a specified
@@ -558,11 +566,14 @@ where
 	pub fn iter_key_prefix_from<KP>(
 		kp: KP,
 		starting_raw_key: Vec<u8>,
-	) -> crate::storage::KeyPrefixIterator<<Key as HasKeyPrefix<KP>>::Suffix>
+	) -> crate::storage::KeyPrefixIterator<
+		<Key as HasKeyPrefix<KP>>::Suffix,
+		OnRemovalCounterUpdate<Prefix>,
+	>
 	where
 		Key: HasReversibleKeyPrefix<KP>,
 	{
-		<Self as MapWrapper>::Map::iter_key_prefix_from(kp, starting_raw_key)
+		<Self as MapWrapper>::Map::iter_key_prefix_from(kp, starting_raw_key).convert_on_removal()
 	}
 
 	/// Remove all elements from the map with prefix key `kp` and iterate through them in no
@@ -602,8 +613,9 @@ where
 	/// Enumerate all keys in the map in no particular order.
 	///
 	/// If you add or remove values to the map while doing this, you'll get undefined results.
-	pub fn iter_keys() -> crate::storage::KeyPrefixIterator<Key::Key> {
-		<Self as MapWrapper>::Map::iter_keys()
+	pub fn iter_keys(
+	) -> crate::storage::KeyPrefixIterator<Key::Key, OnRemovalCounterUpdate<Prefix>> {
+		<Self as MapWrapper>::Map::iter_keys().convert_on_removal()
 	}
 
 	/// Enumerate all keys in the map after a specified `starting_raw_key` in no particular order.
@@ -611,8 +623,8 @@ where
 	/// If you add or remove values to the map while doing this, you'll get undefined results.
 	pub fn iter_keys_from(
 		starting_raw_key: Vec<u8>,
-	) -> crate::storage::KeyPrefixIterator<Key::Key> {
-		<Self as MapWrapper>::Map::iter_keys_from(starting_raw_key)
+	) -> crate::storage::KeyPrefixIterator<Key::Key, OnRemovalCounterUpdate<Prefix>> {
+		<Self as MapWrapper>::Map::iter_keys_from(starting_raw_key).convert_on_removal()
 	}
 
 	/// Remove all elements from the map and iterate through them in no particular order.
@@ -755,6 +767,33 @@ mod test {
 			assert_eq!(res.unique, 2);
 			assert_eq!(A::count(), 1);
 			assert_eq!(A::get((2, 20)), Some(200));
+		});
+	}
+
+	#[test]
+	fn drainable_iterator_variants_update_count() {
+		type A = CountedStorageNMap<
+			Prefix,
+			(NMapKey<Blake2_128Concat, u16>, NMapKey<Twox64Concat, u8>),
+			u32,
+			OptionQuery,
+		>;
+
+		TestExternalities::default().execute_with(|| {
+			A::insert((3, 30), 11);
+			A::insert((3, 31), 12);
+			A::insert((4, 40), 13);
+			assert_eq!(A::count(), 3);
+
+			// Draining through a value-only prefix iterator must decrement the counter.
+			assert_eq!(A::iter_prefix_values((3,)).drain().count(), 2);
+			assert_eq!(A::count(), 1);
+			assert_eq!(A::iter().collect::<Vec<_>>(), vec![((4, 40), 13)]);
+
+			// Draining through the key iterator must decrement the counter as well.
+			assert_eq!(A::iter_keys().drain().collect::<Vec<_>>(), vec![(4, 40)]);
+			assert_eq!(A::count(), 0);
+			assert_eq!(A::iter().count(), 0);
 		});
 	}
 

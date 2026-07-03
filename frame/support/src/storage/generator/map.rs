@@ -114,6 +114,7 @@ where
 				let mut key_material = G::Hasher::reverse(raw_key_without_prefix);
 				K::decode(&mut key_material)
 			},
+			phantom: Default::default(),
 		}
 	}
 

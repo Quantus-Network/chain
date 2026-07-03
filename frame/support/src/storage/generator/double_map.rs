@@ -396,6 +396,7 @@ where
 				let mut key_material = G::Hasher2::reverse(raw_key_without_prefix);
 				K2::decode(&mut key_material)
 			},
+			phantom: Default::default(),
 		}
 	}
 
@@ -450,6 +451,7 @@ where
 				let k2 = K2::decode(&mut k2_material)?;
 				Ok((k1, k2))
 			},
+			phantom: Default::default(),
 		}
 	}
 
