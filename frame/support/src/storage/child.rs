@@ -205,8 +205,7 @@ pub fn clear_storage(
 		let mut count: u32 = if exists(child_info, &[]) { 1 } else { 0 };
 		let mut previous_key = Vec::new();
 		while count < up_to {
-			match sp_io::default_child_storage::next_key(child_info.storage_key(), &previous_key)
-			{
+			match sp_io::default_child_storage::next_key(child_info.storage_key(), &previous_key) {
 				Some(next_key) => {
 					count = count.saturating_add(1);
 					previous_key = next_key;
