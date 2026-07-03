@@ -126,6 +126,8 @@ pub struct OnRemovalCounterUpdate<Prefix>(core::marker::PhantomData<Prefix>);
 impl<Prefix: CountedStorageNMapInstance> crate::storage::PrefixIteratorOnRemoval
 	for OnRemovalCounterUpdate<Prefix>
 {
+	// Only the counter is touched; key-only drains need not read the removed value.
+	const NEEDS_VALUE: bool = false;
 	fn on_removal(_key: &[u8], _value: &[u8]) {
 		CounterFor::<Prefix>::mutate(|value| value.saturating_dec());
 	}

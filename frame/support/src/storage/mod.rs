@@ -1030,12 +1030,17 @@ impl<T, OnRemoval1> PrefixIterator<T, OnRemoval1> {
 
 /// Trait for specialising on removal logic of [`PrefixIterator`].
 pub trait PrefixIteratorOnRemoval {
+	/// Whether [`Self::on_removal`] needs the removed value. When `false`, key-only drain
+	/// iterators skip the per-key value read and pass an empty slice instead, avoiding a host
+	/// call that would exist only to feed the hook.
+	const NEEDS_VALUE: bool = true;
 	/// This function is called whenever a key/value is removed.
 	fn on_removal(key: &[u8], value: &[u8]);
 }
 
 /// No-op implementation.
 impl PrefixIteratorOnRemoval for () {
+	const NEEDS_VALUE: bool = false;
 	fn on_removal(_key: &[u8], _value: &[u8]) {}
 }
 
@@ -1218,20 +1223,27 @@ impl<T, OnRemoval: PrefixIteratorOnRemoval> Iterator for KeyPrefixIterator<T, On
 			if let Some(next) = maybe_next {
 				self.previous_key = next;
 				if self.drain {
-					// The raw value is read before removal so the `OnRemoval` hook (e.g. the
-					// counted map counter update) can observe what was deleted.
-					let raw_value = match unhashed::get_raw(&self.previous_key) {
-						Some(raw_value) => raw_value,
-						None => {
-							log::error!(
-								"next_key returned a key with no value at {:?}",
-								self.previous_key,
-							);
-							continue
-						},
-					};
-					unhashed::kill(&self.previous_key);
-					OnRemoval::on_removal(&self.previous_key, &raw_value);
+					if OnRemoval::NEEDS_VALUE {
+						// The raw value is read before removal so the `OnRemoval` hook can
+						// observe what was deleted.
+						let raw_value = match unhashed::get_raw(&self.previous_key) {
+							Some(raw_value) => raw_value,
+							None => {
+								log::error!(
+									"next_key returned a key with no value at {:?}",
+									self.previous_key,
+								);
+								continue
+							},
+						};
+						unhashed::kill(&self.previous_key);
+						OnRemoval::on_removal(&self.previous_key, &raw_value);
+					} else {
+						// The hook does not inspect the value (e.g. the counted map counter
+						// update), so skip the read that would exist only to feed it.
+						unhashed::kill(&self.previous_key);
+						OnRemoval::on_removal(&self.previous_key, &[]);
+					}
 				}
 				let raw_key_without_prefix = &self.previous_key[self.prefix.len()..];
 
