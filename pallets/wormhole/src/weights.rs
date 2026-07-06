@@ -51,7 +51,7 @@ use core::marker::PhantomData;
 /// Weight functions needed for `pallet_wormhole`.
 pub trait WeightInfo {
 	fn pre_validate_proof() -> Weight;
-	fn verify_aggregated_proof() -> Weight;
+	fn verify_private_batch() -> Weight;
 }
 
 /// Weights for `pallet_wormhole` using the Substrate node and recommended hardware.
@@ -69,8 +69,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(685_000_000, 81758)
 			.saturating_add(T::DbWeight::get().reads(33_u64))
 	}
-	/// Full aggregated proof verification: ZK verification plus the data-dependent state
-	/// updates that the `verify_aggregated_proof` benchmark intentionally excludes (it only
+	/// Full private-batch proof verification: ZK verification plus the data-dependent state
+	/// updates that the `verify_private_batch` benchmark intentionally excludes (it only
 	/// measures the ZK verify). The storage tail is hand-accounted for the worst case of
 	/// 32 nullifiers and 32 exit accounts:
 	/// - `System::BlockHash` (r:1) + `Wormhole::UsedNullifiers` (r:32 w:32)
@@ -79,7 +79,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// - `Wormhole::TransferCount` (r:32 w:32)
 	/// - `ZkTree` Leaves/Nodes/LeafCount/Depth/Root (r:~99 w:~67) via `record_transfer`
 	/// Total: reads=200, writes=170. Keep this augmentation when regenerating.
-	fn verify_aggregated_proof() -> Weight {
+	fn verify_private_batch() -> Weight {
 		// Proof Size summary in bytes:
 		//  Estimated: `200000`
 		// Minimum execution time: 15_336_000_000 picoseconds (ZK verification only).
@@ -104,11 +104,11 @@ impl WeightInfo for () {
 		Weight::from_parts(685_000_000, 81758)
 			.saturating_add(RocksDbWeight::get().reads(33_u64))
 	}
-	/// Full aggregated proof verification: ZK verification plus the data-dependent state
+	/// Full private-batch proof verification: ZK verification plus the data-dependent state
 	/// updates that the benchmark excludes. Worst case 32 nullifiers / 32 exit accounts.
 	/// Total: reads=200, writes=170 (see `SubstrateWeight` impl for the breakdown).
 	/// Keep this augmentation when regenerating.
-	fn verify_aggregated_proof() -> Weight {
+	fn verify_private_batch() -> Weight {
 		// Proof Size summary in bytes:
 		//  Estimated: `200000`
 		// Minimum execution time: 15_336_000_000 picoseconds (ZK verification only).

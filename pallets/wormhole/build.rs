@@ -1,6 +1,6 @@
 //! Build script for pallet-wormhole.
 //!
-//! Generates circuit binaries (aggregated_verifier.bin, aggregated_common.bin) at build time.
+//! Generates circuit binaries (private_batch_verifier.bin, private_batch_common.bin) at build time.
 //! This ensures the binaries are always consistent with the circuit crate version and
 //! eliminates the need to commit large binary files to the repository.
 //!
@@ -45,12 +45,12 @@ fn main() {
 
 	let start = Instant::now();
 
-	// Generate all circuit binaries (leaf + layer-0 aggregated, no prover, no layer-1)
+	// Generate all circuit binaries (leaf + private batch, no prover, no public batch)
 	qp_wormhole_circuit_builder::generate_all_circuit_binaries(
 		Path::new(&out_dir),
 		false, // include_prover = false
 		num_leaf_proofs,
-		None, // num_layer0_proofs - no layer-1 aggregation
+		None, // num_private_batch_proofs - no public-batch aggregation yet
 	)
 	.expect("Failed to generate circuit binaries");
 
@@ -65,6 +65,6 @@ fn main() {
 	print_bin_hash(out_path, "common.bin");
 	print_bin_hash(out_path, "verifier.bin");
 	print_bin_hash(out_path, "dummy_proof.bin");
-	print_bin_hash(out_path, "aggregated_common.bin");
-	print_bin_hash(out_path, "aggregated_verifier.bin");
+	print_bin_hash(out_path, "private_batch_common.bin");
+	print_bin_hash(out_path, "private_batch_verifier.bin");
 }

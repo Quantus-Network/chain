@@ -1,16 +1,16 @@
-# Wormhole ZK: Leaf, Layer‑0, Layer‑1
+# Wormhole ZK: Leaf, Private Batch, Public Batch
 
-> Wormhole ZK: each leaf proof spends 1 nullifier, pays up to 2 exits; layer‑0 aggregates 16 leaves (pads with dummies); layer‑1 batches L0 proofs server‑side. Chain currently verifies only L0.
+> Wormhole ZK: each leaf proof spends 1 nullifier, pays up to 2 exits; the private batch aggregates 16 leaves (pads with dummies); the public batch bundles private batches (delegatable). Chain currently verifies only the private batch.
 
-The wormhole flow has three proof levels. Today the runtime only verifies L0;
-L1 is built in the external `qp-wormhole-aggregator` crate but is **not** wired
+The wormhole flow has three proof levels. Today the runtime only verifies the private batch;
+the public batch is built in the external `qp-wormhole-aggregator` crate but is **not** wired
 into `pallet-wormhole` on the current `main`.
 
 | Level | Produced by | Inputs | Outputs | Verified by chain? |
 |------:|-------------|--------|---------|--------------------|
 | Leaf  | Client (per transfer) | 1 nullifier (1 spend) | Up to 2 exit accounts (spend + change) | No |
-| L0    | Client (aggregator) | Up to `N = 16` leaves (rest = dummies) | `2·N = 32` exit slots, `N = 16` nullifiers | **Yes** |
-| L1    | Server / delegated aggregator | `n_inner` full L0 proofs (no padding) | `n_inner · 2N` exit slots, `n_inner · N` nullifiers | **No** (not enabled) |
+| Private batch (ZK) | Client (aggregator) | Up to `N = 16` leaves (rest = dummies) | `2·N = 32` exit slots, `N = 16` nullifiers | **Yes** |
+| Public batch (non-ZK) | Any aggregator (delegatable) | `n_inner` full private-batch proofs (no padding yet) | `n_inner · 2N` exit slots, `n_inner · N` nullifiers | **No** (not enabled) |
 
 ---
 
@@ -40,14 +40,14 @@ Source: `qp-wormhole-circuit/src/{circuit.rs,zk_merkle_proof.rs}` and
 
 ---
 
-## 2. Layer‑0 aggregated proof (client → chain)
+## 2. Private-batch proof (client → chain)
 
-`Layer0Aggregator` in `qp-wormhole-aggregator/src/aggregator.rs` and the
-monolithic circuit in `src/layer0/circuit/circuit_logic.rs`. Built into the
+`PrivateBatchAggregator` in `qp-wormhole-aggregator/src/aggregator.rs` and the
+monolithic circuit in `src/private_batch/circuit/circuit_logic.rs`. Built into the
 pallet by `pallets/wormhole/build.rs`; `N = num_leaf_proofs = 16` by default
 (override with the `QP_NUM_LEAF_PROOFS` env var at build time).
 
-What the L0 circuit does:
+What the private-batch circuit does:
 
 1. Recursively verifies `N` leaf proofs against the leaf verifier data.
 2. Enforces all **real** leaves agree on `block_hash`, `asset_id`,
@@ -60,7 +60,7 @@ What the L0 circuit does:
 4. Replaces dummy nullifiers with `H(H(preimage))` from caller‑provided random
    preimages, so dummies cannot be deduplicated or linked across batches.
 
-Aggregated PI layout (`qp-wormhole-aggregator/src/layer0/circuit/constants.rs`):
+Aggregated PI layout (`qp-wormhole-aggregator/src/private_batch/circuit/constants.rs`):
 
 ```text
 [ num_exit_slots(1), asset_id(1), volume_fee_bps(1),
@@ -76,13 +76,13 @@ be zero).
 
 ### On‑chain verification
 
-`pallet_wormhole::verify_aggregated_proof` (`pallets/wormhole/src/lib.rs`):
+`pallet_wormhole::verify_private_batch` (`pallets/wormhole/src/lib.rs`):
 
 1. `validate_proof`: deserialize, parse PIs, check `asset_id == 0`,
    `volume_fee_bps` matches `T::VolumeFeeRateBps::get()`, `block_hash` matches
    the on‑chain header at `block_number`, no nullifier already in
    `UsedNullifiers`, then run full plonky2 verification.
-2. Mark each L0 nullifier used.
+2. Mark each nullifier used.
 3. Walk the `2·N` exit slots, skipping any with `exit == [0;32]` or `sum == 0`
    (covers dummies + dedup'd slots).
 4. Mint `sum · 10^10` (circuit uses 2dp `u32`, chain uses 12dp `u128`) to each
@@ -95,20 +95,20 @@ be zero).
 
 ---
 
-## 3. Layer‑1 aggregated proof (server‑side) — **not enabled on chain**
+## 3. Public-batch proof (delegatable) — **not enabled on chain**
 
-`Layer1Aggregator` and `Layer1AggregationCircuit` in
-`qp-wormhole-aggregator/src/{aggregator.rs,layer1/...}`. The circuit verifies
-`n_inner` L0 proofs and emits a single L1 proof.
+`PublicBatchAggregator` and `PublicBatchCircuit` in
+`qp-wormhole-aggregator/src/{aggregator.rs,public_batch/...}`. The circuit verifies
+`n_inner` private-batch proofs and emits a single public-batch proof.
 
-- **No padding at L1.** `Layer1Aggregator::aggregate` calls `drain_exact(cap)`
-  — it errors unless the buffer holds a full batch of `n_inner` L0 proofs.
-- All inner L0 proofs must agree on `block_hash`, `asset_id`,
+- **No padding at the public batch (yet; dummy private batches are planned).** `PublicBatchAggregator::aggregate` calls `drain_exact(cap)`
+  — it errors unless the buffer holds a full batch of `n_inner` private-batch proofs.
+- All inner private-batch proofs must agree on `block_hash`, `asset_id`,
   `volume_fee_bps`.
 - Adds an `aggregator_address` (witness, 4 felts) to the PIs identifying the
   server; otherwise just forwards exit slots and nullifiers (no extra dedupe).
 
-L1 PI layout (`qp-wormhole-aggregator/src/layer1/circuit/constants.rs`):
+public-batch PI layout (`qp-wormhole-aggregator/src/public_batch/circuit/constants.rs`):
 
 ```text
 [ aggregator_address(4),
@@ -121,14 +121,14 @@ L1 PI layout (`qp-wormhole-aggregator/src/layer1/circuit/constants.rs`):
 
 ### Status on current `main`
 
-L1 is **not currently verified by the chain.** `pallets/wormhole/build.rs`
-calls `generate_all_circuit_binaries(..., num_layer0_proofs = None)`, so no
-`layer1_verifier.bin` / `layer1_common.bin` are produced, and the pallet only
-embeds the L0 wrapper verifier. Enabling L1 would require:
+The public batch is **not currently verified by the chain.** `pallets/wormhole/build.rs`
+calls `generate_all_circuit_binaries(..., num_private_batch_proofs = None)`, so no
+`public_batch_verifier.bin` / `public_batch_common.bin` are produced, and the pallet only
+embeds the private-batch wrapper verifier. Enabling public batches would require:
 
 1. Pass `Some(n_inner)` from `build.rs`.
-2. Embed `layer1_verifier.bin` / `layer1_common.bin` in the pallet.
-3. Switch `verify_aggregated_proof` to parse the L1 PI layout (which has the
+2. Embed `public_batch_verifier.bin` / `public_batch_common.bin` in the pallet.
+3. Add a `verify_public_batch` path parsing the public-batch PI layout (which has the
    `aggregator_address` prefix and no `num_unique_exits` field).
 
 ---
@@ -138,10 +138,10 @@ embeds the L0 wrapper verifier. Enabling L1 would require:
 | Item | Location |
 |---|---|
 | Leaf PI length (21) | `qp-wormhole-inputs/src/lib.rs` (`PUBLIC_INPUTS_FELTS_LEN`) |
-| L0 wrapper PI layout | `qp-wormhole-aggregator/src/layer0/circuit/constants.rs` |
-| L1 wrapper PI layout | `qp-wormhole-aggregator/src/layer1/circuit/constants.rs` |
+| Private-batch wrapper PI layout | `qp-wormhole-aggregator/src/private_batch/circuit/constants.rs` |
+| Public-batch wrapper PI layout | `qp-wormhole-aggregator/src/public_batch/circuit/constants.rs` |
 | `N = num_leaf_proofs` (default 16) | `pallets/wormhole/build.rs` (`QP_NUM_LEAF_PROOFS`) |
-| Embedded verifier bytes | `pallets/wormhole/src/lib.rs` (`AGGREGATED_VERIFIER`) |
-| On‑chain verify entrypoint | `pallet_wormhole::verify_aggregated_proof` |
+| Embedded verifier bytes | `pallets/wormhole/src/lib.rs` (`PRIVATE_BATCH_VERIFIER`) |
+| On‑chain verify entrypoint | `pallet_wormhole::verify_private_batch` |
 | Amount scale (10^10) | `pallets/wormhole/src/lib.rs` (`SCALE_DOWN_FACTOR`) |
 | 4‑ary Poseidon Merkle tree | `pallets/zk-tree/`, see `docs/zk-trie-architecture.md` |

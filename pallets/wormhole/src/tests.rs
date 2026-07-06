@@ -383,34 +383,34 @@ mod wormhole_tests {
 	}
 }
 
-/// Tests for aggregated proof verification
+/// Tests for private-batch proof verification
 #[cfg(test)]
-mod aggregated_proof_tests {
+mod private_batch_proof_tests {
 	use crate::{
 		mock::*,
 		pallet::{Error, PotentialWormholeBalance, TotalWormholeExits, UsedNullifiers},
 	};
 	use frame_support::{assert_noop, assert_ok};
 	use frame_system::RawOrigin;
-	use qp_wormhole_verifier::{parse_aggregated_public_inputs, ProofWithPublicInputs, C, F};
+	use qp_wormhole_verifier::{parse_private_batch_public_inputs, ProofWithPublicInputs, C, F};
 	use sp_core::H256;
 
 	/// The D const parameter for plonky2 proofs (extension degree = 2)
 	const D: usize = 2;
 
-	/// Real aggregated proof for testing (hex-encoded).
+	/// Real private-batch proof for testing (hex-encoded).
 	/// Generated using: `quantus wormhole multi round`
-	const AGGREGATED_PROOF_HEX: &str = include_str!("../test-data/aggregated.hex");
+	const PRIVATE_BATCH_PROOF_HEX: &str = include_str!("../test-data/private_batch.hex");
 
 	/// Helper to decode the test proof
 	fn get_test_proof_bytes() -> Vec<u8> {
-		hex::decode(AGGREGATED_PROOF_HEX.trim()).expect("Invalid hex in test proof")
+		hex::decode(PRIVATE_BATCH_PROOF_HEX.trim()).expect("Invalid hex in test proof")
 	}
 
 	/// Helper to deserialize the test proof
 	fn deserialize_test_proof() -> ProofWithPublicInputs<F, C, D> {
 		let proof_bytes = get_test_proof_bytes();
-		let verifier = crate::get_aggregated_verifier().expect("Verifier should be available");
+		let verifier = crate::get_private_batch_verifier().expect("Verifier should be available");
 		ProofWithPublicInputs::<F, C, D>::from_bytes(proof_bytes, &verifier.circuit_data.common)
 			.expect("Proof should deserialize")
 	}
@@ -423,9 +423,9 @@ mod aggregated_proof_tests {
 	}
 
 	#[test]
-	fn test_parse_aggregated_public_inputs_succeeds() {
+	fn test_parse_private_batch_public_inputs_succeeds() {
 		let proof = deserialize_test_proof();
-		let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse public inputs");
+		let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse public inputs");
 
 		// Verify basic structure
 		assert_eq!(inputs.asset_id, 0, "Asset ID should be native (0)");
@@ -443,13 +443,13 @@ mod aggregated_proof_tests {
 	}
 
 	#[test]
-	fn test_verify_aggregated_proof_fails_with_wrong_origin() {
+	fn test_verify_private_batch_fails_with_wrong_origin() {
 		new_test_ext().execute_with(|| {
 			let proof_bytes = get_test_proof_bytes();
 
 			// Should fail with signed origin (must be unsigned)
 			assert_noop!(
-				Wormhole::verify_aggregated_proof(
+				Wormhole::verify_private_batch(
 					RawOrigin::Signed(account_id(1)).into(),
 					proof_bytes
 				),
@@ -459,26 +459,26 @@ mod aggregated_proof_tests {
 	}
 
 	#[test]
-	fn test_verify_aggregated_proof_fails_with_invalid_bytes() {
+	fn test_verify_private_batch_fails_with_invalid_bytes() {
 		new_test_ext().execute_with(|| {
 			// Random invalid bytes should fail deserialization
 			let invalid_bytes = vec![0u8; 100];
 
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), invalid_bytes);
+			let result = Wormhole::verify_private_batch(RawOrigin::None.into(), invalid_bytes);
 			assert!(result.is_err());
 			let err = result.unwrap_err();
-			assert_eq!(err.error, Error::<Test>::AggregatedProofDeserializationFailed.into());
+			assert_eq!(err.error, Error::<Test>::ProofDeserializationFailed.into());
 		});
 	}
 
 	#[test]
-	fn test_verify_aggregated_proof_fails_with_block_not_found() {
+	fn test_verify_private_batch_fails_with_block_not_found() {
 		new_test_ext().execute_with(|| {
 			let proof_bytes = get_test_proof_bytes();
 
 			// The proof references a block that doesn't exist in our mock
 			// This should fail with BlockNotFound
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+			let result = Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes);
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::BlockNotFound.into());
@@ -486,10 +486,10 @@ mod aggregated_proof_tests {
 	}
 
 	#[test]
-	fn test_verify_aggregated_proof_fails_with_nullifier_already_used() {
+	fn test_verify_private_batch_fails_with_nullifier_already_used() {
 		new_test_ext().execute_with(|| {
 			let proof = deserialize_test_proof();
-			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
+			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
 
 			// Set up block hash to match the proof
 			let block_number = inputs.block_data.block_number as u64;
@@ -508,7 +508,7 @@ mod aggregated_proof_tests {
 
 			let proof_bytes = get_test_proof_bytes();
 
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+			let result = Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes);
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::NullifierAlreadyUsed.into());
@@ -516,10 +516,10 @@ mod aggregated_proof_tests {
 	}
 
 	#[test]
-	fn test_verify_aggregated_proof_fails_with_wrong_block_hash() {
+	fn test_verify_private_batch_fails_with_wrong_block_hash() {
 		new_test_ext().execute_with(|| {
 			let proof = deserialize_test_proof();
-			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
+			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
 
 			// Set up a block at the right number but with wrong hash
 			let block_number = inputs.block_data.block_number as u64;
@@ -529,7 +529,7 @@ mod aggregated_proof_tests {
 
 			let proof_bytes = get_test_proof_bytes();
 
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+			let result = Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes);
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::InvalidPublicInputs.into());
@@ -537,10 +537,10 @@ mod aggregated_proof_tests {
 	}
 
 	#[test]
-	fn test_verify_aggregated_proof_succeeds_with_valid_state() {
+	fn test_verify_private_batch_succeeds_with_valid_state() {
 		new_test_ext().execute_with(|| {
 			let proof = deserialize_test_proof();
-			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
+			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
 
 			// Set up block hash to match the proof
 			let block_number = inputs.block_data.block_number as u64;
@@ -567,7 +567,7 @@ mod aggregated_proof_tests {
 				.sum();
 
 			// This should succeed - proof is valid and state matches
-			assert_ok!(Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes));
+			assert_ok!(Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes));
 
 			// TotalWormholeExits should now reflect the exit amount.
 			assert_eq!(TotalWormholeExits::<Test>::get(), expected_exit);
@@ -610,7 +610,7 @@ mod aggregated_proof_tests {
 	fn exit_to_ambiguous_address_rejected_when_margin_exhausted() {
 		new_test_ext().execute_with(|| {
 			let proof = deserialize_test_proof();
-			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
+			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
 
 			let block_number = inputs.block_data.block_number as u64;
 			let block_hash_bytes: [u8; 32] =
@@ -633,7 +633,7 @@ mod aggregated_proof_tests {
 			TotalWormholeExits::<Test>::put(expected_exit);
 
 			let proof_bytes = get_test_proof_bytes();
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+			let result = Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes);
 
 			assert!(result.is_err());
 			assert_eq!(
@@ -649,10 +649,10 @@ mod aggregated_proof_tests {
 	}
 
 	#[test]
-	fn test_verify_aggregated_proof_cannot_replay() {
+	fn test_verify_private_batch_cannot_replay() {
 		new_test_ext().execute_with(|| {
 			let proof = deserialize_test_proof();
-			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
+			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
 
 			// Set up block hash to match the proof
 			let block_number = inputs.block_data.block_number as u64;
@@ -669,13 +669,13 @@ mod aggregated_proof_tests {
 			let proof_bytes = get_test_proof_bytes();
 
 			// First submission should succeed
-			assert_ok!(Wormhole::verify_aggregated_proof(
+			assert_ok!(Wormhole::verify_private_batch(
 				RawOrigin::None.into(),
 				proof_bytes.clone()
 			));
 
 			// Second submission with same proof should fail (nullifiers already used)
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+			let result = Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes);
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::NullifierAlreadyUsed.into());
@@ -683,10 +683,10 @@ mod aggregated_proof_tests {
 	}
 
 	#[test]
-	fn test_verify_aggregated_proof_fails_when_soundness_invariant_violated() {
+	fn test_verify_private_batch_fails_when_soundness_invariant_violated() {
 		new_test_ext().execute_with(|| {
 			let proof = deserialize_test_proof();
-			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
+			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
 
 			let block_number = inputs.block_data.block_number as u64;
 			let block_hash_bytes: [u8; 32] =
@@ -699,7 +699,7 @@ mod aggregated_proof_tests {
 			// PotentialWormholeBalance defaults to 0, so any exit must be rejected: the proof is
 			// valid but there is no recorded deposit backing it.
 			let proof_bytes = get_test_proof_bytes();
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+			let result = Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes);
 			assert!(result.is_err());
 			assert_eq!(
 				result.unwrap_err().error,
@@ -716,12 +716,12 @@ mod aggregated_proof_tests {
 	/// Run with: cargo test -p pallet-wormhole --lib -- regenerate_test_fixture --nocapture
 	/// --ignored
 	///
-	/// This generates a valid aggregated proof with proper block header validation.
+	/// This generates a valid private-batch proof with proper block header validation.
 	/// The proof uses well-known test inputs that match the test-helpers constants.
 	#[test]
 	#[ignore]
 	fn regenerate_test_fixture() {
-		use qp_wormhole_aggregator::aggregator::{AggregationBackend, Layer0Aggregator};
+		use qp_wormhole_aggregator::aggregator::{AggregationBackend, PrivateBatchAggregator};
 		use qp_wormhole_circuit::{
 			block_header::header::HeaderInputs,
 			inputs::{CircuitInputs, PrivateCircuitInputs},
@@ -833,22 +833,22 @@ mod aggregated_proof_tests {
 
 		// Aggregate (with padding to fill batch)
 		println!("Aggregating proof...");
-		let mut aggregator = Layer0Aggregator::new(&tmp_dir).expect("Failed to create aggregator");
+		let mut aggregator = PrivateBatchAggregator::new(&tmp_dir).expect("Failed to create aggregator");
 		aggregator.push_proof(leaf_proof).expect("Failed to push proof");
 		let aggregated_proof = aggregator.aggregate().expect("Failed to aggregate");
 
 		// Verify locally
-		println!("Verifying aggregated proof...");
+		println!("Verifying private-batch proof...");
 		aggregator
 			.verify(aggregated_proof.clone())
-			.expect("Aggregated proof should verify");
+			.expect("Private-batch proof should verify");
 
 		// Serialize to hex
 		let proof_bytes = aggregated_proof.to_bytes();
 		let proof_hex = hex::encode(&proof_bytes);
 
 		// Write to test-data
-		let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("test-data/aggregated.hex");
+		let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("test-data/private_batch.hex");
 		std::fs::write(&fixture_path, &proof_hex).expect("Failed to write fixture");
 
 		println!("Fixture written to: {}", fixture_path.display());

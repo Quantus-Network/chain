@@ -7640,8 +7640,6 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-aggregator"
 version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9cd1dd3efde4e405a1d7c44852cee799fce30d82f0741c0b5c2b3ec024e3ae9"
 dependencies = [
  "anyhow",
  "hex",
@@ -7658,8 +7656,6 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-circuit"
 version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8c616ca2d392b3701fdd97982c3b894e272245b751e4e669fac7bf6aa4cd977"
 dependencies = [
  "anyhow",
  "hex",
@@ -7671,8 +7667,6 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-circuit-builder"
 version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dedb083e6b1567354837930881e7bead77c84973422707c0604ed1234f12b1fd"
 dependencies = [
  "anyhow",
  "clap",
@@ -7685,8 +7679,6 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-inputs"
 version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6416e8b025382d5bc00d1418ca28a25c15f1fdfe351f793e83f6aae16b8ad2bf"
 dependencies = [
  "anyhow",
 ]
@@ -7694,8 +7686,6 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-prover"
 version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "167337f6e3d65e6b67cace22f72537a86ee061b9880dc7fe6e5b617d33ad279b"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -7706,8 +7696,6 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-verifier"
 version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce89292e75e323ad792d169c5c725a2b534b4b6ca6108400d1649b2c972681ff"
 dependencies = [
  "anyhow",
  "qp-plonky2-verifier",
@@ -7717,8 +7705,6 @@ dependencies = [
 [[package]]
 name = "qp-zk-circuits-common"
 version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39bb72c67529758341ab094f7b6576379c5d704992df254d09282e9a99eec856"
 dependencies = [
  "anyhow",
  "qp-plonky2",

@@ -7,12 +7,12 @@ use alloc::vec::Vec;
 use frame_benchmarking::v2::*;
 use qp_wormhole_verifier::{ProofWithPublicInputs, C, F};
 
-/// Real aggregated proof for benchmarking (hex-encoded).
+/// Real private-batch proof for benchmarking (hex-encoded).
 /// Generated using: `quantus wormhole multi round`
 /// This proof is used to benchmark the actual deserialization and verification cost.
-const AGGREGATED_PROOF_HEX: &str = include_str!("../test-data/aggregated.hex");
+const PRIVATE_BATCH_PROOF_HEX: &str = include_str!("../test-data/private_batch.hex");
 
-/// Maximum number of nullifiers in an aggregated proof (default aggregation size)
+/// Maximum number of nullifiers in an private-batch proof (default aggregation size)
 const MAX_NULLIFIERS: u32 = 32;
 
 /// The D const parameter for plonky2 proofs (extension degree = 2)
@@ -22,10 +22,10 @@ const D: usize = 2;
 mod benchmarks {
 	use super::*;
 
-	/// Benchmark for the pre-validation phase of verify_aggregated_proof.
+	/// Benchmark for the pre-validation phase of verify_private_batch.
 	///
 	/// This measures the actual cost of:
-	/// - Proof deserialization (using a real aggregated proof)
+	/// - Proof deserialization (using a real private-batch proof)
 	/// - Public inputs parsing
 	/// - Block hash lookup (1 read)
 	/// - Nullifier existence checks (up to MAX_NULLIFIERS reads)
@@ -33,10 +33,10 @@ mod benchmarks {
 	fn pre_validate_proof() {
 		// Decode the hex proof to bytes
 		let proof_bytes: Vec<u8> =
-			hex::decode(AGGREGATED_PROOF_HEX.trim()).expect("Invalid hex in test proof");
+			hex::decode(PRIVATE_BATCH_PROOF_HEX.trim()).expect("Invalid hex in test proof");
 
 		// Get verifier for deserialization
-		let verifier = crate::get_aggregated_verifier().expect("Aggregated verifier not available");
+		let verifier = crate::get_private_batch_verifier().expect("Private-batch verifier not available");
 
 		// Setup: Create nullifiers in storage to simulate worst-case reads
 		let nullifiers: Vec<[u8; 32]> = (0..MAX_NULLIFIERS)
@@ -77,18 +77,18 @@ mod benchmarks {
 
 	/// Benchmark for full ZK proof verification.
 	///
-	/// This measures the actual cost of verifying an aggregated plonky2 proof,
-	/// which is the dominant cost in verify_aggregated_proof extrinsic.
+	/// This measures the actual cost of verifying a private-batch plonky2 proof,
+	/// which is the dominant cost in verify_private_batch extrinsic.
 	/// Note: This only benchmarks the ZK verification itself, not the full extrinsic
 	/// (which includes state writes that depend on proof contents).
 	#[benchmark]
-	fn verify_aggregated_proof() {
+	fn verify_private_batch() {
 		// Decode the hex proof to bytes
 		let proof_bytes: Vec<u8> =
-			hex::decode(AGGREGATED_PROOF_HEX.trim()).expect("Invalid hex in test proof");
+			hex::decode(PRIVATE_BATCH_PROOF_HEX.trim()).expect("Invalid hex in test proof");
 
 		// Get verifier
-		let verifier = crate::get_aggregated_verifier().expect("Aggregated verifier not available");
+		let verifier = crate::get_private_batch_verifier().expect("Private-batch verifier not available");
 
 		// Deserialize proof (outside the measured block since pre_validate_proof covers this)
 		let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
