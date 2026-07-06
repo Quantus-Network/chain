@@ -220,6 +220,7 @@ pub fn simulate_manifest_dir<P: AsRef<std::path::Path>, F: FnOnce() + std::panic
 	result.unwrap();
 }
 
+mod calls;
 mod tasks;
 
 #[test]

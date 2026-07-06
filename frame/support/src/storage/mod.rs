@@ -1030,12 +1030,17 @@ impl<T, OnRemoval1> PrefixIterator<T, OnRemoval1> {
 
 /// Trait for specialising on removal logic of [`PrefixIterator`].
 pub trait PrefixIteratorOnRemoval {
+	/// Whether [`Self::on_removal`] needs the removed value. When `false`, key-only drain
+	/// iterators skip the per-key value read and pass an empty slice instead, avoiding a host
+	/// call that would exist only to feed the hook.
+	const NEEDS_VALUE: bool = true;
 	/// This function is called whenever a key/value is removed.
 	fn on_removal(key: &[u8], value: &[u8]);
 }
 
 /// No-op implementation.
 impl PrefixIteratorOnRemoval for () {
+	const NEEDS_VALUE: bool = false;
 	fn on_removal(_key: &[u8], _value: &[u8]) {}
 }
 
@@ -1132,7 +1137,9 @@ impl<T, OnRemoval: PrefixIteratorOnRemoval> Iterator for PrefixIterator<T, OnRem
 /// Iterate over a prefix and decode raw_key into `T`.
 ///
 /// If any decoding fails it skips it and continues to the next key.
-pub struct KeyPrefixIterator<T> {
+///
+/// If draining, then the hook `OnRemoval::on_removal` is called after each removal.
+pub struct KeyPrefixIterator<T, OnRemoval = ()> {
 	prefix: Vec<u8>,
 	previous_key: Vec<u8>,
 	/// If true then value are removed while iterating
@@ -1140,6 +1147,20 @@ pub struct KeyPrefixIterator<T> {
 	/// Function that take `raw_key_without_prefix` and decode `T`.
 	/// `raw_key_without_prefix` is the raw storage key without the prefix iterated on.
 	closure: fn(&[u8]) -> Result<T, codec::Error>,
+	phantom: core::marker::PhantomData<OnRemoval>,
+}
+
+impl<T, OnRemoval1> KeyPrefixIterator<T, OnRemoval1> {
+	/// Converts to the same iterator but with the different 'OnRemoval' type
+	pub fn convert_on_removal<OnRemoval2>(self) -> KeyPrefixIterator<T, OnRemoval2> {
+		KeyPrefixIterator::<T, OnRemoval2> {
+			prefix: self.prefix,
+			previous_key: self.previous_key,
+			drain: self.drain,
+			closure: self.closure,
+			phantom: Default::default(),
+		}
+	}
 }
 
 impl<T> KeyPrefixIterator<T> {
@@ -1150,14 +1171,25 @@ impl<T> KeyPrefixIterator<T> {
 	/// a `Result` containing the decoded key type `T` if successful, and a `codec::Error` on
 	/// failure. The `&[u8]` argument represents the raw, undecoded key without the prefix of the
 	/// current item.
+	///
+	/// The returned iterator uses the no-op `OnRemoval` hook; use [`Self::convert_on_removal`] to
+	/// attach a different one.
 	pub fn new(
 		prefix: Vec<u8>,
 		previous_key: Vec<u8>,
 		decode_fn: fn(&[u8]) -> Result<T, codec::Error>,
 	) -> Self {
-		KeyPrefixIterator { prefix, previous_key, drain: false, closure: decode_fn }
+		KeyPrefixIterator {
+			prefix,
+			previous_key,
+			drain: false,
+			closure: decode_fn,
+			phantom: Default::default(),
+		}
 	}
+}
 
+impl<T, OnRemoval> KeyPrefixIterator<T, OnRemoval> {
 	/// Get the last key that has been iterated upon and return it.
 	pub fn last_raw_key(&self) -> &[u8] {
 		&self.previous_key
@@ -1180,7 +1212,7 @@ impl<T> KeyPrefixIterator<T> {
 	}
 }
 
-impl<T> Iterator for KeyPrefixIterator<T> {
+impl<T, OnRemoval: PrefixIteratorOnRemoval> Iterator for KeyPrefixIterator<T, OnRemoval> {
 	type Item = T;
 
 	fn next(&mut self) -> Option<Self::Item> {
@@ -1191,7 +1223,27 @@ impl<T> Iterator for KeyPrefixIterator<T> {
 			if let Some(next) = maybe_next {
 				self.previous_key = next;
 				if self.drain {
-					unhashed::kill(&self.previous_key);
+					if OnRemoval::NEEDS_VALUE {
+						// The raw value is read before removal so the `OnRemoval` hook can
+						// observe what was deleted.
+						let raw_value = match unhashed::get_raw(&self.previous_key) {
+							Some(raw_value) => raw_value,
+							None => {
+								log::error!(
+									"next_key returned a key with no value at {:?}",
+									self.previous_key,
+								);
+								continue
+							},
+						};
+						unhashed::kill(&self.previous_key);
+						OnRemoval::on_removal(&self.previous_key, &raw_value);
+					} else {
+						// The hook does not inspect the value (e.g. the counted map counter
+						// update), so skip the read that would exist only to feed it.
+						unhashed::kill(&self.previous_key);
+						OnRemoval::on_removal(&self.previous_key, &[]);
+					}
 				}
 				let raw_key_without_prefix = &self.previous_key[self.prefix.len()..];
 
@@ -1465,10 +1517,19 @@ pub trait StoragePrefixedMap<Value: FullCodec> {
 	}
 }
 
-/// Marker trait that will be implemented for types that support the `storage::append` api.
+/// Trait that will be implemented for types that support the `storage::append` api.
 ///
 /// This trait is sealed.
-pub trait StorageAppend<Item: Encode>: private::Sealed {}
+pub trait StorageAppend<Item: Encode>: private::Sealed {
+	/// Append `item` to the storage entry at `key`.
+	///
+	/// The default implementation performs a raw SCALE append, which is only sound for
+	/// sequence-like encodings whose raw representation cannot violate the container's
+	/// invariants (e.g. `Vec`). Containers with uniqueness invariants must override this.
+	fn append<EncodeLikeItem: EncodeLike<Item>>(key: &[u8], item: EncodeLikeItem) {
+		sp_io::storage::append(key, item.encode());
+	}
+}
 
 /// It is expected that the length is at the beginning of the encoded object
 /// and that the length is a `Compact<u32>`.
@@ -1562,7 +1623,20 @@ mod private {
 impl<T: Encode> StorageAppend<T> for Vec<T> {}
 impl<T: Encode> StorageDecodeLength for Vec<T> {}
 
-impl<T: Encode> StorageAppend<T> for BTreeSet<T> {}
+impl<T: FullCodec + Ord> StorageAppend<T> for BTreeSet<T> {
+	fn append<EncodeLikeItem: EncodeLike<T>>(key: &[u8], item: EncodeLikeItem) {
+		// A raw SCALE append can store duplicate raw entries that a decoded `BTreeSet`
+		// silently deduplicates, letting repeated appends of the same element grow state and
+		// decode cost without changing the logical set. Instead, decode the stored set,
+		// insert the item, and write the canonical deduplicated representation back.
+		let mut value: Self = unhashed::get(key).unwrap_or_default();
+		let item = item
+			.using_encoded(|mut encoded| T::decode(&mut encoded))
+			.expect("an `EncodeLike<T>` value must encode to a decodable `T`; qed");
+		value.insert(item);
+		unhashed::put(key, &value);
+	}
+}
 impl<T: Encode> StorageDecodeNonDedupLength for BTreeSet<T> {}
 
 // Blanket implementation StorageDecodeNonDedupLength for all types that are StorageDecodeLength.
@@ -1583,6 +1657,33 @@ impl StorageAppend<DigestItem> for Digest {}
 /// This trait is sealed.
 pub trait StorageTryAppend<Item>: StorageDecodeLength + private::Sealed {
 	fn bound() -> usize;
+
+	/// The number of items in `value`.
+	///
+	/// Used by the bounded `try_append` implementations to enforce the bound against the
+	/// effective query value (e.g. a non-empty `OnEmpty` default) when no explicit entry is
+	/// present in storage and `decode_len` therefore returns `None`.
+	fn len(value: &Self) -> usize;
+}
+
+/// Compute the length of the *effective* value of a bounded storage entry that has no explicit
+/// (decodable) trie entry, given the query-kind conversions of its storage type.
+///
+/// A missing explicit entry is not necessarily an empty collection: `ValueQuery` storage falls
+/// back to its `OnEmpty` default, which may be non-empty or even at capacity. Bounded appends
+/// must enforce their bound against that effective default instead of assuming zero.
+fn effective_absent_len<T, I, FromOptional, ToOptional, Query>(
+	from_optional_value_to_query: FromOptional,
+	from_query_to_optional_value: ToOptional,
+) -> usize
+where
+	T: StorageTryAppend<I>,
+	FromOptional: FnOnce(Option<T>) -> Query,
+	ToOptional: FnOnce(Query) -> Option<T>,
+{
+	from_query_to_optional_value(from_optional_value_to_query(None))
+		.map(|value| <T as StorageTryAppend<I>>::len(&value))
+		.unwrap_or(0)
 }
 
 /// Storage value that is capable of [`StorageTryAppend`].
@@ -1601,7 +1702,15 @@ where
 {
 	fn try_append<LikeI: EncodeLike<I>>(item: LikeI) -> Result<(), ()> {
 		let bound = T::bound();
-		let current = Self::decode_len().unwrap_or_default();
+		// `decode_len` only sees explicitly stored entries; with no (decodable) entry the
+		// effective value is the query-kind default, which may be non-empty. Enforce the
+		// bound against that effective value instead of assuming it is empty.
+		let current = Self::decode_len().unwrap_or_else(|| {
+			effective_absent_len::<T, I, _, _, _>(
+				Self::from_optional_value_to_query,
+				Self::from_query_to_optional_value,
+			)
+		});
 		if current < bound {
 			// NOTE: we cannot reuse the implementation for `Vec<T>` here because we never want to
 			// mark `BoundedVec<T, S>` as `StorageAppend`.
@@ -1637,7 +1746,14 @@ where
 		item: LikeI,
 	) -> Result<(), ()> {
 		let bound = T::bound();
-		let current = Self::decode_len(key.clone()).unwrap_or_default();
+		// See `TryAppendValue::try_append`: a missing entry may still have a non-empty
+		// query-kind default, so the bound is enforced against the effective value.
+		let current = Self::decode_len(key.clone()).unwrap_or_else(|| {
+			effective_absent_len::<T, I, _, _, _>(
+				Self::from_optional_value_to_query,
+				Self::from_query_to_optional_value,
+			)
+		});
 		if current < bound {
 			let key = Self::storage_map_final_key(key);
 			sp_io::storage::append(&key, item.encode());
@@ -1682,7 +1798,14 @@ where
 		item: LikeI,
 	) -> Result<(), ()> {
 		let bound = T::bound();
-		let current = Self::decode_len(key1.clone(), key2.clone()).unwrap_or_default();
+		// See `TryAppendValue::try_append`: a missing entry may still have a non-empty
+		// query-kind default, so the bound is enforced against the effective value.
+		let current = Self::decode_len(key1.clone(), key2.clone()).unwrap_or_else(|| {
+			effective_absent_len::<T, I, _, _, _>(
+				Self::from_optional_value_to_query,
+				Self::from_query_to_optional_value,
+			)
+		});
 		if current < bound {
 			let double_map_key = Self::storage_double_map_final_key(key1, key2);
 			sp_io::storage::append(&double_map_key, item.encode());
@@ -1722,7 +1845,14 @@ where
 		item: LikeI,
 	) -> Result<(), ()> {
 		let bound = T::bound();
-		let current = Self::decode_len(key.clone()).unwrap_or_default();
+		// See `TryAppendValue::try_append`: a missing entry may still have a non-empty
+		// query-kind default, so the bound is enforced against the effective value.
+		let current = Self::decode_len(key.clone()).unwrap_or_else(|| {
+			effective_absent_len::<T, I, _, _, _>(
+				Self::from_optional_value_to_query,
+				Self::from_query_to_optional_value,
+			)
+		});
 		if current < bound {
 			let key = Self::storage_n_map_final_key::<K, _>(key);
 			sp_io::storage::append(&key, item.encode());
@@ -2098,6 +2228,61 @@ mod test {
 		});
 	}
 
+	pub struct FullDefault;
+	impl crate::traits::Get<BoundedVec<u32, ConstU32<3>>> for FullDefault {
+		fn get() -> BoundedVec<u32, ConstU32<3>> {
+			vec![1, 2, 3].try_into().expect("fits the bound")
+		}
+	}
+
+	struct WithDefaultPrefix;
+	impl crate::traits::StorageInstance for WithDefaultPrefix {
+		const STORAGE_PREFIX: &'static str = "with_default";
+		fn pallet_prefix() -> &'static str {
+			"test"
+		}
+	}
+
+	// `#[storage_alias]` does not support an `OnEmpty` parameter, so define these directly.
+	type FooWithDefault = types::StorageValue<
+		WithDefaultPrefix,
+		BoundedVec<u32, ConstU32<3>>,
+		types::ValueQuery,
+		FullDefault,
+	>;
+	type FooMapWithDefault = types::StorageMap<
+		WithDefaultPrefix,
+		Twox128,
+		u32,
+		BoundedVec<u32, ConstU32<3>>,
+		types::ValueQuery,
+		FullDefault,
+	>;
+
+	#[test]
+	fn try_append_respects_non_empty_default_of_missing_entry() {
+		TestExternalities::default().execute_with(|| {
+			// No explicit entry exists, but the effective `ValueQuery` value is the full
+			// `OnEmpty` default: `try_append` must respect the bound of that effective value
+			// instead of treating the missing entry as an empty collection.
+			assert_eq!(FooWithDefault::get().len(), 3);
+			assert!(FooWithDefault::try_append(4).is_err());
+
+			assert_eq!(FooMapWithDefault::get(1).len(), 3);
+			assert!(FooMapWithDefault::try_append(1, 4).is_err());
+
+			// Explicitly stored values below the bound can still be appended to.
+			let bounded: BoundedVec<u32, ConstU32<3>> = vec![1].try_into().unwrap();
+			FooWithDefault::put(bounded.clone());
+			assert_ok!(FooWithDefault::try_append(2));
+			assert_eq!(FooWithDefault::get().into_inner(), vec![1, 2]);
+
+			FooMapWithDefault::insert(1, bounded);
+			assert_ok!(FooMapWithDefault::try_append(1, 2));
+			assert_eq!(FooMapWithDefault::get(1).into_inner(), vec![1, 2]);
+		});
+	}
+
 	#[test]
 	fn try_append_works() {
 		TestExternalities::default().execute_with(|| {
@@ -2205,6 +2390,20 @@ mod test {
 		});
 	}
 
+	#[test]
+	fn btree_set_append_deduplicates() {
+		TestExternalities::default().execute_with(|| {
+			FooSet::append(4);
+			FooSet::append(4); // duplicate value
+			FooSet::append(5);
+
+			// The append path canonicalizes the set: the duplicate raw entry is not stored, so
+			// repeated appends of the same element cannot grow state.
+			assert_eq!(FooSet::decode_non_dedup_len().unwrap(), 2);
+			assert_eq!(FooSet::get().unwrap(), BTreeSet::from([4, 5]));
+		});
+	}
+
 	#[docify::export]
 	#[test]
 	fn btree_set_decode_non_dedup_len() {
@@ -2212,13 +2411,16 @@ mod test {
 		type Store = StorageValue<Prefix, BTreeSet<u32>>;
 
 		TestExternalities::default().execute_with(|| {
-			Store::append(4);
-			Store::append(4); // duplicate value
-			Store::append(5);
+			// A raw (non-canonical) encoding, e.g. written by a legacy runtime, can contain
+			// duplicate entries that a decoded `BTreeSet` deduplicates.
+			sp_io::storage::append(&Store::hashed_key(), 4u32.encode());
+			sp_io::storage::append(&Store::hashed_key(), 4u32.encode()); // duplicate value
+			sp_io::storage::append(&Store::hashed_key(), 5u32.encode());
 
 			let length_with_dup_items = 3;
 
 			assert_eq!(Store::decode_non_dedup_len().unwrap(), length_with_dup_items);
+			assert_eq!(Store::get().unwrap().len(), 2);
 		});
 	}
 }

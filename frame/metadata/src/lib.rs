@@ -83,10 +83,30 @@ pub mod v16;
 pub const META_RESERVED: u32 = 0x6174656d; // 'meta' warning for endianness.
 
 /// Metadata prefixed by a u32 for reserved usage
+///
+/// # Decoding untrusted input
+///
+/// [`Decode`] rejects blobs whose prefix is not [`META_RESERVED`] after reading only the first
+/// four bytes. Beyond that, decoding materializes unbounded owned containers (`Vec`s, maps,
+/// strings) whose size is proportional to the input, with no schema-level caps: callers decoding
+/// metadata from an untrusted source must bound the input size *before* decoding.
 #[derive(Eq, Encode, PartialEq, Debug)]
-#[cfg_attr(feature = "decode", derive(Decode))]
 #[cfg_attr(feature = "serde_full", derive(Serialize))]
 pub struct RuntimeMetadataPrefixed(pub u32, pub RuntimeMetadata);
+
+#[cfg(feature = "decode")]
+impl Decode for RuntimeMetadataPrefixed {
+	fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
+		// Validate the reserved prefix *before* decoding the payload, so a blob that is not
+		// runtime metadata is rejected after reading four bytes instead of after fully
+		// materializing an attacker-sized metadata structure.
+		let prefix = u32::decode(input)?;
+		if prefix != META_RESERVED {
+			return Err("Invalid metadata prefix: expected `META_RESERVED` ('meta')".into())
+		}
+		Ok(Self(prefix, RuntimeMetadata::decode(input)?))
+	}
+}
 
 impl From<RuntimeMetadataPrefixed> for Vec<u8> {
 	fn from(value: RuntimeMetadataPrefixed) -> Self {
@@ -271,5 +291,20 @@ mod test {
 		let meta: RuntimeMetadataPrefixed =
 			Decode::decode(&mut load_metadata(14).as_slice()).unwrap();
 		assert!(matches!(meta.1, RuntimeMetadata::V14(_)));
+	}
+
+	#[test]
+	fn should_reject_invalid_prefix_before_decoding_payload() {
+		// A wrong magic followed by a huge claimed payload: the prefix check must fail after
+		// the first four bytes, without attempting to materialize the payload.
+		let mut blob = 0xdeadbeef_u32.encode();
+		blob.extend_from_slice(&load_metadata(14)[4..]);
+		let res = RuntimeMetadataPrefixed::decode(&mut blob.as_slice());
+		assert!(res.is_err());
+
+		// A valid prefix still decodes.
+		let meta: RuntimeMetadataPrefixed =
+			Decode::decode(&mut load_metadata(14).as_slice()).unwrap();
+		assert_eq!(meta.0, META_RESERVED);
 	}
 }

@@ -80,8 +80,13 @@ pub fn put<T: Encode>(child_info: &ChildInfo, key: &[u8], value: &T) {
 
 /// Remove `key` from storage, returning its value if it had an explicit entry or `None` otherwise.
 pub fn take<T: Decode + Sized>(child_info: &ChildInfo, key: &[u8]) -> Option<T> {
+	// Remove any explicit entry, even one whose bytes fail to decode (in which case `get`
+	// returns `None`). Conditioning the removal on a successful decode would leave a
+	// corrupted entry in place and break the `take_or*` contract that no explicit entry
+	// remains on return.
+	let had_explicit_entry = exists(child_info, key);
 	let r = get(child_info, key);
-	if r.is_some() {
+	if had_explicit_entry {
 		kill(child_info, key);
 	}
 	r
@@ -176,11 +181,53 @@ pub fn kill_storage(child_info: &ChildInfo, limit: Option<u32>) -> KillStorageRe
 ///
 /// Please note that keys which are residing in the overlay for the child are deleted without
 /// counting towards the `limit`.
+///
+/// When a `limit` is given, the pre/post key walks used to attribute overlay-only removals are
+/// themselves bounded (to `limit` plus a fixed allowance), so a child trie holding many more
+/// keys than the limit cannot force unbounded counting work. If the trie holds more keys than
+/// the bound, overlay-only removals may be under-reported (never over-reported) in
+/// `unique`/`loops`; the `backend` count is always exact.
 pub fn clear_storage(
 	child_info: &ChildInfo,
 	maybe_limit: Option<u32>,
 	_maybe_cursor: Option<&[u8]>,
 ) -> MultiRemovalResults {
+	// The legacy `storage_kill` host function only reports keys removed from the backend; it
+	// also deletes overlay-resident keys (those written earlier in the current block) but does
+	// not count them. Count the visible keys before and after so those overlay-only removals
+	// are still reflected in `unique`/`loops`, which callers may use for weight or cleanup
+	// accounting.
+	//
+	// Both walks stop after `up_to` keys: without a bound, a limited clear of a large
+	// (potentially user-growable) child trie would perform O(total keys) `next_key` host calls
+	// just for accounting — the very unbounded-work pattern the `limit` exists to prevent.
+	fn key_count(child_info: &ChildInfo, up_to: u32) -> u32 {
+		let mut count: u32 = if exists(child_info, &[]) { 1 } else { 0 };
+		let mut previous_key = Vec::new();
+		while count < up_to {
+			match sp_io::default_child_storage::next_key(child_info.storage_key(), &previous_key) {
+				Some(next_key) => {
+					count = count.saturating_add(1);
+					previous_key = next_key;
+				},
+				None => break,
+			}
+		}
+		count
+	}
+
+	// Extra headroom on top of `limit` for the counting walks. Overlay-resident keys (written
+	// earlier in the current block) do not count towards `limit`, so allow enumerating this many
+	// keys beyond it before giving up on exact overlay attribution. When both walks saturate at
+	// the cap the computed overlay removals collapse to zero rather than going negative.
+	const OVERLAY_ATTRIBUTION_CAP: u32 = 1024;
+	// With no limit the host call itself is already O(total keys), so exact counting does not
+	// change the asymptotic cost.
+	let count_cap =
+		maybe_limit.map_or(u32::MAX, |limit| limit.saturating_add(OVERLAY_ATTRIBUTION_CAP));
+
+	let keys_before = key_count(child_info, count_cap);
+
 	// TODO: Once the network has upgraded to include the new host functions, this code can be
 	// enabled.
 	// sp_io::default_child_storage::storage_kill(prefix, maybe_limit, maybe_cursor)
@@ -193,7 +240,14 @@ pub fn clear_storage(
 		AllRemoved(db) => (None, db),
 		SomeRemaining(db) => (Some(child_info.storage_key().to_vec()), db),
 	};
-	MultiRemovalResults { maybe_cursor, backend, unique: backend, loops: backend }
+
+	// Overlay-only removals = total keys deleted (before - after) minus those the host call
+	// already accounted for in `backend`.
+	let keys_after = key_count(child_info, count_cap);
+	let overlay = keys_before.saturating_sub(keys_after).saturating_sub(backend);
+	let total = backend.saturating_add(overlay);
+
+	MultiRemovalResults { maybe_cursor, backend, unique: total, loops: total }
 }
 
 /// Ensure `key` has no explicit entry in storage.
@@ -235,5 +289,105 @@ pub fn len(child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
 			let mut buffer = [0; 0];
 			sp_io::default_child_storage::read(child_info.storage_key(), key, &mut buffer, 0)
 		},
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use sp_io::TestExternalities;
+
+	#[test]
+	fn take_removes_undecodable_explicit_entry() {
+		TestExternalities::new_empty().execute_with(|| {
+			let child_info = ChildInfo::new_default(b"test-child");
+			let key = b"slot";
+			// `[0x02]` is not a valid SCALE `bool` (only `0x00`/`0x01` decode).
+			put_raw(&child_info, key, &[0x02]);
+			assert!(exists(&child_info, key));
+
+			// `take` on a corrupted entry returns `None` (decode fails) but must still
+			// clear the explicit entry.
+			let taken = take::<bool>(&child_info, key);
+			assert_eq!(taken, None);
+			assert!(!exists(&child_info, key), "corrupt explicit entry must be removed by take");
+		});
+	}
+
+	#[test]
+	fn take_or_clears_corrupt_entry_and_returns_default() {
+		TestExternalities::new_empty().execute_with(|| {
+			let child_info = ChildInfo::new_default(b"test-child");
+			let key = b"one-shot";
+			put_raw(&child_info, key, &[0x02]);
+
+			// `take_or` must honor its contract: no explicit entry remains afterwards.
+			assert!(!take_or::<bool>(&child_info, key, false));
+			assert!(!exists(&child_info, key));
+			// A subsequent emptiness check now sees the slot as free.
+			assert!(!exists(&child_info, key));
+		});
+	}
+
+	#[test]
+	fn clear_storage_counts_overlay_only_removals() {
+		TestExternalities::new_empty().execute_with(|| {
+			let child_info = ChildInfo::new_default(b"overlay-child");
+			// Stage several keys in the overlay within this block.
+			for i in 0u8..5 {
+				put_raw(&child_info, &[i], &[i]);
+			}
+
+			// Even with a backend limit of zero, the overlay keys are deleted and must be
+			// reported in `unique`/`loops` instead of being counted as zero work.
+			let res = clear_storage(&child_info, Some(0), None);
+			assert_eq!(res.unique, 5);
+			assert_eq!(res.loops, 5);
+			for i in 0u8..5 {
+				assert!(!exists(&child_info, &[i]));
+			}
+		});
+	}
+
+	#[test]
+	fn clear_storage_counting_is_bounded_for_large_tries() {
+		let child_info = ChildInfo::new_default(b"big-child");
+		let mut ext = TestExternalities::new_empty();
+		// Commit more backend keys than the counting cap (limit + 1024) can enumerate.
+		ext.execute_with(|| {
+			for i in 0u32..1_500 {
+				put_raw(&child_info, &i.to_le_bytes(), &[1]);
+			}
+		});
+		ext.commit_all().unwrap();
+
+		ext.execute_with(|| {
+			// Stage a few overlay-only keys on top.
+			for i in 0u8..5 {
+				put_raw(&child_info, &[0xff, i], &[i]);
+			}
+
+			// The counting walks saturate at the cap, so overlay attribution degrades to zero
+			// (documented under-reporting) instead of going negative or walking the whole trie.
+			let res = clear_storage(&child_info, Some(10), None);
+			assert_eq!(res.backend, 10, "backend removals are reported exactly");
+			assert_eq!(res.unique, 10, "saturated counting must not inflate `unique`");
+			for i in 0u8..5 {
+				assert!(!exists(&child_info, &[0xff, i]), "overlay keys are still deleted");
+			}
+		});
+	}
+
+	#[test]
+	fn take_still_returns_and_clears_valid_entry() {
+		TestExternalities::new_empty().execute_with(|| {
+			let child_info = ChildInfo::new_default(b"test-child");
+			let key = b"slot";
+			put(&child_info, key, &123u32);
+			assert_eq!(take::<u32>(&child_info, key), Some(123));
+			assert!(!exists(&child_info, key));
+			// Taking an absent key returns `None` and remains absent.
+			assert_eq!(take::<u32>(&child_info, key), None);
+		});
 	}
 }

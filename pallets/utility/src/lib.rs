@@ -114,7 +114,21 @@ pub mod pallet {
 			Self::AccountId,
 			<Self as Config>::RuntimeCall,
 		>;
+
+		/// Handle into the wormhole soundness counter. An `as_derivative` pseudonym spends
+		/// through its controller and never signs an extrinsic itself, so it would otherwise stay
+		/// "ambiguous" (nonce 0) forever while receiving tracked credits. On first use of a
+		/// pseudonym it is revealed here (deducting its balance from the potential wormhole
+		/// pool) and remembered in [`KnownDerivatives`], so it can be excluded from the ambiguous
+		/// set afterwards.
+		type AddressRevealer: qp_wormhole::AddressRevealer<Self::AccountId>;
 	}
+
+	/// Derivative pseudonym accounts that have been used with [`Pallet::as_derivative`] at least
+	/// once and have therefore been revealed to the wormhole soundness counter.
+	#[pallet::storage]
+	pub type KnownDerivatives<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -267,6 +281,9 @@ pub mod pallet {
 				T::WeightInfo::as_derivative()
 					// AccountData for inner call origin accountdata.
 					.saturating_add(T::DbWeight::get().reads_writes(1, 1))
+					// First-use derivative reveal: `KnownDerivatives` read + insert and the
+					// wormhole pool write.
+					.saturating_add(T::DbWeight::get().reads_writes(1, 2))
 					.saturating_add(dispatch_info.call_weight),
 				dispatch_info.class,
 			)
@@ -283,12 +300,25 @@ pub mod pallet {
 				T::HighSecurity::is_call_allowed(&pseudonym, &call),
 				Error::<T>::CallNotAllowedForHighSecurity
 			);
+			// A pseudonym spends via its controller and never signs itself, so it never reveals
+			// itself to the wormhole soundness counter the way regular accounts do on their first
+			// signature. Reveal it on first use here (deducting its balance from the potential
+			// wormhole pool) and remember it so the runtime can exclude it from the ambiguous set
+			// afterwards; otherwise funds bounced between derivative pseudonyms would inflate the
+			// pool without bound.
+			if !KnownDerivatives::<T>::contains_key(&pseudonym) {
+				KnownDerivatives::<T>::insert(&pseudonym, ());
+				<T::AddressRevealer as qp_wormhole::AddressRevealer<_>>::reveal_address(
+					pseudonym.clone(),
+				);
+			}
 			origin.set_caller_from(frame_system::RawOrigin::Signed(pseudonym));
 			let info = call.get_dispatch_info();
 			let result = call.dispatch(origin);
 			// Always take into account the base weight of this call.
 			let mut weight = T::WeightInfo::as_derivative()
-				.saturating_add(T::DbWeight::get().reads_writes(1, 1));
+				.saturating_add(T::DbWeight::get().reads_writes(1, 1))
+				.saturating_add(T::DbWeight::get().reads_writes(1, 2));
 			// Add the real weight of the dispatch.
 			weight = weight.saturating_add(extract_actual_weight(&result, &info));
 			result
@@ -599,6 +629,12 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+		/// Whether `account` is a known [`Pallet::as_derivative`] pseudonym, i.e. it has been
+		/// used (and revealed to the wormhole soundness counter) at least once.
+		pub fn is_derivative(account: &T::AccountId) -> bool {
+			KnownDerivatives::<T>::contains_key(account)
+		}
+
 		/// Get the accumulated `weight` and the dispatch class for the given `calls`.
 		fn weight_and_dispatch_class(
 			calls: &[<T as Config>::RuntimeCall],

@@ -166,15 +166,22 @@ impl TasksDef {
 
 			impl #impl_generics #frame_support::traits::Task for #enum_use
 			{
-				type Enumeration = #frame_support::__private::IntoIter<#enum_use>;
+				type Enumeration = #frame_support::__private::Box<
+					dyn #frame_support::traits::tasks::__private::Iterator<Item = #enum_use>
+				>;
 
 				fn iter() -> Self::Enumeration {
-					let mut all_tasks = #frame_support::__private::vec![];
-					#(all_tasks
-						.extend(#task_iters.map(|(#(#task_arg_names),*)| #enum_ident::#task_fn_idents { #(#task_arg_names: #task_arg_names.clone()),* })
-						.collect::<#frame_support::__private::Vec<_>>());
+					// Stream the task lists lazily instead of collecting them into heap
+					// vectors: task lists can be derived from attacker-growable state, so
+					// eager materialization allows unbounded allocation before the first
+					// yield.
+					let mut all_tasks =
+						#frame_support::__private::Vec::<Self::Enumeration>::new();
+					#(all_tasks.push(#frame_support::__private::Box::new(
+						#task_iters.map(|(#(#task_arg_names),*)| #enum_ident::#task_fn_idents { #(#task_arg_names: #task_arg_names.clone()),* })
+					));
 					)*
-					all_tasks.into_iter()
+					#frame_support::__private::Box::new(all_tasks.into_iter().flatten())
 				}
 
 				fn task_index(&self) -> u32 {

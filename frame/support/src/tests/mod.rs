@@ -215,6 +215,23 @@ pub mod frame_system {
 	#[pallet::storage]
 	pub type Numbers<T: Config> = StorageMap<_, Twox64Concat, u32, u32, OptionQuery>;
 
+	#[pallet::tasks_experimental]
+	impl<T: Config> Pallet<T> {
+		/// Add a number into the total and remove it.
+		#[pallet::task_list(Numbers::<T>::iter_keys())]
+		#[pallet::task_condition(|i| Numbers::<T>::contains_key(i))]
+		#[pallet::task_weight(crate::weights::Weight::zero())]
+		#[pallet::task_index(0)]
+		pub fn add_number_into_total(i: u32) -> crate::dispatch::DispatchResult {
+			let v = Numbers::<T>::take(i).ok_or(Error::<T>::InvalidTask)?;
+			Total::<T>::mutate(|(total_keys, total_values)| {
+				*total_keys += i;
+				*total_values += v;
+			});
+			Ok(())
+		}
+	}
+
 	pub mod pallet_prelude {
 		pub type OriginFor<T> = <T as super::Config>::RuntimeOrigin;
 
@@ -223,6 +240,27 @@ pub mod frame_system {
 
 		pub type BlockNumberFor<T> = <HeaderFor<T> as sp_runtime::traits::Header>::Number;
 	}
+}
+
+/// A minimal second pallet with a non-zero in-code storage version, used to test the
+/// interaction between new-pallet storage-version initialization and version-gated
+/// migrations.
+#[pallet]
+pub mod pallet2 {
+	use super::frame_system;
+	use crate::pallet_prelude::*;
+
+	pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(3);
+
+	#[pallet::pallet]
+	#[pallet::storage_version(STORAGE_VERSION)]
+	pub struct Pallet<T>(_);
+
+	#[pallet::config]
+	pub trait Config: frame_system::Config {}
+
+	#[pallet::storage]
+	pub type Values<T: Config> = StorageMap<_, Twox64Concat, u32, u32, OptionQuery>;
 }
 
 type BlockNumber = u32;
@@ -250,6 +288,9 @@ mod runtime {
 
 	#[runtime::pallet_index(0)]
 	pub type System = self::frame_system;
+
+	#[runtime::pallet_index(1)]
+	pub type Example2 = self::pallet2;
 }
 
 #[crate::derive_impl(self::frame_system::config_preludes::TestDefaultConfig as self::frame_system::DefaultConfig)]
@@ -259,8 +300,111 @@ impl Config for Runtime {
 	type ExampleConstant = ();
 }
 
+impl pallet2::Config for Runtime {}
+
 fn new_test_ext() -> TestExternalities {
 	RuntimeGenesisConfig::default().build_storage().unwrap().into()
+}
+
+#[test]
+fn new_pallet_storage_version_initialized_after_migrations_not_before() {
+	use crate::{
+		migrations::VersionedMigration,
+		traits::{
+			BeforeAllRuntimeMigrations, GetStorageVersion, OnRuntimeUpgrade, StorageVersion,
+			UncheckedOnRuntimeUpgrade,
+		},
+		weights::Weight,
+	};
+
+	/// A migration importing state into the (new) `pallet2` prefix, gated on version 0.
+	pub struct ImportIntoPallet2;
+	impl UncheckedOnRuntimeUpgrade for ImportIntoPallet2 {
+		fn on_runtime_upgrade() -> Weight {
+			pallet2::Values::<Runtime>::insert(1, 100);
+			Weight::zero()
+		}
+	}
+	type Migration = VersionedMigration<0, 3, ImportIntoPallet2, pallet2::Pallet<Runtime>, ()>;
+
+	// Empty state: the pallet was just added to the runtime, no genesis ran for it.
+	TestExternalities::default().execute_with(|| {
+		assert!(!StorageVersion::exists::<pallet2::Pallet<Runtime>>());
+
+		// Mirrors `Executive::execute_on_runtime_upgrade` ordering:
+		// 1. `before_all_runtime_migrations` must not pre-seed the storage version, otherwise the
+		//    version-gated migration below is silently skipped.
+		<pallet2::Pallet<Runtime> as BeforeAllRuntimeMigrations>::before_all_runtime_migrations();
+		assert!(!StorageVersion::exists::<pallet2::Pallet<Runtime>>());
+
+		// 2. The custom (version-gated) migration runs and observes version 0.
+		Migration::on_runtime_upgrade();
+		assert_eq!(pallet2::Values::<Runtime>::get(1), Some(100), "migration must not be skipped");
+		assert_eq!(pallet2::Pallet::<Runtime>::on_chain_storage_version(), 3);
+
+		// 3. The pallet's own hook must not clobber the version set by the migration.
+		<pallet2::Pallet<Runtime> as OnRuntimeUpgrade>::on_runtime_upgrade();
+		assert_eq!(pallet2::Pallet::<Runtime>::on_chain_storage_version(), 3);
+	});
+
+	// A genuinely new pallet with no migration still gets its version initialized once
+	// all migrations had the chance to run.
+	TestExternalities::default().execute_with(|| {
+		<pallet2::Pallet<Runtime> as BeforeAllRuntimeMigrations>::before_all_runtime_migrations();
+		<pallet2::Pallet<Runtime> as OnRuntimeUpgrade>::on_runtime_upgrade();
+		assert!(StorageVersion::exists::<pallet2::Pallet<Runtime>>());
+		assert_eq!(pallet2::Pallet::<Runtime>::on_chain_storage_version(), 3);
+	});
+}
+
+#[test]
+fn runtime_task_enumeration_is_lazy() {
+	use crate::traits::Task as TaskTrait;
+
+	new_test_ext().execute_with(|| {
+		for i in 0..5u32 {
+			frame_system::Numbers::<Runtime>::insert(i, i);
+		}
+
+		// Create the enumeration first, then clear the backing storage. A lazy
+		// enumeration observes the cleared state; an eager implementation would have
+		// collected all five tasks into heap vectors before yielding any of them.
+		let mut tasks = <RuntimeTask as TaskTrait>::iter();
+		let _ = frame_system::Numbers::<Runtime>::clear(u32::MAX, None);
+		assert_eq!(tasks.next(), None);
+	});
+}
+
+#[test]
+fn runtime_task_enumeration_yields_pallet_tasks() {
+	use crate::traits::Task as TaskTrait;
+
+	new_test_ext().execute_with(|| {
+		frame_system::Numbers::<Runtime>::insert(7, 3);
+
+		let tasks = <RuntimeTask as TaskTrait>::iter().collect::<Vec<_>>();
+		assert_eq!(
+			tasks,
+			vec![RuntimeTask::System(frame_system::Task::<Runtime>::AddNumberIntoTotal { i: 7 })]
+		);
+	});
+}
+
+#[test]
+fn get_call_names_unknown_module_returns_empty_not_panic() {
+	use crate::traits::GetCallMetadata;
+
+	// A known module resolves to its call names.
+	let modules = <RuntimeCall as GetCallMetadata>::get_module_names();
+	assert!(modules.contains(&"System"));
+	assert!(!<RuntimeCall as GetCallMetadata>::get_call_names("System").is_empty());
+
+	// `get_call_names` is public metadata API reachable with caller-supplied strings; an
+	// unknown module must be a recoverable empty result, not a panic.
+	assert_eq!(
+		<RuntimeCall as GetCallMetadata>::get_call_names("DefinitelyMissingPallet"),
+		&[] as &[&str],
+	);
 }
 
 trait Sorted {

@@ -18,7 +18,7 @@
 //! Traits for querying pallet view functions.
 
 use alloc::vec::Vec;
-use codec::{Decode, DecodeAll, Encode, Output};
+use codec::{Decode, DecodeWithMemLimit, Encode, Output};
 use scale_info::TypeInfo;
 use sp_runtime::RuntimeDebug;
 
@@ -98,9 +98,16 @@ pub trait ViewFunctionIdSuffix {
 	const SUFFIX: [u8; 16];
 }
 
+/// Maximum heap memory a single view-function input is allowed to allocate while decoding.
+///
+/// View functions are reachable through the `RuntimeViewFunction` runtime API with
+/// attacker-controlled input, so decoding is bounded to prevent a small crafted request from
+/// forcing a disproportionately large allocation (a decode "bomb").
+pub const MAX_VIEW_FUNCTION_DECODE_MEM: usize = 16 * 1024 * 1024;
+
 /// Automatically implemented for each pallet view function method by the macro
 /// [`pallet`](crate::pallet).
-pub trait ViewFunction: DecodeAll {
+pub trait ViewFunction: DecodeWithMemLimit {
 	fn id() -> ViewFunctionId;
 	type ReturnType: Encode;
 
@@ -110,7 +117,12 @@ pub trait ViewFunction: DecodeAll {
 		input: &mut &[u8],
 		output: &mut O,
 	) -> Result<(), ViewFunctionDispatchError> {
-		let view_function = Self::decode_all(input)?;
+		// Use the mem-tracked decode (bounded by `MAX_VIEW_FUNCTION_DECODE_MEM`) instead of a
+		// plain `DecodeAll`, and still require the whole input to be consumed.
+		let view_function = Self::decode_with_mem_limit(input, MAX_VIEW_FUNCTION_DECODE_MEM)?;
+		if !input.is_empty() {
+			return Err(ViewFunctionDispatchError::Codec)
+		}
 		let result = view_function.invoke();
 		Encode::encode_to(&result, output);
 		Ok(())
@@ -130,5 +142,77 @@ pub mod runtime_api {
 				input: Vec<u8>,
 			) -> Result<Vec<u8>, ViewFunctionDispatchError>;
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use codec::{Decode, DecodeWithMemTracking};
+
+	#[derive(Encode, Decode, DecodeWithMemTracking)]
+	struct DoubleIt {
+		value: u32,
+	}
+
+	impl ViewFunction for DoubleIt {
+		fn id() -> ViewFunctionId {
+			ViewFunctionId { prefix: [0u8; 16], suffix: [0u8; 16] }
+		}
+		type ReturnType = u32;
+
+		fn invoke(self) -> Self::ReturnType {
+			self.value.wrapping_mul(2)
+		}
+	}
+
+	#[test]
+	fn execute_decodes_invokes_and_encodes() {
+		let input = 21u32.encode();
+		let mut output = Vec::new();
+		DoubleIt::execute(&mut &input[..], &mut output).unwrap();
+		assert_eq!(u32::decode(&mut &output[..]).unwrap(), 42);
+	}
+
+	#[test]
+	fn execute_rejects_trailing_bytes() {
+		// A valid `u32` followed by extra trailing bytes must be rejected rather than
+		// silently decoded from a prefix of the input.
+		let mut input = 21u32.encode();
+		input.extend_from_slice(&[0xff, 0xff]);
+		let mut output = Vec::new();
+		assert!(matches!(
+			DoubleIt::execute(&mut &input[..], &mut output),
+			Err(ViewFunctionDispatchError::Codec)
+		));
+	}
+
+	#[test]
+	fn execute_bounds_decode_allocation() {
+		// A `Vec<u8>` view function argument whose declared length would allocate far more
+		// than the mem limit is rejected instead of being decoded.
+		#[derive(Encode, Decode, DecodeWithMemTracking)]
+		struct TakesVec {
+			data: Vec<u8>,
+		}
+		impl ViewFunction for TakesVec {
+			fn id() -> ViewFunctionId {
+				ViewFunctionId { prefix: [1u8; 16], suffix: [1u8; 16] }
+			}
+			type ReturnType = u32;
+			fn invoke(self) -> Self::ReturnType {
+				self.data.len() as u32
+			}
+		}
+
+		// Encode a compact length larger than the mem limit, then provide that many bytes.
+		let len = (MAX_VIEW_FUNCTION_DECODE_MEM + 1) as u32;
+		let mut input = codec::Compact(len).encode();
+		input.extend(core::iter::repeat(0u8).take(len as usize));
+		let mut output = Vec::new();
+		assert!(matches!(
+			TakesVec::execute(&mut &input[..], &mut output),
+			Err(ViewFunctionDispatchError::Codec)
+		));
 	}
 }

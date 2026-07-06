@@ -144,12 +144,26 @@ impl syn::parse::Parse for FunctionAttr {
 		content.parse::<keyword::pallet>()?;
 		content.parse::<syn::Token![::]>()?;
 
+		// Reject attributes with unparsed trailing tokens instead of silently ignoring
+		// them: attributes like `#[pallet::weight(...)]` define security-critical dispatch
+		// metadata, so accepting only a leading prefix of the attribute could silently
+		// underprice a call.
+		fn ensure_empty(stream: syn::parse::ParseStream) -> syn::Result<()> {
+			if stream.is_empty() {
+				Ok(())
+			} else {
+				Err(stream.error("unexpected trailing tokens in pallet attribute"))
+			}
+		}
+
 		let lookahead = content.lookahead1();
-		if lookahead.peek(keyword::weight) {
+		let attr = if lookahead.peek(keyword::weight) {
 			content.parse::<keyword::weight>()?;
 			let weight_content;
 			syn::parenthesized!(weight_content in content);
-			Ok(FunctionAttr::Weight(weight_content.parse::<syn::Expr>()?))
+			let weight = weight_content.parse::<syn::Expr>()?;
+			ensure_empty(&weight_content)?;
+			FunctionAttr::Weight(weight)
 		} else if lookahead.peek(keyword::call_index) {
 			content.parse::<keyword::call_index>()?;
 			let call_index_content;
@@ -159,33 +173,40 @@ impl syn::parse::Parse for FunctionAttr {
 				let msg = "Number literal must not have a suffix";
 				return Err(syn::Error::new(index.span(), msg));
 			}
-			Ok(FunctionAttr::CallIndex(index.base10_parse()?))
+			ensure_empty(&call_index_content)?;
+			FunctionAttr::CallIndex(index.base10_parse()?)
 		} else if lookahead.peek(keyword::feeless_if) {
 			content.parse::<keyword::feeless_if>()?;
 			let closure_content;
 			syn::parenthesized!(closure_content in content);
-			Ok(FunctionAttr::FeelessIf(
-				closure_content.span(),
-				closure_content.parse::<syn::ExprClosure>().map_err(|e| {
-					let msg = "Invalid feeless_if attribute: expected a closure";
-					let mut err = syn::Error::new(closure_content.span(), msg);
-					err.combine(e);
-					err
-				})?,
-			))
+			let closure = closure_content.parse::<syn::ExprClosure>().map_err(|e| {
+				let msg = "Invalid feeless_if attribute: expected a closure";
+				let mut err = syn::Error::new(closure_content.span(), msg);
+				err.combine(e);
+				err
+			})?;
+			ensure_empty(&closure_content)?;
+			FunctionAttr::FeelessIf(closure_content.span(), closure)
 		} else if lookahead.peek(keyword::authorize) {
 			content.parse::<keyword::authorize>()?;
 			let closure_content;
 			syn::parenthesized!(closure_content in content);
-			Ok(FunctionAttr::Authorize(closure_content.parse::<syn::Expr>()?))
+			let expr = closure_content.parse::<syn::Expr>()?;
+			ensure_empty(&closure_content)?;
+			FunctionAttr::Authorize(expr)
 		} else if lookahead.peek(keyword::weight_of_authorize) {
 			content.parse::<keyword::weight_of_authorize>()?;
 			let closure_content;
 			syn::parenthesized!(closure_content in content);
-			Ok(FunctionAttr::WeightOfAuthorize(closure_content.parse::<syn::Expr>()?))
+			let expr = closure_content.parse::<syn::Expr>()?;
+			ensure_empty(&closure_content)?;
+			FunctionAttr::WeightOfAuthorize(expr)
 		} else {
-			Err(lookahead.error())
-		}
+			return Err(lookahead.error());
+		};
+
+		ensure_empty(&content)?;
+		Ok(attr)
 	}
 }
 

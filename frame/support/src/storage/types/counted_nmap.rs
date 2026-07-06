@@ -126,6 +126,8 @@ pub struct OnRemovalCounterUpdate<Prefix>(core::marker::PhantomData<Prefix>);
 impl<Prefix: CountedStorageNMapInstance> crate::storage::PrefixIteratorOnRemoval
 	for OnRemovalCounterUpdate<Prefix>
 {
+	// Only the counter is touched; key-only drains need not read the removed value.
+	const NEEDS_VALUE: bool = false;
 	fn on_removal(_key: &[u8], _value: &[u8]) {
 		CounterFor::<Prefix>::mutate(|value| value.saturating_dec());
 	}
@@ -181,16 +183,16 @@ where
 	}
 
 	/// Store or remove the value to be associated with `key` so that `get` returns the `query`.
-	/// It decrements the counter when the value is removed.
+	/// It updates the counter when a key is actually added to or removed from the map.
 	pub fn set<KArg: EncodeLikeTuple<Key::KArg> + TupleToEncodedIter>(
 		key: KArg,
 		query: QueryKind::Query,
 	) {
 		let option = QueryKind::from_query_to_optional_value(query);
-		if option.is_none() {
-			CounterFor::<Prefix>::mutate(|value| value.saturating_dec());
-		}
-		<Self as MapWrapper>::Map::set(key, QueryKind::from_optional_value_to_query(option))
+		// The counter must reflect actual key existence transitions: writing a value can create
+		// a previously absent key and removing one only shrinks the map if the key existed.
+		// `try_mutate_exists` reconciles the counter against both states.
+		Self::mutate_exists(key, |value| *value = option);
 	}
 
 	/// Take a value from storage, removing it afterwards.
@@ -269,19 +271,21 @@ where
 		Key: HasKeyPrefix<KP>,
 	{
 		let result = <Self as MapWrapper>::Map::clear_prefix(partial_key, limit, maybe_cursor);
-		match result.maybe_cursor {
-			None => CounterFor::<Prefix>::kill(),
-			Some(_) => CounterFor::<Prefix>::mutate(|x| x.saturating_reduce(result.unique)),
-		}
+		// A `None` cursor only means that no items remain under *this* partial prefix; other
+		// prefixes may still hold entries, so the counter must be decremented by the number of
+		// removed items rather than killed (which would report a non-empty map as empty).
+		CounterFor::<Prefix>::mutate(|x| x.saturating_reduce(result.unique));
 		result
 	}
 
 	/// Iterate over values that share the first key.
-	pub fn iter_prefix_values<KP>(partial_key: KP) -> PrefixIterator<Value>
+	pub fn iter_prefix_values<KP>(
+		partial_key: KP,
+	) -> PrefixIterator<Value, OnRemovalCounterUpdate<Prefix>>
 	where
 		Key: HasKeyPrefix<KP>,
 	{
-		<Self as MapWrapper>::Map::iter_prefix_values(partial_key)
+		<Self as MapWrapper>::Map::iter_prefix_values(partial_key).convert_on_removal()
 	}
 
 	/// Mutate the value under the given keys.
@@ -396,7 +400,24 @@ where
 	where
 		KArg: EncodeLikeTuple<Key::KArg> + TupleToEncodedIter,
 	{
-		<Self as MapWrapper>::Map::migrate_keys::<_>(key, hash_fns)
+		// This reimplements the raw map migration (rather than delegating) because the counter
+		// must be reconciled when the same logical key already has an entry under the current
+		// hashers: migrating then collapses two stored keys into one. The single-use `hash_fns`
+		// closures cannot be reused for both a collision check and a delegated call.
+		let old_key = {
+			let mut old_key = Self::map_storage_final_prefix();
+			old_key.extend_from_slice(&Key::migrate_key(&key, hash_fns));
+			old_key
+		};
+		let new_key = <Self as MapWrapper>::Map::hashed_key_for(key);
+		let value = crate::storage::unhashed::take::<Value>(&old_key);
+		if let Some(value) = &value {
+			if old_key != new_key && crate::storage::unhashed::exists(&new_key) {
+				CounterFor::<Prefix>::mutate(|value| value.saturating_dec());
+			}
+			crate::storage::unhashed::put(&new_key, value);
+		}
+		value
 	}
 
 	/// Attempt to remove all items from the map.
@@ -434,8 +455,8 @@ where
 	/// Iter over all value of the storage.
 	///
 	/// NOTE: If a value failed to decode because storage is corrupted then it is skipped.
-	pub fn iter_values() -> crate::storage::PrefixIterator<Value> {
-		<Self as MapWrapper>::Map::iter_values()
+	pub fn iter_values() -> crate::storage::PrefixIterator<Value, OnRemovalCounterUpdate<Prefix>> {
+		<Self as MapWrapper>::Map::iter_values().convert_on_removal()
 	}
 
 	/// Translate the values of all elements by a function `f`, in the map in no particular order.
@@ -495,11 +516,14 @@ where
 	/// undefined results.
 	pub fn iter_prefix<KP>(
 		kp: KP,
-	) -> crate::storage::PrefixIterator<(<Key as HasKeyPrefix<KP>>::Suffix, Value)>
+	) -> crate::storage::PrefixIterator<
+		(<Key as HasKeyPrefix<KP>>::Suffix, Value),
+		OnRemovalCounterUpdate<Prefix>,
+	>
 	where
 		Key: HasReversibleKeyPrefix<KP>,
 	{
-		<Self as MapWrapper>::Map::iter_prefix(kp)
+		<Self as MapWrapper>::Map::iter_prefix(kp).convert_on_removal()
 	}
 
 	/// Enumerate all elements in the map with prefix key `kp` after a specified `starting_raw_key`
@@ -526,11 +550,14 @@ where
 	/// undefined results.
 	pub fn iter_key_prefix<KP>(
 		kp: KP,
-	) -> crate::storage::KeyPrefixIterator<<Key as HasKeyPrefix<KP>>::Suffix>
+	) -> crate::storage::KeyPrefixIterator<
+		<Key as HasKeyPrefix<KP>>::Suffix,
+		OnRemovalCounterUpdate<Prefix>,
+	>
 	where
 		Key: HasReversibleKeyPrefix<KP>,
 	{
-		<Self as MapWrapper>::Map::iter_key_prefix(kp)
+		<Self as MapWrapper>::Map::iter_key_prefix(kp).convert_on_removal()
 	}
 
 	/// Enumerate all suffix keys in the map with prefix key `kp` after a specified
@@ -541,11 +568,14 @@ where
 	pub fn iter_key_prefix_from<KP>(
 		kp: KP,
 		starting_raw_key: Vec<u8>,
-	) -> crate::storage::KeyPrefixIterator<<Key as HasKeyPrefix<KP>>::Suffix>
+	) -> crate::storage::KeyPrefixIterator<
+		<Key as HasKeyPrefix<KP>>::Suffix,
+		OnRemovalCounterUpdate<Prefix>,
+	>
 	where
 		Key: HasReversibleKeyPrefix<KP>,
 	{
-		<Self as MapWrapper>::Map::iter_key_prefix_from(kp, starting_raw_key)
+		<Self as MapWrapper>::Map::iter_key_prefix_from(kp, starting_raw_key).convert_on_removal()
 	}
 
 	/// Remove all elements from the map with prefix key `kp` and iterate through them in no
@@ -585,8 +615,9 @@ where
 	/// Enumerate all keys in the map in no particular order.
 	///
 	/// If you add or remove values to the map while doing this, you'll get undefined results.
-	pub fn iter_keys() -> crate::storage::KeyPrefixIterator<Key::Key> {
-		<Self as MapWrapper>::Map::iter_keys()
+	pub fn iter_keys() -> crate::storage::KeyPrefixIterator<Key::Key, OnRemovalCounterUpdate<Prefix>>
+	{
+		<Self as MapWrapper>::Map::iter_keys().convert_on_removal()
 	}
 
 	/// Enumerate all keys in the map after a specified `starting_raw_key` in no particular order.
@@ -594,8 +625,8 @@ where
 	/// If you add or remove values to the map while doing this, you'll get undefined results.
 	pub fn iter_keys_from(
 		starting_raw_key: Vec<u8>,
-	) -> crate::storage::KeyPrefixIterator<Key::Key> {
-		<Self as MapWrapper>::Map::iter_keys_from(starting_raw_key)
+	) -> crate::storage::KeyPrefixIterator<Key::Key, OnRemovalCounterUpdate<Prefix>> {
+		<Self as MapWrapper>::Map::iter_keys_from(starting_raw_key).convert_on_removal()
 	}
 
 	/// Remove all elements from the map and iterate through them in no particular order.
@@ -708,6 +739,123 @@ mod test {
 		fn get() -> u32 {
 			98
 		}
+	}
+
+	#[test]
+	fn clear_prefix_keeps_count_of_other_prefixes() {
+		type A = CountedStorageNMap<
+			Prefix,
+			(NMapKey<Blake2_128Concat, u16>, NMapKey<Twox64Concat, u8>),
+			u32,
+			OptionQuery,
+		>;
+
+		let mut ext = TestExternalities::default();
+		ext.execute_with(|| {
+			A::insert((1, 10), 100);
+			A::insert((1, 11), 101);
+			A::insert((2, 20), 200);
+			assert_eq!(A::count(), 3);
+		});
+		// Commit to the backend so the legacy `kill_prefix` host function reports the
+		// removals in `unique`.
+		ext.commit_all().unwrap();
+		ext.execute_with(|| {
+			// Clearing one partial prefix to completion (cursor `None`) must only subtract the
+			// removed entries, not reset the global counter: entries under other prefixes
+			// remain in the map.
+			let res = A::clear_prefix((1,), u32::MAX, None);
+			assert!(res.maybe_cursor.is_none());
+			assert_eq!(res.unique, 2);
+			assert_eq!(A::count(), 1);
+			assert_eq!(A::get((2, 20)), Some(200));
+		});
+	}
+
+	#[test]
+	fn drainable_iterator_variants_update_count() {
+		type A = CountedStorageNMap<
+			Prefix,
+			(NMapKey<Blake2_128Concat, u16>, NMapKey<Twox64Concat, u8>),
+			u32,
+			OptionQuery,
+		>;
+
+		TestExternalities::default().execute_with(|| {
+			A::insert((3, 30), 11);
+			A::insert((3, 31), 12);
+			A::insert((4, 40), 13);
+			assert_eq!(A::count(), 3);
+
+			// Draining through a value-only prefix iterator must decrement the counter.
+			assert_eq!(A::iter_prefix_values((3,)).drain().count(), 2);
+			assert_eq!(A::count(), 1);
+			assert_eq!(A::iter().collect::<Vec<_>>(), vec![((4, 40), 13)]);
+
+			// Draining through the key iterator must decrement the counter as well.
+			assert_eq!(A::iter_keys().drain().collect::<Vec<_>>(), vec![(4, 40)]);
+			assert_eq!(A::count(), 0);
+			assert_eq!(A::iter().count(), 0);
+		});
+	}
+
+	#[test]
+	fn set_reconciles_counter_with_actual_key_existence() {
+		type A = CountedStorageNMap<Prefix, NMapKey<Blake2_128Concat, u16>, u32, OptionQuery>;
+
+		TestExternalities::default().execute_with(|| {
+			// Setting a value on an absent key creates it and must increment the count.
+			A::set((1,), Some(10));
+			assert_eq!(A::count(), 1);
+			// Overwriting an existing key must not change the count.
+			A::set((1,), Some(11));
+			assert_eq!(A::get((1,)), Some(11));
+			assert_eq!(A::count(), 1);
+			// Removing an absent key must not decrement the count.
+			A::set((2,), None);
+			assert_eq!(A::count(), 1);
+			// Removing an existing key decrements.
+			A::set((1,), None);
+			assert!(!A::contains_key((1,)));
+			assert_eq!(A::count(), 0);
+		})
+	}
+
+	#[test]
+	fn migrate_keys_reconciles_counter_when_entries_collapse() {
+		type A = CountedStorageNMap<Prefix, NMapKey<Blake2_128Concat, u16>, u32, OptionQuery>;
+		type B = CountedStorageNMap<Prefix, NMapKey<Blake2_256, u16>, u32, ValueQuery>;
+
+		TestExternalities::default().execute_with(|| {
+			// The same logical key exists under both the old and the current hashers.
+			B::insert((2,), 10);
+			A::insert((2,), 20);
+			assert_eq!(A::count(), 2);
+
+			// Migration overwrites the current-hasher entry: two stored keys collapse into one
+			// and the counter must follow.
+			assert_eq!(
+				A::migrate_keys((2,), (Box::new(|key| Blake2_256::hash(key).to_vec()),)),
+				Some(10)
+			);
+			assert_eq!(A::get((2,)), Some(10));
+			assert_eq!(A::count(), 1);
+
+			// A degenerate migration with the current hasher rewrites the same physical key and
+			// must not change the count.
+			assert_eq!(
+				A::migrate_keys((2,), (Box::new(|key| Blake2_128Concat::hash(key)),)),
+				Some(10)
+			);
+			assert_eq!(A::count(), 1);
+
+			// Migrating a missing key is a no-op.
+			assert_eq!(
+				A::migrate_keys((3,), (Box::new(|key| Blake2_256::hash(key).to_vec()),)),
+				None
+			);
+			assert_eq!(A::count(), 1);
+		})
 	}
 
 	#[test]

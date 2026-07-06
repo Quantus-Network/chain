@@ -362,6 +362,14 @@ pub trait Mutate<AccountId>:
 			ensure!(amount <= have, TokenError::FundsUnavailable);
 		}
 
+		// In `OnHold` mode the destination keeps the funds on hold and must already exist:
+		// `can_deposit(.., Extant)` only concerns issuance accounting, not account existence, so
+		// without this check a held balance could be credited to a non-existent account, leaving
+		// hold state with no underlying account.
+		if mode == OnHold {
+			ensure!(!Self::total_balance(dest).is_zero(), TokenError::CannotCreate);
+		}
+
 		// We want to make sure we can deposit the amount in advance. If we can't then something is
 		// very wrong.
 		ensure!(Self::can_deposit(dest, amount, Extant) == Success, TokenError::CannotCreate);

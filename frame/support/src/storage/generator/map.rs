@@ -114,6 +114,7 @@ where
 				let mut key_material = G::Hasher::reverse(raw_key_without_prefix);
 				K::decode(&mut key_material)
 			},
+			phantom: Default::default(),
 		}
 	}
 
@@ -295,7 +296,7 @@ impl<K: FullEncode, V: FullCodec, G: StorageMap<K, V>> storage::StorageMap<K, V>
 		V: StorageAppend<Item>,
 	{
 		let key = Self::storage_map_final_key(key);
-		sp_io::storage::append(&key, item.encode());
+		V::append(&key, item);
 	}
 
 	fn migrate_key<OldHasher: StorageHasher, KeyArg: EncodeLike<K>>(key: KeyArg) -> Option<V> {

@@ -214,24 +214,16 @@ pub fn expand_hooks(def: &mut Def) -> proc_macro2::TokenStream {
 			for #pallet_ident<#type_use_gen> #where_clause
 		{
 			fn before_all_runtime_migrations() -> #frame_support::weights::Weight {
-				use #frame_support::traits::{Get, PalletInfoAccess};
-				use #frame_support::__private::hashing::twox_128;
-				use #frame_support::storage::unhashed::contains_prefixed_key;
 				#frame_support::__private::sp_tracing::enter_span!(
 					#frame_support::__private::sp_tracing::trace_span!("before_all")
 				);
 
-				// Check if the pallet has any keys set, including the storage version. If there are
-				// no keys set, the pallet was just added to the runtime and needs to have its
-				// version initialized.
-				let pallet_hashed_prefix = <Self as PalletInfoAccess>::name_hash();
-				let exists = contains_prefixed_key(&pallet_hashed_prefix);
-				if !exists {
-					#initialize_on_chain_storage_version
-					<T as #frame_system::Config>::DbWeight::get().reads_writes(1, 1)
-				} else {
-					<T as #frame_system::Config>::DbWeight::get().reads(1)
-				}
+				// The on-chain storage version of a newly added pallet is initialized
+				// *after* all migrations ran (see `on_runtime_upgrade` below). Seeding it
+				// here would run before the runtime's custom migrations and cause
+				// version-gated migrations targeting a new (still empty) pallet prefix,
+				// e.g. renames or imports from another namespace, to be silently skipped.
+				#frame_support::weights::Weight::zero()
 			}
 		}
 
@@ -240,6 +232,7 @@ pub fn expand_hooks(def: &mut Def) -> proc_macro2::TokenStream {
 			for #pallet_ident<#type_use_gen> #where_clause
 		{
 			fn on_runtime_upgrade() -> #frame_support::weights::Weight {
+				use #frame_support::traits::Get;
 				#frame_support::__private::sp_tracing::enter_span!(
 					#frame_support::__private::sp_tracing::trace_span!("on_runtime_update")
 				);
@@ -247,11 +240,28 @@ pub fn expand_hooks(def: &mut Def) -> proc_macro2::TokenStream {
 				// log info about the upgrade.
 				#log_runtime_upgrade
 
-				<
+				let mut weight = <
 					Self as #frame_support::traits::Hooks<
 						#frame_system::pallet_prelude::BlockNumberFor::<T>
 					>
-				>::on_runtime_upgrade()
+				>::on_runtime_upgrade();
+
+				// If the storage-version key is still absent after every migration had a
+				// chance to run, the pallet is genuinely new: initialize its on-chain
+				// storage version. Doing this after the migrations (instead of in
+				// `before_all_runtime_migrations`) keeps version-gated migrations that
+				// target a new pallet prefix from being skipped.
+				if !#frame_support::traits::StorageVersion::exists::<Self>() {
+					#initialize_on_chain_storage_version
+					weight = weight.saturating_add(
+						<T as #frame_system::Config>::DbWeight::get().reads_writes(1, 1)
+					);
+				} else {
+					weight = weight
+						.saturating_add(<T as #frame_system::Config>::DbWeight::get().reads(1));
+				}
+
+				weight
 			}
 
 			#frame_support::try_runtime_enabled! {

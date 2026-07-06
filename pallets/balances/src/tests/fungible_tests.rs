@@ -23,7 +23,7 @@ use frame_support::traits::{
 		Fortitude::{Force, Polite},
 		Precision::{BestEffort, Exact},
 		Preservation::{Expendable, Preserve, Protect},
-		Restriction::Free,
+		Restriction::{Free, OnHold},
 	},
 	Consideration, Footprint, LinearStoragePrice, MaybeConsideration,
 };
@@ -277,6 +277,32 @@ fn frozen_hold_balance_cannot_be_moved_without_force() {
 			);
 
 			assert_eq!(Balances::total_balance(&2), 21);
+		});
+}
+
+#[test]
+fn transfer_on_hold_onhold_requires_existing_dest() {
+	ExtBuilder::default()
+		.existential_deposit(1)
+		.monied(true)
+		.build_and_execute_with(|| {
+			assert_ok!(Balances::hold(&TestId::Foo, &1, 7));
+			let dest = 99u64; // does not exist
+			assert_eq!(Balances::total_balance(&dest), 0);
+
+			// `OnHold` mode keeps the funds on hold in `dest`, which must already exist. A
+			// non-existent destination must be rejected rather than gaining orphan hold state.
+			assert_noop!(
+				Balances::transfer_on_hold(&TestId::Foo, &1, &dest, 5, Exact, OnHold, Force),
+				TokenError::CannotCreate,
+			);
+			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &1), 7);
+			assert_eq!(Balances::total_balance(&dest), 0);
+
+			// `Free` mode may create the destination, so it still succeeds.
+			assert_ok!(Balances::transfer_on_hold(&TestId::Foo, &1, &dest, 5, Exact, Free, Force));
+			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &1), 2);
+			assert_eq!(Balances::free_balance(dest), 5);
 		});
 }
 
@@ -806,7 +832,12 @@ fn lone_freeze_consideration_works() {
 			>;
 
 			let who = 4;
-			let zero_ticket = Consideration::new(&who, Footprint::from_parts(0, 0)).unwrap();
+			// A zero-footprint ticket is rejected: it would leave no freeze marker and could
+			// later thaw a newer ticket's freeze under the same reason.
+			assert_noop!(
+				Consideration::new(&who, Footprint::from_parts(0, 0)),
+				sp_runtime::DispatchError::Unavailable,
+			);
 			assert_eq!(Balances::balance_frozen(&TestId::Foo, &who), 0);
 
 			let ticket = Consideration::new(&who, Footprint::from_parts(10, 1)).unwrap();
@@ -818,11 +849,12 @@ fn lone_freeze_consideration_works() {
 			let ticket = ticket.update(&who, Footprint::from_parts(4, 1)).unwrap();
 			assert_eq!(Balances::balance_frozen(&TestId::Foo, &who), 4);
 
-			assert_eq!(ticket.update(&who, Footprint::from_parts(0, 0)).unwrap(), zero_ticket);
-			assert_eq!(Balances::balance_frozen(&TestId::Foo, &who), 0);
-
-			let ticket = Consideration::new(&who, Footprint::from_parts(10, 1)).unwrap();
-			assert_eq!(Balances::balance_frozen(&TestId::Foo, &who), 10);
+			// Updating to a zero footprint is likewise rejected and leaves the freeze intact.
+			assert_noop!(
+				ticket.clone().update(&who, Footprint::from_parts(0, 0)),
+				sp_runtime::DispatchError::Unavailable,
+			);
+			assert_eq!(Balances::balance_frozen(&TestId::Foo, &who), 4);
 
 			let _ = ticket.drop(&who).unwrap();
 			assert_eq!(Balances::balance_frozen(&TestId::Foo, &who), 0);
@@ -844,7 +876,12 @@ fn lone_hold_consideration_works() {
 			>;
 
 			let who = 4;
-			let zero_ticket = Consideration::new(&who, Footprint::from_parts(0, 0)).unwrap();
+			// A zero-footprint ticket is rejected: it would leave no hold marker and could
+			// later release/burn a newer ticket's hold under the same reason.
+			assert_noop!(
+				Consideration::new(&who, Footprint::from_parts(0, 0)),
+				sp_runtime::DispatchError::Unavailable,
+			);
 			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &who), 0);
 
 			let ticket = Consideration::new(&who, Footprint::from_parts(10, 1)).unwrap();
@@ -871,11 +908,12 @@ fn lone_hold_consideration_works() {
 			let ticket = ticket.update(&who, Footprint::from_parts(4, 1)).unwrap();
 			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &who), 4);
 
-			assert_eq!(ticket.update(&who, Footprint::from_parts(0, 0)).unwrap(), zero_ticket);
-			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &who), 0);
-
-			let ticket = Consideration::new(&who, Footprint::from_parts(10, 1)).unwrap();
-			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &who), 10);
+			// Updating to a zero footprint is likewise rejected and leaves the hold intact.
+			assert_noop!(
+				ticket.clone().update(&who, Footprint::from_parts(0, 0)),
+				sp_runtime::DispatchError::Unavailable,
+			);
+			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &who), 4);
 
 			let _ = ticket.drop(&who).unwrap();
 			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &who), 0);

@@ -287,7 +287,7 @@ where
 		V: StorageAppend<Item>,
 	{
 		let final_key = Self::storage_n_map_final_key::<K, _>(key);
-		sp_io::storage::append(&final_key, item.encode());
+		V::append(&final_key, item);
 	}
 
 	fn migrate_keys<KArg>(key: KArg, hash_fns: K::HArg) -> Option<V>
@@ -356,6 +356,7 @@ impl<K: ReversibleKeyGenerator, V: FullCodec, G: StorageNMap<K, V>>
 			previous_key: prefix,
 			drain: false,
 			closure: K::decode_partial_key,
+			phantom: Default::default(),
 		}
 	}
 
@@ -412,6 +413,7 @@ impl<K: ReversibleKeyGenerator, V: FullCodec, G: StorageNMap<K, V>>
 				let (final_key, _) = K::decode_final_key(raw_key_without_prefix)?;
 				Ok(final_key)
 			},
+			phantom: Default::default(),
 		}
 	}
 

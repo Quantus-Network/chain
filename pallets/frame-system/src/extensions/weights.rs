@@ -50,6 +50,16 @@ use frame_support::{traits::Get, weights::{Weight, constants::RocksDbWeight}};
 use core::marker::PhantomData;
 
 /// Weight functions needed for `frame_system_extensions`.
+///
+/// # Note on signer-dependent extensions
+///
+/// [`Self::check_non_zero_sender`] and [`Self::check_nonce`] model a *constant* cost, yet their
+/// implementations do work proportional to the SCALE-encoded length of the signer (scanning the
+/// encoded `AccountId`, encoding it into transaction-pool dependency tags). That work is bounded
+/// by `AccountId::max_encoded_len()`, so the constant model is sound only if the benchmarks that
+/// generate these values are run with the runtime's actual `AccountId` type using a
+/// maximal-length (worst-case) signer. Runtimes with variable-length account identifiers must
+/// regenerate these weights accordingly rather than reuse values benchmarked with short signers.
 pub trait WeightInfo {
 	fn check_genesis() -> Weight;
 	fn check_mortality_mortal_transaction() -> Weight;

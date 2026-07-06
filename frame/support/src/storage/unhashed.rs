@@ -140,12 +140,41 @@ pub fn kill_prefix(prefix: &[u8], limit: Option<u32>) -> sp_io::KillStorageResul
 pub fn clear_prefix(
 	prefix: &[u8],
 	maybe_limit: Option<u32>,
-	_maybe_cursor: Option<&[u8]>,
+	maybe_cursor: Option<&[u8]>,
 ) -> sp_io::MultiRemovalResults {
+	use sp_io::{KillStorageResult::*, MultiRemovalResults};
+
+	// The legacy `kill_prefix` host function has no cursor support and, when called repeatedly
+	// with a limit in the same block, keeps re-reporting the same backend keys. To honour the
+	// documented cursor contract, resumed calls walk `next_key` from the supplied cursor
+	// (which observes the overlay, so keys already deleted this block are skipped) and delete
+	// keys one by one, returning a cursor that reflects actual progress.
+	if let Some(cursor) = maybe_cursor {
+		let limit = maybe_limit.unwrap_or(u32::MAX);
+		let mut previous_key = cursor.to_vec();
+		let mut unique = 0u32;
+
+		while unique < limit {
+			match sp_io::storage::next_key(&previous_key) {
+				Some(next_key) if next_key.starts_with(prefix) => {
+					sp_io::storage::clear(&next_key);
+					previous_key = next_key;
+					unique = unique.saturating_add(1);
+				},
+				_ => break,
+			}
+		}
+
+		let maybe_cursor = match sp_io::storage::next_key(&previous_key) {
+			Some(next_key) if next_key.starts_with(prefix) => Some(previous_key),
+			_ => None,
+		};
+		return MultiRemovalResults { maybe_cursor, backend: unique, unique, loops: unique }
+	}
+
 	// TODO: Once the network has upgraded to include the new host functions, this code can be
 	// enabled.
 	// sp_io::storage::clear_prefix(prefix, maybe_limit, maybe_cursor)
-	use sp_io::{KillStorageResult::*, MultiRemovalResults};
 	#[allow(deprecated)]
 	let (maybe_cursor, i) = match kill_prefix(prefix, maybe_limit) {
 		AllRemoved(i) => (None, i),
@@ -176,4 +205,43 @@ pub fn get_raw(key: &[u8]) -> Option<Vec<u8>> {
 /// `on_runtime_upgrade` logic.
 pub fn put_raw(key: &[u8], value: &[u8]) {
 	sp_io::storage::set(key, value)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use sp_io::TestExternalities;
+
+	#[test]
+	fn clear_prefix_resumes_from_cursor_instead_of_repeating_the_same_batch() {
+		let mut ext = TestExternalities::default();
+		let prefix = b"test_prefix:";
+		let key = |i: u8| [&prefix[..], &[i]].concat();
+
+		ext.execute_with(|| {
+			for i in 0u8..4 {
+				put_raw(&key(i), &[i]);
+			}
+		});
+		// Move the keys into the backend so the limited first call leaves a remainder.
+		ext.commit_all().unwrap();
+
+		ext.execute_with(|| {
+			let first = clear_prefix(prefix, Some(2), None);
+			assert_eq!(first.unique, 2);
+			let first_cursor =
+				first.maybe_cursor.expect("entries remain after first partial clear");
+
+			// The resumed call must make real progress past the keys already deleted in
+			// this block rather than re-reporting the same backend batch.
+			let second = clear_prefix(prefix, Some(2), Some(&first_cursor));
+			assert_eq!(second.unique, 2);
+			assert!(second.maybe_cursor.is_none(), "all entries are gone after the second call");
+
+			assert!(!contains_prefixed_key(prefix));
+			for i in 0u8..4 {
+				assert!(!exists(&key(i)), "key {} must be deleted", i);
+			}
+		});
+	}
 }
