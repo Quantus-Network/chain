@@ -721,16 +721,6 @@ mod private_batch_proof_tests {
 	#[test]
 	#[ignore]
 	fn regenerate_test_fixture() {
-		use qp_wormhole_aggregator::aggregator::{AggregationBackend, PrivateBatchAggregator};
-		use qp_wormhole_circuit::{
-			block_header::header::HeaderInputs,
-			inputs::{CircuitInputs, PrivateCircuitInputs},
-			nullifier::Nullifier,
-			unspendable_account::UnspendableAccount,
-		};
-		use qp_wormhole_inputs::{BytesDigest, PublicCircuitInputs};
-		use qp_wormhole_prover::WormholeProver;
-		use qp_zk_circuits_common::utils::digest_to_bytes;
 		use std::path::Path;
 
 		// Use a temp directory for circuit binaries
@@ -747,6 +737,49 @@ mod private_batch_proof_tests {
 			None,
 		)
 		.expect("Failed to generate circuit binaries");
+
+		let aggregated_proof = super::fixture_gen::build_test_private_batch_proof(&tmp_dir);
+
+		// Serialize to hex
+		let proof_bytes = aggregated_proof.to_bytes();
+		let proof_hex = hex::encode(&proof_bytes);
+
+		// Write to test-data
+		let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("test-data/private_batch.hex");
+		std::fs::write(&fixture_path, &proof_hex).expect("Failed to write fixture");
+
+		println!("Fixture written to: {}", fixture_path.display());
+		println!("Proof size: {} bytes ({} hex chars)", proof_bytes.len(), proof_hex.len());
+
+		// Cleanup temp dir
+		let _ = std::fs::remove_dir_all(&tmp_dir);
+	}
+}
+
+/// Shared fixture-generation helpers, used only by the ignored `regenerate_*` tests.
+#[cfg(test)]
+mod fixture_gen {
+	use std::path::Path;
+
+	type Proof = plonky2::plonk::proof::ProofWithPublicInputs<
+		qp_zk_circuits_common::circuit::F,
+		qp_zk_circuits_common::circuit::C,
+		2,
+	>;
+
+	/// Build a valid private-batch proof (1 real leaf, dummy-padded) from circuit
+	/// binaries in `bins_dir`. Uses the well-known test inputs matching test-helpers.
+	pub fn build_test_private_batch_proof(bins_dir: &Path) -> Proof {
+		use qp_wormhole_aggregator::aggregator::{AggregationBackend, PrivateBatchAggregator};
+		use qp_wormhole_circuit::{
+			block_header::header::HeaderInputs,
+			inputs::{CircuitInputs, PrivateCircuitInputs},
+			nullifier::Nullifier,
+			unspendable_account::UnspendableAccount,
+		};
+		use qp_wormhole_inputs::{BytesDigest, PublicCircuitInputs};
+		use qp_wormhole_prover::WormholeProver;
+		use qp_zk_circuits_common::utils::digest_to_bytes;
 
 		// Create test inputs with real block header validation
 		let secret: BytesDigest = BytesDigest::new_unchecked([42u8; 32]); // Well-known test secret
@@ -825,15 +858,16 @@ mod private_batch_proof_tests {
 
 		// Generate leaf proof
 		println!("Generating leaf proof...");
-		let prover_path = tmp_dir.join("prover.bin");
-		let common_path = tmp_dir.join("common.bin");
+		let prover_path = bins_dir.join("prover.bin");
+		let common_path = bins_dir.join("common.bin");
 		let prover = WormholeProver::new_from_files(&prover_path, &common_path)
 			.expect("Failed to create prover");
 		let leaf_proof = prover.commit(&inputs).unwrap().prove().unwrap();
 
 		// Aggregate (with padding to fill batch)
-		println!("Aggregating proof...");
-		let mut aggregator = PrivateBatchAggregator::new(&tmp_dir).expect("Failed to create aggregator");
+		println!("Aggregating proof into a private batch...");
+		let mut aggregator =
+			PrivateBatchAggregator::new(bins_dir).expect("Failed to create aggregator");
 		aggregator.push_proof(leaf_proof).expect("Failed to push proof");
 		let aggregated_proof = aggregator.aggregate().expect("Failed to aggregate");
 
@@ -843,19 +877,7 @@ mod private_batch_proof_tests {
 			.verify(aggregated_proof.clone())
 			.expect("Private-batch proof should verify");
 
-		// Serialize to hex
-		let proof_bytes = aggregated_proof.to_bytes();
-		let proof_hex = hex::encode(&proof_bytes);
-
-		// Write to test-data
-		let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("test-data/private_batch.hex");
-		std::fs::write(&fixture_path, &proof_hex).expect("Failed to write fixture");
-
-		println!("Fixture written to: {}", fixture_path.display());
-		println!("Proof size: {} bytes ({} hex chars)", proof_bytes.len(), proof_hex.len());
-
-		// Cleanup temp dir
-		let _ = std::fs::remove_dir_all(&tmp_dir);
+		aggregated_proof
 	}
 
 	/// Helper to compute ZK leaf hash (must match circuit computation)
@@ -883,5 +905,292 @@ mod private_batch_proof_tests {
 
 		let hash = Poseidon2Hash::hash_no_pad(&preimage);
 		digest_to_bytes(&hash.elements)
+	}
+}
+
+/// Tests for public-batch proof verification (second aggregation layer).
+#[cfg(test)]
+mod public_batch_proof_tests {
+	use crate::{
+		mock::*,
+		pallet::{Error, PotentialWormholeBalance, TotalWormholeExits, UsedNullifiers},
+	};
+	use frame_support::{assert_noop, assert_ok, traits::fungible::Inspect};
+	use frame_system::RawOrigin;
+	use qp_wormhole_verifier::{
+		parse_public_batch_public_inputs, ProofWithPublicInputs, PublicBatchPublicInputs, C, F,
+	};
+	use sp_core::{crypto::AccountId32, H256};
+	use sp_runtime::Permill;
+
+	/// The D const parameter for plonky2 proofs (extension degree = 2)
+	const D: usize = 2;
+
+	/// The aggregator address baked into the fixture (must decode to a valid AccountId32).
+	/// Every 8-byte limb must be a canonical Goldilocks field element, which [7u8; 32] is.
+	const AGGREGATOR_ADDRESS: [u8; 32] = [7u8; 32];
+
+	/// Real public-batch proof for testing (hex-encoded): 1 real private batch
+	/// (itself 1 real leaf + dummy leaf padding) + dummy private-batch padding.
+	/// Regenerate with `regenerate_public_batch_fixture` below.
+	const PUBLIC_BATCH_PROOF_HEX: &str = include_str!("../test-data/public_batch.hex");
+
+	fn get_test_proof_bytes() -> Vec<u8> {
+		hex::decode(PUBLIC_BATCH_PROOF_HEX.trim()).expect("Invalid hex in test proof")
+	}
+
+	fn deserialize_test_proof() -> ProofWithPublicInputs<F, C, D> {
+		let proof_bytes = get_test_proof_bytes();
+		let verifier = crate::get_public_batch_verifier().expect("Verifier should be available");
+		ProofWithPublicInputs::<F, C, D>::from_bytes(proof_bytes, &verifier.circuit_data.common)
+			.expect("Proof should deserialize")
+	}
+
+	fn parse_test_inputs() -> PublicBatchPublicInputs {
+		let proof = deserialize_test_proof();
+		parse_public_batch_public_inputs(
+			&proof,
+			crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
+			crate::circuit_config::NUM_LEAF_PROOFS,
+		)
+		.expect("Should parse public-batch public inputs")
+	}
+
+	/// Insert the proof's referenced block hash into frame_system and advance past it.
+	fn setup_matching_block_state(inputs: &PublicBatchPublicInputs) {
+		let block_number = inputs.block_data.block_number as u64;
+		let block_hash_bytes: [u8; 32] = inputs.block_data.block_hash.as_ref().try_into().unwrap();
+		frame_system::BlockHash::<Test>::insert(block_number, H256::from(block_hash_bytes));
+		System::set_block_number(block_number + 10);
+		PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+	}
+
+	#[test]
+	fn test_parse_public_batch_public_inputs_succeeds() {
+		let inputs = parse_test_inputs();
+
+		assert_eq!(inputs.asset_id, 0, "Asset ID should be native (0)");
+		assert_eq!(inputs.volume_fee_bps, 10, "Volume fee should be 10 bps");
+		assert_eq!(
+			inputs.aggregator_address.as_ref(),
+			&AGGREGATOR_ADDRESS,
+			"Aggregator address should round-trip through the proof"
+		);
+
+		let expected_slots = crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS
+			* crate::circuit_config::NUM_LEAF_PROOFS
+			* 2;
+		assert_eq!(inputs.total_exit_slots as usize, expected_slots);
+		assert_eq!(inputs.account_data.len(), expected_slots);
+		assert_eq!(
+			inputs.nullifiers.len(),
+			crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS
+				* crate::circuit_config::NUM_LEAF_PROOFS
+		);
+
+		// Exactly one real leaf exit; everything else is dummy padding.
+		let real_slots =
+			inputs.account_data.iter().filter(|a| a.summed_output_amount > 0).count();
+		assert_eq!(real_slots, 1, "Fixture should contain exactly one real exit");
+
+		// The one real private-batch segment carries NUM_LEAF_PROOFS non-zero nullifiers
+		// (dummy *leaves* inside a real private batch get dummy nullifier preimages, not
+		// zeros); the dummy private-batch segments are fully zeroed by the circuit.
+		let non_zero_nullifiers =
+			inputs.nullifiers.iter().filter(|n| n.as_ref() != &[0u8; 32]).count();
+		assert_eq!(
+			non_zero_nullifiers,
+			crate::circuit_config::NUM_LEAF_PROOFS,
+			"Only the real segment should carry non-zero nullifiers"
+		);
+	}
+
+	#[test]
+	fn test_verify_public_batch_fails_with_wrong_origin() {
+		new_test_ext().execute_with(|| {
+			let proof_bytes = get_test_proof_bytes();
+			assert_noop!(
+				Wormhole::verify_public_batch(
+					RawOrigin::Signed(account_id(1)).into(),
+					proof_bytes
+				),
+				sp_runtime::DispatchError::BadOrigin
+			);
+		});
+	}
+
+	#[test]
+	fn test_verify_public_batch_fails_with_invalid_bytes() {
+		new_test_ext().execute_with(|| {
+			let result =
+				Wormhole::verify_public_batch(RawOrigin::None.into(), vec![0u8; 100]);
+			assert!(result.is_err());
+			assert_eq!(
+				result.unwrap_err().error,
+				Error::<Test>::ProofDeserializationFailed.into()
+			);
+		});
+	}
+
+	#[test]
+	fn test_verify_public_batch_succeeds_and_pays_aggregator() {
+		new_test_ext().execute_with(|| {
+			let inputs = parse_test_inputs();
+			setup_matching_block_state(&inputs);
+
+			let aggregator = AccountId32::new(AGGREGATOR_ADDRESS);
+			assert_eq!(Balances::balance(&aggregator), 0);
+
+			// Expected exit total from the proof's public inputs (dummy slots are zero).
+			let expected_exit: u128 = inputs
+				.account_data
+				.iter()
+				.filter(|a| a.summed_output_amount > 0)
+				.map(|a| (a.summed_output_amount as u128) * crate::SCALE_DOWN_FACTOR)
+				.sum();
+
+			assert_ok!(Wormhole::verify_public_batch(
+				RawOrigin::None.into(),
+				get_test_proof_bytes()
+			));
+
+			assert_eq!(TotalWormholeExits::<Test>::get(), expected_exit);
+
+			// Real nullifiers marked used; zero (dummy) nullifiers never stored.
+			for nullifier in &inputs.nullifiers {
+				let bytes: [u8; 32] = nullifier.as_ref().try_into().unwrap();
+				if bytes == [0u8; 32] {
+					continue;
+				}
+				assert!(UsedNullifiers::<Test>::contains_key(bytes));
+			}
+			assert!(
+				!UsedNullifiers::<Test>::contains_key([0u8; 32]),
+				"Zero nullifiers from dummy padding must not be stored"
+			);
+
+			// Aggregator rebate: fee = exit * bps / (10000 - bps), burn bucket = 50% of
+			// fee, and VolumeFeesAggregatorRate (50%) of that goes to the aggregator.
+			let fee_bps = VolumeFeeRateBps::get() as u128;
+			let total_fee = expected_exit * fee_bps / (10_000u128 - fee_bps);
+			let burn_bucket = Permill::from_percent(50) * total_fee;
+			let expected_rebate = Permill::from_percent(50) * burn_bucket;
+			assert!(expected_rebate > 0, "Fixture fee should produce a nonzero rebate");
+			assert_eq!(
+				Balances::balance(&aggregator),
+				expected_rebate,
+				"Aggregator should receive its slice of the burn bucket"
+			);
+		});
+	}
+
+	#[test]
+	fn test_verify_public_batch_cannot_replay() {
+		new_test_ext().execute_with(|| {
+			let inputs = parse_test_inputs();
+			setup_matching_block_state(&inputs);
+
+			assert_ok!(Wormhole::verify_public_batch(
+				RawOrigin::None.into(),
+				get_test_proof_bytes()
+			));
+
+			// All real segments are now spent; replay must be rejected outright
+			// (dummy segments alone cannot make a bundle acceptable).
+			let result =
+				Wormhole::verify_public_batch(RawOrigin::None.into(), get_test_proof_bytes());
+			assert!(result.is_err());
+			assert_eq!(
+				result.unwrap_err().error,
+				Error::<Test>::NullifierAlreadyUsed.into()
+			);
+		});
+	}
+
+	#[test]
+	fn test_verify_public_batch_fails_with_nullifier_already_used() {
+		new_test_ext().execute_with(|| {
+			let inputs = parse_test_inputs();
+			setup_matching_block_state(&inputs);
+
+			// Mark the (single) real nullifier as used: the only real segment is then
+			// denied, and a bundle with no valid segments is rejected.
+			let real_nullifier = inputs
+				.nullifiers
+				.iter()
+				.find(|n| n.as_ref() != &[0u8; 32])
+				.expect("Fixture has a real nullifier");
+			let bytes: [u8; 32] = real_nullifier.as_ref().try_into().unwrap();
+			UsedNullifiers::<Test>::insert(bytes, true);
+
+			let result =
+				Wormhole::verify_public_batch(RawOrigin::None.into(), get_test_proof_bytes());
+			assert!(result.is_err());
+			assert_eq!(
+				result.unwrap_err().error,
+				Error::<Test>::NullifierAlreadyUsed.into()
+			);
+		});
+	}
+
+	/// Regenerate the public-batch test fixture when circuit parameters change.
+	///
+	/// Run with: cargo test -p pallet-wormhole --release --lib --
+	/// regenerate_public_batch_fixture --nocapture --ignored
+	///
+	/// Builds one real private batch (via the shared fixture helper), then aggregates it
+	/// into a public batch with dummy private-batch padding and the well-known
+	/// AGGREGATOR_ADDRESS.
+	#[test]
+	#[ignore]
+	fn regenerate_public_batch_fixture() {
+		use qp_wormhole_aggregator::aggregator::{AggregationBackend, PublicBatchAggregator};
+		use qp_wormhole_inputs::BytesDigest;
+		use std::path::Path;
+
+		let tmp_dir = std::env::temp_dir().join("pallet-wormhole-public-batch-fixture-gen");
+		std::fs::create_dir_all(&tmp_dir).expect("Failed to create temp dir");
+
+		// Must match the pallet's embedded verifier (QP_NUM_LEAF_PROOFS /
+		// QP_NUM_PRIVATE_BATCH_PROOFS defaults in build.rs).
+		let num_leaf_proofs = crate::circuit_config::NUM_LEAF_PROOFS;
+		let num_private_batch_proofs = crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS;
+		println!(
+			"Generating circuit binaries (num_leaf_proofs={}, num_private_batch_proofs={})...",
+			num_leaf_proofs, num_private_batch_proofs
+		);
+		qp_wormhole_circuit_builder::generate_all_circuit_binaries(
+			&tmp_dir,
+			true,
+			num_leaf_proofs,
+			Some(num_private_batch_proofs),
+		)
+		.expect("Failed to generate circuit binaries");
+
+		let private_batch_proof = super::fixture_gen::build_test_private_batch_proof(&tmp_dir);
+
+		println!("Aggregating into a public batch (with dummy padding)...");
+		let aggregator_address = BytesDigest::new_unchecked(AGGREGATOR_ADDRESS);
+		let mut aggregator = PublicBatchAggregator::new(&tmp_dir, aggregator_address)
+			.expect("Failed to create public-batch aggregator");
+		aggregator.push_proof(private_batch_proof).expect("Failed to push proof");
+		let public_batch_proof = aggregator.aggregate().expect("Failed to aggregate");
+
+		println!("Verifying public-batch proof...");
+		aggregator
+			.verify(public_batch_proof.clone())
+			.expect("Public-batch proof should verify");
+
+		let proof_bytes = public_batch_proof.to_bytes();
+		let proof_hex = hex::encode(&proof_bytes);
+
+		let fixture_path =
+			Path::new(env!("CARGO_MANIFEST_DIR")).join("test-data/public_batch.hex");
+		std::fs::write(&fixture_path, &proof_hex).expect("Failed to write fixture");
+
+		println!("Fixture written to: {}", fixture_path.display());
+		println!("Proof size: {} bytes ({} hex chars)", proof_bytes.len(), proof_hex.len());
+
+		let _ = std::fs::remove_dir_all(&tmp_dir);
 	}
 }

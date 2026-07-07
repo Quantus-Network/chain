@@ -673,6 +673,8 @@ parameter_types! {
 	pub const VolumeFeeRateBps: u32 = 10;
 	/// Proportion of volume fees to burn (50% burned, 50% to miner)
 	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
+	/// Half of the burn bucket on public-batch exits goes to the aggregator instead.
+	pub const VolumeFeesAggregatorRate: Permill = Permill::from_percent(50);
 }
 
 parameter_types! {
@@ -740,6 +742,7 @@ impl pallet_wormhole::Config for Runtime {
 	type NonWormholeAccounts = NonWormholeAccounts;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
+	type VolumeFeesAggregatorRate = VolumeFeesAggregatorRate;
 	type WormholeAccountId = AccountId32;
 	type WeightInfo = pallet_wormhole::weights::SubstrateWeight<Runtime>;
 	type ZkTree = ZkTree;

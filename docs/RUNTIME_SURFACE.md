@@ -173,7 +173,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 
 ### Index 20 — `Wormhole` (`pallet-wormhole`, local)
 - `Currency = Balances`, `Assets = Assets`, `MinimumTransferAmount = 0.1 UNIT`, `VolumeFeeRateBps = 10` (0.1%), `VolumeFeesBurnRate = 50%`, `MintingAccount`, `WormholeAccountId = AccountId32`, `ZkTree = ZkTree`.
-- **Calls:** `verify_private_batch`(2) — verifies a private-batch ZK proof and processes batched transfers.
+- **Calls:** `verify_private_batch`(2) — verifies a private-batch ZK proof and processes batched transfers; `verify_public_batch`(3) — verifies a public-batch proof with per-segment denial and aggregator fee rebate.
 - Implements `TransferProofRecorder` (`record_transfer`) consumed by mining-rewards, reversible-transfers, and the wormhole tx-extension. `on_initialize` emits genesis endowment proofs at block 1. Loads a static aggregated verifier (`get_aggregated_verifier`).
 
 ### Index 21 — `ZkTree` (`pallet-zk-tree`, local)

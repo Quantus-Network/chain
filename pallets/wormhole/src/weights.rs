@@ -52,6 +52,7 @@ use core::marker::PhantomData;
 pub trait WeightInfo {
 	fn pre_validate_proof() -> Weight;
 	fn verify_private_batch() -> Weight;
+	fn verify_public_batch() -> Weight;
 }
 
 /// Weights for `pallet_wormhole` using the Substrate node and recommended hardware.
@@ -88,6 +89,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(200_u64))
 			.saturating_add(T::DbWeight::get().writes(170_u64))
 	}
+	/// Public-batch ZK verification is heavier than private-batch (recursively verifies
+	/// N inner private-batch proofs). Uses the same storage tail as private-batch for now;
+	/// re-benchmark when the public-batch path is exercised on-chain at scale.
+	fn verify_public_batch() -> Weight {
+		Weight::from_parts(25_000_000_000, 200000)
+			.saturating_add(T::DbWeight::get().reads(200_u64))
+			.saturating_add(T::DbWeight::get().writes(170_u64))
+	}
 }
 
 // For backwards compatibility and tests.
@@ -114,6 +123,11 @@ impl WeightInfo for () {
 		// Minimum execution time: 15_336_000_000 picoseconds (ZK verification only).
 		// Adding deserialization (~0.7ms) for total compute ~16.7ms.
 		Weight::from_parts(16_661_000_000, 200000)
+			.saturating_add(RocksDbWeight::get().reads(200_u64))
+			.saturating_add(RocksDbWeight::get().writes(170_u64))
+	}
+	fn verify_public_batch() -> Weight {
+		Weight::from_parts(25_000_000_000, 200000)
 			.saturating_add(RocksDbWeight::get().reads(200_u64))
 			.saturating_add(RocksDbWeight::get().writes(170_u64))
 	}
