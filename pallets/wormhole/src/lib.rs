@@ -18,7 +18,8 @@ pub use weights::*;
 
 lazy_static! {
 	static ref PRIVATE_BATCH_VERIFIER: Option<WormholeVerifier> = {
-		let verifier_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/private_batch_verifier.bin"));
+		let verifier_bytes =
+			include_bytes!(concat!(env!("OUT_DIR"), "/private_batch_verifier.bin"));
 		let common_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/private_batch_common.bin"));
 		WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes).ok()
 	};
@@ -331,7 +332,9 @@ pub mod pallet {
 		/// Some segments of an exit bundle were denied (their nullifiers were already
 		/// used, e.g. because the underlying private batch landed on-chain separately).
 		/// The remaining segments were processed normally.
-		SegmentsDenied { indices: Vec<u32> },
+		SegmentsDenied {
+			indices: Vec<u32>,
+		},
 	}
 
 	#[pallet::error]
@@ -571,9 +574,9 @@ pub mod pallet {
 					nullifier_bytes.push(bytes);
 				}
 
-				let valid = nullifier_bytes
-					.iter()
-					.all(|bytes| !UsedNullifiers::<T>::contains_key(bytes) && !claimed.contains(bytes));
+				let valid = nullifier_bytes.iter().all(|bytes| {
+					!UsedNullifiers::<T>::contains_key(bytes) && !claimed.contains(bytes)
+				});
 
 				if valid {
 					claimed.extend(nullifier_bytes);
@@ -832,9 +835,8 @@ pub mod pallet {
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			match call {
 				Call::verify_private_batch { proof_bytes } => {
-					let (bundle, validity) =
-						Self::validate_private_batch_proof(proof_bytes)
-							.map_err(|_| InvalidTransaction::Call)?;
+					let (bundle, validity) = Self::validate_private_batch_proof(proof_bytes)
+						.map_err(|_| InvalidTransaction::Call)?;
 
 					let total_amount: u64 = bundle
 						.segments
@@ -853,9 +855,8 @@ pub mod pallet {
 						.build()
 				},
 				Call::verify_public_batch { proof_bytes } => {
-					let (bundle, validity) =
-						Self::validate_public_batch_proof(proof_bytes)
-							.map_err(|_| InvalidTransaction::Call)?;
+					let (bundle, validity) = Self::validate_public_batch_proof(proof_bytes)
+						.map_err(|_| InvalidTransaction::Call)?;
 
 					let total_amount: u64 = bundle
 						.segments
@@ -937,8 +938,8 @@ pub mod pallet {
 		fn validate_public_batch_proof(
 			proof_bytes: &[u8],
 		) -> Result<(ExitBundle, Vec<bool>), Error<T>> {
-			let verifier = crate::get_public_batch_verifier()
-				.map_err(|_| Error::<T>::VerifierNotAvailable)?;
+			let verifier =
+				crate::get_public_batch_verifier().map_err(|_| Error::<T>::VerifierNotAvailable)?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
 				proof_bytes.to_vec(),
 				&verifier.circuit_data.common,

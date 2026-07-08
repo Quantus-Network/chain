@@ -36,7 +36,8 @@ mod benchmarks {
 			hex::decode(PRIVATE_BATCH_PROOF_HEX.trim()).expect("Invalid hex in test proof");
 
 		// Get verifier for deserialization
-		let verifier = crate::get_private_batch_verifier().expect("Private-batch verifier not available");
+		let verifier =
+			crate::get_private_batch_verifier().expect("Private-batch verifier not available");
 
 		// Setup: Create nullifiers in storage to simulate worst-case reads
 		let nullifiers: Vec<[u8; 32]> = (0..MAX_NULLIFIERS)
@@ -88,7 +89,8 @@ mod benchmarks {
 			hex::decode(PRIVATE_BATCH_PROOF_HEX.trim()).expect("Invalid hex in test proof");
 
 		// Get verifier
-		let verifier = crate::get_private_batch_verifier().expect("Private-batch verifier not available");
+		let verifier =
+			crate::get_private_batch_verifier().expect("Private-batch verifier not available");
 
 		// Deserialize proof (outside the measured block since pre_validate_proof covers this)
 		let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(

@@ -669,10 +669,7 @@ mod private_batch_proof_tests {
 			let proof_bytes = get_test_proof_bytes();
 
 			// First submission should succeed
-			assert_ok!(Wormhole::verify_private_batch(
-				RawOrigin::None.into(),
-				proof_bytes.clone()
-			));
+			assert_ok!(Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes.clone()));
 
 			// Second submission with same proof should fail (nullifiers already used)
 			let result = Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes);
@@ -745,7 +742,8 @@ mod private_batch_proof_tests {
 		let proof_hex = hex::encode(&proof_bytes);
 
 		// Write to test-data
-		let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("test-data/private_batch.hex");
+		let fixture_path =
+			Path::new(env!("CARGO_MANIFEST_DIR")).join("test-data/private_batch.hex");
 		std::fs::write(&fixture_path, &proof_hex).expect("Failed to write fixture");
 
 		println!("Fixture written to: {}", fixture_path.display());
@@ -977,20 +975,19 @@ mod public_batch_proof_tests {
 			"Aggregator address should round-trip through the proof"
 		);
 
-		let expected_slots = crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS
-			* crate::circuit_config::NUM_LEAF_PROOFS
-			* 2;
+		let expected_slots = crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS *
+			crate::circuit_config::NUM_LEAF_PROOFS *
+			2;
 		assert_eq!(inputs.total_exit_slots as usize, expected_slots);
 		assert_eq!(inputs.account_data.len(), expected_slots);
 		assert_eq!(
 			inputs.nullifiers.len(),
-			crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS
-				* crate::circuit_config::NUM_LEAF_PROOFS
+			crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS *
+				crate::circuit_config::NUM_LEAF_PROOFS
 		);
 
 		// Exactly one real leaf exit; everything else is dummy padding.
-		let real_slots =
-			inputs.account_data.iter().filter(|a| a.summed_output_amount > 0).count();
+		let real_slots = inputs.account_data.iter().filter(|a| a.summed_output_amount > 0).count();
 		assert_eq!(real_slots, 1, "Fixture should contain exactly one real exit");
 
 		// The one real private-batch segment carries NUM_LEAF_PROOFS non-zero nullifiers
@@ -1010,10 +1007,7 @@ mod public_batch_proof_tests {
 		new_test_ext().execute_with(|| {
 			let proof_bytes = get_test_proof_bytes();
 			assert_noop!(
-				Wormhole::verify_public_batch(
-					RawOrigin::Signed(account_id(1)).into(),
-					proof_bytes
-				),
+				Wormhole::verify_public_batch(RawOrigin::Signed(account_id(1)).into(), proof_bytes),
 				sp_runtime::DispatchError::BadOrigin
 			);
 		});
@@ -1022,13 +1016,9 @@ mod public_batch_proof_tests {
 	#[test]
 	fn test_verify_public_batch_fails_with_invalid_bytes() {
 		new_test_ext().execute_with(|| {
-			let result =
-				Wormhole::verify_public_batch(RawOrigin::None.into(), vec![0u8; 100]);
+			let result = Wormhole::verify_public_batch(RawOrigin::None.into(), vec![0u8; 100]);
 			assert!(result.is_err());
-			assert_eq!(
-				result.unwrap_err().error,
-				Error::<Test>::ProofDeserializationFailed.into()
-			);
+			assert_eq!(result.unwrap_err().error, Error::<Test>::ProofDeserializationFailed.into());
 		});
 	}
 
@@ -1100,10 +1090,7 @@ mod public_batch_proof_tests {
 			let result =
 				Wormhole::verify_public_batch(RawOrigin::None.into(), get_test_proof_bytes());
 			assert!(result.is_err());
-			assert_eq!(
-				result.unwrap_err().error,
-				Error::<Test>::NullifierAlreadyUsed.into()
-			);
+			assert_eq!(result.unwrap_err().error, Error::<Test>::NullifierAlreadyUsed.into());
 		});
 	}
 
@@ -1126,10 +1113,7 @@ mod public_batch_proof_tests {
 			let result =
 				Wormhole::verify_public_batch(RawOrigin::None.into(), get_test_proof_bytes());
 			assert!(result.is_err());
-			assert_eq!(
-				result.unwrap_err().error,
-				Error::<Test>::NullifierAlreadyUsed.into()
-			);
+			assert_eq!(result.unwrap_err().error, Error::<Test>::NullifierAlreadyUsed.into());
 		});
 	}
 
@@ -1184,8 +1168,7 @@ mod public_batch_proof_tests {
 		let proof_bytes = public_batch_proof.to_bytes();
 		let proof_hex = hex::encode(&proof_bytes);
 
-		let fixture_path =
-			Path::new(env!("CARGO_MANIFEST_DIR")).join("test-data/public_batch.hex");
+		let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("test-data/public_batch.hex");
 		std::fs::write(&fixture_path, &proof_hex).expect("Failed to write fixture");
 
 		println!("Fixture written to: {}", fixture_path.display());

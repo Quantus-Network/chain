@@ -331,13 +331,6 @@ substrate-wasm-builder = { version = "31.1.0", default-features = false }
 
 [patch.crates-io]
 # TEMPORARY: local circuits repo until the private/public batch rename ships as 3.1.0.
-qp-wormhole-aggregator = { path = "../qp-zk-circuits/wormhole/aggregator" }
-qp-wormhole-circuit = { path = "../qp-zk-circuits/wormhole/circuit" }
-qp-wormhole-circuit-builder = { path = "../qp-zk-circuits/wormhole/circuit-builder" }
-qp-wormhole-inputs = { path = "../qp-zk-circuits/wormhole/inputs" }
-qp-wormhole-prover = { path = "../qp-zk-circuits/wormhole/prover" }
-qp-wormhole-verifier = { path = "../qp-zk-circuits/wormhole/verifier" }
-qp-zk-circuits-common = { path = "../qp-zk-circuits/common" }
 frame-benchmarking = { path = "./frame/benchmarking" }
 frame-executive = { path = "./frame/executive" }
 frame-metadata = { path = "./frame/metadata" }
@@ -355,6 +348,13 @@ litep2p = { path = "./client/litep2p" }
 pallet-transaction-payment = { path = "./pallets/transaction-payment" }
 pallet-transaction-payment-rpc = { path = "./pallets/transaction-payment-rpc" }
 pallet-transaction-payment-rpc-runtime-api = { path = "./pallets/transaction-payment-rpc-runtime-api" }
+qp-wormhole-aggregator = { path = "../qp-zk-circuits/wormhole/aggregator" }
+qp-wormhole-circuit = { path = "../qp-zk-circuits/wormhole/circuit" }
+qp-wormhole-circuit-builder = { path = "../qp-zk-circuits/wormhole/circuit-builder" }
+qp-wormhole-inputs = { path = "../qp-zk-circuits/wormhole/inputs" }
+qp-wormhole-prover = { path = "../qp-zk-circuits/wormhole/prover" }
+qp-wormhole-verifier = { path = "../qp-zk-circuits/wormhole/verifier" }
+qp-zk-circuits-common = { path = "../qp-zk-circuits/common" }
 sc-cli = { path = "./client/cli" }
 sc-informant = { path = "./client/informant" }
 sc-network = { path = "client/network" }
