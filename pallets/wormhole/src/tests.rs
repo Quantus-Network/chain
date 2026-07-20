@@ -1156,10 +1156,8 @@ mod public_batch_proof_tests {
 		let mut aggregator = PublicBatchAggregator::new(&tmp_dir, aggregator_address)
 			.expect("Failed to create public-batch aggregator");
 		// BatchKey is derived from the proof's PI on push; pass it back to select the bucket.
-		let batch_key =
-			aggregator.push_proof(private_batch_proof).expect("Failed to push proof");
-		let public_batch_proof =
-			aggregator.aggregate(&batch_key).expect("Failed to aggregate");
+		let batch_key = aggregator.push_proof(private_batch_proof).expect("Failed to push proof");
+		let public_batch_proof = aggregator.aggregate(&batch_key).expect("Failed to aggregate");
 
 		println!("Verifying public-batch proof...");
 		aggregator

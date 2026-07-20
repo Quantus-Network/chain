@@ -37,9 +37,7 @@ fn load_batch_verifier_from_bytes(
 		},
 	};
 
-	Some(WormholeVerifier {
-		circuit_data: VerifierCircuitData { verifier_only, common },
-	})
+	Some(WormholeVerifier { circuit_data: VerifierCircuitData { verifier_only, common } })
 }
 
 #[cfg(feature = "runtime-benchmarks")]
