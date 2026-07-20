@@ -768,7 +768,7 @@ mod fixture_gen {
 	/// Build a valid private-batch proof (1 real leaf, dummy-padded) from circuit
 	/// binaries in `bins_dir`. Uses the well-known test inputs matching test-helpers.
 	pub fn build_test_private_batch_proof(bins_dir: &Path) -> Proof {
-		use qp_wormhole_aggregator::aggregator::{AggregationBackend, PrivateBatchAggregator};
+		use qp_wormhole_aggregator::private_batch::prover::PrivateBatchProver;
 		use qp_wormhole_circuit::{
 			block_header::header::HeaderInputs,
 			inputs::{CircuitInputs, PrivateCircuitInputs},
@@ -776,7 +776,6 @@ mod fixture_gen {
 			unspendable_account::UnspendableAccount,
 		};
 		use qp_wormhole_inputs::{BytesDigest, PublicCircuitInputs};
-		use qp_wormhole_prover::WormholeProver;
 		use qp_zk_circuits_common::utils::digest_to_bytes;
 
 		// Create test inputs with real block header validation
@@ -854,27 +853,26 @@ mod fixture_gen {
 			},
 		};
 
-		// Generate leaf proof
+		// Generate leaf proof (leaf prover is always built from the canonical config;
+		// it no longer loads prover.bin).
 		println!("Generating leaf proof...");
-		let prover_path = bins_dir.join("prover.bin");
-		let common_path = bins_dir.join("common.bin");
-		let prover = WormholeProver::new_from_files(&prover_path, &common_path)
-			.expect("Failed to create prover");
-		let leaf_proof = prover.commit(&inputs).unwrap().prove().unwrap();
+		let leaf_proof = qp_wormhole_prover::build_fresh()
+			.commit(&inputs)
+			.expect("Failed to commit leaf inputs")
+			.prove()
+			.expect("Failed to prove leaf");
 
-		// Aggregate (with padding to fill batch)
+		// Aggregate (with dummy padding to fill the private batch)
 		println!("Aggregating proof into a private batch...");
-		let mut aggregator =
-			PrivateBatchAggregator::new(bins_dir).expect("Failed to create aggregator");
-		aggregator.push_proof(leaf_proof).expect("Failed to push proof");
-		let aggregated_proof = aggregator.aggregate().expect("Failed to aggregate");
+		let prover = PrivateBatchProver::new_from_binaries_dir(bins_dir)
+			.expect("Failed to create private-batch prover");
+		let aggregated_proof =
+			prover.aggregate(vec![leaf_proof]).expect("Failed to aggregate private batch");
 
-		// Verify locally
-		println!("Verifying private-batch proof...");
-		aggregator
-			.verify(aggregated_proof.clone())
-			.expect("Private-batch proof should verify");
-
+		// Cryptographic verification of the fixture happens in the pallet tests that
+		// load the hex (and in regenerate_public_batch_fixture via PublicBatchAggregator).
+		// We skip a local WormholeVerifier check here: aggregator and verifier crates
+		// currently expose distinct plonky2 ProofWithPublicInputs types in this workspace.
 		aggregated_proof
 	}
 
@@ -1128,7 +1126,7 @@ mod public_batch_proof_tests {
 	#[test]
 	#[ignore]
 	fn regenerate_public_batch_fixture() {
-		use qp_wormhole_aggregator::aggregator::{AggregationBackend, PublicBatchAggregator};
+		use qp_wormhole_aggregator::aggregator::PublicBatchAggregator;
 		use qp_wormhole_inputs::BytesDigest;
 		use std::path::Path;
 
@@ -1157,8 +1155,11 @@ mod public_batch_proof_tests {
 		let aggregator_address = BytesDigest::new_unchecked(AGGREGATOR_ADDRESS);
 		let mut aggregator = PublicBatchAggregator::new(&tmp_dir, aggregator_address)
 			.expect("Failed to create public-batch aggregator");
-		aggregator.push_proof(private_batch_proof).expect("Failed to push proof");
-		let public_batch_proof = aggregator.aggregate().expect("Failed to aggregate");
+		// BatchKey is derived from the proof's PI on push; pass it back to select the bucket.
+		let batch_key =
+			aggregator.push_proof(private_batch_proof).expect("Failed to push proof");
+		let public_batch_proof =
+			aggregator.aggregate(&batch_key).expect("Failed to aggregate");
 
 		println!("Verifying public-batch proof...");
 		aggregator
