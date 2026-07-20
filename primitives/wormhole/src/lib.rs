@@ -45,8 +45,7 @@ impl TestMiner {
 	/// Derive the wormhole account address from the preimage (via Poseidon hash).
 	pub fn account_id(&self) -> sp_core::crypto::AccountId32 {
 		sp_core::crypto::AccountId32::from(
-			derive_wormhole_address(self.preimage())
-				.expect("test preimage limbs are canonical"),
+			derive_wormhole_address(self.preimage()).expect("test preimage limbs are canonical"),
 		)
 	}
 }

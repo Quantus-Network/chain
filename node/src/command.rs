@@ -207,7 +207,7 @@ pub fn generate_quantus_key(
 				address: account_id.to_ss58check(),
 				raw_address: format!("0x{}", hex::encode(account_id)),
 				public_key_hex: format!("0x{}", hex::encode(wormhole_pair.address)),
-				secret_key_hex: format!("0x{}", hex::encode(wormhole_pair.secret)),
+				secret_key_hex: format!("0x{}", hex::encode(wormhole_pair.secret.as_bytes())),
 				seed_hex: "N/A (Wormhole)".to_string(),
 				secret_phrase: words_to_print,
 				inner_hash: Some(hex::encode(wormhole_pair.first_hash)),
