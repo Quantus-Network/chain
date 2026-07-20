@@ -4,7 +4,43 @@ extern crate alloc;
 
 use lazy_static::lazy_static;
 pub use pallet::*;
-use qp_wormhole_verifier::WormholeVerifier;
+use qp_plonky2_verifier::util::serialization::DefaultGateSerializer;
+use qp_wormhole_verifier::{
+	CommonCircuitData, VerifierCircuitData, VerifierOnlyCircuitData, WormholeVerifier,
+};
+
+/// Load a batch verifier from pre-serialized verifier-only and common circuit bytes.
+///
+/// Unlike [`WormholeVerifier::new_from_bytes`], this accepts arbitrary batch-circuit
+/// artifacts (private/public batch) rather than only the canonical leaf circuit pins.
+fn load_batch_verifier_from_bytes(
+	verifier_bytes: &[u8],
+	common_bytes: &[u8],
+	name: &'static str,
+) -> Option<WormholeVerifier> {
+	let verifier_only = match VerifierOnlyCircuitData::from_bytes(verifier_bytes.to_vec()) {
+		Ok(data) => data,
+		Err(e) => {
+			#[cfg(feature = "std")]
+			log::error!("Failed to deserialize {name} verifier-only data: {e}");
+			return None;
+		},
+	};
+
+	let common = match CommonCircuitData::from_bytes(common_bytes.to_vec(), &DefaultGateSerializer)
+	{
+		Ok(data) => data,
+		Err(e) => {
+			#[cfg(feature = "std")]
+			log::error!("Failed to deserialize {name} common circuit data: {e}");
+			return None;
+		},
+	};
+
+	Some(WormholeVerifier {
+		circuit_data: VerifierCircuitData { verifier_only, common },
+	})
+}
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
@@ -21,12 +57,12 @@ lazy_static! {
 		let verifier_bytes =
 			include_bytes!(concat!(env!("OUT_DIR"), "/private_batch_verifier.bin"));
 		let common_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/private_batch_common.bin"));
-		WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes).ok()
+		load_batch_verifier_from_bytes(verifier_bytes, common_bytes, "private batch")
 	};
 	static ref PUBLIC_BATCH_VERIFIER: Option<WormholeVerifier> = {
 		let verifier_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/public_batch_verifier.bin"));
 		let common_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/public_batch_common.bin"));
-		WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes).ok()
+		load_batch_verifier_from_bytes(verifier_bytes, common_bytes, "public batch")
 	};
 }
 

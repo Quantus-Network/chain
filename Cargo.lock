@@ -6234,6 +6234,7 @@ dependencies = [
  "qp-dilithium-crypto",
  "qp-header",
  "qp-plonky2",
+ "qp-plonky2-verifier",
  "qp-poseidon-core",
  "qp-wormhole",
  "qp-wormhole-aggregator",
