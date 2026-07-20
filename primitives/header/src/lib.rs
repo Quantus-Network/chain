@@ -14,7 +14,7 @@
 use codec::{Codec, Decode, DecodeWithMemTracking, Encode};
 use qp_poseidon_core::{
 	hash_to_bytes,
-	serialization::{bytes_to_digest, bytes_to_felts},
+	serialization::{bytes_to_digest_lossy, bytes_to_felts},
 	Goldilocks,
 };
 use scale_info::TypeInfo;
@@ -200,17 +200,19 @@ where
 		let max_encoded_felts = 4 * 4 + 1 + 28;
 		let mut felts = Vec::with_capacity(max_encoded_felts);
 
-		// Encoding note: the 8-byte/felt `bytes_to_digest` is non-injective (limbs
-		// ≥ the Goldilocks prime are reduced mod p). It is lossless only for
+		// Encoding note: the 8-byte/felt `bytes_to_digest_lossy` is non-injective
+		// (limbs ≥ the Goldilocks prime are reduced mod p). It is lossless only for
 		// canonical Goldilocks digests (our Poseidon outputs: parent_hash is a prior
 		// Poseidon block hash; zk_tree_root is a Poseidon node hash). `state_root`
 		// and `extrinsics_root` are substrate Blake2-256 outputs, which are NOT
 		// canonical field elements, so this hash is a *lossy* commitment to them.
 		// That is acceptable here: only `zk_tree_root` (canonical, fixed offset) and
-		// `parent_hash` need an injective binding for the wormhole circuit.
+		// `parent_hash` need an injective binding for the wormhole circuit. We use
+		// the explicitly-lossy variant (not the fallible strict `bytes_to_digest`)
+		// because `hash()` must be infallible even on adversarial header bytes.
 
 		// parent_hash : 32 bytes → 4 felts (canonical Poseidon block hash)
-		felts.extend(bytes_to_digest(
+		felts.extend(bytes_to_digest_lossy(
 			self.parent_hash.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
@@ -220,18 +222,18 @@ where
 		felts.push(Goldilocks::new(number.as_u32() as u64));
 
 		// state_root : 32 bytes → 4 felts (Blake2-256: non-canonical, lossy — see note above)
-		felts.extend(bytes_to_digest(
+		felts.extend(bytes_to_digest_lossy(
 			self.state_root.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
 		// extrinsics_root : 32 bytes → 4 felts (Blake2-256: non-canonical, lossy — see note above)
-		felts.extend(bytes_to_digest(
+		felts.extend(bytes_to_digest_lossy(
 			self.extrinsics_root.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
 		// zk_tree_root : 32 bytes → 4 felts (canonical Poseidon node hash)
 		// Placed before digest to ensure fixed offset regardless of digest content
-		felts.extend(bytes_to_digest(
+		felts.extend(bytes_to_digest_lossy(
 			self.zk_tree_root.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
