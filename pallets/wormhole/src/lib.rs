@@ -586,7 +586,7 @@ pub mod pallet {
 		/// exit slots (so they mint nothing) and re-inserting a nullifier is idempotent.
 		/// Zero nullifiers (from dummy leaf padding inside a real private batch) mint
 		/// nothing and are exempt from the collision checks entirely.
-		fn segment_validity(bundle: &ExitBundle) -> Result<Vec<bool>, Error<T>> {
+		pub(crate) fn segment_validity(bundle: &ExitBundle) -> Result<Vec<bool>, Error<T>> {
 			let mut claimed = alloc::collections::BTreeSet::<[u8; 32]>::new();
 			let mut validity = Vec::with_capacity(bundle.segments.len());
 
@@ -630,7 +630,7 @@ pub mod pallet {
 		///
 		/// Validity is recomputed here rather than reused from `validate_proof` because
 		/// chain state may have changed between pool validation and block inclusion.
-		fn process_exit_bundle(bundle: ExitBundle) -> DispatchResultWithPostInfo {
+		pub(crate) fn process_exit_bundle(bundle: ExitBundle) -> DispatchResultWithPostInfo {
 			let validity = Self::segment_validity(&bundle)?;
 			ensure!(validity.iter().any(|v| *v), Error::<T>::NullifierAlreadyUsed);
 

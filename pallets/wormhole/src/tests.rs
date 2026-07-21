@@ -904,6 +904,270 @@ mod fixture_gen {
 	}
 }
 
+/// Unit tests driving `segment_validity` / `process_exit_bundle` directly with
+/// synthetic multi-segment bundles.
+///
+/// The real public-batch fixture contains exactly one real segment, so it cannot
+/// exercise the partial-denial machinery. These tests cover what the fixture can't:
+/// denying one segment while the rest execute (`SegmentsDenied` accounting), the
+/// cross-segment claimed-set dedup (the double-mint fix for including the same
+/// private batch twice in one bundle), and fee/rebate math when `total_exit_amount`
+/// excludes a denied segment's value.
+#[cfg(test)]
+mod exit_bundle_tests {
+	use crate::{
+		mock::*,
+		pallet::{
+			Error, ExitBundle, ExitSegment, PotentialWormholeBalance, TotalWormholeExits,
+			UsedNullifiers,
+		},
+	};
+	use frame_support::{
+		assert_ok,
+		traits::fungible::{Inspect, Mutate},
+	};
+	use qp_wormhole_verifier::{BlockData, BytesDigest, PublicInputsByAccount};
+	use sp_core::crypto::AccountId32;
+	use sp_runtime::Permill;
+
+	/// Quantized circuit amounts (2 decimals). 2000 => 20 QUAN on-chain, well above
+	/// the 10 QUAN MinimumTransferAmount.
+	const AMOUNT_A: u32 = 2000;
+	const AMOUNT_B: u32 = 3000;
+
+	fn digest(byte: u8) -> BytesDigest {
+		BytesDigest::new_unchecked([byte; 32])
+	}
+
+	fn nullifier_bytes(byte: u8) -> [u8; 32] {
+		[byte; 32]
+	}
+
+	fn scaled(amount: u32) -> u128 {
+		(amount as u128) * crate::SCALE_DOWN_FACTOR
+	}
+
+	/// Build a segment from (nullifier byte-pattern) and (exit account byte-pattern, amount)
+	/// lists. A byte of 0 produces a zero nullifier / dummy exit slot.
+	fn segment(nullifiers: &[u8], exits: &[(u8, u32)]) -> ExitSegment {
+		ExitSegment {
+			account_data: exits
+				.iter()
+				.map(|(account_byte, amount)| PublicInputsByAccount {
+					summed_output_amount: *amount,
+					exit_account: digest(*account_byte),
+				})
+				.collect(),
+			nullifiers: nullifiers.iter().map(|b| digest(*b)).collect(),
+		}
+	}
+
+	fn bundle(segments: Vec<ExitSegment>, aggregator: Option<BytesDigest>) -> ExitBundle {
+		ExitBundle {
+			asset_id: 0,
+			volume_fee_bps: VolumeFeeRateBps::get(),
+			block_data: BlockData::default(),
+			aggregator_address: aggregator,
+			segments,
+		}
+	}
+
+	#[test]
+	fn segment_validity_denies_only_segment_with_used_nullifier() {
+		new_test_ext().execute_with(|| {
+			UsedNullifiers::<Test>::insert(nullifier_bytes(2), true);
+
+			let b = bundle(
+				vec![segment(&[1], &[(10, AMOUNT_A)]), segment(&[2], &[(11, AMOUNT_B)])],
+				None,
+			);
+			let validity = Wormhole::segment_validity(&b).unwrap();
+			assert_eq!(validity, vec![true, false]);
+		});
+	}
+
+	#[test]
+	fn segment_validity_cross_segment_dedup_denies_second_claim() {
+		new_test_ext().execute_with(|| {
+			// Segment 1 shares nullifier 2 with segment 0 (the double-spend attempt).
+			// Segment 2 reuses nullifier 3, which segment 1 tried to claim — but a
+			// denied segment claims nothing, so segment 2 must stay valid.
+			let b = bundle(
+				vec![
+					segment(&[1, 2], &[(10, AMOUNT_A)]),
+					segment(&[2, 3], &[(11, AMOUNT_B)]),
+					segment(&[3], &[(12, AMOUNT_A)]),
+				],
+				None,
+			);
+			let validity = Wormhole::segment_validity(&b).unwrap();
+			assert_eq!(validity, vec![true, false, true]);
+		});
+	}
+
+	#[test]
+	fn segment_validity_denies_duplicate_of_same_private_batch() {
+		new_test_ext().execute_with(|| {
+			// The same private batch included twice in one bundle: only the first
+			// copy may be valid.
+			let seg = || segment(&[1, 2], &[(10, AMOUNT_A)]);
+			let validity = Wormhole::segment_validity(&bundle(vec![seg(), seg()], None)).unwrap();
+			assert_eq!(validity, vec![true, false]);
+		});
+	}
+
+	#[test]
+	fn segment_validity_zero_nullifiers_are_exempt_from_collision_checks() {
+		new_test_ext().execute_with(|| {
+			// Segment 0 is dummy padding (all-zero): invalid but inert.
+			// Segments 1 and 2 each contain a zero nullifier (dummy leaf inside a
+			// real private batch); the shared zeros must not collide.
+			let b = bundle(
+				vec![
+					segment(&[0, 0], &[(0, 0)]),
+					segment(&[0, 1], &[(10, AMOUNT_A)]),
+					segment(&[0, 2], &[(11, AMOUNT_B)]),
+				],
+				None,
+			);
+			let validity = Wormhole::segment_validity(&b).unwrap();
+			assert_eq!(validity, vec![false, true, true]);
+		});
+	}
+
+	#[test]
+	fn process_exit_bundle_partial_denial_mints_only_valid_segments() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+
+			// Segment 1 has one already-spent nullifier (3) and one fresh one (4):
+			// the whole segment is denied and the fresh nullifier left unmarked.
+			UsedNullifiers::<Test>::insert(nullifier_bytes(3), true);
+
+			let exit_a = AccountId32::new([10u8; 32]);
+			let exit_b = AccountId32::new([11u8; 32]);
+
+			let b = bundle(
+				vec![segment(&[1, 2], &[(10, AMOUNT_A)]), segment(&[3, 4], &[(11, AMOUNT_B)])],
+				None,
+			);
+			assert_ok!(Wormhole::process_exit_bundle(b));
+
+			// Only the valid segment minted; the denied segment's value is excluded
+			// from the exit accounting.
+			assert_eq!(Balances::balance(&exit_a), scaled(AMOUNT_A));
+			assert_eq!(Balances::balance(&exit_b), 0, "denied segment must not mint");
+			assert_eq!(TotalWormholeExits::<Test>::get(), scaled(AMOUNT_A));
+
+			// Valid segment's nullifiers are consumed; the denied segment's fresh
+			// nullifier is not, so its owner can still exit later.
+			assert!(UsedNullifiers::<Test>::contains_key(nullifier_bytes(1)));
+			assert!(UsedNullifiers::<Test>::contains_key(nullifier_bytes(2)));
+			assert!(
+				!UsedNullifiers::<Test>::contains_key(nullifier_bytes(4)),
+				"denied segment's nullifiers must not be consumed"
+			);
+
+			System::assert_has_event(
+				crate::Event::<Test>::SegmentsDenied { indices: vec![1] }.into(),
+			);
+			System::assert_has_event(
+				crate::Event::<Test>::ProofVerified {
+					exit_amount: scaled(AMOUNT_A),
+					nullifiers: vec![nullifier_bytes(1), nullifier_bytes(2)],
+				}
+				.into(),
+			);
+		});
+	}
+
+	#[test]
+	fn process_exit_bundle_same_private_batch_twice_mints_once() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+
+			let exit = AccountId32::new([10u8; 32]);
+			let seg = || segment(&[1, 2], &[(10, AMOUNT_A)]);
+			assert_ok!(Wormhole::process_exit_bundle(bundle(vec![seg(), seg()], None)));
+
+			assert_eq!(
+				Balances::balance(&exit),
+				scaled(AMOUNT_A),
+				"duplicate segment in one bundle must not double-mint"
+			);
+			assert_eq!(TotalWormholeExits::<Test>::get(), scaled(AMOUNT_A));
+			System::assert_has_event(
+				crate::Event::<Test>::SegmentsDenied { indices: vec![1] }.into(),
+			);
+		});
+	}
+
+	#[test]
+	fn process_exit_bundle_fee_and_rebate_exclude_denied_segment() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+
+			// Seed issuance so the burn is observable (set_total_issuance saturates at 0).
+			assert_ok!(Balances::mint_into(&account_id(999), 1_000 * UNIT));
+			let issuance_before = <Balances as Inspect<AccountId>>::total_issuance();
+
+			// Deny segment 1 via an already-used nullifier.
+			UsedNullifiers::<Test>::insert(nullifier_bytes(3), true);
+
+			let aggregator = AccountId32::new([7u8; 32]);
+			let b = bundle(
+				vec![segment(&[1], &[(10, AMOUNT_A)]), segment(&[3], &[(11, AMOUNT_B)])],
+				Some(digest(7)),
+			);
+			assert_ok!(Wormhole::process_exit_bundle(b));
+
+			// Fee math mirrors the pallet: fee = exit * bps / (10000 - bps), computed
+			// on the total that EXCLUDES the denied segment's value.
+			let fee_bps = VolumeFeeRateBps::get() as u128;
+			let fee = scaled(AMOUNT_A) * fee_bps / (10_000 - fee_bps);
+			let fee_if_denied_included =
+				(scaled(AMOUNT_A) + scaled(AMOUNT_B)) * fee_bps / (10_000 - fee_bps);
+			assert_ne!(fee, fee_if_denied_included, "test must distinguish the two totals");
+
+			let burn_bucket = Permill::from_percent(50) * fee;
+			let expected_rebate = Permill::from_percent(50) * burn_bucket;
+			assert!(expected_rebate > 0, "amounts must produce a nonzero rebate");
+			assert_eq!(
+				Balances::balance(&aggregator),
+				expected_rebate,
+				"aggregator rebate must be based on the valid segments only"
+			);
+
+			// No block author in tests, so the miner share is burned too. Issuance
+			// drops by (burn_bucket - rebate) + (fee - burn_bucket) = fee - rebate.
+			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();
+			assert_eq!(
+				issuance_before - issuance_after,
+				fee - expected_rebate,
+				"burn must be computed from the fee excluding the denied segment"
+			);
+		});
+	}
+
+	#[test]
+	fn process_exit_bundle_rejects_when_no_segment_valid() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+			UsedNullifiers::<Test>::insert(nullifier_bytes(1), true);
+
+			let b = bundle(vec![segment(&[1], &[(10, AMOUNT_A)])], None);
+			let result = Wormhole::process_exit_bundle(b);
+			assert!(result.is_err());
+			assert_eq!(result.unwrap_err().error, Error::<Test>::NullifierAlreadyUsed.into());
+			assert_eq!(TotalWormholeExits::<Test>::get(), 0);
+		});
+	}
+}
+
 /// Tests for public-batch proof verification (second aggregation layer).
 #[cfg(test)]
 mod public_batch_proof_tests {
