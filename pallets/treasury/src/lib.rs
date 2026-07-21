@@ -32,6 +32,7 @@
 //! The `mining-rewards` pallet uses the [`TreasuryProvider`] trait to determine where and
 //! how much of each block reward should be allocated to the treasury.
 
+pub mod migrations;
 pub mod weights;
 pub use weights::WeightInfo;
 
@@ -55,7 +56,9 @@ pub mod pallet {
 	///
 	/// This establishes an explicit baseline for future storage migrations.
 	/// Increment this and add a migration hook when storage layout changes.
-	const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
+	///
+	/// v1: `TreasuryPortion` set to 50% (50/50 treasury/miner split, see `migrations::v1`).
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
 	#[pallet::pallet]
 	#[pallet::storage_version(STORAGE_VERSION)]

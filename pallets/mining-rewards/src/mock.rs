@@ -36,7 +36,7 @@ parameter_types! {
 	pub const BlockHashCount: u64 = 250;
 	pub const SS58Prefix: u8 = 189;
 	pub const MaxSupply: u128 = 21_000_000 * UNIT;
-	pub const EmissionDivisor: u128 = 26_280_000;
+	pub const EmissionDivisor: u128 = 15_163_560;
 	pub const ExistentialDeposit: Balance = 1;
 }
 
