@@ -69,7 +69,9 @@ impl frame_system::Config for Test {
 }
 
 parameter_types! {
-	pub const ExistentialDeposit: Balance = 1;
+	/// `static` so individual tests can raise it (e.g. to exercise the
+	/// below-ED aggregator rebate fallback) via `ExistentialDeposit::set`.
+	pub static ExistentialDeposit: Balance = 1;
 }
 
 impl pallet_balances::Config for Test {

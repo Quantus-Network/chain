@@ -54,6 +54,7 @@ use core::marker::PhantomData;
 /// Weight functions needed for `pallet_wormhole`.
 pub trait WeightInfo {
 	fn pre_validate_proof() -> Weight;
+	fn pre_validate_public_batch_proof() -> Weight;
 	fn verify_private_batch() -> Weight;
 	fn verify_public_batch() -> Weight;
 }
@@ -118,6 +119,20 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(685_000_000, 81758)
 			.saturating_add(T::DbWeight::get().reads(33_u64))
 	}
+	/// Public-batch pre-validation (hand-augmented from `pre_validate_proof`, which is
+	/// benchmarked for the private batch): same deserialize/parse cost profile, but the
+	/// nullifier existence scan touches every key across all inner segments:
+	/// `System::BlockHash` (r:1) + `Wormhole::UsedNullifiers`
+	/// (r: NUM_PRIVATE_BATCH_PROOFS * NUM_LEAF_PROOFS). Replace with a dedicated
+	/// benchmark when one lands.
+	fn pre_validate_public_batch_proof() -> Weight {
+		let nullifier_reads = (circuit_config::NUM_PRIVATE_BATCH_PROOFS *
+			circuit_config::NUM_LEAF_PROOFS) as u64;
+		// PoV: 2519 per benchmarked `BlockHash` key + 2524 per `UsedNullifiers` key.
+		let proof_size = 2519_u64.saturating_add(nullifier_reads.saturating_mul(2524));
+		Weight::from_parts(685_000_000, proof_size)
+			.saturating_add(T::DbWeight::get().reads(1_u64.saturating_add(nullifier_reads)))
+	}
 	/// Full private-batch proof verification: ZK verification plus the data-dependent state
 	/// updates that the `verify_private_batch` benchmark intentionally excludes (it only
 	/// measures the ZK verify). Storage is scaled from a calibration of 32 exit mints
@@ -161,6 +176,14 @@ impl WeightInfo for () {
 		// Minimum execution time: 650_000_000 picoseconds.
 		Weight::from_parts(685_000_000, 81758)
 			.saturating_add(RocksDbWeight::get().reads(33_u64))
+	}
+	/// See `SubstrateWeight::pre_validate_public_batch_proof`.
+	fn pre_validate_public_batch_proof() -> Weight {
+		let nullifier_reads = (circuit_config::NUM_PRIVATE_BATCH_PROOFS *
+			circuit_config::NUM_LEAF_PROOFS) as u64;
+		let proof_size = 2519_u64.saturating_add(nullifier_reads.saturating_mul(2524));
+		Weight::from_parts(685_000_000, proof_size)
+			.saturating_add(RocksDbWeight::get().reads(1_u64.saturating_add(nullifier_reads)))
 	}
 	/// Full private-batch proof verification: ZK verification plus the data-dependent state
 	/// updates that the benchmark excludes. Storage scaled to `2 · NUM_LEAF_PROOFS` exits

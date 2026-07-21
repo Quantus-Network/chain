@@ -473,9 +473,14 @@ pub mod pallet {
 	#[pallet::error]
 	pub enum Error<T> {
 		InvalidPublicInputs,
-		/// No segment of the bundle is spendable: every segment contains a nullifier that
-		/// is already used (or the single segment of a private-batch proof does).
+		/// No segment of the bundle is spendable: every non-dummy segment contains a
+		/// nullifier that is already used (or the single segment of a private-batch
+		/// proof does).
 		NullifierAlreadyUsed,
+		/// The bundle contains only dummy (all-zero) padding segments, so there is
+		/// nothing to exit. Distinct from [`Error::NullifierAlreadyUsed`], which is a
+		/// replay of real segments.
+		NoValidSegments,
 		BlockNotFound,
 		VerifierNotAvailable,
 		ProofDeserializationFailed,
@@ -643,7 +648,9 @@ pub mod pallet {
 		///
 		/// Invalid segments (already-spent nullifiers) are denied individually; dummy-padded
 		/// segments (all-zero nullifiers) are skipped silently. A portion of the burn bucket
-		/// is minted to the proof's `aggregator_address`.
+		/// is minted to the proof's `aggregator_address`; if that mint fails (e.g. the
+		/// account doesn't exist and the rebate is below the existential deposit) the
+		/// rebate is burned instead of failing the users' exits.
 		#[pallet::call_index(3)]
 		#[pallet::weight(<T as Config>::WeightInfo::verify_public_batch())]
 		pub fn verify_public_batch(
@@ -659,7 +666,7 @@ pub mod pallet {
 						Error::<T>::ProofVerificationFailed => {
 							Some(<T as Config>::WeightInfo::verify_public_batch())
 						},
-						_ => Some(<T as Config>::WeightInfo::pre_validate_proof()),
+						_ => Some(<T as Config>::WeightInfo::pre_validate_public_batch_proof()),
 					};
 					return Err(DispatchErrorWithPostInfo {
 						post_info: PostDispatchInfo { actual_weight, pays_fee: Pays::No },
@@ -722,6 +729,22 @@ pub mod pallet {
 			Ok(validity)
 		}
 
+		/// Reject a bundle in which no segment is valid, distinguishing an all-dummy
+		/// bundle (nothing to exit) from a replay of real segments.
+		fn ensure_any_segment_valid(
+			bundle: &ExitBundle,
+			validity: &[bool],
+		) -> Result<(), Error<T>> {
+			if validity.iter().any(|v| *v) {
+				return Ok(());
+			}
+			if bundle.segments.iter().all(Self::segment_is_inert) {
+				Err(Error::<T>::NoValidSegments)
+			} else {
+				Err(Error::<T>::NullifierAlreadyUsed)
+			}
+		}
+
 		/// Process a validated exit bundle: mark nullifiers, mint exits, distribute fees.
 		///
 		/// Invalid segments (a nullifier already used on-chain, or colliding with an earlier
@@ -733,7 +756,7 @@ pub mod pallet {
 		/// chain state may have changed between pool validation and block inclusion.
 		pub(crate) fn process_exit_bundle(bundle: ExitBundle) -> DispatchResultWithPostInfo {
 			let validity = Self::segment_validity(&bundle)?;
-			ensure!(validity.iter().any(|v| *v), Error::<T>::NullifierAlreadyUsed);
+			Self::ensure_any_segment_valid(&bundle, &validity)?;
 
 			// Get the minting account for recording transfer proofs
 			let mint_account = T::MintingAccount::get();
@@ -885,11 +908,26 @@ pub mod pallet {
 						<T as frame_system::Config>::AccountId::decode(&mut &aggregator_bytes[..])
 							.map_err(|_| Error::<T>::InvalidProofPublicInputs)?;
 
-					<T::Currency as Unbalanced<_>>::increase_balance(
+					// A failed rebate mint (e.g. the aggregator account doesn't exist
+					// and the rebate is below the existential deposit) must not revert
+					// the whole bundle - that would drag users' exits down with a
+					// problem the aggregator inflicted on itself. Burn the rebate
+					// instead and process the exits normally.
+					match <T::Currency as Unbalanced<_>>::increase_balance(
 						&aggregator_account,
 						aggregator_fee,
 						frame_support::traits::tokens::Precision::Exact,
-					)?;
+					) {
+						Ok(_) => {},
+						Err(e) => {
+							log::warn!(
+								"Aggregator rebate of {:?} could not be minted ({:?}); burning it instead",
+								aggregator_fee,
+								e
+							);
+							burn_amount_u128 = burn_amount_u128.saturating_add(aggregator_fee_u128);
+						},
+					}
 				}
 			}
 
@@ -993,11 +1031,13 @@ pub mod pallet {
 					let (bundle, validity) = Self::validate_public_batch_proof(proof_bytes)
 						.map_err(|_| InvalidTransaction::Call)?;
 
+					// Inert (dummy-padded) segments are already `false` in `validity`,
+					// so filtering on validity alone excludes them.
 					let total_amount: u64 = bundle
 						.segments
 						.iter()
 						.zip(validity.iter())
-						.filter(|(segment, valid)| **valid && !Self::segment_is_inert(segment))
+						.filter(|(_, valid)| **valid)
 						.flat_map(|(segment, _)| segment.account_data.iter())
 						.map(|a| a.summed_output_amount as u64)
 						.sum();
@@ -1040,7 +1080,7 @@ pub mod pallet {
 			);
 
 			let validity = Self::segment_validity(bundle)?;
-			ensure!(validity.iter().any(|v| *v), Error::<T>::NullifierAlreadyUsed);
+			Self::ensure_any_segment_valid(bundle, &validity)?;
 			Ok(validity)
 		}
 

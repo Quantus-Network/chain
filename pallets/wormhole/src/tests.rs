@@ -1263,6 +1263,64 @@ mod exit_bundle_tests {
 			assert_eq!(TotalWormholeExits::<Test>::get(), 0);
 		});
 	}
+
+	#[test]
+	fn process_exit_bundle_rejects_all_dummy_bundle_with_no_valid_segments() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+
+			// A bundle of only dummy padding segments carries no replayed nullifier,
+			// so it must be reported as NoValidSegments, not NullifierAlreadyUsed.
+			let b = bundle(vec![segment(&[0, 0], &[(0, 0)]), segment(&[0], &[(0, 0)])], None);
+			let result = Wormhole::process_exit_bundle(b);
+			assert!(result.is_err());
+			assert_eq!(result.unwrap_err().error, Error::<Test>::NoValidSegments.into());
+		});
+	}
+
+	#[test]
+	fn process_exit_bundle_burns_rebate_when_aggregator_mint_fails() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+
+			// Seed issuance so the burn is observable.
+			assert_ok!(Balances::mint_into(&account_id(999), 1_000 * UNIT));
+			let issuance_before = <Balances as Inspect<AccountId>>::total_issuance();
+
+			// Raise the ED above the rebate: minting the rebate into the nonexistent
+			// aggregator account now fails. The bundle (users' exits) must still
+			// succeed, with the rebate burned instead.
+			ExistentialDeposit::set(1_000 * UNIT);
+
+			let aggregator = AccountId32::new([7u8; 32]);
+			let exit = AccountId32::new([10u8; 32]);
+			// Exits must clear the raised ED so the user mints themselves succeed.
+			let amount = 200_000u32; // 2000 QUAN scaled
+			let b = bundle(vec![segment(&[1], &[(10, amount)])], Some(digest(7)));
+			assert_ok!(Wormhole::process_exit_bundle(b));
+
+			// User exit minted; aggregator got nothing.
+			assert_eq!(Balances::balance(&exit), scaled(amount));
+			assert_eq!(
+				Balances::balance(&aggregator),
+				0,
+				"below-ED rebate must not create the aggregator account"
+			);
+
+			// The whole fee is burned: the rebate fell back into the burn bucket and
+			// the miner share is burned too (no block author in tests).
+			let fee_bps = VolumeFeeRateBps::get() as u128;
+			let fee = scaled(amount) * fee_bps / (10_000 - fee_bps);
+			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();
+			assert_eq!(
+				issuance_before - issuance_after,
+				fee,
+				"failed rebate must be burned, not revert the bundle"
+			);
+		});
+	}
 }
 
 /// Tests for public-batch proof verification (second aggregation layer).
