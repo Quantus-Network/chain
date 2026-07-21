@@ -589,8 +589,8 @@ mod private_batch_proof_tests {
 						let mut total = 0u128;
 						for account_data in &inputs.account_data {
 							if account_data.summed_output_amount > 0 {
-								total += (account_data.summed_output_amount as u128) *
-									crate::SCALE_DOWN_FACTOR;
+								total += (account_data.summed_output_amount as u128)
+									* crate::SCALE_DOWN_FACTOR;
 							}
 						}
 						total
@@ -901,6 +901,103 @@ mod fixture_gen {
 
 		let hash = Poseidon2Hash::hash_no_pad(&preimage);
 		digest_to_bytes(&hash.elements)
+	}
+}
+
+/// Tests for the defense-in-depth profile checks applied when loading the
+/// build-time-generated batch verifier artifacts (`ensure_batch_verifier_profile`).
+///
+/// The batch loader can't pin artifacts to keccak256 commitments the way the
+/// canonical-leaf `WormholeVerifier::new_from_bytes` does (the batch bytes vary
+/// with the `QP_NUM_*` sizing), so these tests assert that the config/security-bits/
+/// PI-shape checks it enforces instead both accept the real artifacts and reject
+/// doctored profiles.
+#[cfg(test)]
+mod verifier_profile_tests {
+	use qp_wormhole_verifier::MIN_LEAF_SECURITY_BITS;
+
+	#[test]
+	fn embedded_batch_verifiers_pass_profile_checks() {
+		// The lazy statics run the full loader, so these unwraps prove the real
+		// build artifacts satisfy the profile checks end to end.
+		let private = crate::get_private_batch_verifier()
+			.expect("private-batch verifier must load under the profile checks");
+		let public = crate::get_public_batch_verifier()
+			.expect("public-batch verifier must load under the profile checks");
+
+		// And the expected-PI formulas match the actual compiled circuits.
+		assert_eq!(
+			private.circuit_data.common.num_public_inputs,
+			crate::private_batch_expected_public_inputs(),
+		);
+		assert_eq!(
+			public.circuit_data.common.num_public_inputs,
+			crate::public_batch_expected_public_inputs(),
+		);
+	}
+
+	#[test]
+	fn batch_configs_match_circuit_crate() {
+		// The expected configs are replicated in the pallet because
+		// qp-zk-circuits-common can't be a runtime dependency (it force-enables
+		// qp-plonky2/std). Assert parity with the source of truth the build-time
+		// circuit generation actually uses.
+		assert_eq!(
+			crate::private_batch_expected_config(),
+			qp_zk_circuits_common::circuit::wormhole_private_batch_circuit_config(),
+		);
+		assert_eq!(
+			crate::public_batch_expected_config(),
+			qp_zk_circuits_common::circuit::wormhole_public_batch_circuit_config(),
+		);
+	}
+
+	#[test]
+	fn profile_check_rejects_wrong_public_input_count() {
+		let common = crate::get_private_batch_verifier().unwrap().circuit_data.common.clone();
+		let config = crate::private_batch_expected_config();
+		let expected = crate::private_batch_expected_public_inputs();
+
+		assert!(crate::ensure_batch_verifier_profile(&common, &config, expected).is_ok());
+		assert!(
+			crate::ensure_batch_verifier_profile(&common, &config, expected + 1).is_err(),
+			"a PI-count mismatch must be rejected"
+		);
+	}
+
+	#[test]
+	fn profile_check_rejects_non_canonical_config() {
+		let mut common = crate::get_private_batch_verifier().unwrap().circuit_data.common.clone();
+		let config = crate::private_batch_expected_config();
+		let expected = crate::private_batch_expected_public_inputs();
+
+		// Any deviation from the canonical batch config must be rejected, e.g. an
+		// artifact built with the zero-knowledge (row blinding) flag flipped.
+		common.config.zero_knowledge = !common.config.zero_knowledge;
+		assert!(crate::ensure_batch_verifier_profile(&common, &config, expected).is_err());
+	}
+
+	#[test]
+	fn profile_check_rejects_low_security_bits() {
+		let mut common = crate::get_private_batch_verifier().unwrap().circuit_data.common.clone();
+		let expected = crate::private_batch_expected_public_inputs();
+
+		common.config.security_bits = MIN_LEAF_SECURITY_BITS - 1;
+		// Weaken the expected config the same way, so this exercises the
+		// security-bits floor specifically rather than the equality check.
+		let weak_config = common.config.clone();
+		assert!(
+			crate::ensure_batch_verifier_profile(&common, &weak_config, expected).is_err(),
+			"a config below the security-bits floor must be rejected even if it matches"
+		);
+	}
+
+	#[test]
+	fn canonical_configs_meet_security_floor() {
+		// Guards against the canonical batch configs themselves dropping below the
+		// floor in a future qp-plonky2 bump (mirrors the upstream leaf check).
+		assert!(crate::private_batch_expected_config().security_bits >= MIN_LEAF_SECURITY_BITS);
+		assert!(crate::public_batch_expected_config().security_bits >= MIN_LEAF_SECURITY_BITS);
 	}
 }
 
@@ -1237,15 +1334,15 @@ mod public_batch_proof_tests {
 			"Aggregator address should round-trip through the proof"
 		);
 
-		let expected_slots = crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS *
-			crate::circuit_config::NUM_LEAF_PROOFS *
-			2;
+		let expected_slots = crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS
+			* crate::circuit_config::NUM_LEAF_PROOFS
+			* 2;
 		assert_eq!(inputs.total_exit_slots as usize, expected_slots);
 		assert_eq!(inputs.account_data.len(), expected_slots);
 		assert_eq!(
 			inputs.nullifiers.len(),
-			crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS *
-				crate::circuit_config::NUM_LEAF_PROOFS
+			crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS
+				* crate::circuit_config::NUM_LEAF_PROOFS
 		);
 
 		// Exactly one real leaf exit; everything else is dummy padding.

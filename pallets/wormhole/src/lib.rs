@@ -6,16 +6,89 @@ use lazy_static::lazy_static;
 pub use pallet::*;
 use qp_plonky2_verifier::util::serialization::DefaultGateSerializer;
 use qp_wormhole_verifier::{
-	CommonCircuitData, VerifierCircuitData, VerifierOnlyCircuitData, WormholeVerifier,
+	CircuitConfig, CommonCircuitData, VerifierCircuitData, VerifierOnlyCircuitData,
+	WormholeVerifier, D, F, MIN_LEAF_SECURITY_BITS, PUBLIC_INPUTS_FELTS_LEN,
 };
+
+/// Header felts of the private-batch PI layout:
+/// `num_unique_exits(1) + asset_id(1) + volume_fee_bps(1) + block_hash(4) + block_number(1)`.
+/// The payload is padded to one `PUBLIC_INPUTS_FELTS_LEN` block per leaf proof
+/// (see `PrivateBatchPublicInputs::try_from_u64_slice` in `qp-wormhole-inputs`).
+const PRIVATE_BATCH_PI_HEADER_FELTS: usize = 8;
+
+/// Expected public-input count of the private-batch circuit compiled into this runtime.
+fn private_batch_expected_public_inputs() -> usize {
+	PRIVATE_BATCH_PI_HEADER_FELTS + circuit_config::NUM_LEAF_PROOFS * PUBLIC_INPUTS_FELTS_LEN
+}
+
+/// Expected public-input count of the public-batch circuit compiled into this runtime.
+fn public_batch_expected_public_inputs() -> usize {
+	qp_wormhole_inputs::public_batch_pi::pi_len(
+		circuit_config::NUM_PRIVATE_BATCH_PROOFS,
+		circuit_config::NUM_LEAF_PROOFS,
+	)
+}
+
+/// Canonical circuit config of the private-batch aggregation circuit.
+///
+/// Must stay identical to `qp_zk_circuits_common::circuit::wormhole_private_batch_circuit_config`,
+/// which the build-time circuit generation uses. It is replicated here because
+/// `qp-zk-circuits-common` force-enables `qp-plonky2/std` and therefore cannot be a
+/// runtime dependency; the `batch_configs_match_circuit_crate` test asserts parity.
+fn private_batch_expected_config() -> CircuitConfig {
+	CircuitConfig {
+		num_wires: 135,
+		num_routed_wires: 60,
+		..CircuitConfig::standard_recursion_zk_config()
+	}
+}
+
+/// Canonical circuit config of the public-batch aggregation circuit.
+///
+/// Must stay identical to `qp_zk_circuits_common::circuit::wormhole_public_batch_circuit_config`
+/// (the standard non-ZK recursion config); see [`private_batch_expected_config`] for why it is
+/// replicated here.
+fn public_batch_expected_config() -> CircuitConfig {
+	CircuitConfig::standard_recursion_config()
+}
+
+/// Defense-in-depth profile check for batch verifier artifacts, mirroring the
+/// audit-hardened `WormholeVerifier::new_from_bytes` canonical-leaf checks.
+///
+/// The batch artifacts are generated at build time from the pinned circuit crates and
+/// their bytes vary with the `QP_NUM_*` sizing env vars, so unlike the leaf path there
+/// is no fixed keccak256 commitment to pin them to. The decoded profile is still
+/// validated: the circuit config must equal the canonical config for that batch
+/// circuit, meet the minimum security-bits floor, and carry exactly the public-input
+/// count implied by the compiled batch dimensions.
+fn ensure_batch_verifier_profile(
+	common: &CommonCircuitData<F, D>,
+	expected_config: &CircuitConfig,
+	expected_public_inputs: usize,
+) -> Result<(), &'static str> {
+	if common.config != *expected_config {
+		return Err("circuit config does not match the canonical batch circuit config");
+	}
+	if common.config.security_bits < MIN_LEAF_SECURITY_BITS {
+		return Err("circuit config is below the minimum security-bits floor");
+	}
+	if common.num_public_inputs != expected_public_inputs {
+		return Err("public-input count does not match the compiled batch dimensions");
+	}
+	Ok(())
+}
 
 /// Load a batch verifier from pre-serialized verifier-only and common circuit bytes.
 ///
-/// Unlike [`WormholeVerifier::new_from_bytes`], this accepts arbitrary batch-circuit
-/// artifacts (private/public batch) rather than only the canonical leaf circuit pins.
+/// Unlike [`WormholeVerifier::new_from_bytes`], this accepts batch-circuit artifacts
+/// (private/public batch) rather than only the canonical leaf circuit pins, so the
+/// keccak256 commitment check does not apply; [`ensure_batch_verifier_profile`] is
+/// enforced instead.
 fn load_batch_verifier_from_bytes(
 	verifier_bytes: &[u8],
 	common_bytes: &[u8],
+	expected_config: &CircuitConfig,
+	expected_public_inputs: usize,
 	name: &'static str,
 ) -> Option<WormholeVerifier> {
 	let verifier_only = match VerifierOnlyCircuitData::from_bytes(verifier_bytes.to_vec()) {
@@ -37,6 +110,20 @@ fn load_batch_verifier_from_bytes(
 		},
 	};
 
+	if let Err(_reason) =
+		ensure_batch_verifier_profile(&common, expected_config, expected_public_inputs)
+	{
+		#[cfg(feature = "std")]
+		log::error!(
+			"{name} verifier artifact rejected: {_reason} \
+			 (security_bits={}, num_public_inputs={}, expected_public_inputs={})",
+			common.config.security_bits,
+			common.num_public_inputs,
+			expected_public_inputs
+		);
+		return None;
+	}
+
 	Some(WormholeVerifier { circuit_data: VerifierCircuitData { verifier_only, common } })
 }
 
@@ -55,12 +142,24 @@ lazy_static! {
 		let verifier_bytes =
 			include_bytes!(concat!(env!("OUT_DIR"), "/private_batch_verifier.bin"));
 		let common_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/private_batch_common.bin"));
-		load_batch_verifier_from_bytes(verifier_bytes, common_bytes, "private batch")
+		load_batch_verifier_from_bytes(
+			verifier_bytes,
+			common_bytes,
+			&private_batch_expected_config(),
+			private_batch_expected_public_inputs(),
+			"private batch",
+		)
 	};
 	static ref PUBLIC_BATCH_VERIFIER: Option<WormholeVerifier> = {
 		let verifier_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/public_batch_verifier.bin"));
 		let common_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/public_batch_common.bin"));
-		load_batch_verifier_from_bytes(verifier_bytes, common_bytes, "public batch")
+		load_batch_verifier_from_bytes(
+			verifier_bytes,
+			common_bytes,
+			&public_batch_expected_config(),
+			public_batch_expected_public_inputs(),
+			"public batch",
+		)
 	};
 }
 
@@ -524,8 +623,9 @@ pub mod pallet {
 					// Determine weight based on which stage failed
 					let actual_weight = match e {
 						// ZK verification was attempted - full weight consumed
-						Error::<T>::ProofVerificationFailed =>
-							Some(<T as Config>::WeightInfo::verify_private_batch()),
+						Error::<T>::ProofVerificationFailed => {
+							Some(<T as Config>::WeightInfo::verify_private_batch())
+						},
 						// Failed before ZK verification - minimal weight
 						_ => Some(<T as Config>::WeightInfo::pre_validate_proof()),
 					};
@@ -556,8 +656,9 @@ pub mod pallet {
 				Ok(result) => result,
 				Err(e) => {
 					let actual_weight = match e {
-						Error::<T>::ProofVerificationFailed =>
-							Some(<T as Config>::WeightInfo::verify_public_batch()),
+						Error::<T>::ProofVerificationFailed => {
+							Some(<T as Config>::WeightInfo::verify_public_batch())
+						},
 						_ => Some(<T as Config>::WeightInfo::pre_validate_proof()),
 					};
 					return Err(DispatchErrorWithPostInfo {
@@ -1010,8 +1111,8 @@ pub mod pallet {
 		/// tracking in `record_transfer` (recipient) and the reveal-side tracking in the runtime's
 		/// `WormholeProofRecorderExtension` (signer) classify addresses through this function.
 		pub fn is_ambiguous_account(account: &<T as frame_system::Config>::AccountId) -> bool {
-			frame_system::Pallet::<T>::account_nonce(account).is_zero() &&
-				!T::NonWormholeAccounts::contains(account)
+			frame_system::Pallet::<T>::account_nonce(account).is_zero()
+				&& !T::NonWormholeAccounts::contains(account)
 		}
 
 		/// Reveal `account`: remove its current total balance from `PotentialWormholeBalance`.
