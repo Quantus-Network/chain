@@ -589,8 +589,8 @@ mod private_batch_proof_tests {
 						let mut total = 0u128;
 						for account_data in &inputs.account_data {
 							if account_data.summed_output_amount > 0 {
-								total += (account_data.summed_output_amount as u128)
-									* crate::SCALE_DOWN_FACTOR;
+								total += (account_data.summed_output_amount as u128) *
+									crate::SCALE_DOWN_FACTOR;
 							}
 						}
 						total
@@ -1392,15 +1392,15 @@ mod public_batch_proof_tests {
 			"Aggregator address should round-trip through the proof"
 		);
 
-		let expected_slots = crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS
-			* crate::circuit_config::NUM_LEAF_PROOFS
-			* 2;
+		let expected_slots = crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS *
+			crate::circuit_config::NUM_LEAF_PROOFS *
+			2;
 		assert_eq!(inputs.total_exit_slots as usize, expected_slots);
 		assert_eq!(inputs.account_data.len(), expected_slots);
 		assert_eq!(
 			inputs.nullifiers.len(),
-			crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS
-				* crate::circuit_config::NUM_LEAF_PROOFS
+			crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS *
+				crate::circuit_config::NUM_LEAF_PROOFS
 		);
 
 		// Exactly one real leaf exit; everything else is dummy padding.

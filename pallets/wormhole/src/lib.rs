@@ -628,9 +628,8 @@ pub mod pallet {
 					// Determine weight based on which stage failed
 					let actual_weight = match e {
 						// ZK verification was attempted - full weight consumed
-						Error::<T>::ProofVerificationFailed => {
-							Some(<T as Config>::WeightInfo::verify_private_batch())
-						},
+						Error::<T>::ProofVerificationFailed =>
+							Some(<T as Config>::WeightInfo::verify_private_batch()),
 						// Failed before ZK verification - minimal weight
 						_ => Some(<T as Config>::WeightInfo::pre_validate_proof()),
 					};
@@ -663,9 +662,8 @@ pub mod pallet {
 				Ok(result) => result,
 				Err(e) => {
 					let actual_weight = match e {
-						Error::<T>::ProofVerificationFailed => {
-							Some(<T as Config>::WeightInfo::verify_public_batch())
-						},
+						Error::<T>::ProofVerificationFailed =>
+							Some(<T as Config>::WeightInfo::verify_public_batch()),
 						_ => Some(<T as Config>::WeightInfo::pre_validate_public_batch_proof()),
 					};
 					return Err(DispatchErrorWithPostInfo {
@@ -1151,8 +1149,8 @@ pub mod pallet {
 		/// tracking in `record_transfer` (recipient) and the reveal-side tracking in the runtime's
 		/// `WormholeProofRecorderExtension` (signer) classify addresses through this function.
 		pub fn is_ambiguous_account(account: &<T as frame_system::Config>::AccountId) -> bool {
-			frame_system::Pallet::<T>::account_nonce(account).is_zero()
-				&& !T::NonWormholeAccounts::contains(account)
+			frame_system::Pallet::<T>::account_nonce(account).is_zero() &&
+				!T::NonWormholeAccounts::contains(account)
 		}
 
 		/// Reveal `account`: remove its current total balance from `PotentialWormholeBalance`.
