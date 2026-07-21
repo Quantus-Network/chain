@@ -307,6 +307,14 @@ pub mod pallet {
 			exit_amount: BalanceOf<T>,
 			nullifiers: Vec<[u8; 32]>,
 		},
+		/// The block author's share of the wormhole exit volume fee was minted.
+		///
+		/// NOTE: keep this as the last variant — indexers decode events by their
+		/// position in this enum, so existing variants must never be reordered.
+		MinerVolumeFeePaid {
+			miner: <T as frame_system::Config>::AccountId,
+			amount: BalanceOf<T>,
+		},
 	}
 
 	#[pallet::error]
@@ -516,6 +524,10 @@ pub mod pallet {
 						miner_fee,
 						frame_support::traits::tokens::Precision::Exact,
 					)?;
+					Self::deposit_event(Event::MinerVolumeFeePaid {
+						miner: author,
+						amount: miner_fee,
+					});
 				} else {
 					// No block author found - add miner fee to burn amount
 					log::warn!(

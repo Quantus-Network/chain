@@ -190,3 +190,11 @@ pub fn new_test_ext_with_endowments(
 
 	t.into()
 }
+
+/// Set a miner preimage in the pre-runtime digest, simulating QPoW block authorship
+/// so that `qp_wormhole::extract_author_from_digest` finds a block author.
+pub fn set_miner_preimage_digest(preimage: [u8; 32]) {
+	let pre_digest =
+		sp_runtime::DigestItem::PreRuntime(sp_consensus_qpow::POW_ENGINE_ID, preimage.to_vec());
+	System::deposit_log(pre_digest);
+}

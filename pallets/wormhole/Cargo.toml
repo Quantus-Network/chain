@@ -43,6 +43,7 @@ qp-wormhole-inputs.workspace = true
 qp-wormhole-prover.workspace = true
 qp-wormhole-verifier = { workspace = true, default-features = false }
 qp-zk-circuits-common = { workspace = true, default-features = false }
+sp-consensus-qpow = { workspace = true, features = ["std"] }
 sp-state-machine.workspace = true
 sp-trie.workspace = true
 
