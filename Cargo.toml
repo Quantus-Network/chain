@@ -218,7 +218,7 @@ pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default
 pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
 pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
 pallet-zk-tree = { path = "./pallets/zk-tree", default-features = false }
-qp-dilithium-crypto = { path = "./primitives/dilithium-crypto", version = "0.4.0", default-features = false }
+qp-dilithium-crypto = { path = "./primitives/dilithium-crypto", version = "0.5.0", default-features = false }
 qp-header = { path = "./primitives/header", default-features = false }
 qp-high-security = { path = "./primitives/high-security", default-features = false }
 qp-scheduler = { path = "./primitives/scheduler", default-features = false }
