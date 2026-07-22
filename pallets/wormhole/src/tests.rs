@@ -603,6 +603,78 @@ mod private_batch_proof_tests {
 				}
 				.into(),
 			);
+
+			// No author in the digest: the miner fee is burned instead of minted,
+			// so no MinerVolumeFeePaid event may be emitted.
+			assert!(
+				!System::events().iter().any(|r| matches!(
+					r.event,
+					RuntimeEvent::Wormhole(crate::Event::<Test>::MinerVolumeFeePaid { .. })
+				)),
+				"no miner fee event should be emitted without a block author"
+			);
+		});
+	}
+
+	#[test]
+	fn test_verify_private_batch_emits_miner_volume_fee_paid() {
+		new_test_ext().execute_with(|| {
+			let proof = deserialize_test_proof();
+			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
+
+			// Set up block hash to match the proof
+			let block_number = inputs.block_data.block_number as u64;
+			let block_hash_bytes: [u8; 32] =
+				inputs.block_data.block_hash.as_ref().try_into().unwrap();
+			let block_hash = H256::from(block_hash_bytes);
+
+			frame_system::BlockHash::<Test>::insert(block_number, block_hash);
+
+			// Set current block number higher than the proof's block
+			System::set_block_number(block_number + 10);
+
+			// Seed a block author via the pre-runtime digest (same path as QPoW)
+			let miner_preimage = [7u8; 32];
+			set_miner_preimage_digest(miner_preimage);
+			let expected_author = sp_core::crypto::AccountId32::from(
+				qp_wormhole::derive_wormhole_address(miner_preimage)
+					.expect("test preimage limbs are canonical"),
+			);
+
+			// Seed the soundness pool so the exit doesn't trip the invariant.
+			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+
+			// Expected miner fee from the proof's public inputs:
+			// fee = exit * bps / (10000 - bps); miner gets fee minus the 50% burn
+			// (mock: VolumeFeeRateBps = 10, VolumeFeesBurnRate = 50%).
+			let expected_exit: u128 = inputs
+				.account_data
+				.iter()
+				.filter(|a| a.summed_output_amount > 0)
+				.map(|a| (a.summed_output_amount as u128) * crate::SCALE_DOWN_FACTOR)
+				.sum();
+			let total_fee = expected_exit * 10 / (10000 - 10);
+			let expected_miner_fee = total_fee - total_fee / 2;
+			assert!(expected_miner_fee > 0, "fixture should produce a non-zero miner fee");
+
+			let author_balance_before = Balances::free_balance(expected_author.clone());
+
+			assert_ok!(Wormhole::verify_private_batch(
+				RawOrigin::None.into(),
+				get_test_proof_bytes()
+			));
+
+			System::assert_has_event(
+				crate::Event::<Test>::MinerVolumeFeePaid {
+					miner: expected_author.clone(),
+					amount: expected_miner_fee,
+				}
+				.into(),
+			);
+			assert_eq!(
+				Balances::free_balance(expected_author),
+				author_balance_before + expected_miner_fee
+			);
 		});
 	}
 
