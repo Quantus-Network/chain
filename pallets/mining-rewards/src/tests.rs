@@ -552,9 +552,8 @@ fn test_fees_and_rewards_to_miner() {
 #[ignore] // This test takes a very long time (~120M blocks simulation), run manually with --ignored
 fn test_emission_simulation_120m_blocks() {
 	new_test_ext().execute_with(|| {
-		// Add realistic initial supply similar to genesis
-		let treasury_account = Treasury::account_id();
-		let _ = Balances::deposit_creating(&treasury_account, 3_600_000 * UNIT);
+		// No pre-mine at genesis: the treasury starts empty and the initial supply is just the
+		// existential deposits of the test accounts (negligible vs. MaxSupply).
 
 		println!("=== Mining Rewards Emission Simulation ===");
 		println!("Max Supply: {:.0} tokens", MaxSupply::get() as f64 / UNIT as f64);
@@ -565,12 +564,15 @@ fn test_emission_simulation_120m_blocks() {
 		const MAX_BLOCKS: u64 = 130_000_000;
 		const REPORT_INTERVAL: u64 = 1_000_000; // Report every 1M blocks
 		const UNIT: u128 = 1_000_000_000_000; // For readable output
+		// 4 years of 12-second blocks: 4 * 365.25 days * 86400 s / 12 s
+		const FOUR_YEARS_BLOCKS: u64 = 10_519_200;
 
 		let initial_supply = Balances::total_issuance();
 		let mut current_supply = initial_supply;
 		let mut total_miner_rewards = 0u128;
 		let mut total_treasury_rewards = 0u128;
 		let mut block = 0u64;
+		let mut four_year_stats: Option<(u128, u128, u128)> = None;
 
 		println!("Block       Supply        %MaxSupply  BlockReward   ToTreasury   ToMiner      Remaining");
 		println!("{}", "-".repeat(90));
@@ -615,6 +617,12 @@ fn test_emission_simulation_120m_blocks() {
 			total_treasury_rewards += treasury_reward;
 			total_miner_rewards += miner_reward;
 			block += 1;
+
+			// Snapshot state at the 4-year mark for tokenomics validation
+			if block == FOUR_YEARS_BLOCKS {
+				four_year_stats =
+					Some((current_supply, total_miner_rewards, total_treasury_rewards));
+			}
 
 			// Print progress report at intervals
 			if block.is_multiple_of(REPORT_INTERVAL) {
@@ -673,6 +681,39 @@ fn test_emission_simulation_120m_blocks() {
 		println!();
 		println!("=== Time Estimates (12s blocks) ===");
 		println!("Total Time: {:.1} days ({:.1} years)", days, years);
+
+		// === 4-Year Checkpoint Validation ===
+		// Target tokenomics: after ~4 years of 12s blocks, approximately 50% of the mineable
+		// supply has been emitted, half of it (25% of mineable supply) to the treasury.
+		let (supply_4y, miner_4y, treasury_4y) =
+			four_year_stats.expect("simulation must run past the 4-year mark");
+		let mineable_supply = MaxSupply::get() - initial_supply;
+		let emitted_4y = supply_4y - initial_supply;
+		let emitted_pct_4y = (emitted_4y as f64 / mineable_supply as f64) * 100.0;
+		let miner_pct_4y = (miner_4y as f64 / mineable_supply as f64) * 100.0;
+		let treasury_pct_4y = (treasury_4y as f64 / mineable_supply as f64) * 100.0;
+
+		println!();
+		println!("=== 4-Year Checkpoint (block {}) ===", FOUR_YEARS_BLOCKS);
+		println!("Emitted: {:.6} tokens ({:.2}% of mineable supply)", emitted_4y as f64 / UNIT as f64, emitted_pct_4y);
+		println!("To Miners: {:.6} tokens ({:.2}% of mineable supply)", miner_4y as f64 / UNIT as f64, miner_pct_4y);
+		println!("To Treasury: {:.6} tokens ({:.2}% of mineable supply)", treasury_4y as f64 / UNIT as f64, treasury_pct_4y);
+
+		assert!(
+			(49.0..=51.0).contains(&emitted_pct_4y),
+			"~50% of mineable supply should be emitted after 4 years, got {:.2}%",
+			emitted_pct_4y
+		);
+		assert!(
+			(24.0..=26.0).contains(&treasury_pct_4y),
+			"~25% of mineable supply should have gone to treasury after 4 years, got {:.2}%",
+			treasury_pct_4y
+		);
+		assert!(
+			(24.0..=26.0).contains(&miner_pct_4y),
+			"~25% of mineable supply should have gone to miners after 4 years, got {:.2}%",
+			miner_pct_4y
+		);
 
 		// === Comprehensive Emission Validation ===
 

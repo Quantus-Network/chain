@@ -140,7 +140,7 @@ impl pallet_mining_rewards::Config for Runtime {
 	type ProofRecorder = Wormhole;
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
 	type MaxSupply = ConstU128<{ 21_000_000 * UNIT }>; // 21 million tokens
-	type EmissionDivisor = ConstU128<26_280_000>; // Divide remaining supply by this amount
+	type EmissionDivisor = ConstU128<15_163_560>; // Divide remaining supply by this amount
 	type Treasury = pallet_treasury::Pallet<Runtime>;
 	type MintingAccount = MintingAccount;
 	type Unit = MiningUnit;

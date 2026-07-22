@@ -107,11 +107,9 @@ fn heisenberg_treasury_account() -> AccountId {
 	)
 }
 
-/// Total supply used for genesis (same portion% goes to treasury at genesis as in pallet).
-const GENESIS_SUPPLY: u128 = 21_000_000;
-
-/// Treasury genesis params per profile. Initial balance = portion of GENESIS_SUPPLY (same as
-/// pallet portion).
+/// Treasury genesis params per profile. The portion only configures the ongoing mining-reward
+/// split; the treasury receives NO genesis endowment (no pre-mine) and accumulates solely from
+/// its share of block rewards.
 #[derive(Clone)]
 struct TreasuryGenesis {
 	account: AccountId,
@@ -158,10 +156,9 @@ fn genesis_template(
 		.collect::<Vec<_>>();
 	balances.extend(extra_balances);
 
-	let total_supply_raw = GENESIS_SUPPLY.saturating_mul(UNIT);
-	let treasury_balance = treasury.portion.mul_floor(total_supply_raw);
+	// No pre-mine: the treasury starts at zero balance and is funded only by its share of
+	// mining rewards. It is intentionally NOT added to `balances`.
 	let treasury_account = treasury.account.clone();
-	balances.push((treasury_account.clone(), treasury_balance));
 
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances: balances.clone(), dev_accounts: None },
@@ -252,7 +249,7 @@ pub fn development_config_genesis() -> Value {
 		};
 
 		let treasury =
-			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(30) };
+			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
 		let mut template_value =
 			genesis_template(endowed_accounts, treasury, tech_collective, vec![]);
 		// `genesis_template` adds a chain-spec-only field; strip before deserializing.
@@ -269,7 +266,7 @@ pub fn development_config_genesis() -> Value {
 	#[cfg(not(feature = "runtime-benchmarks"))]
 	{
 		let treasury =
-			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(30) };
+			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
 		genesis_template(endowed_accounts, treasury, tech_collective, vec![])
 	}
 }
@@ -287,7 +284,7 @@ pub fn heisenberg_config_genesis() -> Value {
 		&tech_collective,
 	);
 	let treasury =
-		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(30) };
+		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
 	genesis_template(endowed_accounts, treasury, tech_collective, vec![])
 }
 
@@ -380,7 +377,7 @@ pub fn planck_config_genesis() -> Value {
 		&tech_collective,
 	);
 	let treasury =
-		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(30) };
+		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
 	genesis_template(endowed_accounts, treasury, tech_collective, signer_fee_seed)
 }
 

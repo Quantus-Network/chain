@@ -116,7 +116,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - No dispatchable calls. Implements `Hooks` (`on_initialize`/`on_finalize`) to track block timing and recompute difficulty. Powers the `QPoWApi` runtime API.
 
 ### Index 6 — `MiningRewards` (`pallet-mining-rewards`, local)
-- `Currency = Balances`, `ProofRecorder = Wormhole`, `MaxSupply = 21_000_000 * UNIT`, `EmissionDivisor = 26_280_000`, `Treasury = pallet_treasury::Pallet`, `MintingAccount`, `Unit = UNIT`.
+- `Currency = Balances`, `ProofRecorder = Wormhole`, `MaxSupply = 21_000_000 * UNIT`, `EmissionDivisor = 15_163_560`, `Treasury = pallet_treasury::Pallet`, `MintingAccount`, `Unit = UNIT`.
 - No dispatchable calls. Exposes `TransactionFeesCollector` + `collect_transaction_fees`. `on_finalize` mints block reward (70% miner / 30% treasury split per fee-structure docs).
 
 ### Index 7 — `Preimage` (`pallet-preimage`)

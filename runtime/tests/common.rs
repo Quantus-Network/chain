@@ -30,7 +30,7 @@ impl TestCommons {
 		let treasury_account = Self::treasury_account();
 		pallet_treasury::GenesisConfig::<Runtime> {
 			treasury_account: Some(treasury_account.clone()),
-			treasury_portion: Some(Permill::from_percent(30)), // 30% to treasury, 70% to miner
+			treasury_portion: Some(Permill::from_percent(50)), // 50% to treasury, 50% to miner
 		}
 		.assimilate_storage(&mut t)
 		.unwrap();
