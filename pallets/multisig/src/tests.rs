@@ -2022,7 +2022,12 @@ fn approve_on_already_approved_proposal_emits_signer_approved_only() {
 		));
 
 		// Bob approves - this reaches threshold (2), status becomes Approved
-		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0, stored_call(&multisig_address, 0)));
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			stored_call(&multisig_address, 0)
+		));
 
 		// Verify proposal is Approved
 		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
@@ -2345,7 +2350,12 @@ fn cancel_works_on_approved_proposal() {
 		));
 
 		// Bob approves - reaches threshold, status becomes Approved
-		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0, stored_call(&multisig_address, 0)));
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			stored_call(&multisig_address, 0)
+		));
 
 		// Verify it's approved
 		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
@@ -2519,7 +2529,12 @@ fn execute_rejects_non_whitelisted_call_after_hs_enabled() {
 		));
 
 		// Bob approves -> threshold reached, status = Approved
-		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0, stored_call(&multisig_address, 0)));
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			stored_call(&multisig_address, 0)
+		));
 
 		// Verify proposal is approved and ready to execute
 		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
@@ -2569,7 +2584,12 @@ fn execute_allows_whitelisted_call_after_hs_enabled() {
 		));
 
 		// Bob approves
-		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0, stored_call(&multisig_address, 0)));
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			stored_call(&multisig_address, 0)
+		));
 
 		// Enable high-security
 		set_high_security(&multisig_address);
@@ -2618,7 +2638,12 @@ fn execute_rejects_call_when_max_weight_lowered_after_propose() {
 		));
 
 		// Bob approves - proposal is now ready for execution
-		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0, stored_call(&multisig_address, 0)));
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			stored_call(&multisig_address, 0)
+		));
 
 		// Simulate runtime upgrade that lowers MaxInnerCallWeight to zero
 		set_max_inner_call_weight(Weight::zero());
