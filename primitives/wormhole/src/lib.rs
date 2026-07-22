@@ -8,7 +8,7 @@ extern crate alloc;
 
 use codec::Decode;
 use qp_poseidon_core::rehash_to_bytes;
-use sp_consensus_qpow::POW_ENGINE_ID;
+pub use sp_consensus_qpow::POW_ENGINE_ID;
 use sp_runtime::generic::DigestItem;
 
 // ============================================================================

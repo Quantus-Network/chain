@@ -617,10 +617,10 @@ mod private_batch_proof_tests {
 	}
 
 	#[test]
-	fn test_verify_aggregated_proof_emits_miner_volume_fee_paid() {
+	fn test_verify_private_batch_emits_miner_volume_fee_paid() {
 		new_test_ext().execute_with(|| {
 			let proof = deserialize_test_proof();
-			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
+			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
 
 			// Set up block hash to match the proof
 			let block_number = inputs.block_data.block_number as u64;
@@ -636,7 +636,10 @@ mod private_batch_proof_tests {
 			// Seed a block author via the pre-runtime digest (same path as QPoW)
 			let miner_preimage = [7u8; 32];
 			set_miner_preimage_digest(miner_preimage);
-			let expected_author = qp_wormhole::derive_wormhole_account(miner_preimage);
+			let expected_author = sp_core::crypto::AccountId32::from(
+				qp_wormhole::derive_wormhole_address(miner_preimage)
+					.expect("test preimage limbs are canonical"),
+			);
 
 			// Seed the soundness pool so the exit doesn't trip the invariant.
 			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
@@ -656,7 +659,7 @@ mod private_batch_proof_tests {
 
 			let author_balance_before = Balances::free_balance(expected_author.clone());
 
-			assert_ok!(Wormhole::verify_aggregated_proof(
+			assert_ok!(Wormhole::verify_private_batch(
 				RawOrigin::None.into(),
 				get_test_proof_bytes()
 			));

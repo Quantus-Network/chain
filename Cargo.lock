@@ -6245,7 +6245,6 @@ dependencies = [
  "qp-wormhole-verifier",
  "qp-zk-circuits-common",
  "scale-info",
- "sp-consensus-qpow",
  "sp-core",
  "sp-io",
  "sp-runtime",
