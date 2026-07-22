@@ -29,7 +29,8 @@ mod benchmarks {
 		// to derive the actual miner wormhole address. We use a fixed preimage
 		// and derive the corresponding address for pre-funding.
 		let miner_preimage: [u8; 32] = [42u8; 32];
-		let miner_address = qp_wormhole::derive_wormhole_address(miner_preimage);
+		let miner_address = qp_wormhole::derive_wormhole_address(miner_preimage)
+			.expect("benchmark preimage limbs are canonical");
 		let miner = T::AccountId::decode(&mut &miner_address[..])
 			.expect("AccountId should decode from 32 bytes");
 

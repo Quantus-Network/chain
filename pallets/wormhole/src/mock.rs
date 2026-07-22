@@ -69,7 +69,9 @@ impl frame_system::Config for Test {
 }
 
 parameter_types! {
-	pub const ExistentialDeposit: Balance = 1;
+	/// `static` so individual tests can raise it (e.g. to exercise the
+	/// below-ED aggregator rebate fallback) via `ExistentialDeposit::set`.
+	pub static ExistentialDeposit: Balance = 1;
 }
 
 impl pallet_balances::Config for Test {
@@ -125,6 +127,8 @@ parameter_types! {
 	pub const VolumeFeeRateBps: u32 = 10;
 	/// Proportion of volume fees to burn (50% burned, 50% to miner)
 	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
+	/// Half of the burn bucket on public-batch exits goes to the aggregator.
+	pub const VolumeFeesAggregatorRate: Permill = Permill::from_percent(50);
 }
 
 /// Sentinel account used in tests to exercise the `NonWormholeAccounts` exclusion path (stands in
@@ -153,6 +157,7 @@ impl pallet_wormhole::Config for Test {
 	type NonWormholeAccounts = ExcludedAccounts;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
+	type VolumeFeesAggregatorRate = VolumeFeesAggregatorRate;
 	type WormholeAccountId = AccountId;
 	type WeightInfo = crate::weights::SubstrateWeight<Test>;
 	type ZkTree = (); // Disabled in tests - use () no-op implementation

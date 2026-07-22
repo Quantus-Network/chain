@@ -123,7 +123,7 @@ fn validate(
 
 ### 3. Enforce Invariant on Wormhole Exit
 
-Location: `verify_aggregated_proof()` in `pallets/wormhole/src/lib.rs` (around line 394, after computing `total_exit_amount`)
+Location: `verify_private_batch()` in `pallets/wormhole/src/lib.rs` (around line 394, after computing `total_exit_amount`)
 
 Add the soundness check before processing exits:
 
@@ -230,7 +230,7 @@ Wormhole exits are unsigned (`ensure_none`). They don't have a signer and won't 
    - Added `NonWormholeAccounts: Contains<AccountId>` config and `reveal_account()` helper (the deduction side, shared by the first-signature reveal and multisig creation)
    - Added `SoundnessInvariantViolation` error variant
    - Updated `record_transfer()` to track deposits to ambiguous addresses
-   - Updated `verify_aggregated_proof()` to check the invariant and update `TotalWormholeExits`
+   - Updated `verify_private_batch()` to check the invariant and update `TotalWormholeExits`
 
 2. **`pallets/wormhole/src/migrations.rs`** (new)
    - `v1::InitSoundnessCounters` + `MigrateV0ToV1` versioned migration to seed the pool
