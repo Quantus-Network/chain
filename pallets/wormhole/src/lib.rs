@@ -4,7 +4,128 @@ extern crate alloc;
 
 use lazy_static::lazy_static;
 pub use pallet::*;
-use qp_wormhole_verifier::WormholeVerifier;
+use qp_plonky2_verifier::util::serialization::DefaultGateSerializer;
+use qp_wormhole_verifier::{
+	CircuitConfig, CommonCircuitData, VerifierCircuitData, VerifierOnlyCircuitData,
+	WormholeVerifier, D, F, MIN_LEAF_SECURITY_BITS, PUBLIC_INPUTS_FELTS_LEN,
+};
+
+/// Header felts of the private-batch PI layout:
+/// `num_unique_exits(1) + asset_id(1) + volume_fee_bps(1) + block_hash(4) + block_number(1)`.
+/// The payload is padded to one `PUBLIC_INPUTS_FELTS_LEN` block per leaf proof
+/// (see `PrivateBatchPublicInputs::try_from_u64_slice` in `qp-wormhole-inputs`).
+const PRIVATE_BATCH_PI_HEADER_FELTS: usize = 8;
+
+/// Expected public-input count of the private-batch circuit compiled into this runtime.
+fn private_batch_expected_public_inputs() -> usize {
+	PRIVATE_BATCH_PI_HEADER_FELTS + circuit_config::NUM_LEAF_PROOFS * PUBLIC_INPUTS_FELTS_LEN
+}
+
+/// Expected public-input count of the public-batch circuit compiled into this runtime.
+fn public_batch_expected_public_inputs() -> usize {
+	qp_wormhole_inputs::public_batch_pi::pi_len(
+		circuit_config::NUM_PRIVATE_BATCH_PROOFS,
+		circuit_config::NUM_LEAF_PROOFS,
+	)
+}
+
+/// Canonical circuit config of the private-batch aggregation circuit.
+///
+/// Must stay identical to `qp_zk_circuits_common::circuit::wormhole_private_batch_circuit_config`,
+/// which the build-time circuit generation uses. It is replicated here because
+/// `qp-zk-circuits-common` force-enables `qp-plonky2/std` and therefore cannot be a
+/// runtime dependency; the `batch_configs_match_circuit_crate` test asserts parity.
+fn private_batch_expected_config() -> CircuitConfig {
+	CircuitConfig {
+		num_wires: 135,
+		num_routed_wires: 60,
+		..CircuitConfig::standard_recursion_zk_config()
+	}
+}
+
+/// Canonical circuit config of the public-batch aggregation circuit.
+///
+/// Must stay identical to `qp_zk_circuits_common::circuit::wormhole_public_batch_circuit_config`
+/// (the standard non-ZK recursion config); see [`private_batch_expected_config`] for why it is
+/// replicated here.
+fn public_batch_expected_config() -> CircuitConfig {
+	CircuitConfig::standard_recursion_config()
+}
+
+/// Defense-in-depth profile check for batch verifier artifacts, mirroring the
+/// audit-hardened `WormholeVerifier::new_from_bytes` canonical-leaf checks.
+///
+/// The batch artifacts are generated at build time from the pinned circuit crates and
+/// their bytes vary with the `QP_NUM_*` sizing env vars, so unlike the leaf path there
+/// is no fixed keccak256 commitment to pin them to. The decoded profile is still
+/// validated: the circuit config must equal the canonical config for that batch
+/// circuit, meet the minimum security-bits floor, and carry exactly the public-input
+/// count implied by the compiled batch dimensions.
+fn ensure_batch_verifier_profile(
+	common: &CommonCircuitData<F, D>,
+	expected_config: &CircuitConfig,
+	expected_public_inputs: usize,
+) -> Result<(), &'static str> {
+	if common.config != *expected_config {
+		return Err("circuit config does not match the canonical batch circuit config");
+	}
+	if common.config.security_bits < MIN_LEAF_SECURITY_BITS {
+		return Err("circuit config is below the minimum security-bits floor");
+	}
+	if common.num_public_inputs != expected_public_inputs {
+		return Err("public-input count does not match the compiled batch dimensions");
+	}
+	Ok(())
+}
+
+/// Load a batch verifier from pre-serialized verifier-only and common circuit bytes.
+///
+/// Unlike [`WormholeVerifier::new_from_bytes`], this accepts batch-circuit artifacts
+/// (private/public batch) rather than only the canonical leaf circuit pins, so the
+/// keccak256 commitment check does not apply; [`ensure_batch_verifier_profile`] is
+/// enforced instead.
+fn load_batch_verifier_from_bytes(
+	verifier_bytes: &[u8],
+	common_bytes: &[u8],
+	expected_config: &CircuitConfig,
+	expected_public_inputs: usize,
+	name: &'static str,
+) -> Option<WormholeVerifier> {
+	let verifier_only = match VerifierOnlyCircuitData::from_bytes(verifier_bytes.to_vec()) {
+		Ok(data) => data,
+		Err(e) => {
+			#[cfg(feature = "std")]
+			log::error!("Failed to deserialize {name} verifier-only data: {e}");
+			return None;
+		},
+	};
+
+	let common = match CommonCircuitData::from_bytes(common_bytes.to_vec(), &DefaultGateSerializer)
+	{
+		Ok(data) => data,
+		Err(e) => {
+			#[cfg(feature = "std")]
+			log::error!("Failed to deserialize {name} common circuit data: {e}");
+			return None;
+		},
+	};
+
+	if let Err(_reason) =
+		ensure_batch_verifier_profile(&common, expected_config, expected_public_inputs)
+	{
+		#[cfg(feature = "std")]
+		log::error!(
+			"{name} verifier artifact rejected: {_reason} \
+			 (security_bits={}, num_public_inputs={}, expected_public_inputs={})",
+			common.config.security_bits,
+			common.num_public_inputs,
+			expected_public_inputs
+		);
+		return None;
+	}
+
+	Some(WormholeVerifier { circuit_data: VerifierCircuitData { verifier_only, common } })
+}
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
@@ -17,16 +138,44 @@ pub mod weights;
 pub use weights::*;
 
 lazy_static! {
-	static ref AGGREGATED_VERIFIER: Option<WormholeVerifier> = {
-		let verifier_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/aggregated_verifier.bin"));
-		let common_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/aggregated_common.bin"));
-		WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes).ok()
+	static ref PRIVATE_BATCH_VERIFIER: Option<WormholeVerifier> = {
+		let verifier_bytes =
+			include_bytes!(concat!(env!("OUT_DIR"), "/private_batch_verifier.bin"));
+		let common_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/private_batch_common.bin"));
+		load_batch_verifier_from_bytes(
+			verifier_bytes,
+			common_bytes,
+			&private_batch_expected_config(),
+			private_batch_expected_public_inputs(),
+			"private batch",
+		)
+	};
+	static ref PUBLIC_BATCH_VERIFIER: Option<WormholeVerifier> = {
+		let verifier_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/public_batch_verifier.bin"));
+		let common_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/public_batch_common.bin"));
+		load_batch_verifier_from_bytes(
+			verifier_bytes,
+			common_bytes,
+			&public_batch_expected_config(),
+			public_batch_expected_public_inputs(),
+			"public batch",
+		)
 	};
 }
 
-/// Getter for the aggregated proof verifier
-pub fn get_aggregated_verifier() -> Result<&'static WormholeVerifier, &'static str> {
-	AGGREGATED_VERIFIER.as_ref().ok_or("Aggregated verifier not available")
+/// Circuit sizing constants (generated by `build.rs` from `QP_NUM_*` env vars).
+pub mod circuit_config {
+	include!(concat!(env!("OUT_DIR"), "/wormhole_circuit_config.rs"));
+}
+
+/// Getter for the private-batch proof verifier
+pub fn get_private_batch_verifier() -> Result<&'static WormholeVerifier, &'static str> {
+	PRIVATE_BATCH_VERIFIER.as_ref().ok_or("Private-batch verifier not available")
+}
+
+/// Getter for the public-batch proof verifier
+pub fn get_public_batch_verifier() -> Result<&'static WormholeVerifier, &'static str> {
+	PUBLIC_BATCH_VERIFIER.as_ref().ok_or("Public-batch verifier not available")
 }
 
 /// Scale factor for quantizing amounts from 12 to 2 decimal places (10^10).
@@ -52,8 +201,8 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	use pallet_zk_tree::ZkTreeRecorder;
 	use qp_wormhole_verifier::{
-		parse_aggregated_public_inputs, AggregatedPublicCircuitInputs, ProofWithPublicInputs, C, D,
-		F,
+		parse_private_batch_public_inputs, parse_public_batch_public_inputs,
+		PrivateBatchPublicInputs, ProofWithPublicInputs, PublicBatchPublicInputs, C, D, F,
 	};
 	use sp_runtime::{
 		traits::{MaybeDisplay, One, Saturating, Zero},
@@ -209,6 +358,12 @@ pub mod pallet {
 		#[pallet::constant]
 		type VolumeFeesBurnRate: Get<Permill>;
 
+		/// For public-batch proofs, the proportion of the burn bucket redirected to the
+		/// aggregator instead of being destroyed. The miner's share is unchanged.
+		/// Example: Permill::from_percent(50) means half the burn portion goes to the aggregator.
+		#[pallet::constant]
+		type VolumeFeesAggregatorRate: Get<Permill>;
+
 		/// Weight information for pallet operations.
 		type WeightInfo: WeightInfo;
 
@@ -307,17 +462,30 @@ pub mod pallet {
 			exit_amount: BalanceOf<T>,
 			nullifiers: Vec<[u8; 32]>,
 		},
+		/// Some segments of an exit bundle were denied (their nullifiers were already
+		/// used, e.g. because the underlying private batch landed on-chain separately).
+		/// The remaining segments were processed normally.
+		SegmentsDenied {
+			indices: Vec<u32>,
+		},
 	}
 
 	#[pallet::error]
 	pub enum Error<T> {
 		InvalidPublicInputs,
+		/// No segment of the bundle is spendable: every non-dummy segment contains a
+		/// nullifier that is already used (or the single segment of a private-batch
+		/// proof does).
 		NullifierAlreadyUsed,
+		/// The bundle contains only dummy (all-zero) padding segments, so there is
+		/// nothing to exit. Distinct from [`Error::NullifierAlreadyUsed`], which is a
+		/// replay of real segments.
+		NoValidSegments,
 		BlockNotFound,
-		AggregatedVerifierNotAvailable,
-		AggregatedProofDeserializationFailed,
-		AggregatedVerificationFailed,
-		InvalidAggregatedPublicInputs,
+		VerifierNotAvailable,
+		ProofDeserializationFailed,
+		ProofVerificationFailed,
+		InvalidProofPublicInputs,
 		/// The volume fee rate in the proof doesn't match the configured rate
 		InvalidVolumeFeeRate,
 		/// Transfer amount is below the minimum required
@@ -360,16 +528,93 @@ pub mod pallet {
 		}
 	}
 
+	/// One deniable unit of an exit bundle: the exits and nullifiers contributed by a
+	/// single private-batch proof.
+	///
+	/// Denial granularity is the segment because the private-batch circuit's exit
+	/// grouping sums amounts across leaves — a single nullifier's contribution cannot
+	/// be attributed to specific exit slots, so a double-spent nullifier invalidates
+	/// its whole segment. Since a private batch is aggregated client-side, a segment
+	/// corresponds to one client, and denial never affects other users' exits.
+	pub struct ExitSegment {
+		pub account_data: Vec<qp_wormhole_verifier::PublicInputsByAccount>,
+		pub nullifiers: Vec<qp_wormhole_verifier::BytesDigest>,
+	}
+
+	/// Normalized on-chain view of an exit proof, independent of aggregation depth.
+	///
+	/// A private-batch proof parses into a bundle with exactly one segment. A future
+	/// public-batch proof parses into one segment per inner private batch (the
+	/// public-batch circuit forwards exits and nullifiers in order, preserving the
+	/// per-segment attribution this type relies on).
+	pub struct ExitBundle {
+		pub asset_id: u32,
+		pub volume_fee_bps: u32,
+		pub block_data: qp_wormhole_verifier::BlockData,
+		/// Set for public-batch proofs; receives a rebate from the burn bucket.
+		pub aggregator_address: Option<qp_wormhole_verifier::BytesDigest>,
+		pub segments: Vec<ExitSegment>,
+	}
+
+	impl From<PrivateBatchPublicInputs> for ExitBundle {
+		fn from(inputs: PrivateBatchPublicInputs) -> Self {
+			ExitBundle {
+				asset_id: inputs.asset_id,
+				volume_fee_bps: inputs.volume_fee_bps,
+				block_data: inputs.block_data,
+				aggregator_address: None,
+				segments: alloc::vec![ExitSegment {
+					account_data: inputs.account_data,
+					nullifiers: inputs.nullifiers,
+				}],
+			}
+		}
+	}
+
+	impl ExitBundle {
+		/// Build an exit bundle from parsed public-batch public inputs, splitting the
+		/// flattened exit slots and nullifiers into one segment per inner private batch.
+		pub fn from_public_batch(
+			inputs: PublicBatchPublicInputs,
+			num_leaf_proofs: usize,
+			num_private_batch_proofs: usize,
+		) -> Self {
+			let slots_per_segment = num_leaf_proofs * 2;
+			let nullifiers_per_segment = num_leaf_proofs;
+
+			let mut segments = Vec::with_capacity(num_private_batch_proofs);
+			for i in 0..num_private_batch_proofs {
+				let account_start = i * slots_per_segment;
+				let account_end = account_start + slots_per_segment;
+				let null_start = i * nullifiers_per_segment;
+				let null_end = null_start + nullifiers_per_segment;
+
+				segments.push(ExitSegment {
+					account_data: inputs.account_data[account_start..account_end].to_vec(),
+					nullifiers: inputs.nullifiers[null_start..null_end].to_vec(),
+				});
+			}
+
+			ExitBundle {
+				asset_id: inputs.asset_id,
+				volume_fee_bps: inputs.volume_fee_bps,
+				block_data: inputs.block_data,
+				aggregator_address: Some(inputs.aggregator_address),
+				segments,
+			}
+		}
+	}
+
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Verify an aggregated wormhole proof and process all transfers in the batch.
+		/// Verify a private-batch wormhole proof and process all exits in the batch.
 		///
 		/// Returns `DispatchResultWithPostInfo` to allow weight correction on early failures.
 		/// If validation fails before ZK verification, we return minimal weight.
 		/// If ZK verification fails, we return full weight since the work was done.
 		#[pallet::call_index(2)]
-		#[pallet::weight(<T as Config>::WeightInfo::verify_aggregated_proof())]
-		pub fn verify_aggregated_proof(
+		#[pallet::weight(<T as Config>::WeightInfo::verify_private_batch())]
+		pub fn verify_private_batch(
 			origin: OriginFor<T>,
 			proof_bytes: Vec<u8>,
 		) -> DispatchResultWithPostInfo {
@@ -377,14 +622,14 @@ pub mod pallet {
 
 			// Full validation including ZK verification (defense-in-depth, also done in
 			// validate_unsigned). Weight returned depends on which stage failed.
-			let (_proof, aggregated_inputs) = match Self::validate_proof(&proof_bytes) {
+			let (bundle, _) = match Self::validate_private_batch_proof(&proof_bytes) {
 				Ok(result) => result,
 				Err(e) => {
 					// Determine weight based on which stage failed
 					let actual_weight = match e {
 						// ZK verification was attempted - full weight consumed
-						Error::<T>::AggregatedVerificationFailed =>
-							Some(<T as Config>::WeightInfo::verify_aggregated_proof()),
+						Error::<T>::ProofVerificationFailed =>
+							Some(<T as Config>::WeightInfo::verify_private_batch()),
 						// Failed before ZK verification - minimal weight
 						_ => Some(<T as Config>::WeightInfo::pre_validate_proof()),
 					};
@@ -395,56 +640,191 @@ pub mod pallet {
 				},
 			};
 
-			// Mark nullifiers as used (validate_proof only checks existence)
-			let mut nullifier_list = Vec::<[u8; 32]>::new();
-			for nullifier in &aggregated_inputs.nullifiers {
-				let nullifier_bytes: [u8; 32] = (*nullifier)
-					.as_ref()
-					.try_into()
-					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-				UsedNullifiers::<T>::insert(nullifier_bytes, true);
-				nullifier_list.push(nullifier_bytes);
+			Self::process_exit_bundle(bundle)
+		}
+
+		/// Verify a public-batch wormhole proof and process all valid exit segments.
+		///
+		/// Invalid segments (already-spent nullifiers) are denied individually; dummy-padded
+		/// segments (all-zero nullifiers) are skipped silently. A portion of the burn bucket
+		/// is minted to the proof's `aggregator_address`; if that mint fails (e.g. the
+		/// account doesn't exist and the rebate is below the existential deposit) the
+		/// rebate is burned instead of failing the users' exits.
+		#[pallet::call_index(3)]
+		#[pallet::weight(<T as Config>::WeightInfo::verify_public_batch())]
+		pub fn verify_public_batch(
+			origin: OriginFor<T>,
+			proof_bytes: Vec<u8>,
+		) -> DispatchResultWithPostInfo {
+			ensure_none(origin)?;
+
+			let (bundle, _) = match Self::validate_public_batch_proof(&proof_bytes) {
+				Ok(result) => result,
+				Err(e) => {
+					let actual_weight = match e {
+						Error::<T>::ProofVerificationFailed =>
+							Some(<T as Config>::WeightInfo::verify_public_batch()),
+						_ => Some(<T as Config>::WeightInfo::pre_validate_public_batch_proof()),
+					};
+					return Err(DispatchErrorWithPostInfo {
+						post_info: PostDispatchInfo { actual_weight, pays_fee: Pays::No },
+						error: e.into(),
+					});
+				},
+			};
+
+			Self::process_exit_bundle(bundle)
+		}
+	}
+
+	impl<T: Config> Pallet<T> {
+		/// A dummy-padded segment: the public-batch circuit zeroes all nullifiers (and
+		/// exit slots) for all-dummy inner private batches.
+		fn segment_is_inert(segment: &ExitSegment) -> bool {
+			segment.nullifiers.iter().all(|n| n.as_ref() == &[0u8; 32])
+		}
+
+		/// Compute per-segment validity for an exit bundle.
+		///
+		/// A segment is valid iff none of its nullifiers is already used on-chain and none
+		/// appeared in an earlier valid segment of the same bundle. Duplicates *within* a
+		/// segment are allowed: the private-batch circuit's exit dedup zeroes the repeated
+		/// exit slots (so they mint nothing) and re-inserting a nullifier is idempotent.
+		/// Zero nullifiers (from dummy leaf padding inside a real private batch) mint
+		/// nothing and are exempt from the collision checks entirely.
+		pub(crate) fn segment_validity(bundle: &ExitBundle) -> Result<Vec<bool>, Error<T>> {
+			let mut claimed = alloc::collections::BTreeSet::<[u8; 32]>::new();
+			let mut validity = Vec::with_capacity(bundle.segments.len());
+
+			for segment in &bundle.segments {
+				if Self::segment_is_inert(segment) {
+					validity.push(false);
+					continue;
+				}
+
+				let mut nullifier_bytes = Vec::with_capacity(segment.nullifiers.len());
+				for nullifier in &segment.nullifiers {
+					let bytes: [u8; 32] = (*nullifier)
+						.as_ref()
+						.try_into()
+						.map_err(|_| Error::<T>::InvalidProofPublicInputs)?;
+					if bytes == [0u8; 32] {
+						continue;
+					}
+					nullifier_bytes.push(bytes);
+				}
+
+				let valid = nullifier_bytes.iter().all(|bytes| {
+					!UsedNullifiers::<T>::contains_key(bytes) && !claimed.contains(bytes)
+				});
+
+				if valid {
+					claimed.extend(nullifier_bytes);
+				}
+				validity.push(valid);
 			}
+
+			Ok(validity)
+		}
+
+		/// Reject a bundle in which no segment is valid, distinguishing an all-dummy
+		/// bundle (nothing to exit) from a replay of real segments.
+		fn ensure_any_segment_valid(
+			bundle: &ExitBundle,
+			validity: &[bool],
+		) -> Result<(), Error<T>> {
+			if validity.iter().any(|v| *v) {
+				return Ok(());
+			}
+			if bundle.segments.iter().all(Self::segment_is_inert) {
+				Err(Error::<T>::NoValidSegments)
+			} else {
+				Err(Error::<T>::NullifierAlreadyUsed)
+			}
+		}
+
+		/// Process a validated exit bundle: mark nullifiers, mint exits, distribute fees.
+		///
+		/// Invalid segments (a nullifier already used on-chain, or colliding with an earlier
+		/// valid segment of this bundle) are denied as a whole — none of their exits are
+		/// minted and none of their nullifiers are marked — while the remaining segments
+		/// are processed normally. The bundle is rejected outright if no segment is valid.
+		///
+		/// Validity is recomputed here rather than reused from `validate_proof` because
+		/// chain state may have changed between pool validation and block inclusion.
+		pub(crate) fn process_exit_bundle(bundle: ExitBundle) -> DispatchResultWithPostInfo {
+			let validity = Self::segment_validity(&bundle)?;
+			Self::ensure_any_segment_valid(&bundle, &validity)?;
 
 			// Get the minting account for recording transfer proofs
 			let mint_account = T::MintingAccount::get();
 
-			// First pass: compute total exit amount and prepare account data
+			let mut nullifier_list = Vec::<[u8; 32]>::new();
+			let mut denied_segments = Vec::<u32>::new();
 			let mut total_exit_amount: BalanceOf<T> = Zero::zero();
 			let mut processed_accounts: Vec<(
 				<T as frame_system::Config>::AccountId,
 				BalanceOf<T>,
-			)> = Vec::with_capacity(aggregated_inputs.account_data.len());
+			)> = Vec::new();
 
-			for (idx, account_data) in aggregated_inputs.account_data.iter().enumerate() {
-				// Skip dummy account slots (exit_account == 0 with zero amount)
-				// Dummy proofs from aggregation padding have all-zero exit accounts
-				// Also skip deduplicated slots (the circuit zeros out duplicate exit accounts)
-				let exit_account_bytes: [u8; 32] =
-					(*account_data.exit_account).as_ref().try_into().map_err(|e| {
-						log::error!("Failed to convert exit_account at idx {}: {:?}", idx, e);
-						Error::<T>::InvalidAggregatedPublicInputs
-					})?;
-
-				if exit_account_bytes == [0u8; 32] || account_data.summed_output_amount == 0 {
+			for (seg_idx, (segment, valid)) in
+				bundle.segments.iter().zip(validity.iter()).enumerate()
+			{
+				if Self::segment_is_inert(segment) {
 					continue;
 				}
 
-				// Convert output amount to Balance type (scale up from quantized value)
-				let exit_balance_u128 = (account_data.summed_output_amount as u128)
-					.saturating_mul(crate::SCALE_DOWN_FACTOR);
-				let exit_balance: BalanceOf<T> = exit_balance_u128.try_into().map_err(|_| {
-					log::error!("Failed to convert exit_balance at idx {}", idx);
-					Error::<T>::InvalidAggregatedPublicInputs
-				})?;
+				if !*valid {
+					denied_segments.push(seg_idx as u32);
+					continue;
+				}
 
-				// Decode exit account from public inputs
-				let exit_account =
-					<T as frame_system::Config>::AccountId::decode(&mut &exit_account_bytes[..])
-						.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+				// Mark nullifiers as used (validate_proof only checks existence)
+				for nullifier in &segment.nullifiers {
+					let nullifier_bytes: [u8; 32] = (*nullifier)
+						.as_ref()
+						.try_into()
+						.map_err(|_| Error::<T>::InvalidProofPublicInputs)?;
+					if nullifier_bytes == [0u8; 32] {
+						continue;
+					}
+					UsedNullifiers::<T>::insert(nullifier_bytes, true);
+					nullifier_list.push(nullifier_bytes);
+				}
 
-				total_exit_amount = total_exit_amount.saturating_add(exit_balance);
-				processed_accounts.push((exit_account, exit_balance));
+				// Compute exit amounts and prepare account data
+				for (idx, account_data) in segment.account_data.iter().enumerate() {
+					// Skip dummy account slots (exit_account == 0 with zero amount)
+					// Dummy proofs from aggregation padding have all-zero exit accounts
+					// Also skip deduplicated slots (the circuit zeros out duplicate exit accounts)
+					let exit_account_bytes: [u8; 32] =
+						(*account_data.exit_account).as_ref().try_into().map_err(|e| {
+							log::error!("Failed to convert exit_account at idx {}: {:?}", idx, e);
+							Error::<T>::InvalidProofPublicInputs
+						})?;
+
+					if exit_account_bytes == [0u8; 32] || account_data.summed_output_amount == 0 {
+						continue;
+					}
+
+					// Convert output amount to Balance type (scale up from quantized value)
+					let exit_balance_u128 = (account_data.summed_output_amount as u128)
+						.saturating_mul(crate::SCALE_DOWN_FACTOR);
+					let exit_balance: BalanceOf<T> =
+						exit_balance_u128.try_into().map_err(|_| {
+							log::error!("Failed to convert exit_balance at idx {}", idx);
+							Error::<T>::InvalidProofPublicInputs
+						})?;
+
+					// Decode exit account from public inputs
+					let exit_account = <T as frame_system::Config>::AccountId::decode(
+						&mut &exit_account_bytes[..],
+					)
+					.map_err(|_| Error::<T>::InvalidProofPublicInputs)?;
+
+					total_exit_amount = total_exit_amount.saturating_add(exit_balance);
+					processed_accounts.push((exit_account, exit_balance));
+				}
 			}
 
 			// Ensure total exit amount meets the minimum transfer requirement
@@ -461,6 +841,12 @@ pub mod pallet {
 			let exits_after = TotalWormholeExits::<T>::get().saturating_add(total_exit_amount);
 			ensure!(exits_after <= potential_balance, Error::<T>::SoundnessInvariantViolation);
 
+			// Surface denied segments so aggregators can observe races and clients can
+			// detect that their private batch was consumed by someone else's bundle.
+			if !denied_segments.is_empty() {
+				Self::deposit_event(Event::SegmentsDenied { indices: denied_segments });
+			}
+
 			// Emit event for each exit account
 			Self::deposit_event(Event::ProofVerified {
 				exit_amount: total_exit_amount,
@@ -473,7 +859,7 @@ pub mod pallet {
 			let fee_bps = T::VolumeFeeRateBps::get() as u128;
 			let total_exit_u128: u128 = total_exit_amount.try_into().map_err(|_| {
 				log::error!("Failed to convert total_exit_amount to u128");
-				Error::<T>::InvalidAggregatedPublicInputs
+				Error::<T>::InvalidProofPublicInputs
 			})?;
 			let total_fee_u128 = total_exit_u128
 				.saturating_mul(fee_bps)
@@ -497,9 +883,55 @@ pub mod pallet {
 			let burn_rate = T::VolumeFeesBurnRate::get();
 			let mut burn_amount_u128 = burn_rate * total_fee_u128;
 			let miner_fee_u128 = total_fee_u128.saturating_sub(burn_amount_u128);
+
+			// Public-batch aggregator rebate: redirect part of the burn bucket to the
+			// aggregator. The miner's share is unchanged.
+			if let Some(aggregator_address) = &bundle.aggregator_address {
+				let aggregator_rate = T::VolumeFeesAggregatorRate::get();
+				let aggregator_fee_u128 = aggregator_rate * burn_amount_u128;
+				burn_amount_u128 = burn_amount_u128.saturating_sub(aggregator_fee_u128);
+
+				if aggregator_fee_u128 > 0 {
+					let aggregator_fee: BalanceOf<T> =
+						aggregator_fee_u128.try_into().map_err(|_| {
+							log::error!("Failed to convert aggregator_fee_u128 to BalanceOf");
+							Error::<T>::InvalidProofPublicInputs
+						})?;
+
+					let aggregator_bytes: [u8; 32] = (*aggregator_address)
+						.as_ref()
+						.try_into()
+						.map_err(|_| Error::<T>::InvalidProofPublicInputs)?;
+					let aggregator_account =
+						<T as frame_system::Config>::AccountId::decode(&mut &aggregator_bytes[..])
+							.map_err(|_| Error::<T>::InvalidProofPublicInputs)?;
+
+					// A failed rebate mint (e.g. the aggregator account doesn't exist
+					// and the rebate is below the existential deposit) must not revert
+					// the whole bundle - that would drag users' exits down with a
+					// problem the aggregator inflicted on itself. Burn the rebate
+					// instead and process the exits normally.
+					match <T::Currency as Unbalanced<_>>::increase_balance(
+						&aggregator_account,
+						aggregator_fee,
+						frame_support::traits::tokens::Precision::Exact,
+					) {
+						Ok(_) => {},
+						Err(e) => {
+							log::warn!(
+								"Aggregator rebate of {:?} could not be minted ({:?}); burning it instead",
+								aggregator_fee,
+								e
+							);
+							burn_amount_u128 = burn_amount_u128.saturating_add(aggregator_fee_u128);
+						},
+					}
+				}
+			}
+
 			let miner_fee: BalanceOf<T> = miner_fee_u128.try_into().map_err(|_| {
 				log::error!("Failed to convert miner_fee_u128 to BalanceOf");
-				Error::<T>::InvalidAggregatedPublicInputs
+				Error::<T>::InvalidProofPublicInputs
 			})?;
 
 			// Mint miner's portion of volume fee to block author
@@ -529,7 +961,7 @@ pub mod pallet {
 			// Burn the total burn amount (base burn + any orphaned miner fee)
 			let burn_amount: BalanceOf<T> = burn_amount_u128.try_into().map_err(|_| {
 				log::error!("Failed to convert burn_amount_u128 to BalanceOf");
-				Error::<T>::InvalidAggregatedPublicInputs
+				Error::<T>::InvalidProofPublicInputs
 			})?;
 			if !burn_amount.is_zero() {
 				let current = <T::Currency as FungibleInspect<_>>::total_issuance();
@@ -573,19 +1005,42 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			match call {
-				Call::verify_aggregated_proof { proof_bytes } => {
-					// Full validation including ZK verification - prevents invalid proofs
-					// with high amounts from entering the pool and crowding out valid txs
-					let (_proof, inputs) =
-						Self::validate_proof(proof_bytes).map_err(|_| InvalidTransaction::Call)?;
+				Call::verify_private_batch { proof_bytes } => {
+					let (bundle, validity) = Self::validate_private_batch_proof(proof_bytes)
+						.map_err(|_| InvalidTransaction::Call)?;
 
-					// Priority based on total transfer volume - higher value transfers get
-					// priority. This prevents DoS since attackers must transfer real value
-					// (and valid proofs) to get high priority.
-					let total_amount: u64 =
-						inputs.account_data.iter().map(|a| a.summed_output_amount as u64).sum();
+					let total_amount: u64 = bundle
+						.segments
+						.iter()
+						.zip(validity.iter())
+						.filter(|(_, valid)| **valid)
+						.flat_map(|(segment, _)| segment.account_data.iter())
+						.map(|a| a.summed_output_amount as u64)
+						.sum();
 
-					ValidTransaction::with_tag_prefix("WormholeAggregatedVerify")
+					ValidTransaction::with_tag_prefix("WormholePrivateBatch")
+						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
+						.priority(total_amount)
+						.longevity(5)
+						.propagate(true)
+						.build()
+				},
+				Call::verify_public_batch { proof_bytes } => {
+					let (bundle, validity) = Self::validate_public_batch_proof(proof_bytes)
+						.map_err(|_| InvalidTransaction::Call)?;
+
+					// Inert (dummy-padded) segments are already `false` in `validity`,
+					// so filtering on validity alone excludes them.
+					let total_amount: u64 = bundle
+						.segments
+						.iter()
+						.zip(validity.iter())
+						.filter(|(_, valid)| **valid)
+						.flat_map(|(segment, _)| segment.account_data.iter())
+						.map(|a| a.summed_output_amount as u64)
+						.sum();
+
+					ValidTransaction::with_tag_prefix("WormholePublicBatch")
 						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
 						.priority(total_amount)
 						.longevity(5)
@@ -600,61 +1055,89 @@ pub mod pallet {
 			// Skip re-validation - validate_unsigned already did full verification,
 			// and dispatch will verify again as defense-in-depth
 			match call {
-				Call::verify_aggregated_proof { .. } => Ok(()),
+				Call::verify_private_batch { .. } | Call::verify_public_batch { .. } => Ok(()),
 				_ => Err(InvalidTransaction::Call.into()),
 			}
 		}
 	}
 
 	impl<T: Config> Pallet<T> {
-		/// Validate an aggregated proof (cheap checks + full ZK verification).
-		/// Called by both validate_unsigned (pool gating) and dispatch (defense-in-depth).
-		///
-		/// Errors before ZK verification (deserialization, nullifier checks, etc.) allow
-		/// dispatch to return minimal weight. `AggregatedVerificationFailed` indicates
-		/// full ZK verification was attempted.
-		fn validate_proof(
+		/// Shared cheap checks for any exit bundle (asset, fee, block, segment validity).
+		fn validate_exit_bundle_common(bundle: &ExitBundle) -> Result<Vec<bool>, Error<T>> {
+			ensure!(bundle.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
+			ensure!(
+				bundle.volume_fee_bps == T::VolumeFeeRateBps::get(),
+				Error::<T>::InvalidVolumeFeeRate
+			);
+			let block_number = BlockNumberFor::<T>::from(bundle.block_data.block_number);
+			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
+			ensure!(block_hash != T::Hash::default(), Error::<T>::BlockNotFound);
+			ensure!(
+				block_hash.as_ref() == bundle.block_data.block_hash.as_ref(),
+				Error::<T>::InvalidPublicInputs
+			);
+
+			let validity = Self::segment_validity(bundle)?;
+			Self::ensure_any_segment_valid(bundle, &validity)?;
+			Ok(validity)
+		}
+
+		/// Validate a private-batch proof (cheap checks + full ZK verification).
+		fn validate_private_batch_proof(
 			proof_bytes: &[u8],
-		) -> Result<(ProofWithPublicInputs<F, C, D>, AggregatedPublicCircuitInputs), Error<T>> {
-			let verifier = crate::get_aggregated_verifier()
-				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
+		) -> Result<(ExitBundle, Vec<bool>), Error<T>> {
+			let verifier = crate::get_private_batch_verifier()
+				.map_err(|_| Error::<T>::VerifierNotAvailable)?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
 				proof_bytes.to_vec(),
 				&verifier.circuit_data.common,
 			)
-			.map_err(|_| Error::<T>::AggregatedProofDeserializationFailed)?;
-			let inputs = parse_aggregated_public_inputs(&proof)
-				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-			ensure!(inputs.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
-			ensure!(
-				inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
-				Error::<T>::InvalidVolumeFeeRate
-			);
-			let block_number = BlockNumberFor::<T>::from(inputs.block_data.block_number);
-			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
-			ensure!(block_hash != T::Hash::default(), Error::<T>::BlockNotFound);
-			ensure!(
-				block_hash.as_ref() == inputs.block_data.block_hash.as_ref(),
-				Error::<T>::InvalidPublicInputs
-			);
-			for nullifier in &inputs.nullifiers {
-				let bytes: [u8; 32] = (*nullifier)
-					.as_ref()
-					.try_into()
-					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-				ensure!(
-					!UsedNullifiers::<T>::contains_key(bytes),
-					Error::<T>::NullifierAlreadyUsed
-				);
-			}
+			.map_err(|_| Error::<T>::ProofDeserializationFailed)?;
+			let inputs = parse_private_batch_public_inputs(&proof)
+				.map_err(|_| Error::<T>::InvalidProofPublicInputs)?;
+			let bundle: ExitBundle = inputs.into();
 
-			// Full ZK verification - if this fails, full verification weight was consumed
-			verifier.verify(proof.clone()).map_err(|e| {
-				log::error!("Aggregated proof verification failed: {:?}", e);
-				Error::<T>::AggregatedVerificationFailed
+			let validity = Self::validate_exit_bundle_common(&bundle)?;
+
+			verifier.verify(proof).map_err(|e| {
+				log::error!("Private-batch proof verification failed: {:?}", e);
+				Error::<T>::ProofVerificationFailed
 			})?;
 
-			Ok((proof, inputs))
+			Ok((bundle, validity))
+		}
+
+		/// Validate a public-batch proof (cheap checks + full ZK verification).
+		fn validate_public_batch_proof(
+			proof_bytes: &[u8],
+		) -> Result<(ExitBundle, Vec<bool>), Error<T>> {
+			let verifier =
+				crate::get_public_batch_verifier().map_err(|_| Error::<T>::VerifierNotAvailable)?;
+			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
+				proof_bytes.to_vec(),
+				&verifier.circuit_data.common,
+			)
+			.map_err(|_| Error::<T>::ProofDeserializationFailed)?;
+			let inputs = parse_public_batch_public_inputs(
+				&proof,
+				crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
+				crate::circuit_config::NUM_LEAF_PROOFS,
+			)
+			.map_err(|_| Error::<T>::InvalidProofPublicInputs)?;
+			let bundle = ExitBundle::from_public_batch(
+				inputs,
+				crate::circuit_config::NUM_LEAF_PROOFS,
+				crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
+			);
+
+			let validity = Self::validate_exit_bundle_common(&bundle)?;
+
+			verifier.verify(proof).map_err(|e| {
+				log::error!("Public-batch proof verification failed: {:?}", e);
+				Error::<T>::ProofVerificationFailed
+			})?;
+
+			Ok((bundle, validity))
 		}
 
 		/// Whether `account` is "ambiguous": it has never signed a transaction (`nonce == 0`) and

@@ -44,7 +44,9 @@ impl TestMiner {
 
 	/// Derive the wormhole account address from the preimage (via Poseidon hash).
 	pub fn account_id(&self) -> sp_core::crypto::AccountId32 {
-		derive_wormhole_account(self.preimage())
+		sp_core::crypto::AccountId32::from(
+			derive_wormhole_address(self.preimage()).expect("test preimage limbs are canonical"),
+		)
 	}
 }
 
@@ -116,22 +118,12 @@ impl<AccountId> AddressRevealer<AccountId> for () {
 ///
 /// The inner_digest is the serialization of 4 field elements (Poseidon output),
 /// so we decode it back to 4 felts using 8 bytes/felt encoding before hashing again.
+/// Returns an error if the input is not a canonical field-element encoding (a real
+/// Poseidon output always is; anything else would alias with a canonical digest).
 ///
 /// NOTE: If you have a raw secret, use `derive_wormhole_address_from_secret` instead.
-pub fn derive_wormhole_address(inner_digest: [u8; 32]) -> [u8; 32] {
+pub fn derive_wormhole_address(inner_digest: [u8; 32]) -> Result<[u8; 32], &'static str> {
 	rehash_to_bytes(&inner_digest)
-}
-
-/// Derive a wormhole AccountId32 from a 32-byte inner_digest.
-///
-/// This is a convenience wrapper around `derive_wormhole_address` that returns
-/// an `sp_core::crypto::AccountId32` directly.
-///
-/// NOTE: The input must be an inner_digest (already `H(salt + secret)`), not a raw secret.
-/// For raw secrets, use `quantus wormhole address --secret <hex>` to compute the address.
-#[cfg(feature = "std")]
-pub fn derive_wormhole_account(inner_digest: [u8; 32]) -> sp_core::crypto::AccountId32 {
-	sp_core::crypto::AccountId32::from(derive_wormhole_address(inner_digest))
 }
 
 /// Extract the block author (miner) account from a digest.
@@ -140,7 +132,9 @@ pub fn derive_wormhole_account(inner_digest: [u8; 32]) -> sp_core::crypto::Accou
 /// a 32-byte preimage, then derives the wormhole address from it and decodes
 /// it as the specified AccountId type.
 ///
-/// Returns `None` if no valid pre-runtime digest is found or decoding fails.
+/// Returns `None` if no valid pre-runtime digest is found, the preimage is not a
+/// canonical field-element encoding (the preimage is miner-supplied, so this must
+/// not panic), or decoding fails.
 pub fn extract_author_from_digest<AccountId, Digest>(digest: Digest) -> Option<AccountId>
 where
 	AccountId: Decode,
@@ -153,7 +147,10 @@ where
 					Ok(arr) => arr,
 					Err(_) => continue,
 				};
-				let address_bytes = derive_wormhole_address(preimage);
+				let address_bytes = match derive_wormhole_address(preimage) {
+					Ok(bytes) => bytes,
+					Err(_) => continue,
+				};
 				return AccountId::decode(&mut &address_bytes[..]).ok();
 			}
 		}

@@ -1,7 +1,7 @@
 use crate::{mock::*, weights::WeightInfo, Event};
 use frame_support::traits::{Currency, Hooks};
 use pallet_treasury::TreasuryProvider;
-use qp_wormhole::derive_wormhole_account;
+use qp_wormhole::derive_wormhole_address;
 use sp_runtime::testing::Digest;
 
 #[test]
@@ -497,7 +497,9 @@ fn test_fees_and_rewards_to_miner() {
 	new_test_ext().execute_with(|| {
 		// Use a test preimage and derive the wormhole address
 		let test_preimage = [42u8; 32]; // Use a distinct preimage for this test
-		let miner_wormhole_address = derive_wormhole_account(test_preimage);
+		let miner_wormhole_address = sp_core::crypto::AccountId32::from(
+			derive_wormhole_address(test_preimage).expect("test preimage limbs are canonical"),
+		);
 		let _ = Balances::deposit_creating(&miner_wormhole_address, 0); // Create account
 		let actual_initial_balance_after_creation = Balances::free_balance(&miner_wormhole_address);
 
@@ -851,7 +853,9 @@ fn wormhole_miner_address_records_correct_proof() {
 		// Use a wormhole-derived address as miner
 		// We set the preimage in the digest, and the miner address is derived from it
 		let preimage = [42u8; 32];
-		let wormhole_miner = derive_wormhole_account(preimage);
+		let wormhole_miner = sp_core::crypto::AccountId32::from(
+			derive_wormhole_address(preimage).expect("test preimage limbs are canonical"),
+		);
 
 		// Set the preimage directly in the digest (not the derived address)
 		set_miner_preimage_digest(preimage);

@@ -207,7 +207,7 @@ pub fn generate_quantus_key(
 				address: account_id.to_ss58check(),
 				raw_address: format!("0x{}", hex::encode(account_id)),
 				public_key_hex: format!("0x{}", hex::encode(wormhole_pair.address)),
-				secret_key_hex: format!("0x{}", hex::encode(wormhole_pair.secret)),
+				secret_key_hex: format!("0x{}", hex::encode(wormhole_pair.secret.as_bytes())),
 				seed_hex: "N/A (Wormhole)".to_string(),
 				secret_phrase: words_to_print,
 				inner_hash: Some(hex::encode(wormhole_pair.first_hash)),
@@ -551,8 +551,19 @@ pub fn run() -> sc_cli::Result<()> {
 						let inner_bytes: [u8; 32] = bytes.try_into().map_err(|_| {
 							sc_cli::Error::Input("Failed to convert inner hash to account".into())
 						})?;
-						let wormhole_address =
-							AccountId32::from(qp_wormhole::derive_wormhole_address(inner_bytes));
+						let wormhole_address = AccountId32::from(
+							qp_wormhole::derive_wormhole_address(inner_bytes).map_err(|_| {
+								eprintln!(
+									"Error: --rewards-inner-hash is not a canonical Poseidon digest.\n"
+								);
+								eprintln!("To generate an inner hash, run:");
+								eprintln!("  quantus-node key quantus --scheme wormhole\n");
+								eprintln!(
+									"Then pass the 'Inner Hash' value as --rewards-inner-hash."
+								);
+								sc_cli::Error::Input("Non-canonical inner hash".into())
+							})?,
+						);
 						log::info!(
 							"⛏️ Rewards wormhole address: {}",
 							wormhole_address.to_ss58check()

@@ -12,6 +12,7 @@ use crate::{
 	Hash256, ZkLeaf, ZkMerkleProof, ARITY,
 };
 use alloc::vec::Vec;
+use qp_poseidon_core::Goldilocks;
 
 /// Compute the capacity (max leaves) at a given depth.
 /// Depth 0 = 0 leaves (empty tree)
@@ -31,6 +32,19 @@ pub fn capacity_at_depth(depth: u8) -> u64 {
 /// This matches the circuit's expectation of 2 decimal places of precision.
 /// 10^10 means 1 DEV (10^12 planck) becomes 100 in the leaf.
 pub const AMOUNT_SCALE_DOWN_FACTOR: u128 = 10_000_000_000;
+
+/// Compact 8-byte/felt encoding that *reduces* non-canonical limbs mod P.
+///
+/// The circuit encodes compact bytes with plonky2's `from_noncanonical_u64`, i.e.
+/// lossily, and these hashes must be infallible and stay byte-compatible with it.
+/// The strict `bytes_to_felts_compact` (which rejects non-canonical limbs) can
+/// therefore not be used here — see the encoding-safety invariant on `hash_leaf`
+/// for why the lossiness is acceptable.
+fn bytes_to_felts_compact_lossy(input: &[u8]) -> impl Iterator<Item = Goldilocks> + '_ {
+	qp_poseidon_core::serialization::bytes_to_u64s_compact(input)
+		.into_iter()
+		.map(Goldilocks::from_u64)
+}
 
 /// Hash a leaf using Poseidon with field element encoding.
 ///
@@ -61,7 +75,7 @@ pub fn hash_leaf<T: Config>(leaf: &ZkLeaf<AccountIdOf<T>, T::AssetId, T::Balance
 where
 	AccountIdOf<T>: AsRef<[u8]>,
 {
-	use qp_poseidon_core::serialization::{bytes_to_felts_compact, u64_to_felts};
+	use qp_poseidon_core::serialization::u64_to_felts;
 
 	let mut felts = Vec::with_capacity(8);
 
@@ -78,7 +92,7 @@ where
 				0xFFFF_FFFF_0000_0001),
 		"recipient account is non-canonical for the 8-byte/felt leaf encoding"
 	);
-	felts.extend(bytes_to_felts_compact(to_bytes));
+	felts.extend(bytes_to_felts_compact_lossy(to_bytes));
 
 	// transfer_count: 2 felts (u64 as two 32-bit limbs, high then low)
 	felts.extend(u64_to_felts(leaf.transfer_count));
@@ -88,14 +102,14 @@ where
 	let asset_id_u128: u128 = leaf.asset_id.into();
 	let asset_id_u32 = asset_id_u128 as u32;
 	debug_assert_eq!(asset_id_u128, asset_id_u32 as u128, "Asset ID must fit in u32");
-	felts.extend(bytes_to_felts_compact(&(asset_id_u32 as u64).to_le_bytes()));
+	felts.extend(bytes_to_felts_compact_lossy(&(asset_id_u32 as u64).to_le_bytes()));
 
 	// amount: 1 felt (u32 quantized -> u64 -> 8 bytes LE -> 1 felt via compact encoding)
 	// Quantize by dividing by AMOUNT_SCALE_DOWN_FACTOR (10^10)
 	// This gives 2 decimal places of precision (1 DEV = 100 quantized units)
 	let amount_u128: u128 = leaf.amount.into();
 	let amount_quantized = (amount_u128 / AMOUNT_SCALE_DOWN_FACTOR) as u32;
-	felts.extend(bytes_to_felts_compact(&(amount_quantized as u64).to_le_bytes()));
+	felts.extend(bytes_to_felts_compact_lossy(&(amount_quantized as u64).to_le_bytes()));
 
 	debug_assert_eq!(felts.len(), 8, "Leaf preimage must be exactly 8 felts");
 
@@ -122,8 +136,10 @@ pub fn hash_node(children: &[Hash256; ARITY]) -> Hash256 {
 	}
 
 	// Convert to felts using compact encoding (8 bytes/felt)
-	// 128 bytes -> 16 felts
-	let felts = qp_poseidon_core::serialization::bytes_to_felts_compact(&data);
+	// 128 bytes -> 16 felts. Lossy encoding to match the circuit's `hash_node`;
+	// children are Poseidon outputs (canonical) in honest operation, but proof
+	// verification may see attacker-supplied siblings and must not fail.
+	let felts: Vec<Goldilocks> = bytes_to_felts_compact_lossy(&data).collect();
 
 	// Hash the felts
 	qp_poseidon_core::hash_to_bytes(&felts)
