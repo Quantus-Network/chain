@@ -129,6 +129,7 @@ mod benchmarks {
 	}
 
 	/// Insert a single proposal into storage. `approvals` = list of account ids that have approved.
+	/// Returns the encoded inner call stored in the proposal.
 	#[allow(clippy::too_many_arguments)]
 	fn insert_proposal<T: Config>(
 		multisig_address: &T::AccountId,
@@ -139,7 +140,7 @@ mod benchmarks {
 		approvals: &[T::AccountId],
 		status: ProposalStatus,
 		deposit: crate::BalanceOf<T>,
-	) {
+	) -> BoundedCallOf<T> {
 		let system_call = frame_system::Call::<T>::remark { remark: vec![1u8; call_size as usize] };
 		let runtime_call = <T as Config>::RuntimeCall::from(system_call);
 		let encoded = runtime_call.encode();
@@ -147,13 +148,14 @@ mod benchmarks {
 		let bounded_approvals: BoundedApprovalsOf<T> = approvals.to_vec().try_into().unwrap();
 		let proposal_data = ProposalDataOf::<T> {
 			proposer: proposer.clone(),
-			call: bounded_call,
+			call: bounded_call.clone(),
 			expiry,
 			approvals: bounded_approvals,
 			deposit,
 			status,
 		};
 		Proposals::<T>::insert(multisig_address, proposal_id, proposal_data);
+		bounded_call
 	}
 
 	/// Benchmark `create_multisig` extrinsic.
@@ -270,7 +272,7 @@ mod benchmarks {
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 		// Worst-case approvals decode: threshold-1 approvals (99 for MaxSigners=100)
 		let approvals: Vec<_> = signers[0..threshold as usize - 1].to_vec();
-		insert_proposal::<T>(
+		let stored_call = insert_proposal::<T>(
 			&multisig_address,
 			0,
 			&caller,
@@ -283,7 +285,7 @@ mod benchmarks {
 		let approver = signers[threshold as usize - 1].clone();
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(approver), multisig_address.clone(), 0u32);
+		_(RawOrigin::Signed(approver), multisig_address.clone(), 0u32, stored_call);
 
 		let proposal = Proposals::<T>::get(&multisig_address, 0).unwrap();
 		assert_eq!(proposal.approvals.len(), threshold as usize);
