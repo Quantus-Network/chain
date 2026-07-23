@@ -7758,7 +7758,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.7.2-full-moon"
+version = "0.8.0-exodus"
 dependencies = [
  "clap",
  "frame-benchmarking-cli",
@@ -7821,7 +7821,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.7.2-full-moon"
+version = "0.8.0-exodus"
 dependencies = [
  "env_logger",
  "frame-benchmarking",
