@@ -1161,22 +1161,24 @@ mod tests {
 			});
 
 			// Encode the call and set expiry
-			let encoded_call = inner_call.encode().try_into().unwrap();
+			let encoded_call: pallet_multisig::BoundedCallOf<Runtime> =
+				inner_call.encode().try_into().unwrap();
 			let expiry = System::block_number() + 100;
 
 			// Alice proposes
 			assert_ok!(Multisig::propose(
 				RuntimeOrigin::signed(alice()),
 				multisig_address.clone(),
-				encoded_call,
+				encoded_call.clone(),
 				expiry,
 			));
 
-			// Bob approves (reaches threshold)
+			// Bob approves (reaches threshold), resubmitting the proposal's call
 			assert_ok!(Multisig::approve(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				0, // proposal_id
+				encoded_call,
 			));
 
 			// Get charlie's transfer count before execution

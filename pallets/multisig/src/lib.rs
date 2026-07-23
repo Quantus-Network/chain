@@ -8,7 +8,8 @@
 //! - Create multisig addresses with deterministic generation (signers + threshold + user-provided
 //!   nonce)
 //! - Propose transactions for multisig approval
-//! - Approve proposed transactions
+//! - Approve proposed transactions (approvers resubmit the inner call, which must match the stored
+//!   proposal payload — binding each approval signature to the actual call)
 //! - Execute transactions once threshold is reached (automatic)
 //! - Cleanup of expired proposals via claim_deposits() and remove_expired()
 //! - Per-signer proposal limits for filibuster protection
@@ -406,6 +407,8 @@ pub mod pallet {
 		ProposalNonceExhausted,
 		/// Call weight exceeds MaxInnerCallWeight limit
 		CallWeightExceedsLimit,
+		/// Provided call does not match the stored proposal payload
+		CallMismatch,
 	}
 
 	#[pallet::call]
@@ -724,12 +727,19 @@ pub mod pallet {
 
 		/// Approve a proposed transaction
 		///
+		/// The approver must resubmit the proposal's inner call bytes; the approval is
+		/// only valid if they are byte-equal to the payload stored at `proposal_id`.
+		/// This binds the approver's signature to the actual call being approved, so
+		/// offline/cold-wallet signers can decode and inspect what they are signing
+		/// instead of trusting an opaque proposal id.
+		///
 		/// If this approval brings the total approvals to or above the threshold,
 		/// the proposal status changes to `Approved` and can be executed via `execute()`.
 		///
 		/// Parameters:
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_id`: ID (nonce) of the proposal to approve
+		/// - `call`: The encoded inner call of the proposal (must match the stored payload)
 		///
 		/// Weight: Charges for MAX call size, refunds based on actual
 		#[pallet::call_index(2)]
@@ -739,6 +749,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
 			proposal_id: u32,
+			call: BoundedCallOf<T>,
 		) -> DispatchResultWithPostInfo {
 			let approver = ensure_signed(origin)?;
 
@@ -772,6 +783,11 @@ pub mod pallet {
 			// after proposal is loaded, since reading the proposal incurs size-dependent cost.
 			let actual_call_size = proposal.call.len() as u32;
 			let actual_weight = <T as Config>::WeightInfo::approve(actual_call_size);
+
+			// The approval is only valid for the exact payload stored at this proposal_id
+			if call != proposal.call {
+				return Self::err_with_actual_weight(Error::<T>::CallMismatch, actual_weight);
+			}
 
 			let current_block = frame_system::Pallet::<T>::block_number();
 			if current_block > proposal.expiry {

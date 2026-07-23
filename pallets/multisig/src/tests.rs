@@ -3,7 +3,7 @@
 use crate::{mock::*, Error, Event, Multisigs, ProposalStatus, Proposals};
 use codec::Encode;
 use frame_support::{
-	assert_noop, assert_ok,
+	assert_err_ignore_postinfo, assert_noop, assert_ok,
 	dispatch::GetDispatchInfo,
 	traits::{fungible::Mutate, Currency, Get},
 };
@@ -94,6 +94,14 @@ fn dave() -> AccountId32 {
 fn make_call(remark: Vec<u8>) -> crate::BoundedCallOf<Test> {
 	let call = RuntimeCall::System(frame_system::Call::remark { remark });
 	call.encode().try_into().expect("Test call should fit in MaxCallSize")
+}
+
+/// Helper to fetch the stored call bytes of a proposal — what a wallet pulls from
+/// chain state to include in an `approve` call
+fn stored_call(multisig_address: &AccountId32, proposal_id: u32) -> crate::BoundedCallOf<Test> {
+	crate::Proposals::<Test>::get(multisig_address, proposal_id)
+		.expect("proposal should exist")
+		.call
 }
 
 /// Helper function to get the ID of the last proposal created
@@ -458,7 +466,8 @@ fn approve_works() {
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
-			proposal_id
+			proposal_id,
+			stored_call(&multisig_address, proposal_id)
 		));
 
 		// Check event
@@ -507,7 +516,8 @@ fn approve_sets_approved_when_threshold_reached() {
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
-			proposal_id
+			proposal_id,
+			stored_call(&multisig_address, proposal_id)
 		));
 
 		// Proposal should still exist with Approved status
@@ -552,6 +562,103 @@ fn approve_sets_approved_when_threshold_reached() {
 			}
 			.into(),
 		);
+	});
+}
+
+#[test]
+fn approve_fails_on_call_mismatch() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(creator.clone()),
+			signers.clone(),
+			2,
+			0
+		));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		let call = make_call(vec![1, 2, 3]);
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			call.clone(),
+			1000
+		));
+
+		let proposal_id = get_last_proposal_id(&multisig_address);
+
+		// Valid signer, valid proposal_id, but a different payload → rejected
+		let wrong_call = make_call(vec![9, 9, 9]);
+		assert_err_ignore_postinfo!(
+			Multisig::approve(
+				RuntimeOrigin::signed(charlie()),
+				multisig_address.clone(),
+				proposal_id,
+				wrong_call
+			),
+			Error::<Test>::CallMismatch
+		);
+
+		// No approval was recorded and status is unchanged
+		let proposal = crate::Proposals::<Test>::get(&multisig_address, proposal_id).unwrap();
+		assert_eq!(proposal.approvals, vec![bob()]);
+		assert_eq!(proposal.status, ProposalStatus::Active);
+	});
+}
+
+#[test]
+fn approve_fails_when_call_matches_other_proposal() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(creator.clone()),
+			signers.clone(),
+			2,
+			0
+		));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Two proposals with different payloads
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			make_call(vec![1]),
+			1000
+		));
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			make_call(vec![2]),
+			1000
+		));
+
+		// Approving proposal 0 with proposal 1's payload must fail — index and
+		// payload must match together
+		assert_err_ignore_postinfo!(
+			Multisig::approve(
+				RuntimeOrigin::signed(charlie()),
+				multisig_address.clone(),
+				0,
+				stored_call(&multisig_address, 1)
+			),
+			Error::<Test>::CallMismatch
+		);
+
+		// The correct payload for proposal 0 is accepted
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address.clone(),
+			0,
+			stored_call(&multisig_address, 0)
+		));
 	});
 }
 
@@ -634,7 +741,8 @@ fn cancel_fails_if_already_executed() {
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
-			proposal_id
+			proposal_id,
+			stored_call(&multisig_address, proposal_id)
 		));
 
 		// Execute (removes proposal from storage)
@@ -729,7 +837,8 @@ fn executed_proposals_removed_from_storage() {
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
-			proposal_id
+			proposal_id,
+			stored_call(&multisig_address, proposal_id)
 		));
 
 		// Execute → removed from storage, deposit returned
@@ -837,7 +946,8 @@ fn remove_expired_works_for_approved_expired_proposal() {
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
-			proposal_id
+			proposal_id,
+			stored_call(&multisig_address, proposal_id)
 		));
 
 		let proposal = Proposals::<Test>::get(&multisig_address, proposal_id).unwrap();
@@ -894,7 +1004,8 @@ fn claim_deposits_works_for_approved_expired_proposals() {
 			assert_ok!(Multisig::approve(
 				RuntimeOrigin::signed(charlie()),
 				multisig_address.clone(),
-				proposal_id
+				proposal_id,
+				stored_call(&multisig_address, proposal_id)
 			));
 		}
 
@@ -1178,7 +1289,8 @@ fn only_active_proposals_remain_in_storage() {
 				assert_ok!(Multisig::approve(
 					RuntimeOrigin::signed(charlie()),
 					multisig_address.clone(),
-					id
+					id,
+					stored_call(&multisig_address, id)
 				));
 				// Execute → removed
 				assert_ok!(Multisig::execute(
@@ -1712,7 +1824,8 @@ fn propose_with_threshold_two_waits_for_approval() {
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(bob()),
 			multisig_address.clone(),
-			proposal_id
+			proposal_id,
+			stored_call(&multisig_address, proposal_id)
 		));
 
 		// Proposal should be Approved but NOT removed
@@ -1780,7 +1893,8 @@ fn no_auto_cleanup_on_propose_approve_cancel() {
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
-			1
+			1,
+			stored_call(&multisig_address, 1)
 		));
 		assert!(Proposals::<Test>::get(&multisig_address, 0).is_some()); // expired but still there
 
@@ -1908,7 +2022,12 @@ fn approve_on_already_approved_proposal_emits_signer_approved_only() {
 		));
 
 		// Bob approves - this reaches threshold (2), status becomes Approved
-		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0));
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			stored_call(&multisig_address, 0)
+		));
 
 		// Verify proposal is Approved
 		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
@@ -1921,7 +2040,8 @@ fn approve_on_already_approved_proposal_emits_signer_approved_only() {
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
-			0
+			0,
+			stored_call(&multisig_address, 0)
 		));
 
 		// Should emit SignerApproved but NOT ProposalReadyToExecute (already approved)
@@ -2230,7 +2350,12 @@ fn cancel_works_on_approved_proposal() {
 		));
 
 		// Bob approves - reaches threshold, status becomes Approved
-		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0));
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			stored_call(&multisig_address, 0)
+		));
 
 		// Verify it's approved
 		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
@@ -2404,7 +2529,12 @@ fn execute_rejects_non_whitelisted_call_after_hs_enabled() {
 		));
 
 		// Bob approves -> threshold reached, status = Approved
-		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0,));
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			stored_call(&multisig_address, 0)
+		));
 
 		// Verify proposal is approved and ready to execute
 		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
@@ -2454,7 +2584,12 @@ fn execute_allows_whitelisted_call_after_hs_enabled() {
 		));
 
 		// Bob approves
-		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0,));
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			stored_call(&multisig_address, 0)
+		));
 
 		// Enable high-security
 		set_high_security(&multisig_address);
@@ -2503,7 +2638,12 @@ fn execute_rejects_call_when_max_weight_lowered_after_propose() {
 		));
 
 		// Bob approves - proposal is now ready for execution
-		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0,));
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			stored_call(&multisig_address, 0)
+		));
 
 		// Simulate runtime upgrade that lowers MaxInnerCallWeight to zero
 		set_max_inner_call_weight(Weight::zero());
