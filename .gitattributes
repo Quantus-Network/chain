@@ -1,0 +1,9 @@
+# Force LF line endings for Rust sources on all platforms.
+#
+# The `docify::embed!` proc-macro (used throughout frame-support) computes byte
+# offsets into the source file it reads, assuming single-byte `\n` line
+# terminators. On Windows, git's default `core.autocrlf=true` checks files out
+# with CRLF, so those offsets drift and docify hits `unreachable!()`
+# ("internal error: entered unreachable code"), breaking the windows-latest
+# release build. Pinning `.rs` to LF keeps the checkout consistent everywhere.
+*.rs text eol=lf
