@@ -21,8 +21,8 @@ sudo is gone and how the Tech track is configured).
 
 ```bash
 # 1. Endpoints + signing wallets (see tables below)
-export HEISENBERG_WS="ws://a1-p2p-heisenberg.quantus.cat:9944"
-export PLANCK_WS="ws://a1-p2p-planck.quantus.cat:9944"
+export HEISENBERG_WS="wss://a1-heisenberg.quantus.cat"
+export PLANCK_WS="wss://a1-planck.quantus.cat"
 
 # 2. Get the runtime wasm (from the GitHub release, or the srtool CI artifact)
 export WASM=/path/to/quantus_runtime.compact.compressed.wasm
@@ -40,21 +40,17 @@ referendum index is only known **after** you submit — capture it from the `lis
 ## Endpoints
 
 The chain-spec (`node/src/chain-specs/{heisenberg,planck}.json`) only defines **p2p boot
-nodes**, not RPC URLs — but those same hosts expose the Substrate RPC on port **9944**.
+nodes**, not RPC URLs — but each network also exposes the Substrate RPC over **wss://**
+(TLS, port 443 — no port number needed).
 
 | Testnet | RPC endpoint (`--node-url`) | Backup |
 |---|---|---|
-| **Heisenberg** | `ws://a1-p2p-heisenberg.quantus.cat:9944` | `ws://a2-p2p-heisenberg.quantus.cat:9944` |
-| **Planck** | `ws://a1-p2p-planck.quantus.cat:9944` | `ws://a2-p2p-planck.quantus.cat:9944` |
+| **Heisenberg** | `wss://a1-heisenberg.quantus.cat` | `wss://a2-heisenberg.quantus.cat` |
+| **Planck** | `wss://a1-planck.quantus.cat` | `wss://a2-planck.quantus.cat` |
 
-> ⚠️ **These are plain `ws://` (unencrypted).** Ports 443 / 9933 are closed on the
-> public hosts — only 9944 (ws) and 30333 (p2p) are open. All the governance / `send` /
-> `exercise` commands accept `ws://` fine. The **only** exception is
-> `quantus system --runtime`, which uses a stricter "chainHead" client that refuses a
-> remote `ws://` with `InsecureUrl`. For that one command either:
-> - use `quantus runtime compare` instead (it also prints the on-chain version), or
-> - tunnel and hit localhost: `ssh -L 9944:localhost:9944 <node-host>` then
->   `--node-url ws://127.0.0.1:9944`.
+> These are secure `wss://` endpoints, so all commands — including `quantus system
+> --runtime`, whose stricter "chainHead" client refuses a remote plain `ws://` with
+> `InsecureUrl` — work directly against them.
 
 ---
 
@@ -131,11 +127,11 @@ export WASM="$(pwd)/target/release/wbuild/quantus-runtime/quantus_runtime.compac
 ## Step 1 — Update the runtime on Heisenberg
 
 ```bash
-export HEISENBERG_WS="ws://a1-p2p-heisenberg.quantus.cat:9944"
+export HEISENBERG_WS="wss://a1-heisenberg.quantus.cat"
 export HEISENBERG_TC="crystal_alice"
 
 # a) Diff the new wasm against the live runtime (confirms it's actually an upgrade and
-#    prints both spec_versions). Uses the ws-friendly client, so ws:// is fine.
+#    prints both spec_versions)
 quantus runtime compare --wasm-file "$WASM" --node-url "$HEISENBERG_WS"
 
 # b) Confirm the collective membership (who you'll need aye votes from)
@@ -218,7 +214,7 @@ NODE_URL="$HEISENBERG_WS" ./scripts/testing/submit_transfer.sh 5
 Identical flow, pointed at Planck, using the Planck wallets.
 
 ```bash
-export PLANCK_WS="ws://a1-p2p-planck.quantus.cat:9944"
+export PLANCK_WS="wss://a1-planck.quantus.cat"
 
 # a) diff vs live
 quantus runtime compare --wasm-file "$WASM" --node-url "$PLANCK_WS"
@@ -254,8 +250,6 @@ quantus runtime compare --wasm-file "$WASM" --node-url "$PLANCK_WS"
 
 | Symptom | Cause / fix |
 |---|---|
-| `system --runtime` → `Network error: ... InsecureUrl("ws://…")` | The chainHead client rejects remote `ws://`. Use `quantus runtime compare` for the version, or tunnel to `ws://127.0.0.1:9944`. |
-| `wss://…:9944` → `InvalidMessage(InvalidContentType)` | Port 9944 serves **plain ws**, not TLS. Use `ws://`, not `wss://`. |
 | Referendum never leaves "Preparing" | You skipped the **decision deposit** (Step e). Place it, then voting/deciding starts. |
 | Referendum rejected / not enough support | 3-member collective needs ≥ 61 % approval / 60 % support → get a 2nd (and 3rd) aye. |
 | No wasm asset on the GitHub release | The release publish job failed after srtool. Pull the `runtime` workflow artifact (Step 0 fallback) and re-run the release. |
