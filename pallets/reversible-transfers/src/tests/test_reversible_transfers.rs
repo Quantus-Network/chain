@@ -2211,3 +2211,59 @@ fn validate_delay_accepts_timestamp_equal_to_minimum() {
 		));
 	});
 }
+
+/// Reversible transfers are a permissionless scheduling surface: any signed account
+/// can place a task at an attacker-chosen future block. They must be scheduled at
+/// `LOWEST_PRIORITY` so the scheduler's reserved high-priority headroom
+/// (`ReservedHighPrioritySlots`) prevents them from filling a block's agenda and
+/// censoring governance enactment scheduled at the same (deterministic) block.
+#[test]
+fn scheduled_transfers_cannot_crowd_out_high_priority_tasks() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let sender: AccountId = eve(); // no pre-configured policy
+		let recipient: AccountId = ferdie();
+		let amount: Balance = 100;
+		let delay_blocks = 5u64;
+		let delay = BlockNumberOrTimestamp::BlockNumber(delay_blocks);
+		let execute_block = BlockNumberOrTimestamp::BlockNumber(1 + delay_blocks);
+
+		let max: u32 =
+			<<Test as pallet_scheduler::Config>::MaxScheduledPerBlock as sp_core::Get<u32>>::get();
+		// The scheduler reserves ~20% of each block's agenda for tasks scheduled above
+		// `LOWEST_PRIORITY`; reversible transfers (at `LOWEST_PRIORITY`) get the rest.
+		let reserved: u32 = max / 5;
+		assert!(reserved > 0 && reserved < max, "pre-condition: reservation must be meaningful");
+
+		// The attacker can only fill the unreserved part of the target block's agenda.
+		for _ in 0..max - reserved {
+			assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+				RuntimeOrigin::signed(sender.clone()),
+				recipient.clone(),
+				amount,
+				delay,
+			));
+		}
+		assert_eq!(Agenda::<Test>::get(execute_block).len() as u32, max - reserved);
+
+		// Further transfers targeting the same block are rejected.
+		assert_err!(
+			ReversibleTransfers::schedule_transfer_with_delay(
+				RuntimeOrigin::signed(sender.clone()),
+				recipient.clone(),
+				amount,
+				delay,
+			),
+			Error::<Test>::SchedulingFailed
+		);
+
+		// A high-priority task (governance enactment is scheduled at priority 63) still
+		// fits into the reserved headroom of the same block.
+		assert_ok!(Scheduler::schedule(
+			RuntimeOrigin::root(),
+			1 + delay_blocks,
+			63,
+			Box::new(RuntimeCall::System(frame_system::Call::remark { remark: vec![] })),
+		));
+	});
+}

@@ -843,11 +843,16 @@ pub mod pallet {
 
 			let bounded_call = T::Preimages::bound(Call::<T>::execute_transfer { tx_id }.into())?;
 
-			// Schedule the `do_execute` call
+			// Schedule the `do_execute` call. Reversible transfers are a permissionless
+			// scheduling surface (any signed account can target an arbitrary future
+			// block), so they run at `LOWEST_PRIORITY`: the scheduler reserves agenda
+			// headroom above that priority, preventing user transfers from filling a
+			// block's agenda and censoring e.g. governance enactment scheduled at a
+			// deterministic block.
 			T::Scheduler::schedule_named(
 				schedule_id,
 				dispatch_time,
-				Default::default(),
+				frame_support::traits::schedule::LOWEST_PRIORITY,
 				frame_support::dispatch::RawOrigin::Signed(Self::account_id()).into(),
 				bounded_call,
 			)
