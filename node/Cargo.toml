@@ -47,6 +47,7 @@ qpow-math.workspace = true
 quantus-miner-api = { workspace = true }
 quantus-runtime.workspace = true
 quinn.workspace = true
+rpassword = { workspace = true }
 rand = { workspace = true, default-features = false, features = [
 	"alloc",
 	"getrandom",
