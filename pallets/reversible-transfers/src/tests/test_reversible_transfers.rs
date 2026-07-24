@@ -1567,6 +1567,88 @@ fn recover_funds_is_atomic_when_release_fails() {
 }
 
 #[test]
+fn recover_funds_weight_accounts_for_failed_releases() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let protected = alice(); // high-security from genesis, guardian = bob
+		let guardian = bob();
+		let asset_operator = charlie();
+		let recipient = eve();
+		let asset_id: u32 = 7_777;
+		let amount: Balance = 1_000;
+
+		// Create an asset and block the guardian's asset account so any asset
+		// release *to the guardian* during recovery fails.
+		create_asset(asset_id, asset_operator.clone(), Some(1_000_000));
+		assert_ok!(pallet_assets::Pallet::<Test>::mint(
+			RuntimeOrigin::signed(asset_operator.clone()),
+			codec::Compact(asset_id),
+			protected.clone(),
+			1_000_000,
+		));
+		assert_ok!(pallet_assets::Pallet::<Test>::mint(
+			RuntimeOrigin::signed(asset_operator.clone()),
+			codec::Compact(asset_id),
+			guardian.clone(),
+			1,
+		));
+		assert_ok!(pallet_assets::Pallet::<Test>::block(
+			RuntimeOrigin::signed(asset_operator.clone()),
+			codec::Compact(asset_id),
+			guardian.clone(),
+		));
+
+		// Two asset transfers whose recovery release will FAIL (guardian blocked)...
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer(
+			RuntimeOrigin::signed(protected.clone()),
+			asset_id,
+			recipient.clone(),
+			amount,
+		));
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer(
+			RuntimeOrigin::signed(protected.clone()),
+			asset_id,
+			recipient,
+			amount,
+		));
+		// ...and one native transfer whose recovery release SUCCEEDS.
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(protected.clone()),
+			guardian.clone(),
+			amount,
+		));
+
+		assert_eq!(ReversibleTransfers::pending_transfers_by_sender(&protected).len(), 3);
+
+		let post = ReversibleTransfers::recover_funds(
+			RuntimeOrigin::signed(guardian.clone()),
+			protected.clone(),
+		)
+		.expect("recover_funds should succeed even when some releases fail");
+
+		// Two asset releases failed (metadata retained), one native release succeeded.
+		System::assert_has_event(
+			Event::FundsRecovered { account: protected.clone(), guardian }.into(),
+		);
+		assert_eq!(ReversibleTransfers::pending_transfers_by_sender(&protected).len(), 2);
+
+		// The dispatch inspected 3 pending transfers and attempted a release for
+		// each, so the charged weight must reflect all 3 processed transfers, not
+		// just the single successful cancellation. Otherwise a guardian can drive
+		// unbounded failed-release work while being refunded down to near-zero.
+		let charged = post.actual_weight.expect("recover_funds returns an explicit post weight");
+		let expected_processed = <() as crate::weights::WeightInfo>::recover_funds(3);
+		let expected_cancelled = <() as crate::weights::WeightInfo>::recover_funds(1);
+		assert_eq!(
+			charged, expected_processed,
+			"recover_funds must charge for every pending transfer it processes (3), \
+			 not only successful cancellations (was charging as if {expected_cancelled:?})"
+		);
+	});
+}
+
+#[test]
 fn schedule_transfer_with_error_short_delay() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
