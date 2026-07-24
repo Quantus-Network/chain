@@ -276,6 +276,16 @@ mod benchmarks {
 		Ok(())
 	}
 
+	// `recover_funds` charges `recover_funds(num_processed)` where `num_processed`
+	// is the number of pending transfers it iterates over (a storage read plus a
+	// release attempt each), regardless of whether each release succeeds. This
+	// benchmark deliberately sets up `n` transfers that all release successfully:
+	// a successful cancellation is strictly more expensive than a failed release
+	// (it additionally removes metadata and cancels the scheduled task), so the
+	// all-success path is the per-transfer worst case and its slope is a safe
+	// upper bound for any mix of successful and failed releases. Do not change
+	// this to a cheaper (e.g. all-failing) path without re-deriving the weight
+	// model, or failed-release recoveries would be undercharged.
 	#[benchmark]
 	fn recover_funds(n: Linear<0, 16>) -> Result<(), BenchmarkError> {
 		assert_eq!(

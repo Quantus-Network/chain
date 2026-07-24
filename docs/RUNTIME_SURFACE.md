@@ -126,6 +126,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 ### Index 8 — `Scheduler` (`pallet-scheduler`, local) — **calls disabled**
 - `RuntimeCall`, `MaximumWeight = 80% max block`, `MaxScheduledPerBlock = 50`, `ScheduleOrigin = EnsureRoot`, `Preimages = Preimage`, `TimeProvider = Timestamp`, `Moment = u64`, `TimestampBucketSize = 2 * block time`.
 - Calls exist (`schedule`(0), `cancel`(1), `schedule_named`(2), `cancel_named`(3), `schedule_after`(4), `schedule_named_after`(5), `set_retry`(6), `set_retry_named`(7), `cancel_retry`(8), `cancel_retry_named`(9)) but are **disabled at the runtime level** so users cannot enqueue arbitrary calls. Used internally by reversible-transfers and governance via the `ScheduleNamed` trait. Local fork adds block-number-or-timestamp scheduling.
+- **Priority-reserved headroom:** tasks scheduled at `LOWEST_PRIORITY` (the permissionless scheduling surface — reversible transfers) may occupy at most ~80% of a block's agenda (40 of 50 slots). This reserves ~20% per block for higher-priority tasks (governance enactment is scheduled by referenda at priority 63, alarms at 128), so a permissionless caller cannot pre-fill a referendum's deterministic enactment block and censor it.
 
 ### Index 9 — `Utility` (`pallet-utility`)
 - `RuntimeCall`, `PalletsOrigin = OriginCaller`.
@@ -236,8 +237,12 @@ Signed-extension pipeline applied to every extrinsic, in order:
 ## 7. Genesis presets (`genesis_config_presets.rs`)
 
 - **Presets:** `dev` (`DEV_RUNTIME_PRESET`), `heisenberg`, `planck`.
-- Dilithium dev accounts: `crystal_alice`, `dilithium_bob`, `crystal_charlie`.
-- Treasury = 2-of-3 multisig of the three signers (distinct nonce per preset); receives 30% of the 21M genesis supply.
+- **Network roles:**
+  - `dev` — local development.
+  - `heisenberg` — **internal integration testnet**, not mainnet. Tokens have no monetary value; the network may be reset.
+  - `planck` — public testnet (live treasury signers + faucet).
+- Dilithium well-known accounts: `crystal_alice`, `dilithium_bob`, `crystal_charlie` (public seeds `[0]` / `[1]` / `[2]`). Used by `dev` and **intentionally also by `heisenberg`** so integrators and CI can exercise governance, treasury, and transfer flows without distributing secrets. Those private keys are public by design; do **not** reuse this pattern on a mainnet or any value-bearing chain (Planck already uses distinct live treasury signers).
+- Treasury = 2-of-3 multisig of the three signers for `dev`/`heisenberg` (distinct nonce per preset); no genesis endowment (funded from mining-reward share only).
 - Tech-collective seeded via the chain-spec-only `tech_collective_seed_members` JSON field (`prepare_genesis_build_input` + `seed_tech_collective`).
 - Reserves asset id 0 for the native-token-in-assets wormhole path.
 - Endows all genesis balances with wormhole transfer proofs (ZK-spendable). `dev` also endows `TEST_WORMHOLE_SECRET`'s address.

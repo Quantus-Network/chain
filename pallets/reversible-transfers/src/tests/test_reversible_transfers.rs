@@ -1567,6 +1567,88 @@ fn recover_funds_is_atomic_when_release_fails() {
 }
 
 #[test]
+fn recover_funds_weight_accounts_for_failed_releases() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let protected = alice(); // high-security from genesis, guardian = bob
+		let guardian = bob();
+		let asset_operator = charlie();
+		let recipient = eve();
+		let asset_id: u32 = 7_777;
+		let amount: Balance = 1_000;
+
+		// Create an asset and block the guardian's asset account so any asset
+		// release *to the guardian* during recovery fails.
+		create_asset(asset_id, asset_operator.clone(), Some(1_000_000));
+		assert_ok!(pallet_assets::Pallet::<Test>::mint(
+			RuntimeOrigin::signed(asset_operator.clone()),
+			codec::Compact(asset_id),
+			protected.clone(),
+			1_000_000,
+		));
+		assert_ok!(pallet_assets::Pallet::<Test>::mint(
+			RuntimeOrigin::signed(asset_operator.clone()),
+			codec::Compact(asset_id),
+			guardian.clone(),
+			1,
+		));
+		assert_ok!(pallet_assets::Pallet::<Test>::block(
+			RuntimeOrigin::signed(asset_operator.clone()),
+			codec::Compact(asset_id),
+			guardian.clone(),
+		));
+
+		// Two asset transfers whose recovery release will FAIL (guardian blocked)...
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer(
+			RuntimeOrigin::signed(protected.clone()),
+			asset_id,
+			recipient.clone(),
+			amount,
+		));
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer(
+			RuntimeOrigin::signed(protected.clone()),
+			asset_id,
+			recipient,
+			amount,
+		));
+		// ...and one native transfer whose recovery release SUCCEEDS.
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(protected.clone()),
+			guardian.clone(),
+			amount,
+		));
+
+		assert_eq!(ReversibleTransfers::pending_transfers_by_sender(&protected).len(), 3);
+
+		let post = ReversibleTransfers::recover_funds(
+			RuntimeOrigin::signed(guardian.clone()),
+			protected.clone(),
+		)
+		.expect("recover_funds should succeed even when some releases fail");
+
+		// Two asset releases failed (metadata retained), one native release succeeded.
+		System::assert_has_event(
+			Event::FundsRecovered { account: protected.clone(), guardian }.into(),
+		);
+		assert_eq!(ReversibleTransfers::pending_transfers_by_sender(&protected).len(), 2);
+
+		// The dispatch inspected 3 pending transfers and attempted a release for
+		// each, so the charged weight must reflect all 3 processed transfers, not
+		// just the single successful cancellation. Otherwise a guardian can drive
+		// unbounded failed-release work while being refunded down to near-zero.
+		let charged = post.actual_weight.expect("recover_funds returns an explicit post weight");
+		let expected_processed = <() as crate::weights::WeightInfo>::recover_funds(3);
+		let expected_cancelled = <() as crate::weights::WeightInfo>::recover_funds(1);
+		assert_eq!(
+			charged, expected_processed,
+			"recover_funds must charge for every pending transfer it processes (3), \
+			 not only successful cancellations (was charging as if {expected_cancelled:?})"
+		);
+	});
+}
+
+#[test]
 fn schedule_transfer_with_error_short_delay() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
@@ -2126,6 +2208,62 @@ fn validate_delay_accepts_timestamp_equal_to_minimum() {
 			RuntimeOrigin::signed(user),
 			delay,
 			guardian,
+		));
+	});
+}
+
+/// Reversible transfers are a permissionless scheduling surface: any signed account
+/// can place a task at an attacker-chosen future block. They must be scheduled at
+/// `LOWEST_PRIORITY` so the scheduler's reserved high-priority headroom
+/// (`ReservedHighPrioritySlots`) prevents them from filling a block's agenda and
+/// censoring governance enactment scheduled at the same (deterministic) block.
+#[test]
+fn scheduled_transfers_cannot_crowd_out_high_priority_tasks() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let sender: AccountId = eve(); // no pre-configured policy
+		let recipient: AccountId = ferdie();
+		let amount: Balance = 100;
+		let delay_blocks = 5u64;
+		let delay = BlockNumberOrTimestamp::BlockNumber(delay_blocks);
+		let execute_block = BlockNumberOrTimestamp::BlockNumber(1 + delay_blocks);
+
+		let max: u32 =
+			<<Test as pallet_scheduler::Config>::MaxScheduledPerBlock as sp_core::Get<u32>>::get();
+		// The scheduler reserves ~20% of each block's agenda for tasks scheduled above
+		// `LOWEST_PRIORITY`; reversible transfers (at `LOWEST_PRIORITY`) get the rest.
+		let reserved: u32 = max / 5;
+		assert!(reserved > 0 && reserved < max, "pre-condition: reservation must be meaningful");
+
+		// The attacker can only fill the unreserved part of the target block's agenda.
+		for _ in 0..max - reserved {
+			assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+				RuntimeOrigin::signed(sender.clone()),
+				recipient.clone(),
+				amount,
+				delay,
+			));
+		}
+		assert_eq!(Agenda::<Test>::get(execute_block).len() as u32, max - reserved);
+
+		// Further transfers targeting the same block are rejected.
+		assert_err!(
+			ReversibleTransfers::schedule_transfer_with_delay(
+				RuntimeOrigin::signed(sender.clone()),
+				recipient.clone(),
+				amount,
+				delay,
+			),
+			Error::<Test>::SchedulingFailed
+		);
+
+		// A high-priority task (governance enactment is scheduled at priority 63) still
+		// fits into the reserved headroom of the same block.
+		assert_ok!(Scheduler::schedule(
+			RuntimeOrigin::root(),
+			1 + delay_blocks,
+			63,
+			Box::new(RuntimeCall::System(frame_system::Call::remark { remark: vec![] })),
 		));
 	});
 }

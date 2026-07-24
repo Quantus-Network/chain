@@ -82,15 +82,21 @@ pub enum QuantusKeySubcommand {
 		#[arg(long, value_name = "SCHEME", value_enum, default_value_t = QuantusAddressType::Standard, ignore_case = true)]
 		scheme: QuantusAddressType,
 
-		/// Optional: Provide a 64-character hex string to be used as a 32-byte seed.
-		/// This is mutually exclusive with --words.
-		#[arg(long, value_name = "SEED", conflicts_with = "words")]
-		seed: Option<String>,
+		/// Optional: Read a 128-character hex master seed (64 bytes) from stdin.
+		/// The value is intentionally not accepted as a command-line argument
+		/// (argv is world-readable and recorded in shell history / audit logs):
+		/// on a terminal you are prompted without echo, otherwise pipe it in
+		/// (e.g. `... --seed < seed.txt`). Mutually exclusive with --words.
+		#[arg(long, conflicts_with = "words")]
+		seed: bool,
 
-		/// Optional: Provide a BIP39 phrase (e.g., "word1 word2 ... word24").
-		/// This is mutually exclusive with --seed.
-		#[arg(long, value_name = "WORDS_PHRASE", conflicts_with = "seed")]
-		words: Option<String>,
+		/// Optional: Read a BIP39 phrase ("word1 word2 ... word24") from stdin.
+		/// The value is intentionally not accepted as a command-line argument
+		/// (argv is world-readable and recorded in shell history / audit logs):
+		/// on a terminal you are prompted without echo, otherwise pipe it in
+		/// (e.g. `... --words < mnemonic.txt`). Mutually exclusive with --seed.
+		#[arg(long, conflicts_with = "seed")]
+		words: bool,
 
 		/// Optional: HD wallet derivation index (default 0). Ignored if --no-derivation is set.
 		#[arg(long, value_name = "INDEX", default_value_t = 0u32)]
@@ -100,7 +106,8 @@ pub enum QuantusKeySubcommand {
 		#[arg(long, default_value_t = false)]
 		no_derivation: bool,
 
-		/// Print sensitive key material (seed, public key, secret key). Useful for debugging.
+		/// Additionally print the public key / address hex. Secret material (seed,
+		/// secret key) is never printed; everything is re-derivable from the mnemonic.
 		#[arg(long, short = 'v', default_value_t = false)]
 		verbose: bool,
 	},

@@ -35,8 +35,33 @@ pub struct QuantusKeyDetails {
 	pub public_key_hex: String, // Full public key, hex encoded with "0x" prefix
 	pub secret_key_hex: String, // Secret key, hex encoded with "0x" prefix
 	pub seed_hex: String,       // Derived seed, hex encoded with "0x" prefix
-	pub secret_phrase: Option<String>, // Mnemonic phrase
+	pub secret_phrase: Option<String>, // Newly generated mnemonic; None when caller supplied it
 	pub inner_hash: Option<String>, // If wormhole key, this is first hash
+}
+
+/// Read a secret from stdin rather than argv, so it never appears in
+/// `/proc/<pid>/cmdline`, shell history, or process-accounting/audit logs.
+/// Prompts without echo on a terminal; otherwise reads one line (piped input).
+#[allow(clippy::result_large_err)]
+fn read_secret_from_stdin(prompt: &str) -> Result<String, sc_cli::Error> {
+	use std::io::{BufRead, IsTerminal};
+	let stdin = std::io::stdin();
+	let value = if stdin.is_terminal() {
+		rpassword::prompt_password(prompt)
+			.map_err(|e| sc_cli::Error::Input(format!("failed to read secret: {e}")))?
+	} else {
+		let mut line = String::new();
+		stdin
+			.lock()
+			.read_line(&mut line)
+			.map_err(|e| sc_cli::Error::Input(format!("failed to read secret from stdin: {e}")))?;
+		line
+	};
+	let value = value.trim().to_string();
+	if value.is_empty() {
+		return Err(sc_cli::Error::Input("no secret provided on stdin".into()));
+	}
+	Ok(value)
 }
 
 #[allow(clippy::result_large_err)]
@@ -57,8 +82,8 @@ pub fn generate_quantus_key(
 				format!("m/44'/{QUANTUS_DILITHIUM_CHAIN_ID}/{index}'/0'/0'", index = wallet_index);
 
 			if let Some(words_phrase) = words {
-				// Use provided mnemonic
-				words_to_print = Some(words_phrase.clone());
+				// Use provided mnemonic. The caller already knows it, so it is
+				// deliberately NOT placed in `secret_phrase` for echoing back.
 				if no_derivation {
 					// Get raw seed from mnemonic
 					let seed64 = mnemonic_to_seed(words_phrase, None).map_err(|e| {
@@ -170,7 +195,8 @@ pub fn generate_quantus_key(
 				format!("m/44'/{QUANTUS_WORMHOLE_CHAIN_ID}/{index}'/0'/0'", index = wallet_index);
 			let words_to_print;
 			let words_phrase = if let Some(w) = words {
-				words_to_print = Some(w.clone());
+				// Caller-supplied mnemonic: not echoed back.
+				words_to_print = None;
 				w
 			} else {
 				let mut entropy = [0u8; 32];
@@ -280,10 +306,21 @@ pub fn run() -> sc_cli::Result<()> {
 					no_derivation,
 					verbose,
 				} => {
+					// Secrets are read from stdin, never from argv (see cli.rs).
+					let seed_value = if *seed {
+						Some(read_secret_from_stdin("Hex master seed (128 hex chars): ")?)
+					} else {
+						None
+					};
+					let words_value = if *words {
+						Some(read_secret_from_stdin("BIP39 mnemonic: ")?)
+					} else {
+						None
+					};
 					match generate_quantus_key(
 						scheme.clone(),
-						seed.clone(),
-						words.clone(),
+						seed_value,
+						words_value,
 						*wallet_index,
 						*no_derivation,
 					) {
@@ -291,9 +328,9 @@ pub fn run() -> sc_cli::Result<()> {
 							match scheme {
 								QuantusAddressType::Standard => {
 									println!("Generating Quantus Standard address...");
-									if seed.is_some() {
+									if *seed {
 										println!("Using provided hex seed...");
-									} else if words.is_some() {
+									} else if *words {
 										println!("Using provided words phrase...");
 									} else {
 										println!(
@@ -328,9 +365,7 @@ pub fn run() -> sc_cli::Result<()> {
 									}
 									println!("Address: {}", details.address);
 									if *verbose {
-										println!("Seed: {}", details.seed_hex);
 										println!("Pub key: {}", details.public_key_hex);
-										println!("Secret key: {}", details.secret_key_hex);
 									}
 									println!(
                                         "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
@@ -360,7 +395,6 @@ pub fn run() -> sc_cli::Result<()> {
 									);
 									if *verbose {
 										println!("Address hex: {}", details.public_key_hex);
-										println!("Secret: {}", details.secret_key_hex);
 									}
 									println!(
                                         "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
@@ -626,6 +660,64 @@ mod tests {
 		},
 	};
 
+	/// Master secrets must never travel through argv: the argument vector is
+	/// world-readable via /proc/<pid>/cmdline, recorded in shell history, and
+	/// captured by process-accounting/audit logs.
+	#[test]
+	fn secrets_are_not_accepted_as_command_line_values() {
+		use clap::Parser;
+		assert!(
+			crate::cli::Cli::try_parse_from([
+				"quantus-node",
+				"key",
+				"quantus",
+				"--seed",
+				TEST_SEED_HEX,
+			])
+			.is_err(),
+			"--seed must not accept an inline secret value"
+		);
+		assert!(
+			crate::cli::Cli::try_parse_from([
+				"quantus-node",
+				"key",
+				"quantus",
+				"--words",
+				TEST_MNEMONIC,
+			])
+			.is_err(),
+			"--words must not accept an inline secret value"
+		);
+	}
+
+	/// A caller-supplied mnemonic is already known to the caller; echoing it back
+	/// into stdout needlessly persists it in terminal capture or redirected output.
+	/// Only newly generated phrases (which would otherwise be lost) may be printed.
+	#[test]
+	fn provided_mnemonic_is_not_echoed_back() {
+		let mnemonic = TEST_MNEMONIC.to_string();
+		let standard = generate_quantus_key(
+			QuantusAddressType::Standard,
+			None,
+			Some(mnemonic.clone()),
+			0,
+			true,
+		)
+		.unwrap();
+		assert!(
+			standard.secret_phrase.is_none(),
+			"caller-supplied mnemonic must not be echoed back (standard)"
+		);
+
+		let wormhole =
+			generate_quantus_key(QuantusAddressType::Wormhole, None, Some(mnemonic), 0, false)
+				.unwrap();
+		assert!(
+			wormhole.secret_phrase.is_none(),
+			"caller-supplied mnemonic must not be echoed back (wormhole)"
+		);
+	}
+
 	#[test]
 	fn test_generate_quantus_key_standard_new_mnemonic() {
 		// Test generating a standard address with a new mnemonic
@@ -649,7 +741,8 @@ mod tests {
 		);
 		assert!(result.is_ok());
 		let details = result.unwrap();
-		assert_eq!(details.secret_phrase, Some(mnemonic));
+		// Caller-supplied mnemonics are never echoed back.
+		assert_eq!(details.secret_phrase, None);
 	}
 
 	#[test]
@@ -742,7 +835,7 @@ mod tests {
 		assert!(result.is_ok());
 		let details = result.unwrap();
 
-		assert_eq!(details.secret_phrase, Some(mnemonic));
+		assert_eq!(details.secret_phrase, None);
 		assert_eq!(details.seed_hex, expected_seed_hex.clone());
 		assert_eq!(details.address, expected_address.clone());
 		assert_eq!(details.public_key_hex, expected_public_key_hex.clone());

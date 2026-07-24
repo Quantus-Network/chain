@@ -1907,6 +1907,69 @@ fn scheduler_v3_anon_schedule_agenda_overflows() {
 	});
 }
 
+/// A block whose agenda is being filled with `LOWEST_PRIORITY` (e.g. permissionless,
+/// user-driven) tasks must still admit higher-priority tasks such as governance
+/// enactment. Otherwise anyone who can schedule a task at an arbitrary future block
+/// (e.g. via reversible transfers) can pre-fill a referendum's deterministic
+/// enactment block and silently censor governance.
+#[test]
+fn lowest_priority_tasks_cannot_crowd_out_high_priority_tasks() {
+	use frame_support::traits::schedule::LOWEST_PRIORITY;
+
+	let max: u32 = <Test as Config>::MaxScheduledPerBlock::get();
+	// Mirror the scheduler's reservation policy: ~20% of the agenda is reserved for
+	// tasks scheduled above `LOWEST_PRIORITY`.
+	let reserved: u32 = max / 5;
+	assert!(reserved > 0 && reserved < max, "pre-condition: reservation must be meaningful");
+
+	new_test_ext().execute_with(|| {
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		let bound = Preimage::bound(call).unwrap();
+
+		// An attacker can only occupy the unreserved part of the agenda with
+		// lowest-priority tasks.
+		for _ in 0..max - reserved {
+			assert_ok!(Scheduler::do_schedule(
+				DispatchTime::At(4),
+				LOWEST_PRIORITY,
+				root(),
+				bound.clone()
+			));
+		}
+		assert_noop!(
+			Scheduler::do_schedule(DispatchTime::At(4), LOWEST_PRIORITY, root(), bound.clone()),
+			DispatchError::Exhausted
+		);
+
+		// Higher-priority tasks (e.g. governance enactment is scheduled at priority 63)
+		// still fit into the reserved headroom of the same block.
+		let mut high_addrs = Vec::new();
+		for _ in 0..reserved {
+			high_addrs.push(
+				Scheduler::do_schedule(DispatchTime::At(4), 63, root(), bound.clone()).unwrap(),
+			);
+		}
+		// Until the block is legitimately full.
+		assert_noop!(
+			Scheduler::do_schedule(DispatchTime::At(4), 63, root(), bound.clone()),
+			DispatchError::Exhausted
+		);
+
+		// Cancelling a high-priority task frees its slot for another high-priority
+		// task, but lowest-priority tasks remain capped.
+		assert_ok!(Scheduler::do_cancel(None, high_addrs[0]));
+		assert_noop!(
+			Scheduler::do_schedule(DispatchTime::At(4), LOWEST_PRIORITY, root(), bound.clone()),
+			DispatchError::Exhausted
+		);
+		assert_ok!(Scheduler::do_schedule(DispatchTime::At(4), 63, root(), bound));
+
+		run_to_block(4);
+		assert_eq!(logger::log().len() as u32, max);
+	});
+}
+
 /// Cancelling and scheduling does not overflow the agenda but fills holes.
 #[test]
 fn scheduler_v3_anon_cancel_and_schedule_fills_holes() {

@@ -7786,6 +7786,7 @@ dependencies = [
  "quinn",
  "rand 0.8.6",
  "rcgen",
+ "rpassword",
  "rustls",
  "sc-basic-authorship",
  "sc-cli",

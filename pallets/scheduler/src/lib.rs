@@ -718,6 +718,18 @@ impl<T: Config> Pallet<T> {
 		what: ScheduledOf<T>,
 	) -> Result<u32, (DispatchError, ScheduledOf<T>)> {
 		let mut agenda = Agenda::<T>::get(when);
+		// `LOWEST_PRIORITY` tasks (a best-effort, potentially permissionless surface such
+		// as reversible transfers) may not consume the last ~20% of an agenda, so
+		// higher-priority tasks such as governance enactment always retain headroom and
+		// cannot be censored by pre-filling their target block.
+		if what.priority == schedule::LOWEST_PRIORITY {
+			let occupied = agenda.iter().filter(|slot| slot.is_some()).count() as u32;
+			let max = T::MaxScheduledPerBlock::get();
+			let cap = max.saturating_sub(max / 5).max(1);
+			if occupied >= cap {
+				return Err((DispatchError::Exhausted, what));
+			}
+		}
 		let index = if (agenda.len() as u32) < T::MaxScheduledPerBlock::get() {
 			// will always succeed due to the above check.
 			let _ = agenda.try_push(Some(what));
