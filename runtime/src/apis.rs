@@ -326,7 +326,7 @@ impl_runtime_apis! {
 				crate::genesis_config_presets::prepare_genesis_build_input(config)?;
 			build_state::<RuntimeGenesisConfig>(config)?;
 			if let Some(members) = tech_collective_members {
-				crate::genesis_config_presets::seed_tech_collective(&members);
+				crate::genesis_config_presets::seed_tech_collective(&members)?;
 			}
 			Ok(())
 		}

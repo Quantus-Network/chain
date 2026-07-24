@@ -1327,10 +1327,10 @@ mod tests {
 			Balances::make_free_balance_be(&proposer, 3000 * UNIT);
 			Balances::make_free_balance_be(&voter, 2000 * UNIT);
 
-			quantus_runtime::genesis_config_presets::seed_tech_collective(&[
+			assert_ok!(quantus_runtime::genesis_config_presets::seed_tech_collective(&[
 				proposer.clone(),
 				voter.clone(),
-			]);
+			]));
 
 			assert!(
 				pallet_ranked_collective::Members::<Runtime>::contains_key(&proposer),
@@ -1406,6 +1406,36 @@ mod tests {
 		});
 	}
 
+	/// Genesis seeding runs inside `build_state`, which returns
+	/// `sp_genesis_builder::Result`: malformed caller-supplied input (e.g. duplicate
+	/// members) must surface as a structured `Err(String)` through that channel, not
+	/// panic (a WASM trap when invoked through the runtime API).
+	#[test]
+	fn seed_tech_collective_rejects_duplicates_without_panicking() {
+		TestCommons::new_fast_governance_test_ext().execute_with(|| {
+			let member = TestCommons::account_id(1);
+
+			let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+				quantus_runtime::genesis_config_presets::seed_tech_collective(&[
+					member.clone(),
+					member.clone(),
+				])
+			}));
+			let result =
+				outcome.expect("seeding with a duplicate member must return an error, not panic");
+			let err = result.expect_err("duplicate member must be rejected");
+			assert!(err.contains("AlreadyMember"), "error should name the cause: {err}");
+
+			// Overlap with a member already added by other genesis mechanisms must also
+			// surface as an error.
+			assert!(
+				quantus_runtime::genesis_config_presets::seed_tech_collective(&[member.clone()])
+					.is_err(),
+				"re-seeding an existing member must be rejected"
+			);
+		});
+	}
+
 	#[test]
 	fn test_non_seeded_member_cannot_vote() {
 		TestCommons::new_fast_governance_test_ext().execute_with(|| {
@@ -1415,7 +1445,9 @@ mod tests {
 			Balances::make_free_balance_be(&proposer, 3000 * UNIT);
 			Balances::make_free_balance_be(&non_member, 3000 * UNIT);
 
-			quantus_runtime::genesis_config_presets::seed_tech_collective(&[proposer.clone()]);
+			assert_ok!(quantus_runtime::genesis_config_presets::seed_tech_collective(&[
+				proposer.clone()
+			]));
 
 			assert!(
 				!pallet_ranked_collective::Members::<Runtime>::contains_key(&non_member),

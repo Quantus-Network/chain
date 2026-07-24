@@ -343,9 +343,14 @@ fn parse_tech_collective_members_array(v: Value) -> Result<Vec<AccountId>, Strin
 
 /// Seed tech collective members at genesis. Call after `build_state` when the genesis JSON
 /// included [`TECH_COLLECTIVE_SEED_MEMBERS_KEY`].
-pub fn seed_tech_collective(members: &[AccountId]) {
+///
+/// The member list is caller-supplied via the genesis JSON, so adding can fail (duplicate
+/// entries, accounts already members, `MaxMemberCount` exceeded). Failures are returned as
+/// `Err(String)` for `build_state` to surface through `sp_genesis_builder::Result` instead
+/// of trapping the runtime call.
+pub fn seed_tech_collective(members: &[AccountId]) -> Result<(), String> {
 	if members.is_empty() {
-		return;
+		return Ok(());
 	}
 	log::info!("🏛️ Seeding tech collective with {} members", members.len());
 	let ss58 = ss58_version();
@@ -359,8 +364,14 @@ pub fn seed_tech_collective(members: &[AccountId]) {
 			0,
 			false,
 		)
-		.expect("Failed to seed tech collective member");
+		.map_err(|e| {
+			alloc::format!(
+				"failed to seed tech collective member {}: {e:?}",
+				member.to_ss58check_with_version(ss58)
+			)
+		})?;
 	}
+	Ok(())
 }
 
 pub fn planck_config_genesis() -> Value {
