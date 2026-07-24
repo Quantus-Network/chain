@@ -5,11 +5,35 @@ on:
     types: [closed]
     branches:
       - main
+  # Manual retry path: re-run the build/release for a version whose tag was
+  # already created (e.g. a previous run failed after create-tag succeeded).
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g. v0.8.0-exodus). Created if missing.'
+        required: true
+        type: string
+      is_runtime_upgrade:
+        description: 'Is this a runtime upgrade (build srtool runtime)?'
+        required: true
+        default: true
+        type: boolean
+      release_branch:
+        description: 'Target branch for the release (e.g. release/v0.8.0-exodus)'
+        required: true
+        type: string
+      is_draft:
+        description: 'Create as draft release?'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   create-tag:
     name: Create Tag
-    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'release-proposal')
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'release-proposal'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -24,33 +48,43 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Extract version from PR title
+      - name: Extract version
         id: extract_version
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          # Extract version from PR title (format: "ci: Automate version bump to vX.Y.Z")
-          VERSION=$(echo "${{ github.event.pull_request.title }}" | grep -o 'v[0-9]\+\.[0-9]\+\.[0-9]\+\(-[a-zA-Z0-9]\+\)*')
-          if [ -z "$VERSION" ]; then
-            echo "Error: Could not extract version from PR title: ${{ github.event.pull_request.title }}"
-            exit 1
-          fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-
-          # Check if this is a draft release
-          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'draft-release') }}" == "true" ]]; then
-            echo "is_draft=true" >> $GITHUB_OUTPUT
-            echo "release_branch=main" >> $GITHUB_OUTPUT
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "is_draft=${{ inputs.is_draft }}" >> $GITHUB_OUTPUT
+            echo "release_branch=${{ inputs.release_branch }}" >> $GITHUB_OUTPUT
           else
-            echo "is_draft=false" >> $GITHUB_OUTPUT
-            echo "release_branch=release/$VERSION" >> $GITHUB_OUTPUT
+            # Extract version from PR title (format: "ci: Automate version bump to vX.Y.Z")
+            VERSION=$(echo "$PR_TITLE" | grep -o 'v[0-9]\+\.[0-9]\+\.[0-9]\+\(-[a-zA-Z0-9]\+\)*')
+            if [ -z "$VERSION" ]; then
+              echo "Error: Could not extract version from PR title: $PR_TITLE"
+              exit 1
+            fi
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+            # Check if this is a draft release
+            if [[ "${{ contains(github.event.pull_request.labels.*.name, 'draft-release') }}" == "true" ]]; then
+              echo "is_draft=true" >> $GITHUB_OUTPUT
+              echo "release_branch=main" >> $GITHUB_OUTPUT
+            else
+              echo "is_draft=false" >> $GITHUB_OUTPUT
+              echo "release_branch=release/$VERSION" >> $GITHUB_OUTPUT
+            fi
           fi
           echo "Extracted version: $VERSION"
 
       - name: Detect runtime upgrade
         id: detect_upgrade
         run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "is_runtime_upgrade=${{ inputs.is_runtime_upgrade }}" >> $GITHUB_OUTPUT
           # If version contains a dash after the numbers, it's a runtime upgrade
-          if [[ "${{ steps.extract_version.outputs.version }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z0-9] ]]; then
+          elif [[ "${{ steps.extract_version.outputs.version }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z0-9] ]]; then
             echo "is_runtime_upgrade=true" >> $GITHUB_OUTPUT
           else
             echo "is_runtime_upgrade=false" >> $GITHUB_OUTPUT
@@ -60,8 +94,17 @@ jobs:
         run: |
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor }}@users.noreply.github.com"
-          git tag -a "${{ steps.extract_version.outputs.version }}" -m "Automate release for ${{ steps.extract_version.outputs.version }}"
-          git push origin "${{ steps.extract_version.outputs.version }}"
+          VERSION="${{ steps.extract_version.outputs.version }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" > /dev/null 2>&1; then
+            echo "Tag $VERSION already exists, skipping creation"
+            exit 0
+          fi
+          TARGET_REF="HEAD"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TARGET_REF="origin/${{ steps.extract_version.outputs.release_branch }}"
+          fi
+          git tag -a "$VERSION" -m "Automate release for $VERSION" "$TARGET_REF"
+          git push origin "$VERSION"
 
   build-and-release:
     name: Build & Release
