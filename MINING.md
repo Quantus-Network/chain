@@ -296,7 +296,7 @@ For high-performance mining, you can offload the mining process to a separate se
     --miner-listen-port 9833 \
     --rewards-inner-hash <YOUR_PREIMAGE>
    ```
-   The node binds a QUIC server on `0.0.0.0:9833` and waits for miners to connect. When `--miner-listen-port` is set, local mining is disabled.
+   The node binds a QUIC server on `0.0.0.0:9833` and waits for miners to connect. When `--miner-listen-port` is set, local mining is disabled. ⚠️ This port has no authentication and must not be reachable from the public internet — see [Do NOT expose the miner port to the public internet](#️-do-not-expose-the-miner-port-to-the-public-internet).
 
 3. **Start External Miner** (in separate terminal, connects to the node):
    ```bash
@@ -305,6 +305,39 @@ For high-performance mining, you can offload the mining process to a separate se
    Useful flags: `--cpu-workers <N>`, `--gpu-devices <N>`, `--metrics-port <PORT>` (default `9900`). If the node is on another host, replace `127.0.0.1` with its IP.
 
 For developers building custom miner implementations, see the [External Miner Protocol Specification](#external-miner-protocol-specification) section below.
+
+### ⚠️ Do NOT expose the miner port to the public internet
+
+The miner port (`--miner-listen-port`, e.g. `9833/UDP`) is a **private control
+channel between your node and your own miners**. It is **not** a public network
+service and must never be reachable from the open internet.
+
+- **No authentication.** The node's QUIC miner server accepts *any* client that
+  can reach the port — there is no password, allow-list, or client-certificate
+  check. Anyone who can connect is treated as one of your miners.
+- **It always binds to `0.0.0.0:<port>`.** The node listens on all interfaces;
+  there is no flag to bind it to loopback only. Reachability is therefore
+  controlled entirely by your firewall / port publishing, not by the node.
+- **What an attacker on that port can do:** open unbounded connections to
+  exhaust node resources (denial of service), flood the node with bogus job
+  results to waste validation work, and observe your mining activity (job
+  hashes and difficulty). This can stall or degrade your block production.
+
+**How to keep it private:**
+
+- **Local miners (same host):** point the miner at `127.0.0.1:9833` and do
+  **not** open the port on any external firewall. Nothing else is required.
+- **Remote miners (another host you own):** do not publish the port to the
+  public internet. Instead put the node and miners on a private network / VPN
+  (e.g. WireGuard, Tailscale, a cloud VPC/private subnet) and let miners reach
+  the node over that private link.
+- **If you must use a host firewall allow-list**, restrict the miner UDP port to
+  the specific source IPs of your miner machines only, and deny it from
+  everywhere else. Cloud users: keep it out of any `0.0.0.0/0` security-group
+  rule.
+- **Only `--port` (30333, P2P) is meant to be publicly reachable.** The miner
+  port, RPC port (`9944`), and Prometheus port (`9616`) should all stay private
+  or firewalled to trusted sources.
 
 ## Configuration Options
 
@@ -453,7 +486,15 @@ Mining performance depends on:
 
 ### Node Security
 
-- **Firewall**: Only expose necessary ports (30333 for P2P)
+- **Firewall**: Only expose the P2P port (`30333`) to the public internet. Keep
+  everything else private:
+  - **Miner port** (`--miner-listen-port`, e.g. `9833/UDP`): private control
+    channel with **no authentication** — never expose it publicly. Use loopback
+    for local miners, or a private network / VPN (or a source-IP-restricted
+    firewall rule) for remote miners. See
+    [Do NOT expose the miner port to the public internet](#️-do-not-expose-the-miner-port-to-the-public-internet).
+  - **RPC port** (`9944`) and **Prometheus port** (`9616`): expose only to hosts
+    that need them.
 - **Updates**: Keep your node binary updated
 - **Monitoring**: Watch for unusual network activity or performance
 
@@ -691,11 +732,20 @@ quantus-miner serve --node-addr 127.0.0.1:9833
 
 ## TLS Configuration
 
-The node generates a self-signed TLS certificate at startup. The miner skips certificate verification by default (insecure mode). For production deployments, consider:
+The node generates a self-signed TLS certificate at startup, and the QUIC
+server performs **no client authentication** — any client that can reach the
+port is accepted. The miner also skips certificate verification by default
+(insecure mode). Because of this, the transport encryption alone does **not**
+protect the port: treat network reachability as the security boundary and never
+expose the miner port to the public internet (see
+[Do NOT expose the miner port to the public internet](#️-do-not-expose-the-miner-port-to-the-public-internet)).
+For production deployments, consider:
 
-1. **Certificate pinning**: Configure the miner to accept only specific certificate fingerprints
-2. **Proper CA**: Use certificates signed by a trusted CA
-3. **Network isolation**: Run node and miner on a private network
+1. **Network isolation (required)**: Run node and miners on a private network /
+   VPN, or restrict the miner port with a source-IP firewall allow-list. Do not
+   publish it to `0.0.0.0/0`.
+2. **Certificate pinning**: Configure the miner to accept only specific certificate fingerprints
+3. **Proper CA**: Use certificates signed by a trusted CA
 
 ## Error Handling
 
