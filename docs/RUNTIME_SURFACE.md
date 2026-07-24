@@ -237,8 +237,12 @@ Signed-extension pipeline applied to every extrinsic, in order:
 ## 7. Genesis presets (`genesis_config_presets.rs`)
 
 - **Presets:** `dev` (`DEV_RUNTIME_PRESET`), `heisenberg`, `planck`.
-- Dilithium dev accounts: `crystal_alice`, `dilithium_bob`, `crystal_charlie`.
-- Treasury = 2-of-3 multisig of the three signers (distinct nonce per preset); receives 30% of the 21M genesis supply.
+- **Network roles:**
+  - `dev` — local development.
+  - `heisenberg` — **internal integration testnet**, not mainnet. Tokens have no monetary value; the network may be reset.
+  - `planck` — public testnet (live treasury signers + faucet).
+- Dilithium well-known accounts: `crystal_alice`, `dilithium_bob`, `crystal_charlie` (public seeds `[0]` / `[1]` / `[2]`). Used by `dev` and **intentionally also by `heisenberg`** so integrators and CI can exercise governance, treasury, and transfer flows without distributing secrets. Those private keys are public by design; do **not** reuse this pattern on a mainnet or any value-bearing chain (Planck already uses distinct live treasury signers).
+- Treasury = 2-of-3 multisig of the three signers for `dev`/`heisenberg` (distinct nonce per preset); no genesis endowment (funded from mining-reward share only).
 - Tech-collective seeded via the chain-spec-only `tech_collective_seed_members` JSON field (`prepare_genesis_build_input` + `seed_tech_collective`).
 - Reserves asset id 0 for the native-token-in-assets wormhole path.
 - Endows all genesis balances with wormhole transfer proofs (ZK-spendable). `dev` also endows `TEST_WORMHOLE_SECRET`'s address.

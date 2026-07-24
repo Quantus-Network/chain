@@ -28,7 +28,15 @@ pub fn development_chain_spec() -> Result<ChainSpec, String> {
 	.build())
 }
 
-/// Integration environment chain spec - internal use only.
+/// Heisenberg — internal integration testnet, **not** mainnet.
+///
+/// Genesis intentionally endows the well-known Dilithium accounts
+/// (`crystal_alice` / `dilithium_bob` / `crystal_charlie`, seeds `[0]/` /
+/// `[1]` / `[2]`) and uses them as treasury signers and tech-collective
+/// members. Those private keys are public by design so integrators and CI can
+/// exercise governance, treasury, and transfer flows without distributing
+/// secrets. Tokens have no monetary value; the network may be reset. Do not
+/// treat Heisenberg key material, balances, or authority as production-grade.
 pub fn heisenberg_chain_spec() -> Result<ChainSpec, String> {
 	let mut properties = Properties::new();
 	properties.insert("tokenDecimals".into(), json!(12));
