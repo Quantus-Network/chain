@@ -8,11 +8,13 @@
 //! block inclusion or finality — transactions can still be dropped or replaced.
 //! A `from` field of `""` means the sender used a non-`Id` MultiAddress variant
 //! or the extrinsic was unsigned.
+//!
+//! Like the built-in Substrate subscriptions (`state_subscribeStorage`,
+//! `chain_subscribeNewHeads`, ...), this method performs no admission control of
+//! its own: subscription capacity is bounded by the server-level
+//! `--rpc-max-connections` and `--rpc-max-subscriptions-per-connection` limits.
 
-use std::sync::{
-	atomic::{AtomicUsize, Ordering},
-	Arc,
-};
+use std::sync::Arc;
 
 use codec::{Decode, Encode};
 use futures::StreamExt;
@@ -29,7 +31,6 @@ use sp_core::crypto::Ss58Codec;
 use sp_runtime::{generic::Preamble, traits::LazyExtrinsic, MultiAddress};
 
 const LOG_TARGET: &str = "txwatch";
-const MAX_LISTENERS: usize = 32;
 const MAX_BATCH_DEPTH: usize = 4;
 const BROADCAST_CAPACITY: usize = 256;
 
@@ -58,17 +59,8 @@ struct DecodedPoolTx {
 	transfers: Vec<(AccountId, Balance, Option<u32>)>,
 }
 
-struct ListenerGuard(Arc<AtomicUsize>);
-
-impl Drop for ListenerGuard {
-	fn drop(&mut self) {
-		self.0.fetch_sub(1, Ordering::Relaxed);
-	}
-}
-
 pub struct TxWatch {
 	broadcast: broadcast::Sender<Arc<DecodedPoolTx>>,
-	active_listeners: Arc<AtomicUsize>,
 }
 
 impl TxWatch {
@@ -127,7 +119,7 @@ impl TxWatch {
 			}
 		});
 
-		Self { broadcast, active_listeners: Arc::new(AtomicUsize::new(0)) }
+		Self { broadcast }
 	}
 }
 
@@ -138,21 +130,6 @@ impl TxWatchApiServer for TxWatch {
 		pending: PendingSubscriptionSink,
 		address: String,
 	) -> SubscriptionResult {
-		let prev = self.active_listeners.fetch_add(1, Ordering::Relaxed);
-		if prev >= MAX_LISTENERS {
-			self.active_listeners.fetch_sub(1, Ordering::Relaxed);
-			pending
-				.reject(jsonrpsee::types::error::ErrorObject::owned(
-					5010,
-					format!("Too many listeners (max {MAX_LISTENERS})"),
-					None::<()>,
-				))
-				.await;
-			return Ok(());
-		}
-
-		let guard = ListenerGuard(self.active_listeners.clone());
-
 		let target = match AccountId::from_ss58check(&address) {
 			Ok(a) => a,
 			Err(_) => {
@@ -172,7 +149,6 @@ impl TxWatchApiServer for TxWatch {
 		let mut listener_rx = self.broadcast.subscribe();
 
 		jsonrpsee::tokio::spawn(async move {
-			let _guard = guard;
 			loop {
 				match listener_rx.recv().await {
 					Ok(decoded) => {

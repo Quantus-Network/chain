@@ -53,7 +53,6 @@ A notification means a transaction **requesting** a transfer to your address ent
 
 | Code | Meaning |
 |------|---------|
-| 5010 | Too many concurrent subscriptions (max 32 per node) |
 | 5011 | Invalid SS58 address |
 
 ## Integration Example (TypeScript / React Native)
@@ -153,12 +152,12 @@ watcher.unsubscribe();
 2. **Open subscription** -- call `txWatch_watchAddress` with the merchant address.
 3. **Wait for notification** -- when `txWatch_transfer` fires, compare `amount` to the expected value and show "payment detected, confirming..." to the customer.
 4. **Verify execution** -- wait for the transaction to land in a finalized block (`chain_subscribeFinalizedHeads`) and confirm the transfer executed (check for the `Balances.Transfer` / `Assets.Transferred` event of `tx_hash`, or that the merchant balance increased). Only then mark the invoice paid and release goods.
-5. **Unsubscribe** -- call `txWatch_unwatchAddress` to free the subscription slot.
+5. **Unsubscribe** -- call `txWatch_unwatchAddress` to release the subscription.
 
 ## Tips
 
 - **Amount is in planck.** 1 QTU = 1,000,000,000,000 planck. Divide by `1e12` for display.
 - **One subscription per address is enough.** Multiple payments to the same address all arrive on the same subscription.
 - **Reconnect on disconnect.** WebSocket connections can drop. Implement reconnect logic with backoff.
-- **Max 32 subscriptions per node.** If you hit error 5010, you're at the limit. Unsubscribe from addresses you no longer need.
+- **Subscription limits.** `txWatch` has no cap of its own; like the built-in Substrate subscriptions it is bounded by the node's server-level limits (`--rpc-max-connections`, default 100, and `--rpc-max-subscriptions-per-connection`, default 1024). There is no shared per-method pool, so one client cannot exhaust `txWatch` capacity for others. Still, unsubscribe from addresses you no longer need. Because the RPC is unauthenticated, operators exposing it publicly should front it with connection/rate limits (e.g. a reverse proxy) or restrict access, exactly as for the standard subscription endpoints.
 - **Batch payments.** If a customer pays via a `Utility::batch` call containing multiple transfers, each matching transfer produces a separate notification within the same `tx_hash` -- remember these reflect the batch's call data, not its execution outcome.
