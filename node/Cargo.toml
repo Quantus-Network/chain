@@ -47,12 +47,12 @@ qpow-math.workspace = true
 quantus-miner-api = { workspace = true }
 quantus-runtime.workspace = true
 quinn.workspace = true
-rpassword = { workspace = true }
 rand = { workspace = true, default-features = false, features = [
 	"alloc",
 	"getrandom",
 ] }
 rcgen = { workspace = true }
+rpassword = { workspace = true }
 rustls = { workspace = true }
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
