@@ -68,6 +68,10 @@ jobs:
     needs: create-tag
     runs-on: ${{ matrix.os }}
     strategy:
+      # Don't let one platform's failure cancel the others (which previously left
+      # a dangling tag with no release). create-github-release still requires all
+      # remaining legs to succeed before publishing.
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
@@ -78,8 +82,10 @@ jobs:
             os: macos-latest
           - target: x86_64-apple-darwin
             os: macos-15-intel
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
+          # x86_64-pc-windows-msvc removed: `docify::embed!` in frame-support
+          # panics on Windows ("internal error: entered unreachable code"), which
+          # failed the v0.8.0-exodus build and blocked its release. Re-add only
+          # once docify builds on Windows.
     steps:
       - name: Checkout code at tag
         uses: actions/checkout@v4
