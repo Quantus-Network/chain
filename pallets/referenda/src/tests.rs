@@ -71,6 +71,55 @@ fn basic_happy_path_works() {
 	});
 }
 
+/// If the preferred enactment block's agenda is already full of mid-priority
+/// tasks (which the LOWEST_PRIORITY reservation does not hold back), enactment
+/// must slide forward to a free block instead of dropping the approved call.
+///
+/// Uses Root track 0 (`min_enactment_period = 4`) so confirmation alarms do not
+/// land on the enactment block. Mirrors `basic_happy_path_works`: approved at
+/// block 9, preferred enactment at 13 (`max(At(10), 9+4)`).
+#[test]
+fn full_enactment_block_agenda_retries_on_next_block() {
+	ExtBuilder::default().build_and_execute(|| {
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(10),
+		));
+		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(2), 0));
+
+		// Preferred enactment block once approved at 9: max(10, 9+4) = 13.
+		let preferred_enactment = 13u64;
+		let max = <<Test as pallet_scheduler::Config>::MaxScheduledPerBlock as frame_support::traits::Get<
+			u32,
+		>>::get();
+		let filler = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+		// Priority 100 ≠ LOWEST_PRIORITY (255), so these fillers are not subject to
+		// the reservation cap and can occupy the whole agenda including reserved slots.
+		for _ in 0..max {
+			assert_ok!(Scheduler::schedule(
+				RuntimeOrigin::root(),
+				preferred_enactment,
+				100,
+				Box::new(filler.clone()),
+			));
+		}
+
+		run_to(6);
+		set_tally(0, 100, 0);
+		run_to(9);
+		assert_eq!(approved_since(0), 9);
+
+		// Still not enacted at the preferred (full) block.
+		run_to(preferred_enactment);
+		assert_eq!(Balances::free_balance(&42), 0);
+		// Retry lands on preferred+1 and executes there.
+		run_to(preferred_enactment + 1);
+		assert_eq!(Balances::free_balance(&42), 1);
+	});
+}
+
 #[test]
 fn insta_confirm_then_kill_works() {
 	ExtBuilder::default().build_and_execute(|| {

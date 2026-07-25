@@ -907,6 +907,15 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		}
 	}
 
+	/// How many subsequent blocks to try if the preferred enactment block's agenda is full.
+	///
+	/// The scheduler reservation already blocks cheap `LOWEST_PRIORITY` pre-fills; this
+	/// covers the residual case where mid-priority tasks (e.g. referendum alarms) occupy
+	/// the reserved headroom. Filling `MAX_ENACTMENT_SCHEDULE_RETRIES` consecutive agendas
+	/// with deposit-bearing tasks is expensive and cannot be aimed as precisely as the
+	/// old permissionless pre-fill.
+	const MAX_ENACTMENT_SCHEDULE_RETRIES: u32 = 16;
+
 	// Enqueue a proposal from a referendum which has presumably passed.
 	fn schedule_enactment(
 		index: ReferendumIndex,
@@ -918,26 +927,37 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		let now = T::BlockNumberProvider::current_block_number();
 		// Earliest allowed block is always at minimum the next block.
 		let earliest_allowed = now.saturating_add(track.min_enactment_period.max(One::one()));
-		let desired = desired.evaluate(now);
-		let result = T::Scheduler::schedule_named(
-			(ASSEMBLY_ID, "enactment", index).using_encoded(sp_io::hashing::blake2_256),
-			DispatchTime::At(desired.max(earliest_allowed)),
-			None,
-			63,
-			origin,
-			call,
-		);
-		if let Err(e) = result.as_ref() {
-			// #91210: never fail silently. A full scheduler agenda here means an approved
-			// referendum's enacted call is never scheduled and the governance action will not run.
-			log::error!(
-				target: "runtime::referenda",
-				"referendum {:?} approved but enactment scheduling failed: {:?}",
-				index,
-				e,
-			);
+		let mut when = desired.evaluate(now).max(earliest_allowed);
+		let name = (ASSEMBLY_ID, "enactment", index).using_encoded(sp_io::hashing::blake2_256);
+
+		let mut last_err = None;
+		for _ in 0..=Self::MAX_ENACTMENT_SCHEDULE_RETRIES {
+			match T::Scheduler::schedule_named(
+				name,
+				DispatchTime::At(when),
+				None,
+				63,
+				origin.clone(),
+				call.clone(),
+			) {
+				Ok(_) => return,
+				Err(e) => {
+					last_err = Some(e);
+					when = when.saturating_add(One::one());
+				},
+			}
 		}
-		debug_assert!(result.is_ok(), "LOGIC ERROR: bake_referendum/schedule_named failed");
+
+		// #91210: never fail silently. Even after sliding forward, a full agenda means an
+		// approved referendum's enacted call is never scheduled.
+		log::error!(
+			target: "runtime::referenda",
+			"referendum {:?} approved but enactment scheduling failed after {} retries: {:?}",
+			index,
+			Self::MAX_ENACTMENT_SCHEDULE_RETRIES,
+			last_err,
+		);
+		debug_assert!(false, "LOGIC ERROR: bake_referendum/schedule_named failed after retries");
 	}
 
 	/// Set an alarm to dispatch `call` at block number `when`.
