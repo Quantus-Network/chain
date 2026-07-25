@@ -559,11 +559,19 @@ pub mod pallet {
 
 			ensure!(who == high_security_account_data.guardian, Error::<T>::InvalidReverser);
 
-			let mut num_cancelled: u64 = 0;
-
 			// Get pending tx_ids without removing - only remove on successful release
 			let pending_tx_ids: Vec<_> =
 				PendingTransfersBySender::<T>::get(&account).into_iter().collect();
+
+			// Weight is keyed to the number of transfers processed (one storage read
+			// plus one release attempt each), NOT to the number of successful
+			// cancellations. Every iteration performs per-transfer work regardless of
+			// whether the release succeeds, and a successful cancellation is strictly
+			// more expensive than a failed one (it additionally removes metadata and
+			// cancels the scheduled task), so charging every processed transfer at the
+			// benchmarked success rate is a safe upper bound. Bounded by
+			// `MaxPendingPerAccount`, matching the pre-dispatch weight declaration.
+			let num_processed = pending_tx_ids.len() as u32;
 
 			for tx_id in pending_tx_ids.iter() {
 				// PendingTransfersBySender and PendingTransfers should always be in sync.
@@ -602,7 +610,6 @@ pub mod pallet {
 					}
 				}
 
-				num_cancelled = num_cancelled.saturating_add(1);
 				Self::deposit_event(Event::TransactionCancelled {
 					who: who.clone(),
 					tx_id: *tx_id,
@@ -629,7 +636,7 @@ pub mod pallet {
 
 			Self::deposit_event(Event::FundsRecovered { account, guardian: who });
 
-			Ok(Some(<T as Config>::WeightInfo::recover_funds(num_cancelled as u32)).into())
+			Ok(Some(<T as Config>::WeightInfo::recover_funds(num_processed)).into())
 		}
 	}
 
@@ -836,11 +843,16 @@ pub mod pallet {
 
 			let bounded_call = T::Preimages::bound(Call::<T>::execute_transfer { tx_id }.into())?;
 
-			// Schedule the `do_execute` call
+			// Schedule the `do_execute` call. Reversible transfers are a permissionless
+			// scheduling surface (any signed account can target an arbitrary future
+			// block), so they run at `LOWEST_PRIORITY`: the scheduler reserves agenda
+			// headroom above that priority, preventing user transfers from filling a
+			// block's agenda and censoring e.g. governance enactment scheduled at a
+			// deterministic block.
 			T::Scheduler::schedule_named(
 				schedule_id,
 				dispatch_time,
-				Default::default(),
+				frame_support::traits::schedule::LOWEST_PRIORITY,
 				frame_support::dispatch::RawOrigin::Signed(Self::account_id()).into(),
 				bounded_call,
 			)

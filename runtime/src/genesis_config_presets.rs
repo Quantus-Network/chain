@@ -61,6 +61,11 @@ fn test_wormhole_account() -> AccountId {
 }
 
 /// Identifier for the heisenberg runtime preset.
+///
+/// Heisenberg is the internal integration testnet. Its genesis deliberately
+/// reuses [`dilithium_default_accounts`] (well-known public keys) — see that
+/// helper for why that is acceptable here and must not be copied onto a
+/// mainnet / value-bearing chain.
 pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
 
 /// Identifier for the planck runtime preset.
@@ -71,6 +76,17 @@ fn ss58_version() -> sp_core::crypto::Ss58AddressFormat {
 	sp_core::crypto::Ss58AddressFormat::custom(189)
 }
 
+/// Well-known Dilithium accounts used by the `dev` and `heisenberg` presets
+/// (`crystal_alice` / `dilithium_bob` / `crystal_charlie`, derived from the
+/// public seeds `[0u8; 32]` / `[1u8; 32]` / `[2u8; 32]`).
+///
+/// These keys are intentionally public. That is fine for local development
+/// (`dev`) and for Heisenberg, which is an **integration testnet** with no
+/// monetary value, where CI and integrators need reproducible endowed accounts,
+/// treasury signers, and tech-collective members without secret distribution.
+/// It would **not** be acceptable for a mainnet or any chain whose tokens or
+/// governance have real-world value — those must use unique, privately held
+/// keys (as Planck does for its live treasury signers).
 fn dilithium_default_accounts() -> Vec<AccountId> {
 	vec![
 		crystal_alice().into_account(),
@@ -85,8 +101,10 @@ fn development_treasury_account() -> AccountId {
 	Multisig::<crate::Runtime>::derive_multisig_address(&signers, 2, 0)
 }
 
-/// Multisig nonce for Heisenberg treasury: same three signers as dev, different on-chain address
-/// from development (different nonce) so presets are distinguishable.
+/// Multisig nonce for Heisenberg treasury: same three well-known signers as
+/// `dev` (acceptable because Heisenberg is an integration testnet — see
+/// [`dilithium_default_accounts`]), different on-chain address from development
+/// (different nonce) so presets are distinguishable.
 const HEISENBERG_TREASURY_MULTISIG_NONCE: u64 = 1;
 
 /// Top-level genesis JSON field listing initial tech collective members as SS58 strings.
@@ -343,9 +361,14 @@ fn parse_tech_collective_members_array(v: Value) -> Result<Vec<AccountId>, Strin
 
 /// Seed tech collective members at genesis. Call after `build_state` when the genesis JSON
 /// included [`TECH_COLLECTIVE_SEED_MEMBERS_KEY`].
-pub fn seed_tech_collective(members: &[AccountId]) {
+///
+/// The member list is caller-supplied via the genesis JSON, so adding can fail (duplicate
+/// entries, accounts already members, `MaxMemberCount` exceeded). Failures are returned as
+/// `Err(String)` for `build_state` to surface through `sp_genesis_builder::Result` instead
+/// of trapping the runtime call.
+pub fn seed_tech_collective(members: &[AccountId]) -> Result<(), String> {
 	if members.is_empty() {
-		return;
+		return Ok(());
 	}
 	log::info!("🏛️ Seeding tech collective with {} members", members.len());
 	let ss58 = ss58_version();
@@ -359,8 +382,14 @@ pub fn seed_tech_collective(members: &[AccountId]) {
 			0,
 			false,
 		)
-		.expect("Failed to seed tech collective member");
+		.map_err(|e| {
+			alloc::format!(
+				"failed to seed tech collective member {}: {e:?}",
+				member.to_ss58check_with_version(ss58)
+			)
+		})?;
 	}
+	Ok(())
 }
 
 pub fn planck_config_genesis() -> Value {

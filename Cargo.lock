@@ -7786,6 +7786,7 @@ dependencies = [
  "quinn",
  "rand 0.8.6",
  "rcgen",
+ "rpassword",
  "rustls",
  "sc-basic-authorship",
  "sc-cli",
@@ -7817,6 +7818,7 @@ dependencies = [
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
  "tokio-util",
+ "zeroize",
 ]
 
 [[package]]

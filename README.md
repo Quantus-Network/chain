@@ -46,18 +46,24 @@ This creates a new 24-word phrase, seed, and public and private keys.
 ### Restore Key from Seed Phrase
 
 ```sh
-./target/release/quantus-node key quantus --words "<words>"
+./target/release/quantus-node key quantus --words
 ```
+
+You will be prompted for the phrase (input is not echoed). Non-interactively, pipe it in: `./target/release/quantus-node key quantus --words < mnemonic.txt`.
 
 Words should be a 24-word list separated by spaces, like "autumn bear...". The words must be from the BIP39 wordlist.
 
 ### Restore Key from Seed
 
 ```sh
-./target/release/quantus-node key quantus --seed "<64-HEX-STRING>"
+./target/release/quantus-node key quantus --seed
 ```
 
-Seed must be a 64-character hexadecimal string.
+You will be prompted for the seed (input is not echoed). Non-interactively, pipe it in: `./target/release/quantus-node key quantus --seed < seed.txt`.
+
+Seed must be a 128-character hexadecimal string (64 bytes).
+
+> Secrets are deliberately read from stdin rather than accepted as command-line arguments: argv is world-readable via `/proc/<pid>/cmdline`, recorded in shell history, and commonly captured by audit and orchestration logs.
 
 ## Mining
 

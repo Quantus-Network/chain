@@ -131,6 +131,30 @@ default. `HOST_MINER_LISTEN_PORT` only changes the host-published UDP port for
 miners outside the Compose network, and `HOST_MINER_METRICS_PORT` only changes
 the host-published TCP port for reading miner metrics from the host.
 
+> ### ⚠️ Do not expose the miner QUIC port to the public internet
+>
+> The miner port (`9833/UDP`) is a **private, unauthenticated control channel**
+> between the node and your miners — anyone who can reach it is accepted as a
+> miner, so a public exposure invites denial-of-service and griefing that can
+> stall your block production.
+>
+> The default Compose file **publishes `HOST_MINER_LISTEN_PORT:9833/udp` on the
+> host**. You only need that mapping if you run miners **outside** the Compose
+> network:
+>
+> - **Bundled miner only (default):** the `quantus-miner` service reaches the
+>   node over the internal `quantus` Docker network, so the host mapping is not
+>   needed. Remove the `"${HOST_MINER_LISTEN_PORT:-9833}:9833/udp"` line from
+>   `docker-compose.yml` so the port is never published to the host.
+> - **Remote miners on another host:** keep the node and miners on a private
+>   network / VPN (e.g. WireGuard, Tailscale, a cloud VPC), or restrict the
+>   published UDP port with a host/cloud firewall allow-list to your miner IPs
+>   only. Never leave it open to `0.0.0.0/0`.
+>
+> The node always binds the QUIC server to `0.0.0.0:9833` inside its container;
+> what makes it public is publishing the port to the host, so control exposure
+> at the port-mapping and firewall level.
+
 > The node has a pinned IPv4 in the `quantus` bridge network because
 > `quantus-miner` parses `--node-addr` as a `SocketAddr` and cannot rely on
 > Docker DNS names. If `172.28.0.0/16` overlaps another Docker network, set
@@ -344,6 +368,12 @@ Replace `<node-host-ip>` with the Docker host's reachable IP or DNS name.
 Replace `9833` with `HOST_MINER_LISTEN_PORT` if changed. The `-p 9900:9900`
 mapping exposes that extra miner's metrics endpoint and can be changed if
 needed.
+
+> ⚠️ The miner QUIC port is unauthenticated. When connecting miners from another
+> host, do **not** open `9833/UDP` to the public internet — reach the node over
+> a private network / VPN, or restrict the published UDP port with a firewall
+> allow-list to your miner hosts only. See
+> [Do not expose the miner QUIC port to the public internet](#️-do-not-expose-the-miner-quic-port-to-the-public-internet).
 
 ---
 
