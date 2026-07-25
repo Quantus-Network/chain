@@ -53,7 +53,6 @@ rand = { workspace = true, default-features = false, features = [
 ] }
 rcgen = { workspace = true }
 rpassword = { workspace = true }
-zeroize = { workspace = true, default-features = true }
 rustls = { workspace = true }
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
@@ -107,6 +106,7 @@ sp-timestamp.workspace = true
 substrate-frame-rpc-system.default-features = true
 substrate-frame-rpc-system.workspace = true
 tokio-util.workspace = true
+zeroize = { workspace = true, default-features = true }
 
 [build-dependencies]
 substrate-build-script-utils.default-features = true
