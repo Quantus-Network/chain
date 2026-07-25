@@ -27,6 +27,7 @@ use sp_core::{
 #[cfg(feature = "runtime-benchmarks")]
 use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
+use zeroize::{Zeroize, Zeroizing};
 
 #[derive(Debug, PartialEq)]
 pub struct QuantusKeyDetails {
@@ -39,11 +40,37 @@ pub struct QuantusKeyDetails {
 	pub inner_hash: Option<String>, // If wormhole key, this is first hash
 }
 
+impl Drop for QuantusKeyDetails {
+	fn drop(&mut self) {
+		self.secret_key_hex.zeroize();
+		self.seed_hex.zeroize();
+		if let Some(ref mut phrase) = self.secret_phrase {
+			phrase.zeroize();
+		}
+	}
+}
+
+/// Trim a secret `String`, returning a `Zeroizing` copy and scrubbing the source
+/// (including any leading/trailing whitespace that `trim()` would otherwise leave
+/// in a discarded allocation).
+fn take_trimmed_secret(mut value: String) -> Result<Zeroizing<String>, sc_cli::Error> {
+	let trimmed = value.trim();
+	if trimmed.is_empty() {
+		value.zeroize();
+		return Err(sc_cli::Error::Input("no secret provided on stdin".into()));
+	}
+	let secret = Zeroizing::new(trimmed.to_string());
+	value.zeroize();
+	Ok(secret)
+}
+
 /// Read a secret from stdin rather than argv, so it never appears in
 /// `/proc/<pid>/cmdline`, shell history, or process-accounting/audit logs.
 /// Prompts without echo on a terminal; otherwise reads one line (piped input).
+/// The returned value is zeroized on drop; the untrimmed stdin buffer is scrubbed
+/// before this returns.
 #[allow(clippy::result_large_err)]
-fn read_secret_from_stdin(prompt: &str) -> Result<String, sc_cli::Error> {
+fn read_secret_from_stdin(prompt: &str) -> Result<Zeroizing<String>, sc_cli::Error> {
 	use std::io::{BufRead, IsTerminal};
 	let stdin = std::io::stdin();
 	let value = if stdin.is_terminal() {
@@ -57,11 +84,7 @@ fn read_secret_from_stdin(prompt: &str) -> Result<String, sc_cli::Error> {
 			.map_err(|e| sc_cli::Error::Input(format!("failed to read secret from stdin: {e}")))?;
 		line
 	};
-	let value = value.trim().to_string();
-	if value.is_empty() {
-		return Err(sc_cli::Error::Input("no secret provided on stdin".into()));
-	}
-	Ok(value)
+	take_trimmed_secret(value)
 }
 
 #[allow(clippy::result_large_err)]
@@ -72,29 +95,35 @@ pub fn generate_quantus_key(
 	wallet_index: u32,
 	no_derivation: bool,
 ) -> Result<QuantusKeyDetails, sc_cli::Error> {
+	// Scrub caller-supplied secrets on every exit path (including early returns).
+	let seed = seed.map(Zeroizing::new);
+	let mut words = words.map(Zeroizing::new);
+
 	match scheme {
 		QuantusAddressType::Standard => {
 			let mut words_to_print: Option<String> = None;
-			let seed_for_pair: Vec<u8>;
+			let seed_for_pair: Zeroizing<Vec<u8>>;
 
 			// Build the derivation path (all components must be hardened for lattice-based crypto)
 			let path =
 				format!("m/44'/{QUANTUS_DILITHIUM_CHAIN_ID}/{index}'/0'/0'", index = wallet_index);
 
-			if let Some(words_phrase) = words {
+			if let Some(ref words_phrase) = words {
 				// Use provided mnemonic. The caller already knows it, so it is
 				// deliberately NOT placed in `secret_phrase` for echoing back.
 				if no_derivation {
-					// Get raw seed from mnemonic
-					let seed64 = mnemonic_to_seed(words_phrase, None).map_err(|e| {
-						eprintln!("Error processing provided words: {:?}", e);
-						sc_cli::Error::Input("Failed to process provided words".into())
-					})?;
-					seed_for_pair = seed64.to_vec();
+					// Get raw seed from mnemonic (mnemonic_to_seed zeroizes its owned copy).
+					let mut seed64 =
+						mnemonic_to_seed(words_phrase.to_string(), None).map_err(|e| {
+							eprintln!("Error processing provided words: {:?}", e);
+							sc_cli::Error::Input("Failed to process provided words".into())
+						})?;
+					seed_for_pair = Zeroizing::new(seed64.to_vec());
+					seed64.zeroize();
 				} else {
 					println!("Deriving HD path: {}", path);
 					let keypair =
-						derive_key_from_mnemonic(&words_phrase, None, &path).map_err(|e| {
+						derive_key_from_mnemonic(words_phrase, None, &path).map_err(|e| {
 							eprintln!("Error deriving from mnemonic: {:?}", e);
 							sc_cli::Error::Input("Failed to derive from mnemonic".into())
 						})?;
@@ -111,28 +140,26 @@ pub fn generate_quantus_key(
 						inner_hash: None,
 					});
 				}
-			} else if let Some(mut hex_seed_str) = seed {
-				if hex_seed_str.starts_with("0x") {
-					hex_seed_str = hex_seed_str.trim_start_matches("0x").to_string();
-				}
+			} else if let Some(ref hex_seed_str) = seed {
+				// Slice off an optional 0x prefix without reallocating a second secret String.
+				let hex = hex_seed_str.strip_prefix("0x").unwrap_or(hex_seed_str.as_str());
 
-				if hex_seed_str.len() != 128 {
+				if hex.len() != 128 {
 					eprintln!(
 						"Error: --seed must be a 128-character hex string (for a 64-byte seed)."
 					);
 					return Err("Invalid hex seed length".into());
 				}
-				let decoded_seed_bytes = hex::decode(hex_seed_str).map_err(|_| {
+				let mut decoded_seed_bytes = hex::decode(hex).map_err(|_| {
 					eprintln!("Error: --seed must be a valid hex string (0-9, a-f).");
 					sc_cli::Error::Input("Invalid hex seed format".into())
 				})?;
 				if decoded_seed_bytes.len() != 64 {
+					decoded_seed_bytes.zeroize();
 					eprintln!("Error: Decoded hex seed must be exactly 64 bytes.");
 					return Err("Invalid decoded hex seed length".into());
 				}
-				let mut seed64 = [0u8; 64];
-				seed64.copy_from_slice(&decoded_seed_bytes);
-				seed_for_pair = seed64.to_vec();
+				seed_for_pair = Zeroizing::new(std::mem::take(&mut decoded_seed_bytes));
 			} else {
 				// Generate new mnemonic from random entropy
 				let mut entropy = [0u8; 32];
@@ -145,12 +172,13 @@ pub fn generate_quantus_key(
 				words_to_print = Some(new_words.clone());
 
 				if no_derivation {
-					// Get raw seed from mnemonic
-					let seed64 = mnemonic_to_seed(new_words, None).map_err(|e| {
+					// Get raw seed from mnemonic (consumes and zeroizes `new_words`).
+					let mut seed64 = mnemonic_to_seed(new_words, None).map_err(|e| {
 						eprintln!("Error converting mnemonic to seed: {:?}", e);
 						sc_cli::Error::Input("Failed to convert mnemonic to seed".into())
 					})?;
-					seed_for_pair = seed64.to_vec();
+					seed_for_pair = Zeroizing::new(seed64.to_vec());
+					seed64.zeroize();
 				} else {
 					println!("Deriving HD path: {}", path);
 					let keypair =
@@ -158,6 +186,8 @@ pub fn generate_quantus_key(
 							eprintln!("Error deriving from mnemonic: {:?}", e);
 							sc_cli::Error::Input("Failed to derive from mnemonic".into())
 						})?;
+					let mut new_words = new_words;
+					new_words.zeroize();
 					let dilithium_pair = DilithiumPair::from_keypair(keypair);
 					let account_id = AccountId32::from(dilithium_pair.public());
 					return Ok(QuantusKeyDetails {
@@ -179,13 +209,16 @@ pub fn generate_quantus_key(
 			})?;
 
 			let account_id = AccountId32::from(dilithium_pair.public());
+			let seed_hex = format!("0x{}", hex::encode(&seed_for_pair));
+			// `seed_for_pair` zeroizes here when dropped.
+			drop(seed_for_pair);
 
 			Ok(QuantusKeyDetails {
 				address: account_id.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
 				raw_address: format!("0x{}", hex::encode(account_id)),
 				public_key_hex: format!("0x{}", hex::encode(dilithium_pair.public())),
 				secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret_bytes())),
-				seed_hex: format!("0x{}", hex::encode(&seed_for_pair)),
+				seed_hex,
 				secret_phrase: words_to_print,
 				inner_hash: None,
 			})
@@ -194,7 +227,7 @@ pub fn generate_quantus_key(
 			let path =
 				format!("m/44'/{QUANTUS_WORMHOLE_CHAIN_ID}/{index}'/0'/0'", index = wallet_index);
 			let words_to_print;
-			let words_phrase = if let Some(w) = words {
+			let words_phrase: Zeroizing<String> = if let Some(w) = words.take() {
 				// Caller-supplied mnemonic: not echoed back.
 				words_to_print = None;
 				w
@@ -207,16 +240,17 @@ pub fn generate_quantus_key(
 					sc_cli::Error::Input("Failed to generate new words".into())
 				})?;
 				words_to_print = Some(new_words.clone());
-				new_words
+				Zeroizing::new(new_words)
 			};
 
 			let wormhole_pair = if no_derivation {
-				let seed64 = mnemonic_to_seed(words_phrase, None).map_err(|e| {
+				let mut seed64 = mnemonic_to_seed(words_phrase.to_string(), None).map_err(|e| {
 					eprintln!("Error processing provided words: {:?}", e);
 					sc_cli::Error::Input("Failed to process provided words".into())
 				})?;
 				let mut seed32 = [0u8; 32];
 				seed32.copy_from_slice(&seed64[..32]);
+				seed64.zeroize();
 				WormholePair::generate_new(SensitiveBytes32::from(&mut seed32))
 			} else {
 				println!("Deriving wormhole HD path: {}", path);
@@ -225,6 +259,7 @@ pub fn generate_quantus_key(
 					sc_cli::Error::Input("Failed to derive wormhole from mnemonic".into())
 				})?
 			};
+			// `words_phrase` zeroizes on drop here.
 
 			let wormhole_address = WormholeAddress(H256::from(wormhole_pair.address));
 			let account_id = wormhole_address.into_account();
@@ -307,13 +342,17 @@ pub fn run() -> sc_cli::Result<()> {
 					verbose,
 				} => {
 					// Secrets are read from stdin, never from argv (see cli.rs).
+					// Move out of Zeroizing into generate_quantus_key, which immediately
+					// re-wraps and zeroizes on every exit path.
 					let seed_value = if *seed {
-						Some(read_secret_from_stdin("Hex master seed (128 hex chars): ")?)
+						Some(std::mem::take(&mut *read_secret_from_stdin(
+							"Hex master seed (128 hex chars): ",
+						)?))
 					} else {
 						None
 					};
 					let words_value = if *words {
-						Some(read_secret_from_stdin("BIP39 mnemonic: ")?)
+						Some(std::mem::take(&mut *read_secret_from_stdin("BIP39 mnemonic: ")?))
 					} else {
 						None
 					};
@@ -391,7 +430,7 @@ pub fn run() -> sc_cli::Result<()> {
 									println!("Address: {}", details.address);
 									println!(
 										"Inner Hash: 0x{}",
-										details.inner_hash.unwrap_or_default()
+										details.inner_hash.as_deref().unwrap_or_default()
 									);
 									if *verbose {
 										println!("Address hex: {}", details.public_key_hex);
@@ -660,6 +699,13 @@ mod tests {
 		},
 	};
 
+	#[test]
+	fn take_trimmed_secret_returns_trimmed_and_rejects_whitespace_only() {
+		let secret = take_trimmed_secret(String::from("  secret-phrase\n")).expect("non-empty");
+		assert_eq!(secret.as_str(), "secret-phrase");
+		assert!(take_trimmed_secret(String::from("   \n")).is_err());
+	}
+
 	/// Master secrets must never travel through argv: the argument vector is
 	/// world-readable via /proc/<pid>/cmdline, recorded in shell history, and
 	/// captured by process-accounting/audit logs.
@@ -786,11 +832,10 @@ mod tests {
 		assert!(details.secret_key_hex.starts_with("0x"));
 		assert_eq!(details.seed_hex, "N/A (Wormhole)");
 		assert!(details.secret_phrase.is_some());
-		let address = details.address;
 		assert!(
-			AccountId32::from_ss58check_with_version(&address).is_ok(),
+			AccountId32::from_ss58check_with_version(&details.address).is_ok(),
 			"Generated address should be valid SS58: {}",
-			address
+			details.address
 		);
 	}
 

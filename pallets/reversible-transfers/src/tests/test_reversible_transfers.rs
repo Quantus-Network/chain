@@ -2214,9 +2214,10 @@ fn validate_delay_accepts_timestamp_equal_to_minimum() {
 
 /// Reversible transfers are a permissionless scheduling surface: any signed account
 /// can place a task at an attacker-chosen future block. They must be scheduled at
-/// `LOWEST_PRIORITY` so the scheduler's reserved high-priority headroom
-/// (`ReservedHighPrioritySlots`) prevents them from filling a block's agenda and
-/// censoring governance enactment scheduled at the same (deterministic) block.
+/// `LOWEST_PRIORITY` so the scheduler's reserved high-priority headroom (~20% of
+/// `MaxScheduledPerBlock`, at least one slot) prevents them from filling a block's
+/// agenda and censoring governance enactment scheduled at the same (deterministic)
+/// block.
 #[test]
 fn scheduled_transfers_cannot_crowd_out_high_priority_tasks() {
 	new_test_ext().execute_with(|| {
@@ -2230,9 +2231,8 @@ fn scheduled_transfers_cannot_crowd_out_high_priority_tasks() {
 
 		let max: u32 =
 			<<Test as pallet_scheduler::Config>::MaxScheduledPerBlock as sp_core::Get<u32>>::get();
-		// The scheduler reserves ~20% of each block's agenda for tasks scheduled above
-		// `LOWEST_PRIORITY`; reversible transfers (at `LOWEST_PRIORITY`) get the rest.
-		let reserved: u32 = max / 5;
+		// Mirror the scheduler: ~20% reserved, at least 1 slot.
+		let reserved: u32 = (max / 5).max(1).min(max.saturating_sub(1));
 		assert!(reserved > 0 && reserved < max, "pre-condition: reservation must be meaningful");
 
 		// The attacker can only fill the unreserved part of the target block's agenda.

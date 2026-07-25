@@ -144,7 +144,10 @@ impl TxWatchApiServer for TxWatch {
 			},
 		};
 
-		log::info!(target: LOG_TARGET, "Watching address {}", &address[..12.min(address.len())]);
+		// debug!: subscription admission is unauthenticated and unbounded by this
+		// module (server-level connection/subscription caps apply), so INFO here
+		// would let client churn amplify log volume.
+		log::debug!(target: LOG_TARGET, "Watching address {}", &address[..12.min(address.len())]);
 		let sink = pending.accept().await?;
 		let mut listener_rx = self.broadcast.subscribe();
 
@@ -169,7 +172,9 @@ impl TxWatchApiServer for TxWatch {
 								amount: amount.to_string(),
 								asset_id: *asset_id,
 							};
-							log::info!(
+							// debug!: one line per matching listener per tx — N
+							// listeners on one address would multiply INFO volume.
+							log::debug!(
 								target: LOG_TARGET,
 								"Transfer detected: {} -> watched addr, amount={}, asset={:?}",
 								&notification.from[..12.min(notification.from.len())],

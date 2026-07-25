@@ -1917,9 +1917,8 @@ fn lowest_priority_tasks_cannot_crowd_out_high_priority_tasks() {
 	use frame_support::traits::schedule::LOWEST_PRIORITY;
 
 	let max: u32 = <Test as Config>::MaxScheduledPerBlock::get();
-	// Mirror the scheduler's reservation policy: ~20% of the agenda is reserved for
-	// tasks scheduled above `LOWEST_PRIORITY`.
-	let reserved: u32 = max / 5;
+	// Mirror the scheduler: ~20% reserved, at least 1 slot.
+	let reserved: u32 = (max / 5).max(1).min(max.saturating_sub(1));
 	assert!(reserved > 0 && reserved < max, "pre-condition: reservation must be meaningful");
 
 	new_test_ext().execute_with(|| {

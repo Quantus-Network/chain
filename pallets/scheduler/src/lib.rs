@@ -721,11 +721,13 @@ impl<T: Config> Pallet<T> {
 		// `LOWEST_PRIORITY` tasks (a best-effort, potentially permissionless surface such
 		// as reversible transfers) may not consume the last ~20% of an agenda, so
 		// higher-priority tasks such as governance enactment always retain headroom and
-		// cannot be censored by pre-filling their target block.
+		// cannot be censored by pre-filling their target block. Reserve at least one
+		// slot even when `MaxScheduledPerBlock < 5` (where `max / 5` would be 0).
 		if what.priority == schedule::LOWEST_PRIORITY {
 			let occupied = agenda.iter().filter(|slot| slot.is_some()).count() as u32;
 			let max = T::MaxScheduledPerBlock::get();
-			let cap = max.saturating_sub(max / 5).max(1);
+			let reserved = (max / 5).max(1).min(max.saturating_sub(1));
+			let cap = max.saturating_sub(reserved);
 			if occupied >= cap {
 				return Err((DispatchError::Exhausted, what));
 			}

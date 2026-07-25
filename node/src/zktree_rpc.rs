@@ -41,10 +41,16 @@ pub trait ZkTreeApi {
 	/// that you're proving against. The tree root changes with each block,
 	/// so the Merkle proof must be from the same block as the header.
 	///
-	/// `at_block` must be within the last `BlockHashCount` (4096) blocks: older
+	/// `at_block` must be within the last `BlockHashCount` blocks: older
 	/// proofs are rejected on-chain anyway (the block hash is no longer in
 	/// `frame_system::BlockHash`), so querying deeper history is refused
-	/// (error 9005; unknown hashes: error 9004).
+	/// (error 9005; unknown hashes: error 9004; backend lookup failures:
+	/// error 9006).
+	///
+	/// The window size is the `BlockHashCount` compiled into this node binary
+	/// (currently 4096), not a value read from the live chain. A forkless
+	/// runtime upgrade that changes `BlockHashCount` will leave already-running
+	/// nodes using the old window until they are rebuilt.
 	///
 	/// Returns `null` if the leaf index is out of bounds.
 	#[method(name = "zkTree_getMerkleProof", blocking)]
@@ -63,6 +69,13 @@ pub trait ZkTreeApi {
 /// to query that far back: a wormhole spend proof is only accepted on-chain while
 /// the proving block's hash is still in `frame_system::BlockHash`, a sliding
 /// window of `BlockHashCount` blocks. Blocks outside that window are rejected.
+///
+/// The window is `quantus_runtime::configs::BlockHashCount` from the runtime
+/// crate linked into this node binary — a compile-time constant, not a live
+/// chain/metadata lookup. After a forkless upgrade that changes
+/// `BlockHashCount`, already-running nodes keep the old value until rebuilt.
+/// That is acceptable for this DoS guard: a slightly stale window is still
+/// bounded, and a smaller window is the safer direction.
 fn resolve_proof_block<C>(
 	client: &C,
 	at_block: Option<H256>,
@@ -75,14 +88,23 @@ where
 		return Ok(info.best_hash);
 	};
 
-	let number = client.number(hash).ok().flatten().ok_or_else(|| {
-		jsonrpsee::types::error::ErrorObject::owned(
-			9004,
-			format!("Unknown block hash {hash:?}"),
-			None::<()>,
-		)
-	})?;
+	let number = match client.number(hash) {
+		Ok(Some(n)) => n,
+		Ok(None) =>
+			return Err(jsonrpsee::types::error::ErrorObject::owned(
+				9004,
+				format!("Unknown block hash {hash:?}"),
+				None::<()>,
+			)),
+		Err(e) =>
+			return Err(jsonrpsee::types::error::ErrorObject::owned(
+				9006,
+				format!("Failed to resolve block number for {hash:?}: {e}"),
+				None::<()>,
+			)),
+	};
 
+	// Compile-time constant from the linked runtime crate — see fn docs.
 	let window = <quantus_runtime::configs::BlockHashCount as sp_core::Get<u32>>::get();
 	if info.best_number.saturating_sub(number) > window {
 		return Err(jsonrpsee::types::error::ErrorObject::owned(
@@ -175,7 +197,7 @@ mod tests {
 	use sp_blockchain::{BlockStatus, Info, Result as BlockchainResult};
 	use sp_core::Get;
 	use sp_runtime::traits::{Block as BlockT, NumberFor};
-	use std::collections::HashMap;
+	use std::collections::{HashMap, HashSet};
 
 	fn window() -> u32 {
 		<quantus_runtime::configs::BlockHashCount as Get<u32>>::get()
@@ -189,12 +211,20 @@ mod tests {
 	struct MockChain {
 		best_number: u32,
 		blocks: HashMap<H256, u32>,
+		/// Hashes for which `number()` simulates a backend/DB failure.
+		failing: HashSet<H256>,
 	}
 
 	impl MockChain {
 		fn with_blocks(best_number: u32, numbers: &[u32]) -> Self {
 			let blocks = numbers.iter().map(|n| (hash_for(*n), *n)).collect();
-			Self { best_number, blocks }
+			Self { best_number, blocks, failing: HashSet::new() }
+		}
+
+		fn with_number_failure(best_number: u32, failing_hash: H256) -> Self {
+			let mut chain = Self::with_blocks(best_number, &[best_number]);
+			chain.failing.insert(failing_hash);
+			chain
 		}
 	}
 
@@ -225,6 +255,9 @@ mod tests {
 		}
 
 		fn number(&self, hash: H256) -> BlockchainResult<Option<NumberFor<Block>>> {
+			if self.failing.contains(&hash) {
+				return Err(sp_blockchain::Error::Backend("simulated db failure".into()));
+			}
 			Ok(self.blocks.get(&hash).copied())
 		}
 
@@ -280,5 +313,23 @@ mod tests {
 		let err = resolve_proof_block(&chain, Some(H256::repeat_byte(0xEE)))
 			.expect_err("unknown hash must be rejected");
 		assert_eq!(err.code(), 9004);
+	}
+
+	/// A genuine backend/`number()` failure must not be reported as "unknown
+	/// block hash" — operators need to tell a corrupted DB from client garbage.
+	#[test]
+	fn surfaces_backend_errors_separately_from_unknown_hashes() {
+		let best = 10 * window();
+		let broken = H256::repeat_byte(0xAB);
+		let chain = MockChain::with_number_failure(best, broken);
+
+		let err = resolve_proof_block(&chain, Some(broken))
+			.expect_err("backend failure must surface as an error");
+		assert_eq!(err.code(), 9006);
+		assert!(
+			err.message().contains("Failed to resolve block number"),
+			"message should name the backend failure, got: {}",
+			err.message()
+		);
 	}
 }
