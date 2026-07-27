@@ -153,8 +153,14 @@ fn planck_tech_collective_seed() -> Vec<AccountId> {
 
 /// Returns the genesis config populated with given parameters. Treasury is per-profile.
 ///
-/// The treasury account is also the `pallet-assets` owner for **asset id 0** (native-in-assets path
-/// for wormhole). It is not FRAME `Root`.
+/// The treasury account is also the `pallet-assets` owner for **asset id 0**. It is not FRAME
+/// `Root`.
+///
+/// NOTE: `pallet-assets` asset id 0 is a distinct, unbacked token that merely shares the integer
+/// the wormhole uses internally to tag *native* leaves. It is NOT the native token, and minting it
+/// does not create or back any native value. The wormhole proof recorder deliberately does not
+/// treat asset-0 credits as native deposits (see `record_transfer_proof`); if that ever changes,
+/// the asset-0 issuer could mint unbacked native out of the wormhole.
 ///
 /// All endowed addresses automatically get transfer proofs recorded, enabling them to
 /// spend their funds via ZK proofs. The chain doesn't distinguish between "wormhole

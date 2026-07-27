@@ -31,6 +31,68 @@ mod wormhole_tests {
 		AccountId32::new(TEST_ADDRESS)
 	}
 
+	/// Security regression test (native/asset-0 conflation).
+	///
+	/// The wormhole tags native leaves with `asset_id == 0`, but `pallet_assets` uses id 0 for
+	/// an unrelated, independently-mintable token. Native deposits reach the recorder as `None`
+	/// (from `Balances` events); a `pallet_assets` asset-0 credit reaches it as `Some(0)` (from
+	/// `Assets::Issued`). These must NOT be conflated: a `Some(0)` credit is not backed by any
+	/// native, so treating it as native would let an asset-0 issuer inflate the native
+	/// `PotentialWormholeBalance` and insert a natively-exitable leaf — minting unbacked native
+	/// out of the wormhole.
+	///
+	/// This asserts that `record_transfer_proof(Some(0), ..)` to an ambiguous recipient neither
+	/// inserts a ZK-tree leaf nor inflates the pool, while genuine native (`None`) still does.
+	#[test]
+	fn asset_zero_credit_is_not_treated_as_native_deposit() {
+		use qp_wormhole::TransferProofRecorder;
+
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let from = account_id(1);
+			// A fresh (nonce 0) recipient that is not excluded: genuinely ambiguous.
+			let to = account_id(9001);
+			assert!(Wormhole::is_ambiguous_account(&to));
+			let amount = 1_000 * UNIT;
+
+			assert_eq!(ZkTree::leaf_count(), 0);
+			assert_eq!(Wormhole::potential_wormhole_balance(), 0);
+
+			// A pallet_assets asset-0 mint (arrives as `Some(0)`) must be inert for the
+			// native wormhole: no leaf, no pool inflation.
+			<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+				Some(0u32),
+				from.clone(),
+				to.clone(),
+				amount,
+			);
+			assert_eq!(
+				ZkTree::leaf_count(),
+				0,
+				"an asset-0 credit must not insert a native-exitable ZK-tree leaf"
+			);
+			assert_eq!(
+				Wormhole::potential_wormhole_balance(),
+				0,
+				"an asset-0 credit must not inflate the native potential-balance pool"
+			);
+
+			// Genuine native (arrives as `None`) is still recorded and still inflates the pool.
+			<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+				None,
+				from,
+				to,
+				amount,
+			);
+			assert_eq!(ZkTree::leaf_count(), 1, "a native deposit must insert a leaf");
+			assert_eq!(
+				Wormhole::potential_wormhole_balance(),
+				amount,
+				"a native deposit to an ambiguous recipient must inflate the pool"
+			);
+		});
+	}
+
 	#[test]
 	fn record_transfer_increments_count() {
 		new_test_ext().execute_with(|| {

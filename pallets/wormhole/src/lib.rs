@@ -1332,8 +1332,24 @@ pub mod pallet {
 			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
 		) {
-			let asset_id_value = asset_id.unwrap_or_default();
-			Self::record_transfer(asset_id_value, &from, &to, amount);
+			// The wormhole tags native leaves with `asset_id == 0`, but `pallet_assets` uses
+			// id 0 for an unrelated, independently-mintable token. Genuine native reaches us as
+			// `None` (from `Balances` events); a `pallet_assets` asset-0 credit reaches us as
+			// `Some(0)` (from `Assets::Issued`). These must not be conflated: a `Some(0)` credit
+			// is backed by no native, so recording it as a native deposit would inflate the
+			// native potential-balance pool and insert a natively-exitable leaf, letting an
+			// asset-0 issuer mint unbacked native out of the wormhole.
+			match asset_id {
+				// Native token.
+				None => Self::record_transfer(T::AssetId::default(), &from, &to, amount),
+				// A `pallet_assets` asset whose id collides with the reserved native id. The
+				// wormhole only supports native exits, and this is not a native deposit, so it
+				// must not touch native accounting — drop it.
+				Some(id) if id == T::AssetId::default() => {},
+				// A genuine non-native asset: recorded as an inert (non-native, never-exitable)
+				// leaf, preserving the existing behaviour for future asset-wormhole support.
+				Some(id) => Self::record_transfer(id, &from, &to, amount),
+			}
 		}
 
 		fn reveal_address(account: <T as Config>::WormholeAccountId) {
