@@ -49,6 +49,136 @@ mod wormhole_tests {
 		});
 	}
 
+	/// Security regression test (leaf-encoding aliasing).
+	///
+	/// `hash_leaf` encodes the recipient with a lossy 8-byte/felt encoding that reduces
+	/// each limb mod the Goldilocks prime. A "non-canonical alias" of a recipient (some
+	/// limb increased by the prime) therefore encodes to the *same* felts. If the
+	/// transfer-count sequence were keyed on the raw recipient bytes, a deposit to the
+	/// alias would start its own count at 0 and produce a leaf identical to the canonical
+	/// recipient's deposit 0 — the two deposits would then share one nullifier
+	/// (`H(secret, transfer_count)`) and only one of them could ever be exited.
+	///
+	/// This test deposits the same amount to a canonical recipient and to its alias and
+	/// asserts the resulting leaves are distinct.
+	#[test]
+	fn deposits_to_non_canonical_alias_do_not_collide_with_canonical_leaf() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let from = account_id(1);
+			let amount = 10 * UNIT;
+
+			const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
+
+			// Canonical recipient: first 8-byte limb small (an alias exists only when a
+			// limb is < 2^32 - 1, so that limb + p still fits in 8 bytes).
+			let mut canonical_bytes = [0x11u8; 32];
+			canonical_bytes[..8].copy_from_slice(&5u64.to_le_bytes());
+			let canonical = AccountId32::new(canonical_bytes);
+
+			// Alias: same account with the first limb increased by the prime. The lossy
+			// leaf encoding reduces it back to 5, so both accounts encode identically.
+			let mut alias_bytes = canonical_bytes;
+			alias_bytes[..8].copy_from_slice(&(5u64 + GOLDILOCKS_P).to_le_bytes());
+			let alias = AccountId32::new(alias_bytes);
+			assert_ne!(canonical, alias);
+
+			Wormhole::record_transfer(0u32, &from, &canonical, amount);
+			Wormhole::record_transfer(0u32, &from, &alias, amount);
+
+			let leaf0 = ZkTree::leaf(0).expect("first deposit must insert a leaf");
+			let leaf1 = ZkTree::leaf(1).expect("second deposit must insert a leaf");
+			let hash0 = pallet_zk_tree::tree::hash_leaf::<Test>(&leaf0);
+			let hash1 = pallet_zk_tree::tree::hash_leaf::<Test>(&leaf1);
+			assert_ne!(
+				hash0, hash1,
+				"a deposit to a non-canonical alias must not produce the same leaf \
+				 (and thus the same nullifier) as a deposit to the canonical recipient"
+			);
+
+			// The alias shares the canonical recipient's count sequence: both deposits
+			// are recorded under the canonical key, and the second leaf continues the
+			// sequence rather than restarting at 0.
+			assert_eq!(Wormhole::transfer_count(&canonical), 2);
+			assert_eq!(Wormhole::transfer_count(&alias), 0);
+			assert_eq!(leaf0.transfer_count, 0);
+			assert_eq!(leaf1.transfer_count, 1);
+
+			// Both leaves store the canonical recipient (what the hash actually
+			// commits to), so leaf data is consistent with the leaf hash.
+			assert_eq!(leaf0.to, canonical);
+			assert_eq!(leaf1.to, canonical);
+		});
+	}
+
+	/// Golden cross-check: the pallet's `hash_leaf` must stay byte-compatible with the
+	/// ZK circuit's leaf hash (`ZkLeafTargets::collect_for_hash`), reproduced here by
+	/// `fixture_gen::compute_zk_leaf_hash` on the real circuit crates. This pins the
+	/// encoding so refactors (e.g. recipient canonicalization) cannot silently change
+	/// the hash of existing canonical leaves.
+	#[test]
+	fn pallet_leaf_hash_matches_circuit_leaf_hash() {
+		// (to, transfer_count, asset_id, quantized_amount). First case uses the
+		// well-known fixture inputs: TEST_ADDRESS = WA([42u8; 32]), count 1, 2000
+		// quantized (the same values the private-batch proof fixture commits to).
+		let cases = [
+			(test_account(), 1u64, 0u32, 2000u32),
+			(account_id(1), 0u64, 0u32, 1000u32),
+			(account_id(424242), 7u64, 5u32, 1u32),
+		];
+
+		// The zk-tree pallet's `hash_leaf_golden_vector` test pins this exact case to a
+		// hardcoded hash; verifying it here against the circuit crates proves that the
+		// pinned constant is circuit-correct, not just self-consistent.
+		let golden_case = (AccountId32::new([0x11u8; 32]), 7u64, 5u32, 1234u32);
+		let golden_hash: [u8; 32] = [
+			195, 94, 210, 27, 96, 177, 127, 68, 16, 231, 47, 227, 104, 21, 175, 254, 219, 85,
+			224, 111, 64, 162, 32, 119, 226, 89, 143, 126, 203, 254, 51, 93,
+		];
+		{
+			let (to, transfer_count, asset_id, quantized_amount) = &golden_case;
+			let to_bytes: &[u8; 32] = to.as_ref();
+			assert_eq!(
+				super::fixture_gen::compute_zk_leaf_hash(
+					to_bytes,
+					*transfer_count,
+					*asset_id,
+					*quantized_amount,
+				),
+				golden_hash,
+				"golden vector constant is not circuit-correct"
+			);
+		}
+
+		for (to, transfer_count, asset_id, quantized_amount) in
+			cases.into_iter().chain([golden_case])
+		{
+			let leaf = pallet_zk_tree::ZkLeaf {
+				to: to.clone(),
+				transfer_count,
+				asset_id,
+				// `hash_leaf` quantizes by dividing by AMOUNT_SCALE_DOWN_FACTOR;
+				// the circuit helper takes the already-quantized amount.
+				amount: (quantized_amount as u128) *
+					pallet_zk_tree::tree::AMOUNT_SCALE_DOWN_FACTOR,
+			};
+			let pallet_hash = pallet_zk_tree::tree::hash_leaf::<Test>(&leaf);
+
+			let to_bytes: &[u8; 32] = to.as_ref();
+			let circuit_hash = super::fixture_gen::compute_zk_leaf_hash(
+				to_bytes,
+				transfer_count,
+				asset_id,
+				quantized_amount,
+			);
+
+			assert_eq!(
+				pallet_hash, circuit_hash,
+				"pallet hash_leaf diverged from the circuit leaf hash for {to:?}"
+			);
+		}
+	}
+
 	#[test]
 	fn record_transfer_emits_native_transferred_event() {
 		new_test_ext().execute_with(|| {
@@ -948,8 +1078,11 @@ mod fixture_gen {
 		aggregated_proof
 	}
 
-	/// Helper to compute ZK leaf hash (must match circuit computation)
-	fn compute_zk_leaf_hash(
+	/// Helper to compute ZK leaf hash (must match circuit computation).
+	///
+	/// Also used by `pallet_leaf_hash_matches_circuit_leaf_hash` as the circuit-side
+	/// reference to pin the pallet's `hash_leaf` encoding.
+	pub fn compute_zk_leaf_hash(
 		to_account: &[u8; 32],
 		transfer_count: u64,
 		asset_id: u32,

@@ -368,6 +368,10 @@ pub mod pallet {
 		type WeightInfo: WeightInfo;
 
 		/// Override system AccountId for wormhole operations
+		///
+		/// The `AsRef<[u8]>`/`From<[u8; 32]>` bounds allow `record_transfer` to
+		/// canonicalize recipients (reduce each 8-byte limb mod the Goldilocks prime)
+		/// before keying `TransferCount` and inserting ZK-tree leaves.
 		type WormholeAccountId: Parameter
 			+ Member
 			+ MaybeSerializeDeserialize
@@ -375,6 +379,8 @@ pub mod pallet {
 			+ MaybeDisplay
 			+ Ord
 			+ MaxEncodedLen
+			+ AsRef<[u8]>
+			+ From<[u8; 32]>
 			+ Into<<Self as frame_system::Config>::AccountId>
 			+ From<<Self as frame_system::Config>::AccountId>;
 
@@ -393,6 +399,11 @@ pub mod pallet {
 		StorageMap<_, Blake2_128Concat, [u8; 32], bool, ValueQuery>;
 
 	/// Transfer count per recipient - used to generate unique leaf indices in the ZK trie.
+	///
+	/// Keyed on the *canonical* recipient (each 8-byte limb reduced mod the Goldilocks
+	/// prime, matching the ZK leaf encoding — see `canonical_leaf_recipient`), so that a
+	/// recipient and its non-canonical byte aliases share one count sequence and two
+	/// distinct deposits can never commit to identical leaves.
 	#[pallet::storage]
 	#[pallet::getter(fn transfer_count)]
 	pub type TransferCount<T: Config> =
@@ -1217,6 +1228,22 @@ pub mod pallet {
 			}
 		}
 
+		/// Canonical form of a recipient for ZK-leaf keying.
+		///
+		/// Reduces each 8-byte limb of the 32-byte account mod the Goldilocks prime —
+		/// the exact reduction the leaf hash's lossy encoding applies — so that
+		/// `TransferCount` and the stored leaf recipient are keyed per leaf-encoding
+		/// class rather than per raw byte string. The withdrawal circuit binds the
+		/// leaf's recipient felts to a canonical Poseidon output, so canonicalizing
+		/// never changes who can exit a leaf. Non-32-byte accounts are returned
+		/// unchanged (the leaf hash requires 32-byte accounts anyway).
+		fn canonical_leaf_recipient(to: &T::WormholeAccountId) -> T::WormholeAccountId {
+			match <[u8; 32]>::try_from(to.as_ref()) {
+				Ok(bytes) => pallet_zk_tree::tree::canonicalize_account_bytes(bytes).into(),
+				Err(_) => to.clone(),
+			}
+		}
+
 		/// Record a transfer in the ZK tree and emit events.
 		///
 		/// This inserts the transfer data into the 4-ary Poseidon Merkle tree
@@ -1230,15 +1257,27 @@ pub mod pallet {
 			to: &<T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
 		) {
-			let current_count = TransferCount::<T>::get(to);
+			// The ZK leaf commits to the recipient through a lossy encoding that reduces
+			// each 8-byte limb mod the Goldilocks prime, so a recipient and its
+			// non-canonical byte aliases encode identically. Key the transfer count and
+			// the stored leaf on the canonical form so every deposit gets a unique
+			// (recipient-class, count) pair — otherwise a deposit to an alias would start
+			// its own count at 0 and could commit to the same leaf (and thus the same
+			// `H(secret, transfer_count)` nullifier) as a canonical deposit, leaving one
+			// of the two permanently unexitable.
+			let leaf_to = Self::canonical_leaf_recipient(to);
+			let current_count = TransferCount::<T>::get(&leaf_to);
 
 			// Increment transfer count for this recipient
-			TransferCount::<T>::insert(to, current_count.saturating_add(T::TransferCount::one()));
+			TransferCount::<T>::insert(
+				&leaf_to,
+				current_count.saturating_add(T::TransferCount::one()),
+			);
 
 			// Insert into ZK tree for Merkle proof generation
 			// Returns the leaf index for clients to use when fetching proofs
 			let leaf_index = T::ZkTree::record_transfer(
-				to.clone().into(),
+				leaf_to.into(),
 				current_count.into(),
 				asset_id.clone(),
 				amount,

@@ -99,6 +99,33 @@ fn test_hash_node() {
 	assert_ne!(hash, hash3);
 }
 
+/// Golden vector for the leaf hash.
+///
+/// Pins the exact `hash_leaf` output for a fixed canonical leaf so that any change to
+/// the encoding (felt layout, quantization, recipient handling) fails loudly. The leaf
+/// encoding must stay byte-compatible with the ZK circuit's
+/// `ZkLeafTargets::collect_for_hash()`; a cross-check against the real circuit crates
+/// lives in `pallet-wormhole`'s `pallet_leaf_hash_matches_circuit_leaf_hash` test.
+/// If this value ever needs to change, the deployed withdrawal circuit must change
+/// with it — do not update the constant casually.
+#[test]
+fn hash_leaf_golden_vector() {
+	let leaf = ZkLeaf::<AccountId, u32, u128> {
+		to: make_account(0x11),
+		transfer_count: 7,
+		asset_id: 5,
+		// 1234 quantized units (hash_leaf divides by AMOUNT_SCALE_DOWN_FACTOR).
+		amount: 1234 * tree::AMOUNT_SCALE_DOWN_FACTOR,
+	};
+	// Cross-checked against the circuit-side computation by
+	// `hash_leaf_golden_vector_matches_circuit` in pallet-wormhole's tests.
+	let expected: [u8; 32] = [
+		195, 94, 210, 27, 96, 177, 127, 68, 16, 231, 47, 227, 104, 21, 175, 254, 219, 85, 224,
+		111, 64, 162, 32, 119, 226, 89, 143, 126, 203, 254, 51, 93,
+	];
+	assert_eq!(tree::hash_leaf::<Test>(&leaf), expected);
+}
+
 #[test]
 fn insert_first_leaf_works() {
 	new_test_ext().execute_with(|| {

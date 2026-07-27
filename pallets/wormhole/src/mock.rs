@@ -18,6 +18,7 @@ construct_runtime!(
 		System: frame_system,
 		Balances: pallet_balances,
 		Assets: pallet_assets,
+		ZkTree: pallet_zk_tree,
 		Wormhole: pallet_wormhole,
 	}
 );
@@ -145,6 +146,11 @@ impl frame_support::traits::Contains<AccountId> for ExcludedAccounts {
 	}
 }
 
+impl pallet_zk_tree::Config for Test {
+	type AssetId = u32;
+	type Balance = Balance;
+}
+
 impl pallet_wormhole::Config for Test {
 	type NativeBalance = Balance;
 	type Currency = Balances;
@@ -160,7 +166,9 @@ impl pallet_wormhole::Config for Test {
 	type VolumeFeesAggregatorRate = VolumeFeesAggregatorRate;
 	type WormholeAccountId = AccountId;
 	type WeightInfo = crate::weights::SubstrateWeight<Test>;
-	type ZkTree = (); // Disabled in tests - use () no-op implementation
+	// Real ZK tree so tests exercise the actual leaf hashing (e.g. the
+	// recipient-canonicalization invariant), not the no-op recorder.
+	type ZkTree = ZkTree;
 }
 
 // Helper function to build a genesis configuration
