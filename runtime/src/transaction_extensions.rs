@@ -125,12 +125,26 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			.reads_writes(5u64.saturating_add(tree_reads), 2u64.saturating_add(tree_writes))
 	}
 
+	/// Whether a `pallet_assets` credit with this id is actually recorded by the wormhole.
+	/// Asset id 0 is reserved for the wormhole's *internal* native tag and is dropped by
+	/// `record_transfer_proof` — it must not be charged as a proof-recording transfer.
+	fn asset_transfer_counts(id: &codec::Compact<AssetId>) -> u64 {
+		let asset_id: AssetId = (*id).into();
+		if asset_id == 0 {
+			0
+		} else {
+			1
+		}
+	}
+
 	fn count_transfers(call: &RuntimeCall) -> u64 {
 		// NOTE: this must stay in sync with the events matched by `record_proofs_from_events_since`
 		// — we only weight calls whose emitted events we actually record. In particular
 		// `Balances::force_set_balance` is deliberately NOT counted here: it emits `BalanceSet`
 		// (an absolute set, not a transfer/mint), which we cannot turn into a transfer proof and
 		// therefore never record. See the soundness-counter caveat on `reduce_potential_balance`.
+		// Likewise, `pallet_assets` credits of asset id 0 are dropped by `record_transfer_proof`
+		// (they must not be conflated with native) and are therefore not counted here.
 		//
 		// Wrappers whose inner call is stored on-chain rather than in the submitted call
 		// (`Multisig::execute`, `ReversibleTransfers::recover_funds`, ...) cannot be counted
@@ -141,12 +155,13 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) |
-			RuntimeCall::Balances(pallet_balances::Call::force_transfer { .. }) |
-			RuntimeCall::Assets(pallet_assets::Call::transfer { .. }) |
-			RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) |
-			RuntimeCall::Assets(pallet_assets::Call::transfer_approved { .. }) |
-			RuntimeCall::Assets(pallet_assets::Call::force_transfer { .. }) |
-			RuntimeCall::Assets(pallet_assets::Call::mint { .. }) => 1,
+			RuntimeCall::Balances(pallet_balances::Call::force_transfer { .. }) => 1,
+
+			RuntimeCall::Assets(pallet_assets::Call::transfer { id, .. }) |
+			RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { id, .. }) |
+			RuntimeCall::Assets(pallet_assets::Call::transfer_approved { id, .. }) |
+			RuntimeCall::Assets(pallet_assets::Call::force_transfer { id, .. }) |
+			RuntimeCall::Assets(pallet_assets::Call::mint { id, .. }) => Self::asset_transfer_counts(id),
 
 			RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
 			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
@@ -219,12 +234,18 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 				})
 				.collect();
 
-		// Now record the proofs - this is safe because we're no longer iterating over Events
-		let recorded = transfers_to_record.len() as u64;
+		// Now record the proofs - this is safe because we're no longer iterating over Events.
+		// Count only credits that were actually recorded: `record_transfer_proof` returns
+		// `false` for deliberately dropped credits (notably `pallet_assets` asset-0), and
+		// counting those as recorded would over-reserve fees and falsely register extra
+		// block weight on opaque paths.
+		let mut recorded = 0u64;
 		for (asset_id, from, to, amount) in transfers_to_record {
-			<Wormhole as TransferProofRecorder<AccountId, AssetId, Balance>>::record_transfer_proof(
+			if <Wormhole as TransferProofRecorder<AccountId, AssetId, Balance>>::record_transfer_proof(
 				asset_id, from, to, amount,
-			);
+			) {
+				recorded = recorded.saturating_add(1);
+			}
 		}
 		recorded
 	}
@@ -834,6 +855,88 @@ mod tests {
 				weight_after.saturating_sub(weight_before),
 				WormholeProofRecorderExtension::<Runtime>::per_transfer_weight(),
 				"the uncounted recorded transfer must be registered as extra block weight"
+			);
+		});
+	}
+
+	/// `pallet_assets` asset id 0 is dropped by `record_transfer_proof` (it must not be
+	/// conflated with native). Static weight and the post_dispatch recorded-count must
+	/// both treat it as a non-recording credit — otherwise fees are over-reserved and
+	/// opaque paths falsely register extra block weight for work that never happened.
+	#[test]
+	fn asset_zero_credit_is_not_counted_as_recorded_transfer() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			// Static matcher: asset-0 mint/transfer must charge zero proof-recording weight.
+			let asset_zero_mint = RuntimeCall::Assets(pallet_assets::Call::mint {
+				id: 0u32.into(),
+				beneficiary: MultiAddress::Id(bob()),
+				amount: 100,
+			});
+			let asset_one_mint = RuntimeCall::Assets(pallet_assets::Call::mint {
+				id: 1u32.into(),
+				beneficiary: MultiAddress::Id(bob()),
+				amount: 100,
+			});
+			assert_eq!(
+				WormholeProofRecorderExtension::<Runtime>::count_transfers(&asset_zero_mint),
+				0,
+				"asset-0 mint must not be statically charged as a recorded proof"
+			);
+			assert_eq!(
+				WormholeProofRecorderExtension::<Runtime>::count_transfers(&asset_one_mint),
+				1,
+				"non-zero asset mint must still be statically charged"
+			);
+
+			// Create asset 0 and mint — emits `Assets::Issued { asset_id: 0, ... }`.
+			assert_ok!(Assets::force_create(
+				RuntimeOrigin::root(),
+				0u32.into(),
+				MultiAddress::Id(alice()),
+				true,
+				1,
+			));
+			let bob_count_before = Wormhole::transfer_count(&bob());
+			let weight_before = frame_system::Pallet::<Runtime>::block_weight().total();
+
+			// Opaque presented call (charged_transfers = 0) whose dispatch mints asset 0.
+			// Pre-fix, `record_proofs_from_events_since` counted the event and registered
+			// a full per-transfer weight shortfall even though the credit was dropped.
+			let opaque_call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
+			run_lifecycle(&alice(), opaque_call, || {
+				assert_ok!(Assets::mint(
+					RuntimeOrigin::signed(alice()),
+					0u32.into(),
+					MultiAddress::Id(bob()),
+					100,
+				));
+			});
+
+			assert_eq!(
+				Wormhole::transfer_count(&bob()),
+				bob_count_before,
+				"asset-0 mint must not insert a wormhole transfer proof"
+			);
+			assert_eq!(
+				frame_system::Pallet::<Runtime>::block_weight().total(),
+				weight_before,
+				"dropped asset-0 credit must not register extra block weight"
+			);
+
+			// Direct scan: the Issued event is present but must report zero recordings.
+			System::reset_events();
+			assert_ok!(Assets::mint(
+				RuntimeOrigin::signed(alice()),
+				0u32.into(),
+				MultiAddress::Id(bob()),
+				50,
+			));
+			assert_eq!(
+				WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0),
+				0,
+				"record_proofs_from_events_since must not count dropped asset-0 credits"
 			);
 		});
 	}

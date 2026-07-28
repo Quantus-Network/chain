@@ -249,7 +249,8 @@ impl qp_wormhole::TransferProofRecorder<AccountId, u32, Balance> for MockProofRe
 		_from: AccountId,
 		_to: AccountId,
 		_amount: Balance,
-	) {
+	) -> bool {
+		true
 	}
 
 	fn reveal_address(account: AccountId) {

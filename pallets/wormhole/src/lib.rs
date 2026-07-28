@@ -1405,7 +1405,7 @@ pub mod pallet {
 			from: <T as Config>::WormholeAccountId,
 			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
-		) {
+		) -> bool {
 			// The wormhole tags native leaves with `asset_id == 0`, but `pallet_assets` uses
 			// id 0 for an unrelated, independently-mintable token. Genuine native reaches us as
 			// `None` (from `Balances` events); a `pallet_assets` asset-0 credit reaches us as
@@ -1415,14 +1415,20 @@ pub mod pallet {
 			// asset-0 issuer mint unbacked native out of the wormhole.
 			match asset_id {
 				// Native token.
-				None => Self::record_transfer(T::AssetId::default(), &from, &to, amount),
+				None => {
+					Self::record_transfer(T::AssetId::default(), &from, &to, amount);
+					true
+				},
 				// A `pallet_assets` asset whose id collides with the reserved native id. The
 				// wormhole only supports native exits, and this is not a native deposit, so it
 				// must not touch native accounting — drop it.
-				Some(id) if id == T::AssetId::default() => {},
+				Some(id) if id == T::AssetId::default() => false,
 				// A genuine non-native asset: recorded as an inert (non-native, never-exitable)
 				// leaf, preserving the existing behaviour for future asset-wormhole support.
-				Some(id) => Self::record_transfer(id, &from, &to, amount),
+				Some(id) => {
+					Self::record_transfer(id, &from, &to, amount);
+					true
+				},
 			}
 		}
 

@@ -59,12 +59,16 @@ mod wormhole_tests {
 			assert_eq!(Wormhole::potential_wormhole_balance(), 0);
 
 			// A pallet_assets asset-0 mint (arrives as `Some(0)`) must be inert for the
-			// native wormhole: no leaf, no pool inflation.
-			<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
-				Some(0u32),
-				from.clone(),
-				to.clone(),
-				amount,
+			// native wormhole: no leaf, no pool inflation — and must report as not recorded
+			// so weight reconciliation does not treat the drop as a ZK-tree insert.
+			assert!(
+				!<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+					Some(0u32),
+					from.clone(),
+					to.clone(),
+					amount,
+				),
+				"an asset-0 credit must report as not recorded"
 			);
 			assert_eq!(
 				ZkTree::leaf_count(),
@@ -78,8 +82,11 @@ mod wormhole_tests {
 			);
 
 			// Genuine native (arrives as `None`) is still recorded and still inflates the pool.
-			<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
-				None, from, to, amount,
+			assert!(
+				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+					None, from, to, amount,
+				),
+				"a native deposit must report as recorded"
 			);
 			assert_eq!(ZkTree::leaf_count(), 1, "a native deposit must insert a leaf");
 			assert_eq!(
