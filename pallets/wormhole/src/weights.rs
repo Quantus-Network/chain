@@ -109,15 +109,19 @@ pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `System::BlockHash` (r:1 w:0)
 	/// Proof: `System::BlockHash` (`max_values`: None, `max_size`: Some(44), added: 2519, mode: `MaxEncodedLen`)
-	/// Storage: `Wormhole::UsedNullifiers` (r:32 w:0)
+	/// Storage: `Wormhole::UsedNullifiers` (r:NUM_LEAF_PROOFS w:0)
 	/// Proof: `Wormhole::UsedNullifiers` (`max_values`: None, `max_size`: Some(49), added: 2524, mode: `MaxEncodedLen`)
+	///
+	/// The nullifier existence scan reads one `UsedNullifiers` key per leaf proof, so
+	/// reads and PoV are derived from `circuit_config::NUM_LEAF_PROOFS` (a build-time
+	/// knob) rather than baked in from the benchmark's aggregation size.
 	fn pre_validate_proof() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `1846`
-		//  Estimated: `81758`
+		let nullifier_reads = circuit_config::NUM_LEAF_PROOFS as u64;
+		// PoV: 2519 per benchmarked `BlockHash` key + 2524 per `UsedNullifiers` key.
+		let proof_size = 2519_u64.saturating_add(nullifier_reads.saturating_mul(2524));
 		// Minimum execution time: 650_000_000 picoseconds.
-		Weight::from_parts(685_000_000, 81758)
-			.saturating_add(T::DbWeight::get().reads(33_u64))
+		Weight::from_parts(685_000_000, proof_size)
+			.saturating_add(T::DbWeight::get().reads(1_u64.saturating_add(nullifier_reads)))
 	}
 	/// Public-batch pre-validation (hand-augmented from `pre_validate_proof`, which is
 	/// benchmarked for the private batch): same deserialize/parse cost profile, but the
@@ -165,17 +169,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 // For backwards compatibility and tests.
 impl WeightInfo for () {
-	/// Storage: `System::BlockHash` (r:1 w:0)
-	/// Proof: `System::BlockHash` (`max_values`: None, `max_size`: Some(44), added: 2519, mode: `MaxEncodedLen`)
-	/// Storage: `Wormhole::UsedNullifiers` (r:32 w:0)
-	/// Proof: `Wormhole::UsedNullifiers` (`max_values`: None, `max_size`: Some(49), added: 2524, mode: `MaxEncodedLen`)
+	/// See `SubstrateWeight::pre_validate_proof`.
 	fn pre_validate_proof() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `1846`
-		//  Estimated: `81758`
-		// Minimum execution time: 650_000_000 picoseconds.
-		Weight::from_parts(685_000_000, 81758)
-			.saturating_add(RocksDbWeight::get().reads(33_u64))
+		let nullifier_reads = circuit_config::NUM_LEAF_PROOFS as u64;
+		let proof_size = 2519_u64.saturating_add(nullifier_reads.saturating_mul(2524));
+		Weight::from_parts(685_000_000, proof_size)
+			.saturating_add(RocksDbWeight::get().reads(1_u64.saturating_add(nullifier_reads)))
 	}
 	/// See `SubstrateWeight::pre_validate_public_batch_proof`.
 	fn pre_validate_public_batch_proof() -> Weight {
