@@ -1089,16 +1089,14 @@ pub mod pallet {
 			// includes an unverifiable proof invalid on import). This is what keeps
 			// unverified/junk proofs out of blocks now that pool admission is verify-free.
 			match call {
-				Call::verify_private_batch { proof_bytes } => Self::validate_private_batch_proof(
-					proof_bytes,
-				)
-				.map(|_| ())
-				.map_err(|_| InvalidTransaction::Call.into()),
-				Call::verify_public_batch { proof_bytes } => Self::validate_public_batch_proof(
-					proof_bytes,
-				)
-				.map(|_| ())
-				.map_err(|_| InvalidTransaction::Call.into()),
+				Call::verify_private_batch { proof_bytes } =>
+					Self::validate_private_batch_proof(proof_bytes)
+						.map(|_| ())
+						.map_err(|_| InvalidTransaction::Call.into()),
+				Call::verify_public_batch { proof_bytes } =>
+					Self::validate_public_batch_proof(proof_bytes)
+						.map(|_| ())
+						.map_err(|_| InvalidTransaction::Call.into()),
 				_ => Err(InvalidTransaction::Call.into()),
 			}
 		}
@@ -1137,7 +1135,12 @@ pub mod pallet {
 		fn pre_validate_private_batch_proof(
 			proof_bytes: &[u8],
 		) -> Result<
-			(&'static crate::WormholeVerifier, ProofWithPublicInputs<F, C, D>, ExitBundle, Vec<bool>),
+			(
+				&'static crate::WormholeVerifier,
+				ProofWithPublicInputs<F, C, D>,
+				ExitBundle,
+				Vec<bool>,
+			),
 			Error<T>,
 		> {
 			let verifier = crate::get_private_batch_verifier()
@@ -1176,7 +1179,12 @@ pub mod pallet {
 		fn pre_validate_public_batch_proof(
 			proof_bytes: &[u8],
 		) -> Result<
-			(&'static crate::WormholeVerifier, ProofWithPublicInputs<F, C, D>, ExitBundle, Vec<bool>),
+			(
+				&'static crate::WormholeVerifier,
+				ProofWithPublicInputs<F, C, D>,
+				ExitBundle,
+				Vec<bool>,
+			),
 			Error<T>,
 		> {
 			let verifier =

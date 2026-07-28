@@ -113,8 +113,7 @@ where
 	debug_assert!(
 		to_bytes
 			.chunks_exact(8)
-			.all(|limb| u64::from_le_bytes(limb.try_into().expect("8-byte limb")) <
-				GOLDILOCKS_P),
+			.all(|limb| u64::from_le_bytes(limb.try_into().expect("8-byte limb")) < GOLDILOCKS_P),
 		"recipient account is non-canonical for the 8-byte/felt leaf encoding"
 	);
 	felts.extend(bytes_to_felts_compact_lossy(to_bytes));

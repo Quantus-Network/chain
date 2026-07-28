@@ -120,8 +120,8 @@ fn hash_leaf_golden_vector() {
 	// Cross-checked against the circuit-side computation by
 	// `hash_leaf_golden_vector_matches_circuit` in pallet-wormhole's tests.
 	let expected: [u8; 32] = [
-		195, 94, 210, 27, 96, 177, 127, 68, 16, 231, 47, 227, 104, 21, 175, 254, 219, 85, 224,
-		111, 64, 162, 32, 119, 226, 89, 143, 126, 203, 254, 51, 93,
+		195, 94, 210, 27, 96, 177, 127, 68, 16, 231, 47, 227, 104, 21, 175, 254, 219, 85, 224, 111,
+		64, 162, 32, 119, 226, 89, 143, 126, 203, 254, 51, 93,
 	];
 	assert_eq!(tree::hash_leaf::<Test>(&leaf), expected);
 }

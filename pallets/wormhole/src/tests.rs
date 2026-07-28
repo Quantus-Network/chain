@@ -79,10 +79,7 @@ mod wormhole_tests {
 
 			// Genuine native (arrives as `None`) is still recorded and still inflates the pool.
 			<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
-				None,
-				from,
-				to,
-				amount,
+				None, from, to, amount,
 			);
 			assert_eq!(ZkTree::leaf_count(), 1, "a native deposit must insert a leaf");
 			assert_eq!(
@@ -194,8 +191,8 @@ mod wormhole_tests {
 		// pinned constant is circuit-correct, not just self-consistent.
 		let golden_case = (AccountId32::new([0x11u8; 32]), 7u64, 5u32, 1234u32);
 		let golden_hash: [u8; 32] = [
-			195, 94, 210, 27, 96, 177, 127, 68, 16, 231, 47, 227, 104, 21, 175, 254, 219, 85,
-			224, 111, 64, 162, 32, 119, 226, 89, 143, 126, 203, 254, 51, 93,
+			195, 94, 210, 27, 96, 177, 127, 68, 16, 231, 47, 227, 104, 21, 175, 254, 219, 85, 224,
+			111, 64, 162, 32, 119, 226, 89, 143, 126, 203, 254, 51, 93,
 		];
 		{
 			let (to, transfer_count, asset_id, quantized_amount) = &golden_case;
@@ -221,8 +218,7 @@ mod wormhole_tests {
 				asset_id,
 				// `hash_leaf` quantizes by dividing by AMOUNT_SCALE_DOWN_FACTOR;
 				// the circuit helper takes the already-quantized amount.
-				amount: (quantized_amount as u128) *
-					pallet_zk_tree::tree::AMOUNT_SCALE_DOWN_FACTOR,
+				amount: (quantized_amount as u128) * pallet_zk_tree::tree::AMOUNT_SCALE_DOWN_FACTOR,
 			};
 			let pallet_hash = pallet_zk_tree::tree::hash_leaf::<Test>(&leaf);
 
@@ -854,8 +850,7 @@ mod private_batch_proof_tests {
 			for byte in tampered.iter_mut().take(64) {
 				*byte ^= 0xFF;
 			}
-			let call =
-				crate::Call::<Test>::verify_private_batch { proof_bytes: tampered.clone() };
+			let call = crate::Call::<Test>::verify_private_batch { proof_bytes: tampered.clone() };
 
 			// Pool admission is verify-free, so it still admits the tampered proof.
 			assert_ok!(<Wormhole as ValidateUnsigned>::validate_unsigned(
@@ -884,9 +879,8 @@ mod private_batch_proof_tests {
 
 			let proof = deserialize_test_proof();
 			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
-			let call = crate::Call::<Test>::verify_private_batch {
-				proof_bytes: get_test_proof_bytes(),
-			};
+			let call =
+				crate::Call::<Test>::verify_private_batch { proof_bytes: get_test_proof_bytes() };
 
 			let valid = <Wormhole as ValidateUnsigned>::validate_unsigned(
 				TransactionSource::External,

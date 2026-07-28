@@ -49,8 +49,8 @@ pub const MAX_TREE_DEPTH: u8 = 32;
 /// `depth + 1` (capped at [`MAX_TREE_DEPTH`]) so an insert that triggers tree growth is
 /// covered. At effective depth `d`:
 /// - reads: `LeafCount` + `Depth` (twice) + `grow_tree`'s `Root` + `3·d` siblings
-/// - writes: `Leaves` + `LeafCount` + `Root` + `d − 1` internal nodes, plus
-///   `grow_tree`'s `Nodes`/`Root`/`Depth` writes
+/// - writes: `Leaves` + `LeafCount` + `Root` + `d − 1` internal nodes, plus `grow_tree`'s
+///   `Nodes`/`Root`/`Depth` writes
 ///
 /// Weight/fee metering for anything that inserts leaves must use this (via
 /// [`Pallet::insert_leaf_db_ops`]) rather than a flat constant, otherwise the declared

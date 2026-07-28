@@ -121,10 +121,8 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	/// storage here, so the charge tracks the tree as it deepens over the chain's life).
 	fn per_transfer_weight() -> Weight {
 		let (tree_reads, tree_writes) = pallet_zk_tree::Pallet::<Runtime>::insert_leaf_db_ops();
-		T::DbWeight::get().reads_writes(
-			5u64.saturating_add(tree_reads),
-			2u64.saturating_add(tree_writes),
-		)
+		T::DbWeight::get()
+			.reads_writes(5u64.saturating_add(tree_reads), 2u64.saturating_add(tree_writes))
 	}
 
 	fn count_transfers(call: &RuntimeCall) -> u64 {
