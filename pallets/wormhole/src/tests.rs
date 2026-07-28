@@ -808,6 +808,109 @@ mod private_batch_proof_tests {
 		});
 	}
 
+	/// Sets up the on-chain block state so the test proof's cheap bundle checks pass.
+	fn setup_valid_block_state_for_test_proof() {
+		let proof = deserialize_test_proof();
+		let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
+		let block_number = inputs.block_data.block_number as u64;
+		let block_hash_bytes: [u8; 32] = inputs.block_data.block_hash.as_ref().try_into().unwrap();
+		frame_system::BlockHash::<Test>::insert(block_number, H256::from(block_hash_bytes));
+		System::set_block_number(block_number + 10);
+		PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+	}
+
+	/// The block-inclusion gate (`pre_dispatch`) must reject a proof that cannot be
+	/// verified. Before this was fixed, `pre_dispatch` was a no-op that returned `Ok(())`
+	/// for any `verify_*` call, so junk rode into blocks as failed `Pays::No` extrinsics;
+	/// this assertion is red against that old behavior.
+	#[test]
+	fn pre_dispatch_rejects_unverifiable_proof() {
+		use sp_runtime::traits::ValidateUnsigned;
+
+		new_test_ext().execute_with(|| {
+			let call = crate::Call::<Test>::verify_private_batch { proof_bytes: vec![0u8; 100] };
+			assert!(
+				<Wormhole as ValidateUnsigned>::pre_dispatch(&call).is_err(),
+				"pre_dispatch must reject an unverifiable proof"
+			);
+		});
+	}
+
+	/// The core of the anti-DoS change: pool admission (`validate_unsigned`) must NOT run
+	/// the expensive ZK verification, while the block-inclusion gate (`pre_dispatch`)
+	/// must. A proof whose public inputs are intact (so the cheap bundle checks pass) but
+	/// whose proof data is corrupted (so ZK verification fails) is therefore *admitted*
+	/// by `validate_unsigned` yet *rejected* by `pre_dispatch`.
+	#[test]
+	fn validate_unsigned_skips_verify_but_pre_dispatch_enforces_it() {
+		use sp_runtime::{traits::ValidateUnsigned, transaction_validity::TransactionSource};
+
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+
+			// Corrupt the proof data while leaving the public inputs (serialized after the
+			// proof) intact, so the cheap checks still pass but ZK verification fails.
+			let mut tampered = get_test_proof_bytes();
+			for byte in tampered.iter_mut().take(64) {
+				*byte ^= 0xFF;
+			}
+			let call =
+				crate::Call::<Test>::verify_private_batch { proof_bytes: tampered.clone() };
+
+			// Pool admission is verify-free, so it still admits the tampered proof.
+			assert_ok!(<Wormhole as ValidateUnsigned>::validate_unsigned(
+				TransactionSource::External,
+				&call,
+			));
+
+			// The block-inclusion gate runs the ZK verify and rejects it.
+			assert!(
+				<Wormhole as ValidateUnsigned>::pre_dispatch(&call).is_err(),
+				"pre_dispatch must reject a proof that fails ZK verification"
+			);
+		});
+	}
+
+	/// A valid proof against valid state passes both the pool path and the inclusion gate,
+	/// and the pool dedup tag is derived from the proof's nullifiers (so byte-variants of
+	/// the same logical exit collide instead of each earning a fresh pool entry).
+	#[test]
+	fn validate_unsigned_and_pre_dispatch_accept_valid_proof_with_semantic_tag() {
+		use codec::Encode;
+		use sp_runtime::{traits::ValidateUnsigned, transaction_validity::TransactionSource};
+
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+
+			let proof = deserialize_test_proof();
+			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
+			let call = crate::Call::<Test>::verify_private_batch {
+				proof_bytes: get_test_proof_bytes(),
+			};
+
+			let valid = <Wormhole as ValidateUnsigned>::validate_unsigned(
+				TransactionSource::External,
+				&call,
+			)
+			.expect("valid proof must be admitted to the pool");
+			assert!(<Wormhole as ValidateUnsigned>::pre_dispatch(&call).is_ok());
+
+			// The `provides` tag is `(prefix, blake2_256(nullifiers))` — recompute it here
+			// and confirm the pool would dedup on the nullifier set rather than the raw
+			// proof bytes.
+			let mut preimage = Vec::new();
+			for nullifier in &inputs.nullifiers {
+				preimage.extend_from_slice(nullifier.as_ref());
+			}
+			let expected_tag =
+				("WormholePrivateBatch", sp_io::hashing::blake2_256(&preimage)).encode();
+			assert!(
+				valid.provides.contains(&expected_tag),
+				"pool dedup tag must be derived from the bundle nullifiers"
+			);
+		});
+	}
+
 	#[test]
 	fn test_verify_private_batch_emits_miner_volume_fee_paid() {
 		new_test_ext().execute_with(|| {

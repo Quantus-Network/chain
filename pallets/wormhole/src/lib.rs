@@ -639,21 +639,20 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
 
-			// Full validation including ZK verification (defense-in-depth, also done in
-			// validate_unsigned). Weight returned depends on which stage failed.
-			let (bundle, _) = match Self::validate_private_batch_proof(&proof_bytes) {
+			// The ZK verification is the block-inclusion gate in `ValidateUnsigned::pre_dispatch`,
+			// which always runs before this dispatch for a bare (unsigned) extrinsic and rejects
+			// any proof that fails to verify. This body therefore only re-runs the cheap
+			// pre-validation to recover the bundle before processing — re-verifying here would
+			// double the ZK-verify cost while the declared weight only accounts for one verify.
+			let (_, _, bundle, _) = match Self::pre_validate_private_batch_proof(&proof_bytes) {
 				Ok(result) => result,
 				Err(e) => {
-					// Determine weight based on which stage failed
-					let actual_weight = match e {
-						// ZK verification was attempted - full weight consumed
-						Error::<T>::ProofVerificationFailed =>
-							Some(<T as Config>::WeightInfo::verify_private_batch()),
-						// Failed before ZK verification - minimal weight
-						_ => Some(<T as Config>::WeightInfo::pre_validate_proof()),
-					};
+					// Only cheap pre-validation runs here, so any failure is pre-verify work.
 					return Err(DispatchErrorWithPostInfo {
-						post_info: PostDispatchInfo { actual_weight, pays_fee: Pays::No },
+						post_info: PostDispatchInfo {
+							actual_weight: Some(<T as Config>::WeightInfo::pre_validate_proof()),
+							pays_fee: Pays::No,
+						},
 						error: e.into(),
 					});
 				},
@@ -677,16 +676,18 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
 
-			let (bundle, _) = match Self::validate_public_batch_proof(&proof_bytes) {
+			// ZK verification is the block-inclusion gate in `pre_dispatch` (see
+			// `verify_private_batch`); this body only re-runs the cheap pre-validation.
+			let (_, _, bundle, _) = match Self::pre_validate_public_batch_proof(&proof_bytes) {
 				Ok(result) => result,
 				Err(e) => {
-					let actual_weight = match e {
-						Error::<T>::ProofVerificationFailed =>
-							Some(<T as Config>::WeightInfo::verify_public_batch()),
-						_ => Some(<T as Config>::WeightInfo::pre_validate_public_batch_proof()),
-					};
 					return Err(DispatchErrorWithPostInfo {
-						post_info: PostDispatchInfo { actual_weight, pays_fee: Pays::No },
+						post_info: PostDispatchInfo {
+							actual_weight: Some(
+								<T as Config>::WeightInfo::pre_validate_public_batch_proof(),
+							),
+							pays_fee: Pays::No,
+						},
 						error: e.into(),
 					});
 				},
@@ -1027,10 +1028,16 @@ pub mod pallet {
 		type Call = Call<T>;
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+			// Pool admission runs on every gossiped transaction, so it deliberately performs
+			// only the cheap pre-validation (deserialize, parse, bundle checks) and NOT the
+			// expensive ZK verification. The full verify is the block-inclusion gate in
+			// `pre_dispatch`; deferring it here prevents unsigned, fee-free traffic from
+			// forcing unbounded verification work per gossiped byte-variant of a proof.
 			match call {
 				Call::verify_private_batch { proof_bytes } => {
-					let (bundle, validity) = Self::validate_private_batch_proof(proof_bytes)
-						.map_err(|_| InvalidTransaction::Call)?;
+					let (_, _, bundle, validity) =
+						Self::pre_validate_private_batch_proof(proof_bytes)
+							.map_err(|_| InvalidTransaction::Call)?;
 
 					let total_amount: u64 = bundle
 						.segments
@@ -1042,15 +1049,16 @@ pub mod pallet {
 						.sum();
 
 					ValidTransaction::with_tag_prefix("WormholePrivateBatch")
-						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
+						.and_provides(Self::exit_bundle_provides_tag(&bundle))
 						.priority(total_amount)
 						.longevity(5)
 						.propagate(true)
 						.build()
 				},
 				Call::verify_public_batch { proof_bytes } => {
-					let (bundle, validity) = Self::validate_public_batch_proof(proof_bytes)
-						.map_err(|_| InvalidTransaction::Call)?;
+					let (_, _, bundle, validity) =
+						Self::pre_validate_public_batch_proof(proof_bytes)
+							.map_err(|_| InvalidTransaction::Call)?;
 
 					// Inert (dummy-padded) segments are already `false` in `validity`,
 					// so filtering on validity alone excludes them.
@@ -1064,7 +1072,7 @@ pub mod pallet {
 						.sum();
 
 					ValidTransaction::with_tag_prefix("WormholePublicBatch")
-						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
+						.and_provides(Self::exit_bundle_provides_tag(&bundle))
 						.priority(total_amount)
 						.longevity(5)
 						.propagate(true)
@@ -1075,10 +1083,22 @@ pub mod pallet {
 		}
 
 		fn pre_dispatch(call: &Self::Call) -> Result<(), TransactionValidityError> {
-			// Skip re-validation - validate_unsigned already did full verification,
-			// and dispatch will verify again as defense-in-depth
+			// Block-inclusion gate. Unlike `validate_unsigned` (pool admission), this runs
+			// the FULL validation including ZK verification, and returning `Err` here
+			// excludes the transaction from the block being built (and makes a block that
+			// includes an unverifiable proof invalid on import). This is what keeps
+			// unverified/junk proofs out of blocks now that pool admission is verify-free.
 			match call {
-				Call::verify_private_batch { .. } | Call::verify_public_batch { .. } => Ok(()),
+				Call::verify_private_batch { proof_bytes } => Self::validate_private_batch_proof(
+					proof_bytes,
+				)
+				.map(|_| ())
+				.map_err(|_| InvalidTransaction::Call.into()),
+				Call::verify_public_batch { proof_bytes } => Self::validate_public_batch_proof(
+					proof_bytes,
+				)
+				.map(|_| ())
+				.map_err(|_| InvalidTransaction::Call.into()),
 				_ => Err(InvalidTransaction::Call.into()),
 			}
 		}
@@ -1105,10 +1125,21 @@ pub mod pallet {
 			Ok(validity)
 		}
 
-		/// Validate a private-batch proof (cheap checks + full ZK verification).
-		fn validate_private_batch_proof(
+		/// Cheap pre-validation of a private-batch proof: deserialize, parse public
+		/// inputs, and run the cheap bundle checks — but **not** the expensive ZK
+		/// verification. Returns the verifier and deserialized proof (so a caller can
+		/// optionally run the ZK verify), plus the parsed bundle and per-segment validity.
+		///
+		/// This is the work performed on the transaction-pool admission path
+		/// (`validate_unsigned`), where running the full ZK verify would let unsigned,
+		/// fee-free traffic force unbounded verification work per gossiped proof. The
+		/// full verification is deferred to the block-inclusion gate (`pre_dispatch`).
+		fn pre_validate_private_batch_proof(
 			proof_bytes: &[u8],
-		) -> Result<(ExitBundle, Vec<bool>), Error<T>> {
+		) -> Result<
+			(&'static crate::WormholeVerifier, ProofWithPublicInputs<F, C, D>, ExitBundle, Vec<bool>),
+			Error<T>,
+		> {
 			let verifier = crate::get_private_batch_verifier()
 				.map_err(|_| Error::<T>::VerifierNotAvailable)?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
@@ -1122,6 +1153,16 @@ pub mod pallet {
 
 			let validity = Self::validate_exit_bundle_common(&bundle)?;
 
+			Ok((verifier, proof, bundle, validity))
+		}
+
+		/// Validate a private-batch proof (cheap checks + full ZK verification).
+		fn validate_private_batch_proof(
+			proof_bytes: &[u8],
+		) -> Result<(ExitBundle, Vec<bool>), Error<T>> {
+			let (verifier, proof, bundle, validity) =
+				Self::pre_validate_private_batch_proof(proof_bytes)?;
+
 			verifier.verify(proof).map_err(|e| {
 				log::error!("Private-batch proof verification failed: {:?}", e);
 				Error::<T>::ProofVerificationFailed
@@ -1130,10 +1171,14 @@ pub mod pallet {
 			Ok((bundle, validity))
 		}
 
-		/// Validate a public-batch proof (cheap checks + full ZK verification).
-		fn validate_public_batch_proof(
+		/// Cheap pre-validation of a public-batch proof (no ZK verify). See
+		/// [`Self::pre_validate_private_batch_proof`].
+		fn pre_validate_public_batch_proof(
 			proof_bytes: &[u8],
-		) -> Result<(ExitBundle, Vec<bool>), Error<T>> {
+		) -> Result<
+			(&'static crate::WormholeVerifier, ProofWithPublicInputs<F, C, D>, ExitBundle, Vec<bool>),
+			Error<T>,
+		> {
 			let verifier =
 				crate::get_public_batch_verifier().map_err(|_| Error::<T>::VerifierNotAvailable)?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
@@ -1155,12 +1200,38 @@ pub mod pallet {
 
 			let validity = Self::validate_exit_bundle_common(&bundle)?;
 
+			Ok((verifier, proof, bundle, validity))
+		}
+
+		/// Validate a public-batch proof (cheap checks + full ZK verification).
+		fn validate_public_batch_proof(
+			proof_bytes: &[u8],
+		) -> Result<(ExitBundle, Vec<bool>), Error<T>> {
+			let (verifier, proof, bundle, validity) =
+				Self::pre_validate_public_batch_proof(proof_bytes)?;
+
 			verifier.verify(proof).map_err(|e| {
 				log::error!("Public-batch proof verification failed: {:?}", e);
 				Error::<T>::ProofVerificationFailed
 			})?;
 
 			Ok((bundle, validity))
+		}
+
+		/// Stable, semantic transaction-pool dedup tag for an exit bundle: a hash of the
+		/// bundle's nullifiers. Two encodings of the same logical exit (e.g. a proof
+		/// resubmitted with a mutated non-PI byte) share nullifiers and therefore collide
+		/// on this tag, so the pool holds one entry per logical exit instead of one per
+		/// distinct byte string (which `blake2_256(proof_bytes)` allowed an attacker to
+		/// bypass with a single-byte change).
+		fn exit_bundle_provides_tag(bundle: &ExitBundle) -> [u8; 32] {
+			let mut preimage = Vec::new();
+			for segment in &bundle.segments {
+				for nullifier in &segment.nullifiers {
+					preimage.extend_from_slice(nullifier.as_ref());
+				}
+			}
+			sp_io::hashing::blake2_256(&preimage)
 		}
 
 		/// Whether `account` is "ambiguous": it has never signed a transaction (`nonce == 0`) and
