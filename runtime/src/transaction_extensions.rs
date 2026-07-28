@@ -114,10 +114,17 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	///           `NonWormholeAccounts` membership checks `Multisigs` (1), the utility
 	///           pallet's `KnownDerivatives` (1) and the configured `TreasuryAccount` (1)
 	///           => 5 reads.
-	///   writes: TransferProof / ZK-tree leaf (1) + TransferCount (1) + the conditional
-	///           `PotentialWormholeBalance` deposit add (1) => 3 writes.
+	///   writes: TransferCount (1) + the conditional `PotentialWormholeBalance`
+	///           deposit add (1) => 2 writes.
+	/// plus the ZK-tree leaf insert, whose path update walks the tree leaf-to-root and
+	/// therefore costs reads/writes proportional to the *current* tree depth (read from
+	/// storage here, so the charge tracks the tree as it deepens over the chain's life).
 	fn per_transfer_weight() -> Weight {
-		T::DbWeight::get().reads_writes(5, 3)
+		let (tree_reads, tree_writes) = pallet_zk_tree::Pallet::<Runtime>::insert_leaf_db_ops();
+		T::DbWeight::get().reads_writes(
+			5u64.saturating_add(tree_reads),
+			2u64.saturating_add(tree_writes),
+		)
 	}
 
 	fn count_transfers(call: &RuntimeCall) -> u64 {
@@ -781,6 +788,24 @@ mod tests {
 					.saturating_mul(2)
 					.saturating_add(reveal_weight),
 				"as_derivative-wrapped transfers must be statically counted"
+			);
+		});
+	}
+
+	#[test]
+	fn per_transfer_weight_scales_with_tree_depth() {
+		new_test_ext().execute_with(|| {
+			// Recording a transfer inserts a ZK-tree leaf, and the path update walks the
+			// tree leaf-to-root — the charged weight must track the live tree depth.
+			pallet_zk_tree::Depth::<Runtime>::put(1);
+			let shallow = WormholeProofRecorderExtension::<Runtime>::per_transfer_weight();
+
+			pallet_zk_tree::Depth::<Runtime>::put(20);
+			let deep = WormholeProofRecorderExtension::<Runtime>::per_transfer_weight();
+
+			assert!(
+				deep.ref_time() > shallow.ref_time(),
+				"per-transfer weight must grow with ZK-tree depth"
 			);
 		});
 	}

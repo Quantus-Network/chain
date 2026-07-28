@@ -80,23 +80,44 @@ fn public_batch_max_exits() -> u64 {
 		.saturating_mul(circuit_config::NUM_PRIVATE_BATCH_PROOFS as u64)
 }
 
-/// Scale the calibrated storage tail to `exits` exit mints.
+/// Conservative PoV bound per ZK-tree storage key touched during a path update.
+/// Tree entries are 32-byte hashes with small keys; the comparable benchmarked
+/// `UsedNullifiers` map (49-byte entries) has an `added` figure of 2524 per key.
+const TREE_KEY_POV: u64 = 2600;
+
+/// Scale the calibrated storage tail to `exits` exit mints, adding the
+/// depth-dependent ZK-tree update cost per exit.
+///
+/// `process_exit_bundle` calls `record_transfer` once per exit mint, and each call
+/// walks the ZK tree leaf-to-root (`tree_ops_per_exit` reads/writes, growing with
+/// tree depth). The historical calibration was measured against a near-empty tree,
+/// so the depth-dependent walk is charged explicitly on top; the small tree
+/// component already embedded in the calibration is deliberately not deducted
+/// (over-charging is the safe direction).
 ///
 /// Adds one extra account read/write for the public-batch aggregator rebate when
 /// `include_aggregator` is set.
-fn storage_tail(exits: u64, include_aggregator: bool) -> (u64, u64, u64) {
+fn storage_tail(
+	exits: u64,
+	include_aggregator: bool,
+	tree_ops_per_exit: (u64, u64),
+) -> (u64, u64, u64) {
+	let (tree_reads, tree_writes) = tree_ops_per_exit;
 	let reads = STORAGE_CALIBRATION_READS
 		.saturating_mul(exits)
 		.saturating_div(STORAGE_CALIBRATION_EXITS)
-		.max(1);
+		.max(1)
+		.saturating_add(exits.saturating_mul(tree_reads));
 	let writes = STORAGE_CALIBRATION_WRITES
 		.saturating_mul(exits)
 		.saturating_div(STORAGE_CALIBRATION_EXITS)
-		.max(1);
+		.max(1)
+		.saturating_add(exits.saturating_mul(tree_writes));
 	let proof_size = STORAGE_CALIBRATION_PROOF_SIZE
 		.saturating_mul(exits)
 		.saturating_div(STORAGE_CALIBRATION_EXITS)
-		.max(1);
+		.max(1)
+		.saturating_add(exits.saturating_mul(tree_reads).saturating_mul(TREE_KEY_POV));
 	if include_aggregator {
 		(reads.saturating_add(1), writes.saturating_add(1), proof_size)
 	} else {
@@ -105,8 +126,12 @@ fn storage_tail(exits: u64, include_aggregator: bool) -> (u64, u64, u64) {
 }
 
 /// Weights for `pallet_wormhole` using the Substrate node and recommended hardware.
+///
+/// Bounded on `pallet_zk_tree::Config` because the exit-verification weights read the
+/// current tree depth: every processed exit inserts a ZK-tree leaf, whose storage cost
+/// grows with depth.
 pub struct SubstrateWeight<T>(PhantomData<T>);
-impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
+impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `System::BlockHash` (r:1 w:0)
 	/// Proof: `System::BlockHash` (`max_values`: None, `max_size`: Some(44), added: 2519, mode: `MaxEncodedLen`)
 	/// Storage: `Wormhole::UsedNullifiers` (r:NUM_LEAF_PROOFS w:0)
@@ -145,10 +170,13 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// - `System::Digest` (r:1), `Balances::TotalIssuance` (r:1 w:1)
 	/// - `System::Account` (r:E+1 w:E+1) - exit mints + miner fee
 	/// - `Wormhole::TransferCount` (r:E w:E)
-	/// - `ZkTree` Leaves/Nodes/LeafCount/Depth/Root via `record_transfer`
+	/// - `ZkTree` Leaves/Nodes/LeafCount/Depth/Root via `record_transfer`, charged
+	///   per exit at the current tree depth (the walk deepens as the chain ages)
 	/// Keep this augmentation when regenerating.
 	fn verify_private_batch() -> Weight {
-		let (reads, writes, proof_size) = storage_tail(private_batch_max_exits(), false);
+		let tree_ops = pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops();
+		let (reads, writes, proof_size) =
+			storage_tail(private_batch_max_exits(), false, tree_ops);
 		// Minimum execution time: 15_336_000_000 picoseconds (ZK verification only).
 		// Adding deserialization (~0.7ms) for total compute ~16.7ms.
 		Weight::from_parts(16_661_000_000, proof_size)
@@ -160,7 +188,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// inner segments: `2 · NUM_LEAF_PROOFS · NUM_PRIVATE_BATCH_PROOFS`, plus one
 	/// account touch for the aggregator fee rebate.
 	fn verify_public_batch() -> Weight {
-		let (reads, writes, proof_size) = storage_tail(public_batch_max_exits(), true);
+		let tree_ops = pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops();
+		let (reads, writes, proof_size) = storage_tail(public_batch_max_exits(), true, tree_ops);
 		Weight::from_parts(25_000_000_000, proof_size)
 			.saturating_add(T::DbWeight::get().reads(reads))
 			.saturating_add(T::DbWeight::get().writes(writes))
@@ -186,9 +215,13 @@ impl WeightInfo for () {
 	}
 	/// Full private-batch proof verification: ZK verification plus the data-dependent state
 	/// updates that the benchmark excludes. Storage scaled to `2 · NUM_LEAF_PROOFS` exits
-	/// from a 32-exit calibration. Keep this augmentation when regenerating.
+	/// from a 32-exit calibration. This impl has no runtime type to read the live tree
+	/// depth from, so the ZK-tree component is charged at `MAX_TREE_DEPTH` (worst case).
+	/// Keep this augmentation when regenerating.
 	fn verify_private_batch() -> Weight {
-		let (reads, writes, proof_size) = storage_tail(private_batch_max_exits(), false);
+		let tree_ops = pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
+		let (reads, writes, proof_size) =
+			storage_tail(private_batch_max_exits(), false, tree_ops);
 		// Minimum execution time: 15_336_000_000 picoseconds (ZK verification only).
 		// Adding deserialization (~0.7ms) for total compute ~16.7ms.
 		Weight::from_parts(16_661_000_000, proof_size)
@@ -196,7 +229,8 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes(writes))
 	}
 	fn verify_public_batch() -> Weight {
-		let (reads, writes, proof_size) = storage_tail(public_batch_max_exits(), true);
+		let tree_ops = pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
+		let (reads, writes, proof_size) = storage_tail(public_batch_max_exits(), true, tree_ops);
 		Weight::from_parts(25_000_000_000, proof_size)
 			.saturating_add(RocksDbWeight::get().reads(reads))
 			.saturating_add(RocksDbWeight::get().writes(writes))
@@ -215,8 +249,9 @@ mod tests {
 				.saturating_mul(circuit_config::NUM_PRIVATE_BATCH_PROOFS as u64)
 		);
 
-		let (priv_r, priv_w, _) = storage_tail(private_batch_max_exits(), false);
-		let (pub_r, pub_w, _) = storage_tail(public_batch_max_exits(), true);
+		let tree_ops = pallet_zk_tree::insert_leaf_db_ops_at_depth(0);
+		let (priv_r, priv_w, _) = storage_tail(private_batch_max_exits(), false, tree_ops);
+		let (pub_r, pub_w, _) = storage_tail(public_batch_max_exits(), true, tree_ops);
 
 		// Public must charge strictly more DB weight than a single private batch
 		// whenever more than one inner segment is configured.
@@ -224,5 +259,42 @@ mod tests {
 			assert!(pub_r > priv_r);
 			assert!(pub_w > priv_w);
 		}
+	}
+
+	/// The exit-verification storage tail must grow with ZK-tree depth: every
+	/// processed exit walks the tree leaf-to-root, so a deeper tree means more real
+	/// database work per exit and the declared weight has to track it.
+	#[test]
+	fn exit_storage_tail_scales_with_tree_depth() {
+		let exits = private_batch_max_exits();
+		let shallow = storage_tail(exits, false, pallet_zk_tree::insert_leaf_db_ops_at_depth(1));
+		let deep = storage_tail(exits, false, pallet_zk_tree::insert_leaf_db_ops_at_depth(20));
+
+		assert!(deep.0 > shallow.0, "reads must grow with tree depth");
+		assert!(deep.1 > shallow.1, "writes must grow with tree depth");
+		assert!(deep.2 > shallow.2, "proof size must grow with tree depth");
+	}
+
+	/// `SubstrateWeight` must price the tree component from the *live* depth, and the
+	/// depth-blind `()` impl (which prices at `MAX_TREE_DEPTH`) must never charge less
+	/// than `SubstrateWeight` at any live depth. The mock's `DbWeight` is zero, so the
+	/// depth sensitivity is observed through the PoV component.
+	#[test]
+	fn substrate_weight_reads_live_depth_and_unit_impl_is_worst_case() {
+		crate::mock::new_test_ext().execute_with(|| {
+			type W = SubstrateWeight<crate::mock::Test>;
+
+			pallet_zk_tree::Depth::<crate::mock::Test>::put(1);
+			let shallow = W::verify_private_batch();
+
+			pallet_zk_tree::Depth::<crate::mock::Test>::put(20);
+			let deep = W::verify_private_batch();
+			assert!(deep.proof_size() > shallow.proof_size());
+
+			pallet_zk_tree::Depth::<crate::mock::Test>::put(pallet_zk_tree::MAX_TREE_DEPTH);
+			let at_max = W::verify_private_batch();
+			let unit = <() as WeightInfo>::verify_private_batch();
+			assert!(unit.proof_size() >= at_max.proof_size());
+		});
 	}
 }
