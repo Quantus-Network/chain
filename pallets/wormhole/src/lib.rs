@@ -16,6 +16,17 @@ use qp_wormhole_verifier::{
 /// (see `PrivateBatchPublicInputs::try_from_u64_slice` in `qp-wormhole-inputs`).
 const PRIVATE_BATCH_PI_HEADER_FELTS: usize = 8;
 
+/// Fixed transaction-pool priority for unsigned wormhole exit submissions.
+///
+/// Must not be derived from public-input amounts: pool admission
+/// (`validate_unsigned`) only runs cheap pre-validation, so those amounts are
+/// attacker-controlled. Combined with the nullifier-based `provides` tag, an
+/// amount-derived priority would let junk with inflated PIs usurp a victim's
+/// same-tag exit (the pool replaces on strictly higher priority). A constant
+/// makes first-seen win; amount-based ordering is not needed for `Pays::No`
+/// exit traffic.
+pub const UNSIGNED_EXIT_PRIORITY: u64 = 1;
+
 /// Expected public-input count of the private-batch circuit compiled into this runtime.
 fn private_batch_expected_public_inputs() -> usize {
 	PRIVATE_BATCH_PI_HEADER_FELTS + circuit_config::NUM_LEAF_PROOFS * PUBLIC_INPUTS_FELTS_LEN
@@ -1035,45 +1046,29 @@ pub mod pallet {
 			// forcing unbounded verification work per gossiped byte-variant of a proof.
 			match call {
 				Call::verify_private_batch { proof_bytes } => {
-					let (_, _, bundle, validity) =
+					// `validity` is computed for its side-effect of rejecting
+					// wholly-unspendable / all-dummy bundles via the cheap checks;
+					// priority must not read amounts from it (see UNSIGNED_EXIT_PRIORITY).
+					let (_, _, bundle, _validity) =
 						Self::pre_validate_private_batch_proof(proof_bytes)
 							.map_err(|_| InvalidTransaction::Call)?;
 
-					let total_amount: u64 = bundle
-						.segments
-						.iter()
-						.zip(validity.iter())
-						.filter(|(_, valid)| **valid)
-						.flat_map(|(segment, _)| segment.account_data.iter())
-						.map(|a| a.summed_output_amount as u64)
-						.sum();
-
 					ValidTransaction::with_tag_prefix("WormholePrivateBatch")
 						.and_provides(Self::exit_bundle_provides_tag(&bundle))
-						.priority(total_amount)
+						.priority(crate::UNSIGNED_EXIT_PRIORITY)
 						.longevity(5)
 						.propagate(true)
 						.build()
 				},
 				Call::verify_public_batch { proof_bytes } => {
-					let (_, _, bundle, validity) =
+					// Same as the private-batch path: cheap checks only, fixed priority.
+					let (_, _, bundle, _validity) =
 						Self::pre_validate_public_batch_proof(proof_bytes)
 							.map_err(|_| InvalidTransaction::Call)?;
 
-					// Inert (dummy-padded) segments are already `false` in `validity`,
-					// so filtering on validity alone excludes them.
-					let total_amount: u64 = bundle
-						.segments
-						.iter()
-						.zip(validity.iter())
-						.filter(|(_, valid)| **valid)
-						.flat_map(|(segment, _)| segment.account_data.iter())
-						.map(|a| a.summed_output_amount as u64)
-						.sum();
-
 					ValidTransaction::with_tag_prefix("WormholePublicBatch")
 						.and_provides(Self::exit_bundle_provides_tag(&bundle))
-						.priority(total_amount)
+						.priority(crate::UNSIGNED_EXIT_PRIORITY)
 						.longevity(5)
 						.propagate(true)
 						.build()

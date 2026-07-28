@@ -905,6 +905,67 @@ mod private_batch_proof_tests {
 		});
 	}
 
+	/// Pool admission must not derive `priority` from unverified public-input amounts.
+	///
+	/// With verification deferred to `pre_dispatch`, an attacker who sees a victim's
+	/// gossiped exit can mutate the PI amounts (keeping the nullifiers so the semantic
+	/// `provides` tag collides) and submit a higher-priority junk tx that usurps the
+	/// victim's pool slot — the pool replaces same-tag txs only when the newcomer has
+	/// strictly higher priority. A constant priority makes first-seen win and closes
+	/// that free censorship path.
+	#[test]
+	fn validate_unsigned_priority_ignores_unverified_amounts() {
+		use qp_plonky2_verifier::field::types::Field;
+		use sp_runtime::{traits::ValidateUnsigned, transaction_validity::TransactionSource};
+
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+
+			let original = get_test_proof_bytes();
+			let original_call =
+				crate::Call::<Test>::verify_private_batch { proof_bytes: original.clone() };
+			let original_valid = <Wormhole as ValidateUnsigned>::validate_unsigned(
+				TransactionSource::External,
+				&original_call,
+			)
+			.expect("valid proof must be admitted");
+
+			// Inflate the first exit-slot amount in the PI section (layout: header of 8
+			// felts, then [sum(1), exit(4)] · 2N). Nullifiers are left untouched so the
+			// semantic provides tag stays identical to the victim's.
+			let mut tampered_proof = deserialize_test_proof();
+			assert!(
+				tampered_proof.public_inputs.len() > 8,
+				"test proof must have exit-slot public inputs"
+			);
+			tampered_proof.public_inputs[8] = F::from_canonical_u32(u32::MAX);
+			let tampered_bytes = tampered_proof.to_bytes();
+			assert_ne!(tampered_bytes, original, "mutation must change the encoded proof");
+
+			let tampered_call =
+				crate::Call::<Test>::verify_private_batch { proof_bytes: tampered_bytes };
+			let tampered_valid = <Wormhole as ValidateUnsigned>::validate_unsigned(
+				TransactionSource::External,
+				&tampered_call,
+			)
+			.expect("amount-inflated junk still passes cheap pool checks");
+
+			assert_eq!(
+				tampered_valid.provides, original_valid.provides,
+				"same nullifiers must yield the same provides tag"
+			);
+			assert_eq!(
+				tampered_valid.priority, original_valid.priority,
+				"priority must not track unverified PI amounts (else junk can usurp a real exit)"
+			);
+			assert_eq!(
+				original_valid.priority,
+				crate::UNSIGNED_EXIT_PRIORITY,
+				"unsigned exits must use the fixed pool priority"
+			);
+		});
+	}
+
 	#[test]
 	fn test_verify_private_batch_emits_miner_volume_fee_paid() {
 		new_test_ext().execute_with(|| {
