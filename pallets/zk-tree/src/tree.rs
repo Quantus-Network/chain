@@ -123,17 +123,30 @@ where
 	felts.extend(u64_to_felts(leaf.transfer_count));
 
 	// asset_id: 1 felt (u32 -> u64 -> 8 bytes LE -> 1 felt via compact encoding)
-	// Convert via u128 then truncate to u32 (asset IDs should always fit in u32)
+	// The circuit commits asset IDs as u32. The runtime's asset ID type is u32, so the
+	// narrowing is lossless today; saturate (rather than truncate) as hardening for any
+	// future runtime with a wider type, so distinct assets can never wrap onto each
+	// other's low 32 bits. The debug_assert keeps dev builds loud about it.
 	let asset_id_u128: u128 = leaf.asset_id.into();
-	let asset_id_u32 = asset_id_u128 as u32;
+	let asset_id_u32 = u32::try_from(asset_id_u128).unwrap_or(u32::MAX);
 	debug_assert_eq!(asset_id_u128, asset_id_u32 as u128, "Asset ID must fit in u32");
 	felts.extend(bytes_to_felts_compact_lossy(&(asset_id_u32 as u64).to_le_bytes()));
 
 	// amount: 1 felt (u32 quantized -> u64 -> 8 bytes LE -> 1 felt via compact encoding)
 	// Quantize by dividing by AMOUNT_SCALE_DOWN_FACTOR (10^10)
 	// This gives 2 decimal places of precision (1 DEV = 100 quantized units)
+	//
+	// The circuit commits amounts as u32, so quantized values above u32::MAX are
+	// unrepresentable. Saturate instead of truncating: a wrapping cast would let an
+	// oversized transfer commit to the same leaf data as a small one (amount mod 2^32),
+	// making the authoritative root ambiguous between economically different transfers.
+	// Saturation pins every oversized amount to the same transparent cap, from which a
+	// prover can only ever claim *at most* the cap. Unreachable for the native token
+	// (the 2.1e19-planck supply cap quantizes to ~2.1e9 < u32::MAX) but reachable for
+	// permissionlessly minted pallet-assets amounts, which are also recorded here.
 	let amount_u128: u128 = leaf.amount.into();
-	let amount_quantized = (amount_u128 / AMOUNT_SCALE_DOWN_FACTOR) as u32;
+	let amount_quantized =
+		u32::try_from(amount_u128 / AMOUNT_SCALE_DOWN_FACTOR).unwrap_or(u32::MAX);
 	felts.extend(bytes_to_felts_compact_lossy(&(amount_quantized as u64).to_le_bytes()));
 
 	debug_assert_eq!(felts.len(), 8, "Leaf preimage must be exactly 8 felts");

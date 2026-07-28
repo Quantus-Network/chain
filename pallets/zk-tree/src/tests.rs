@@ -126,6 +126,58 @@ fn hash_leaf_golden_vector() {
 	assert_eq!(tree::hash_leaf::<Test>(&leaf), expected);
 }
 
+/// Helper for the amount-commitment tests: a fixed leaf varying only in `amount`.
+fn amount_leaf(amount: u128) -> ZkLeaf<AccountId, u32, u128> {
+	ZkLeaf { to: make_account(0x11), transfer_count: 7, asset_id: 5, amount }
+}
+
+/// Oversized amounts must not alias small amounts in the leaf commitment.
+///
+/// The leaf commits the quantized amount (`amount / AMOUNT_SCALE_DOWN_FACTOR`) as a
+/// u32. Quantized values above `u32::MAX` are unrepresentable and must saturate to
+/// `u32::MAX` rather than wrap — otherwise a transfer of `X + 2^32·SCALE` commits to
+/// exactly the same leaf data as a transfer of `X`, making the authoritative Merkle
+/// root ambiguous between economically different transfers. This is unreachable for
+/// the native token (the supply cap keeps quantized amounts below u32::MAX) but fully
+/// reachable for permissionlessly minted pallet-assets amounts.
+#[test]
+fn hash_leaf_oversized_amount_does_not_alias_small_amount() {
+	let small = 1234 * tree::AMOUNT_SCALE_DOWN_FACTOR;
+	// Quantizes to 1234 + 2^32, which truncates back to a committed amount of 1234
+	// if the encoding wraps instead of saturating.
+	let wrapping_alias = small + (1u128 << 32) * tree::AMOUNT_SCALE_DOWN_FACTOR;
+
+	assert_ne!(
+		tree::hash_leaf::<Test>(&amount_leaf(small)),
+		tree::hash_leaf::<Test>(&amount_leaf(wrapping_alias)),
+		"an oversized amount must not commit to the same leaf as a small amount"
+	);
+}
+
+/// Pins the saturation semantics: every quantized amount at or above `u32::MAX`
+/// commits to the same capped value, `u32::MAX`.
+#[test]
+fn hash_leaf_saturates_oversized_amounts_at_u32_max() {
+	let cap = (u32::MAX as u128) * tree::AMOUNT_SCALE_DOWN_FACTOR;
+	let at_cap = tree::hash_leaf::<Test>(&amount_leaf(cap));
+
+	assert_eq!(
+		at_cap,
+		tree::hash_leaf::<Test>(&amount_leaf(cap + tree::AMOUNT_SCALE_DOWN_FACTOR)),
+		"one quantized unit above the cap must saturate to the cap commitment"
+	);
+	assert_eq!(
+		at_cap,
+		tree::hash_leaf::<Test>(&amount_leaf(u128::MAX)),
+		"u128::MAX must saturate to the cap commitment"
+	);
+	assert_ne!(
+		at_cap,
+		tree::hash_leaf::<Test>(&amount_leaf(cap - tree::AMOUNT_SCALE_DOWN_FACTOR)),
+		"amounts below the cap must still commit to their true value"
+	);
+}
+
 #[test]
 fn insert_first_leaf_works() {
 	new_test_ext().execute_with(|| {
