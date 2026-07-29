@@ -228,11 +228,15 @@ pub mod pallet {
 
 	/// Current storage version of the pallet.
 	///
-	/// v1 introduces the wormhole soundness counters (`PotentialWormholeBalance` and
-	/// `TotalWormholeExits`). The v0 -> v1 migration seeds `PotentialWormholeBalance` so
-	/// that wormhole deposits made before the soundness tracking existed can still be
-	/// exited (see `migrations::v1`).
-	pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+	/// - v1 introduces the wormhole soundness counters (`PotentialWormholeBalance` and
+	///   `TotalWormholeExits`). The v0 -> v1 migration seeds `PotentialWormholeBalance` so that
+	///   wormhole deposits made before the soundness tracking existed can still be exited (see
+	///   `migrations::v1`).
+	/// - v2 re-keys `TransferCount` onto the Goldilocks-canonical recipient form. The v1 -> v2
+	///   migration merges any pre-upgrade raw-keyed entries into their canonical key (see
+	///   `migrations::v2`) so prospective deposits cannot restart a count sequence that collides
+	///   with pre-upgrade leaves.
+	pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
 	#[pallet::pallet]
 	#[pallet::storage_version(STORAGE_VERSION)]
@@ -1422,7 +1426,16 @@ pub mod pallet {
 				// A `pallet_assets` asset whose id collides with the reserved native id. The
 				// wormhole only supports native exits, and this is not a native deposit, so it
 				// must not touch native accounting — drop it.
-				Some(id) if id == T::AssetId::default() => false,
+				Some(id) if id == T::AssetId::default() => {
+					log::warn!(
+						target: "runtime::wormhole",
+						"Dropping pallet_assets asset-0 credit (not native): from={:?} to={:?} amount={:?}",
+						from,
+						to,
+						amount,
+					);
+					false
+				},
 				// A genuine non-native asset: recorded as an inert (non-native, never-exitable)
 				// leaf, preserving the existing behaviour for future asset-wormhole support.
 				Some(id) => {

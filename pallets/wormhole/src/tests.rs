@@ -576,6 +576,50 @@ mod wormhole_tests {
 			);
 		});
 	}
+
+	/// Pre-upgrade `TransferCount` entries keyed on non-canonical recipients must be merged
+	/// into the canonical key (max of the counts) so post-upgrade deposits cannot restart a
+	/// count sequence that collides with already-committed leaves.
+	#[test]
+	fn migration_merges_non_canonical_transfer_count_keys() {
+		use frame_support::traits::UncheckedOnRuntimeUpgrade;
+		use pallet_zk_tree::tree::{canonicalize_account_bytes, GOLDILOCKS_P};
+
+		new_test_ext().execute_with(|| {
+			// Non-canonical: first limb = p + 7 (reduces to 7). Canonical sibling has limb 7.
+			let mut raw_bytes = [0u8; 32];
+			raw_bytes[0..8].copy_from_slice(&(GOLDILOCKS_P + 7).to_le_bytes());
+			let raw = AccountId::from(raw_bytes);
+			let canonical = AccountId::from(canonicalize_account_bytes(raw_bytes));
+			assert_ne!(raw, canonical);
+
+			crate::TransferCount::<Test>::insert(&raw, 5u64);
+			crate::TransferCount::<Test>::insert(&canonical, 3u64);
+
+			crate::migrations::v2::CanonicalizeTransferCountKeys::<Test>::on_runtime_upgrade();
+
+			assert!(
+				!crate::TransferCount::<Test>::contains_key(&raw),
+				"non-canonical TransferCount key must be removed"
+			);
+			assert_eq!(
+				crate::TransferCount::<Test>::get(&canonical),
+				5,
+				"canonical key must keep the max of the alias and canonical counts"
+			);
+
+			// A fresh deposit to either form must continue from the merged count (5), not
+			// restart at 0 under the canonical key.
+			let from = account_id(1);
+			Wormhole::record_transfer(0u32, &from, &canonical, 10 * UNIT);
+			assert_eq!(crate::TransferCount::<Test>::get(&canonical), 6);
+			assert_eq!(
+				crate::TransferCount::<Test>::get(&raw),
+				0,
+				"raw alias must stay empty after merge"
+			);
+		});
+	}
 }
 
 /// Tests for private-batch proof verification
