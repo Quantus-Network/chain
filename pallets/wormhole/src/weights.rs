@@ -162,37 +162,38 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 		Weight::from_parts(685_000_000, proof_size)
 			.saturating_add(T::DbWeight::get().reads(1_u64.saturating_add(nullifier_reads)))
 	}
-	/// Full private-batch proof verification: ZK verification plus the data-dependent state
-	/// updates that the `verify_private_batch` benchmark intentionally excludes (it only
-	/// measures the ZK verify). Storage is scaled from a calibration of 32 exit mints
-	/// (2 · 16 leaves) to `2 · NUM_LEAF_PROOFS`:
-	/// - `System::BlockHash` (r:1) + `Wormhole::UsedNullifiers` (r:N w:N)
-	/// - `System::Digest` (r:1), `Balances::TotalIssuance` (r:1 w:1)
-	/// - `System::Account` (r:E+1 w:E+1) - exit mints + miner fee
-	/// - `Wormhole::TransferCount` (r:E w:E)
-	/// - `ZkTree` Leaves/Nodes/LeafCount/Depth/Root via `record_transfer`, charged
-	///   per exit at the current tree depth (the walk deepens as the chain ages)
-	/// Keep this augmentation when regenerating.
+	/// Full private-batch proof verification on the inclusion path:
+	/// - `pre_dispatch`: cheap prevalidation + ZK verify
+	/// - dispatch body: cheap prevalidation again (to recover the bundle) + state updates
+	///
+	/// The ZK-verify benchmark is the `16_661_000_000` base (verify + one deserialize).
+	/// Storage is scaled from a calibration of 32 exit mints (2 · 16 leaves) to
+	/// `2 · NUM_LEAF_PROOFS`, plus a second [`Self::pre_validate_proof`] for the dispatch
+	/// body's re-deserialize / nullifier scan (which the base does not cover). Keep this
+	/// augmentation when regenerating.
 	fn verify_private_batch() -> Weight {
 		let tree_ops = pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops();
 		let (reads, writes, proof_size) =
 			storage_tail(private_batch_max_exits(), false, tree_ops);
 		// Minimum execution time: 15_336_000_000 picoseconds (ZK verification only).
-		// Adding deserialization (~0.7ms) for total compute ~16.7ms.
+		// Adding one deserialization (~0.7ms) for the pre_dispatch path ~16.7ms; the
+		// second prevalidation (dispatch body) is added explicitly below.
 		Weight::from_parts(16_661_000_000, proof_size)
 			.saturating_add(T::DbWeight::get().reads(reads))
 			.saturating_add(T::DbWeight::get().writes(writes))
+			.saturating_add(Self::pre_validate_proof())
 	}
-	/// Public-batch ZK verification is heavier than private-batch (recursively verifies
-	/// N inner private-batch proofs). Storage scales with every exit slot across all
-	/// inner segments: `2 · NUM_LEAF_PROOFS · NUM_PRIVATE_BATCH_PROOFS`, plus one
-	/// account touch for the aggregator fee rebate.
+	/// Public-batch inclusion path: same double-prevalidation shape as
+	/// [`Self::verify_private_batch`], with heavier ZK time and storage scaled across
+	/// all inner segments plus the aggregator rebate. The second
+	/// [`Self::pre_validate_public_batch_proof`] covers the dispatch-body re-scan.
 	fn verify_public_batch() -> Weight {
 		let tree_ops = pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops();
 		let (reads, writes, proof_size) = storage_tail(public_batch_max_exits(), true, tree_ops);
 		Weight::from_parts(25_000_000_000, proof_size)
 			.saturating_add(T::DbWeight::get().reads(reads))
 			.saturating_add(T::DbWeight::get().writes(writes))
+			.saturating_add(Self::pre_validate_public_batch_proof())
 	}
 }
 
@@ -213,27 +214,25 @@ impl WeightInfo for () {
 		Weight::from_parts(685_000_000, proof_size)
 			.saturating_add(RocksDbWeight::get().reads(1_u64.saturating_add(nullifier_reads)))
 	}
-	/// Full private-batch proof verification: ZK verification plus the data-dependent state
-	/// updates that the benchmark excludes. Storage scaled to `2 · NUM_LEAF_PROOFS` exits
-	/// from a 32-exit calibration. This impl has no runtime type to read the live tree
-	/// depth from, so the ZK-tree component is charged at `MAX_TREE_DEPTH` (worst case).
-	/// Keep this augmentation when regenerating.
+	/// See `SubstrateWeight::verify_private_batch`. Tree component priced at
+	/// `MAX_TREE_DEPTH` (no runtime type to read live depth).
 	fn verify_private_batch() -> Weight {
 		let tree_ops = pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
 		let (reads, writes, proof_size) =
 			storage_tail(private_batch_max_exits(), false, tree_ops);
-		// Minimum execution time: 15_336_000_000 picoseconds (ZK verification only).
-		// Adding deserialization (~0.7ms) for total compute ~16.7ms.
 		Weight::from_parts(16_661_000_000, proof_size)
 			.saturating_add(RocksDbWeight::get().reads(reads))
 			.saturating_add(RocksDbWeight::get().writes(writes))
+			.saturating_add(Self::pre_validate_proof())
 	}
+	/// See `SubstrateWeight::verify_public_batch`.
 	fn verify_public_batch() -> Weight {
 		let tree_ops = pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
 		let (reads, writes, proof_size) = storage_tail(public_batch_max_exits(), true, tree_ops);
 		Weight::from_parts(25_000_000_000, proof_size)
 			.saturating_add(RocksDbWeight::get().reads(reads))
 			.saturating_add(RocksDbWeight::get().writes(writes))
+			.saturating_add(Self::pre_validate_public_batch_proof())
 	}
 }
 
@@ -295,6 +294,39 @@ mod tests {
 			let at_max = W::verify_private_batch();
 			let unit = <() as WeightInfo>::verify_private_batch();
 			assert!(unit.proof_size() >= at_max.proof_size());
+		});
+	}
+
+	/// Inclusion runs cheap prevalidation twice (`pre_dispatch` via full validate, then
+	/// again in the dispatch body to recover the bundle). The declared verify weight must
+	/// cover that second prevalidation on top of the ZK+storage base.
+	#[test]
+	fn verify_weights_cover_second_prevalidation() {
+		crate::mock::new_test_ext().execute_with(|| {
+			type W = SubstrateWeight<crate::mock::Test>;
+			pallet_zk_tree::Depth::<crate::mock::Test>::put(1);
+
+			let pre_private = W::pre_validate_proof();
+			let verify_private = W::verify_private_batch();
+			assert!(
+				verify_private.ref_time() >= 16_661_000_000 + pre_private.ref_time(),
+				"private verify must include a second pre_validate_proof compute cost"
+			);
+			assert!(
+				verify_private.proof_size() >= pre_private.proof_size(),
+				"private verify must include pre_validate PoV"
+			);
+
+			let pre_public = W::pre_validate_public_batch_proof();
+			let verify_public = W::verify_public_batch();
+			assert!(
+				verify_public.ref_time() >= 25_000_000_000 + pre_public.ref_time(),
+				"public verify must include a second pre_validate_public_batch_proof compute cost"
+			);
+			assert!(
+				verify_public.proof_size() >= pre_public.proof_size(),
+				"public verify must include public pre_validate PoV"
+			);
 		});
 	}
 }
