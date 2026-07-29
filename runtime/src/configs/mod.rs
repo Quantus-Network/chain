@@ -667,10 +667,12 @@ impl TryFrom<RuntimeCall> for pallet_assets::Call<Runtime> {
 }
 
 parameter_types! {
-	/// Minimum transfer amount for wormhole (10 QUAN = 10 * 10^12)
-	pub const WormholeMinimumTransferAmount: Balance = UNIT / 10;
-	/// Volume fee rate in basis points (10 bps = 0.1%)
-	pub const VolumeFeeRateBps: u32 = 10;
+	/// Volume fee rate in basis points (4 bps = 0.04%).
+	/// The circuit already enforces a one-quantum (0.01 QUAN) minimum fee via ceil
+	/// rounding of `(out₁ + out₂) × 10000 ≤ input × (10000 − bps)`, so small exits
+	/// pay a flat 0.01 QUAN and large exits pay the headline rate. There is no
+	/// separate on-chain minimum exit amount.
+	pub const VolumeFeeRateBps: u32 = 4;
 	/// Proportion of volume fees to burn (50% burned, 50% to miner)
 	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
 	/// Half of the burn bucket on public-batch exits goes to the aggregator instead.
@@ -738,7 +740,6 @@ impl pallet_wormhole::Config for Runtime {
 	/// Use the same MintingAccount as mining-rewards for consistency.
 	/// Both pallets mint native tokens and should use the same sentinel "from" address.
 	type MintingAccount = MintingAccount;
-	type MinimumTransferAmount = WormholeMinimumTransferAmount;
 	type NonWormholeAccounts = NonWormholeAccounts;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;

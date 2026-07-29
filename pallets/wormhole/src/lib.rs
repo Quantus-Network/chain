@@ -341,11 +341,6 @@ pub mod pallet {
 		#[pallet::constant]
 		type MintingAccount: Get<<Self as frame_system::Config>::AccountId>;
 
-		/// Minimum transfer amount required for wormhole transfers.
-		/// This prevents dust transfers that waste storage.
-		#[pallet::constant]
-		type MinimumTransferAmount: Get<BalanceOf<Self>>;
-
 		/// Accounts that must never be treated as "ambiguous" wormhole-deposit addresses, even
 		/// though their nonce is zero.
 		///
@@ -522,8 +517,6 @@ pub mod pallet {
 		InvalidProofPublicInputs,
 		/// The volume fee rate in the proof doesn't match the configured rate
 		InvalidVolumeFeeRate,
-		/// Transfer amount is below the minimum required
-		TransferAmountBelowMinimum,
 		/// Only native asset (asset_id = 0) is supported in this version
 		NonNativeAssetNotSupported,
 		/// Soundness invariant violated: total wormhole exits would exceed the value that could
@@ -861,12 +854,6 @@ pub mod pallet {
 					processed_accounts.push((exit_account, exit_balance));
 				}
 			}
-
-			// Ensure total exit amount meets the minimum transfer requirement
-			ensure!(
-				total_exit_amount >= T::MinimumTransferAmount::get(),
-				Error::<T>::TransferAmountBelowMinimum
-			);
 
 			// SOUNDNESS CHECK: never allow the cumulative wormhole exits to exceed the value
 			// that could possibly have been deposited into wormhole (ambiguous) addresses.

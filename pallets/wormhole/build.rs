@@ -37,9 +37,11 @@ fn main() {
 		.parse()
 		.expect("QP_NUM_LEAF_PROOFS must be a valid usize");
 
-	// Default to 4 inner private batches per public batch.
+	// Default to 53 inner private batches per public batch. Larger batches amortize
+	// aggregator proving cost as the volume fee falls (runtime: 4 bps). Override with
+	// QP_NUM_PRIVATE_BATCH_PROOFS for smaller local/fixture builds.
 	let num_private_batch_proofs: usize = env::var("QP_NUM_PRIVATE_BATCH_PROOFS")
-		.unwrap_or_else(|_| "4".to_string())
+		.unwrap_or_else(|_| "53".to_string())
 		.parse()
 		.expect("QP_NUM_PRIVATE_BATCH_PROOFS must be a valid usize");
 

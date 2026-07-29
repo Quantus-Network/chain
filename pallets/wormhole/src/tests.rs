@@ -1254,7 +1254,6 @@ mod fixture_gen {
 		// Create test inputs with real block header validation
 		let secret: BytesDigest = BytesDigest::new_unchecked([42u8; 32]); // Well-known test secret
 		let transfer_count = 1u64;
-		// Use amounts above minimum (10 UNIT = 1000 quantized)
 		// input_amount = 2000 quantized = 20 UNIT
 		// output after 10 bps fee: 2000 - (2000 * 10 / 10000) = 2000 - 2 = 1998
 		let input_amount = 2000u32;
@@ -1503,8 +1502,7 @@ mod exit_bundle_tests {
 	use sp_core::crypto::AccountId32;
 	use sp_runtime::Permill;
 
-	/// Quantized circuit amounts (2 decimals). 2000 => 20 QUAN on-chain, well above
-	/// the 10 QUAN MinimumTransferAmount.
+	/// Quantized circuit amounts (2 decimals). 2000 => 20 QUAN on-chain.
 	const AMOUNT_A: u32 = 2000;
 	const AMOUNT_B: u32 = 3000;
 

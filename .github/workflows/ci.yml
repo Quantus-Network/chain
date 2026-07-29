@@ -48,6 +48,11 @@ jobs:
     name: 🛠️ Build & Test Matrix
     needs: fast-checks
     runs-on: ${{ matrix.os }}
+    # Fixture proofs in pallets/wormhole/test-data were generated for 4 inner
+    # private batches. Production default is 53 (see build.rs); override here so
+    # PI layout matches the committed hex fixtures until they are regenerated.
+    env:
+      QP_NUM_PRIVATE_BATCH_PROOFS: "4"
     strategy:
       fail-fast: true
       matrix:
