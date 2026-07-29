@@ -41,6 +41,25 @@ mod tests;
 /// A tree of depth 32 can hold 4^32 leaves (more than enough).
 pub const MAX_TREE_DEPTH: u8 = 32;
 
+/// Worst-case `(reads, writes)` storage-operation counts for one [`Pallet::insert_leaf`]
+/// call when the tree is currently at `depth`.
+///
+/// The insert is depth-dependent: `update_path` reads the 3 sibling hashes at every
+/// level and writes one internal node per level below the root. Costing is done at
+/// `depth + 1` (capped at [`MAX_TREE_DEPTH`]) so an insert that triggers tree growth is
+/// covered. At effective depth `d`:
+/// - reads: `LeafCount` + `Depth` (twice) + `grow_tree`'s `Root` + `3·d` siblings
+/// - writes: `Leaves` + `LeafCount` + `Root` + `d − 1` internal nodes, plus `grow_tree`'s
+///   `Nodes`/`Root`/`Depth` writes
+///
+/// Weight/fee metering for anything that inserts leaves must use this (via
+/// [`Pallet::insert_leaf_db_ops`]) rather than a flat constant, otherwise the declared
+/// weight silently falls behind the real database work as the tree deepens.
+pub fn insert_leaf_db_ops_at_depth(depth: u8) -> (u64, u64) {
+	let d = depth.saturating_add(1).min(MAX_TREE_DEPTH) as u64;
+	(3 * d + 4, d + 5)
+}
+
 /// Branching factor of the tree.
 pub const ARITY: usize = 4;
 
@@ -170,6 +189,14 @@ pub mod pallet {
 			// Set ZK Merkle tree root in frame_system for inclusion in block header
 			let root: Hash256 = Root::<T>::get();
 			<frame_system::Pallet<T>>::set_zk_tree_root(root.into());
+		}
+	}
+
+	impl<T: Config> Pallet<T> {
+		/// Worst-case `(reads, writes)` for one `insert_leaf` at the tree's *current*
+		/// depth. See [`insert_leaf_db_ops_at_depth`].
+		pub fn insert_leaf_db_ops() -> (u64, u64) {
+			crate::insert_leaf_db_ops_at_depth(Depth::<T>::get())
 		}
 	}
 

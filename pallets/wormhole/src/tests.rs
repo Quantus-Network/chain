@@ -31,6 +31,72 @@ mod wormhole_tests {
 		AccountId32::new(TEST_ADDRESS)
 	}
 
+	/// Security regression test (native/asset-0 conflation).
+	///
+	/// The wormhole tags native leaves with `asset_id == 0`, but `pallet_assets` uses id 0 for
+	/// an unrelated, independently-mintable token. Native deposits reach the recorder as `None`
+	/// (from `Balances` events); a `pallet_assets` asset-0 credit reaches it as `Some(0)` (from
+	/// `Assets::Issued`). These must NOT be conflated: a `Some(0)` credit is not backed by any
+	/// native, so treating it as native would let an asset-0 issuer inflate the native
+	/// `PotentialWormholeBalance` and insert a natively-exitable leaf — minting unbacked native
+	/// out of the wormhole.
+	///
+	/// This asserts that `record_transfer_proof(Some(0), ..)` to an ambiguous recipient neither
+	/// inserts a ZK-tree leaf nor inflates the pool, while genuine native (`None`) still does.
+	#[test]
+	fn asset_zero_credit_is_not_treated_as_native_deposit() {
+		use qp_wormhole::TransferProofRecorder;
+
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let from = account_id(1);
+			// A fresh (nonce 0) recipient that is not excluded: genuinely ambiguous.
+			let to = account_id(9001);
+			assert!(Wormhole::is_ambiguous_account(&to));
+			let amount = 1_000 * UNIT;
+
+			assert_eq!(ZkTree::leaf_count(), 0);
+			assert_eq!(Wormhole::potential_wormhole_balance(), 0);
+
+			// A pallet_assets asset-0 mint (arrives as `Some(0)`) must be inert for the
+			// native wormhole: no leaf, no pool inflation — and must report as not recorded
+			// so weight reconciliation does not treat the drop as a ZK-tree insert.
+			assert!(
+				!<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+					Some(0u32),
+					from.clone(),
+					to.clone(),
+					amount,
+				),
+				"an asset-0 credit must report as not recorded"
+			);
+			assert_eq!(
+				ZkTree::leaf_count(),
+				0,
+				"an asset-0 credit must not insert a native-exitable ZK-tree leaf"
+			);
+			assert_eq!(
+				Wormhole::potential_wormhole_balance(),
+				0,
+				"an asset-0 credit must not inflate the native potential-balance pool"
+			);
+
+			// Genuine native (arrives as `None`) is still recorded and still inflates the pool.
+			assert!(
+				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+					None, from, to, amount,
+				),
+				"a native deposit must report as recorded"
+			);
+			assert_eq!(ZkTree::leaf_count(), 1, "a native deposit must insert a leaf");
+			assert_eq!(
+				Wormhole::potential_wormhole_balance(),
+				amount,
+				"a native deposit to an ambiguous recipient must inflate the pool"
+			);
+		});
+	}
+
 	#[test]
 	fn record_transfer_increments_count() {
 		new_test_ext().execute_with(|| {
@@ -47,6 +113,135 @@ mod wormhole_tests {
 			Wormhole::record_transfer(0u32, &alice, &bob, amount);
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 2);
 		});
+	}
+
+	/// Security regression test (leaf-encoding aliasing).
+	///
+	/// `hash_leaf` encodes the recipient with a lossy 8-byte/felt encoding that reduces
+	/// each limb mod the Goldilocks prime. A "non-canonical alias" of a recipient (some
+	/// limb increased by the prime) therefore encodes to the *same* felts. If the
+	/// transfer-count sequence were keyed on the raw recipient bytes, a deposit to the
+	/// alias would start its own count at 0 and produce a leaf identical to the canonical
+	/// recipient's deposit 0 — the two deposits would then share one nullifier
+	/// (`H(secret, transfer_count)`) and only one of them could ever be exited.
+	///
+	/// This test deposits the same amount to a canonical recipient and to its alias and
+	/// asserts the resulting leaves are distinct.
+	#[test]
+	fn deposits_to_non_canonical_alias_do_not_collide_with_canonical_leaf() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let from = account_id(1);
+			let amount = 10 * UNIT;
+
+			const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
+
+			// Canonical recipient: first 8-byte limb small (an alias exists only when a
+			// limb is < 2^32 - 1, so that limb + p still fits in 8 bytes).
+			let mut canonical_bytes = [0x11u8; 32];
+			canonical_bytes[..8].copy_from_slice(&5u64.to_le_bytes());
+			let canonical = AccountId32::new(canonical_bytes);
+
+			// Alias: same account with the first limb increased by the prime. The lossy
+			// leaf encoding reduces it back to 5, so both accounts encode identically.
+			let mut alias_bytes = canonical_bytes;
+			alias_bytes[..8].copy_from_slice(&(5u64 + GOLDILOCKS_P).to_le_bytes());
+			let alias = AccountId32::new(alias_bytes);
+			assert_ne!(canonical, alias);
+
+			Wormhole::record_transfer(0u32, &from, &canonical, amount);
+			Wormhole::record_transfer(0u32, &from, &alias, amount);
+
+			let leaf0 = ZkTree::leaf(0).expect("first deposit must insert a leaf");
+			let leaf1 = ZkTree::leaf(1).expect("second deposit must insert a leaf");
+			let hash0 = pallet_zk_tree::tree::hash_leaf::<Test>(&leaf0);
+			let hash1 = pallet_zk_tree::tree::hash_leaf::<Test>(&leaf1);
+			assert_ne!(
+				hash0, hash1,
+				"a deposit to a non-canonical alias must not produce the same leaf \
+				 (and thus the same nullifier) as a deposit to the canonical recipient"
+			);
+
+			// The alias shares the canonical recipient's count sequence: both deposits
+			// are recorded under the canonical key, and the second leaf continues the
+			// sequence rather than restarting at 0.
+			assert_eq!(Wormhole::transfer_count(&canonical), 2);
+			assert_eq!(Wormhole::transfer_count(&alias), 0);
+			assert_eq!(leaf0.transfer_count, 0);
+			assert_eq!(leaf1.transfer_count, 1);
+
+			// Both leaves store the canonical recipient (what the hash actually
+			// commits to), so leaf data is consistent with the leaf hash.
+			assert_eq!(leaf0.to, canonical);
+			assert_eq!(leaf1.to, canonical);
+		});
+	}
+
+	/// Golden cross-check: the pallet's `hash_leaf` must stay byte-compatible with the
+	/// ZK circuit's leaf hash (`ZkLeafTargets::collect_for_hash`), reproduced here by
+	/// `fixture_gen::compute_zk_leaf_hash` on the real circuit crates. This pins the
+	/// encoding so refactors (e.g. recipient canonicalization) cannot silently change
+	/// the hash of existing canonical leaves.
+	#[test]
+	fn pallet_leaf_hash_matches_circuit_leaf_hash() {
+		// (to, transfer_count, asset_id, quantized_amount). First case uses the
+		// well-known fixture inputs: TEST_ADDRESS = WA([42u8; 32]), count 1, 2000
+		// quantized (the same values the private-batch proof fixture commits to).
+		let cases = [
+			(test_account(), 1u64, 0u32, 2000u32),
+			(account_id(1), 0u64, 0u32, 1000u32),
+			(account_id(424242), 7u64, 5u32, 1u32),
+		];
+
+		// The zk-tree pallet's `hash_leaf_golden_vector` test pins this exact case to a
+		// hardcoded hash; verifying it here against the circuit crates proves that the
+		// pinned constant is circuit-correct, not just self-consistent.
+		let golden_case = (AccountId32::new([0x11u8; 32]), 7u64, 5u32, 1234u32);
+		let golden_hash: [u8; 32] = [
+			195, 94, 210, 27, 96, 177, 127, 68, 16, 231, 47, 227, 104, 21, 175, 254, 219, 85, 224,
+			111, 64, 162, 32, 119, 226, 89, 143, 126, 203, 254, 51, 93,
+		];
+		{
+			let (to, transfer_count, asset_id, quantized_amount) = &golden_case;
+			let to_bytes: &[u8; 32] = to.as_ref();
+			assert_eq!(
+				super::fixture_gen::compute_zk_leaf_hash(
+					to_bytes,
+					*transfer_count,
+					*asset_id,
+					*quantized_amount,
+				),
+				golden_hash,
+				"golden vector constant is not circuit-correct"
+			);
+		}
+
+		for (to, transfer_count, asset_id, quantized_amount) in
+			cases.into_iter().chain([golden_case])
+		{
+			let leaf = pallet_zk_tree::ZkLeaf {
+				to: to.clone(),
+				transfer_count,
+				asset_id,
+				// `hash_leaf` quantizes by dividing by AMOUNT_SCALE_DOWN_FACTOR;
+				// the circuit helper takes the already-quantized amount.
+				amount: (quantized_amount as u128) * pallet_zk_tree::tree::AMOUNT_SCALE_DOWN_FACTOR,
+			};
+			let pallet_hash = pallet_zk_tree::tree::hash_leaf::<Test>(&leaf);
+
+			let to_bytes: &[u8; 32] = to.as_ref();
+			let circuit_hash = super::fixture_gen::compute_zk_leaf_hash(
+				to_bytes,
+				transfer_count,
+				asset_id,
+				quantized_amount,
+			);
+
+			assert_eq!(
+				pallet_hash, circuit_hash,
+				"pallet hash_leaf diverged from the circuit leaf hash for {to:?}"
+			);
+		}
 	}
 
 	#[test]
@@ -381,6 +576,50 @@ mod wormhole_tests {
 			);
 		});
 	}
+
+	/// Pre-upgrade `TransferCount` entries keyed on non-canonical recipients must be merged
+	/// into the canonical key (max of the counts) so post-upgrade deposits cannot restart a
+	/// count sequence that collides with already-committed leaves.
+	#[test]
+	fn migration_merges_non_canonical_transfer_count_keys() {
+		use frame_support::traits::UncheckedOnRuntimeUpgrade;
+		use pallet_zk_tree::tree::{canonicalize_account_bytes, GOLDILOCKS_P};
+
+		new_test_ext().execute_with(|| {
+			// Non-canonical: first limb = p + 7 (reduces to 7). Canonical sibling has limb 7.
+			let mut raw_bytes = [0u8; 32];
+			raw_bytes[0..8].copy_from_slice(&(GOLDILOCKS_P + 7).to_le_bytes());
+			let raw = AccountId::from(raw_bytes);
+			let canonical = AccountId::from(canonicalize_account_bytes(raw_bytes));
+			assert_ne!(raw, canonical);
+
+			crate::TransferCount::<Test>::insert(&raw, 5u64);
+			crate::TransferCount::<Test>::insert(&canonical, 3u64);
+
+			crate::migrations::v2::CanonicalizeTransferCountKeys::<Test>::on_runtime_upgrade();
+
+			assert!(
+				!crate::TransferCount::<Test>::contains_key(&raw),
+				"non-canonical TransferCount key must be removed"
+			);
+			assert_eq!(
+				crate::TransferCount::<Test>::get(&canonical),
+				5,
+				"canonical key must keep the max of the alias and canonical counts"
+			);
+
+			// A fresh deposit to either form must continue from the merged count (5), not
+			// restart at 0 under the canonical key.
+			let from = account_id(1);
+			Wormhole::record_transfer(0u32, &from, &canonical, 10 * UNIT);
+			assert_eq!(crate::TransferCount::<Test>::get(&canonical), 6);
+			assert_eq!(
+				crate::TransferCount::<Test>::get(&raw),
+				0,
+				"raw alias must stay empty after merge"
+			);
+		});
+	}
 }
 
 /// Tests for private-batch proof verification
@@ -612,6 +851,168 @@ mod private_batch_proof_tests {
 					RuntimeEvent::Wormhole(crate::Event::<Test>::MinerVolumeFeePaid { .. })
 				)),
 				"no miner fee event should be emitted without a block author"
+			);
+		});
+	}
+
+	/// Sets up the on-chain block state so the test proof's cheap bundle checks pass.
+	fn setup_valid_block_state_for_test_proof() {
+		let proof = deserialize_test_proof();
+		let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
+		let block_number = inputs.block_data.block_number as u64;
+		let block_hash_bytes: [u8; 32] = inputs.block_data.block_hash.as_ref().try_into().unwrap();
+		frame_system::BlockHash::<Test>::insert(block_number, H256::from(block_hash_bytes));
+		System::set_block_number(block_number + 10);
+		PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+	}
+
+	/// The block-inclusion gate (`pre_dispatch`) must reject a proof that cannot be
+	/// verified. Before this was fixed, `pre_dispatch` was a no-op that returned `Ok(())`
+	/// for any `verify_*` call, so junk rode into blocks as failed `Pays::No` extrinsics;
+	/// this assertion is red against that old behavior.
+	#[test]
+	fn pre_dispatch_rejects_unverifiable_proof() {
+		use sp_runtime::traits::ValidateUnsigned;
+
+		new_test_ext().execute_with(|| {
+			let call = crate::Call::<Test>::verify_private_batch { proof_bytes: vec![0u8; 100] };
+			assert!(
+				<Wormhole as ValidateUnsigned>::pre_dispatch(&call).is_err(),
+				"pre_dispatch must reject an unverifiable proof"
+			);
+		});
+	}
+
+	/// The core of the anti-DoS change: pool admission (`validate_unsigned`) must NOT run
+	/// the expensive ZK verification, while the block-inclusion gate (`pre_dispatch`)
+	/// must. A proof whose public inputs are intact (so the cheap bundle checks pass) but
+	/// whose proof data is corrupted (so ZK verification fails) is therefore *admitted*
+	/// by `validate_unsigned` yet *rejected* by `pre_dispatch`.
+	#[test]
+	fn validate_unsigned_skips_verify_but_pre_dispatch_enforces_it() {
+		use sp_runtime::{traits::ValidateUnsigned, transaction_validity::TransactionSource};
+
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+
+			// Corrupt the proof data while leaving the public inputs (serialized after the
+			// proof) intact, so the cheap checks still pass but ZK verification fails.
+			let mut tampered = get_test_proof_bytes();
+			for byte in tampered.iter_mut().take(64) {
+				*byte ^= 0xFF;
+			}
+			let call = crate::Call::<Test>::verify_private_batch { proof_bytes: tampered.clone() };
+
+			// Pool admission is verify-free, so it still admits the tampered proof.
+			assert_ok!(<Wormhole as ValidateUnsigned>::validate_unsigned(
+				TransactionSource::External,
+				&call,
+			));
+
+			// The block-inclusion gate runs the ZK verify and rejects it.
+			assert!(
+				<Wormhole as ValidateUnsigned>::pre_dispatch(&call).is_err(),
+				"pre_dispatch must reject a proof that fails ZK verification"
+			);
+		});
+	}
+
+	/// A valid proof against valid state passes both the pool path and the inclusion gate,
+	/// and the pool dedup tag is derived from the proof's nullifiers (so byte-variants of
+	/// the same logical exit collide instead of each earning a fresh pool entry).
+	#[test]
+	fn validate_unsigned_and_pre_dispatch_accept_valid_proof_with_semantic_tag() {
+		use codec::Encode;
+		use sp_runtime::{traits::ValidateUnsigned, transaction_validity::TransactionSource};
+
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+
+			let proof = deserialize_test_proof();
+			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
+			let call =
+				crate::Call::<Test>::verify_private_batch { proof_bytes: get_test_proof_bytes() };
+
+			let valid = <Wormhole as ValidateUnsigned>::validate_unsigned(
+				TransactionSource::External,
+				&call,
+			)
+			.expect("valid proof must be admitted to the pool");
+			assert!(<Wormhole as ValidateUnsigned>::pre_dispatch(&call).is_ok());
+
+			// The `provides` tag is `(prefix, blake2_256(nullifiers))` — recompute it here
+			// and confirm the pool would dedup on the nullifier set rather than the raw
+			// proof bytes.
+			let mut preimage = Vec::new();
+			for nullifier in &inputs.nullifiers {
+				preimage.extend_from_slice(nullifier.as_ref());
+			}
+			let expected_tag =
+				("WormholePrivateBatch", sp_io::hashing::blake2_256(&preimage)).encode();
+			assert!(
+				valid.provides.contains(&expected_tag),
+				"pool dedup tag must be derived from the bundle nullifiers"
+			);
+		});
+	}
+
+	/// Pool admission must not derive `priority` from unverified public-input amounts.
+	///
+	/// With verification deferred to `pre_dispatch`, an attacker who sees a victim's
+	/// gossiped exit can mutate the PI amounts (keeping the nullifiers so the semantic
+	/// `provides` tag collides) and submit a higher-priority junk tx that usurps the
+	/// victim's pool slot — the pool replaces same-tag txs only when the newcomer has
+	/// strictly higher priority. A constant priority makes first-seen win and closes
+	/// that free censorship path.
+	#[test]
+	fn validate_unsigned_priority_ignores_unverified_amounts() {
+		use qp_plonky2_verifier::field::types::Field;
+		use sp_runtime::{traits::ValidateUnsigned, transaction_validity::TransactionSource};
+
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+
+			let original = get_test_proof_bytes();
+			let original_call =
+				crate::Call::<Test>::verify_private_batch { proof_bytes: original.clone() };
+			let original_valid = <Wormhole as ValidateUnsigned>::validate_unsigned(
+				TransactionSource::External,
+				&original_call,
+			)
+			.expect("valid proof must be admitted");
+
+			// Inflate the first exit-slot amount in the PI section (layout: header of 8
+			// felts, then [sum(1), exit(4)] · 2N). Nullifiers are left untouched so the
+			// semantic provides tag stays identical to the victim's.
+			let mut tampered_proof = deserialize_test_proof();
+			assert!(
+				tampered_proof.public_inputs.len() > 8,
+				"test proof must have exit-slot public inputs"
+			);
+			tampered_proof.public_inputs[8] = F::from_canonical_u32(u32::MAX);
+			let tampered_bytes = tampered_proof.to_bytes();
+			assert_ne!(tampered_bytes, original, "mutation must change the encoded proof");
+
+			let tampered_call =
+				crate::Call::<Test>::verify_private_batch { proof_bytes: tampered_bytes };
+			let tampered_valid = <Wormhole as ValidateUnsigned>::validate_unsigned(
+				TransactionSource::External,
+				&tampered_call,
+			)
+			.expect("amount-inflated junk still passes cheap pool checks");
+
+			assert_eq!(
+				tampered_valid.provides, original_valid.provides,
+				"same nullifiers must yield the same provides tag"
+			);
+			assert_eq!(
+				tampered_valid.priority, original_valid.priority,
+				"priority must not track unverified PI amounts (else junk can usurp a real exit)"
+			);
+			assert_eq!(
+				original_valid.priority,
+				crate::UNSIGNED_EXIT_PRIORITY,
+				"unsigned exits must use the fixed pool priority"
 			);
 		});
 	}
@@ -948,8 +1349,11 @@ mod fixture_gen {
 		aggregated_proof
 	}
 
-	/// Helper to compute ZK leaf hash (must match circuit computation)
-	fn compute_zk_leaf_hash(
+	/// Helper to compute ZK leaf hash (must match circuit computation).
+	///
+	/// Also used by `pallet_leaf_hash_matches_circuit_leaf_hash` as the circuit-side
+	/// reference to pin the pallet's `hash_leaf` encoding.
+	pub fn compute_zk_leaf_hash(
 		to_account: &[u8; 32],
 		transfer_count: u64,
 		asset_id: u32,

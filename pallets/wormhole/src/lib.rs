@@ -16,6 +16,17 @@ use qp_wormhole_verifier::{
 /// (see `PrivateBatchPublicInputs::try_from_u64_slice` in `qp-wormhole-inputs`).
 const PRIVATE_BATCH_PI_HEADER_FELTS: usize = 8;
 
+/// Fixed transaction-pool priority for unsigned wormhole exit submissions.
+///
+/// Must not be derived from public-input amounts: pool admission
+/// (`validate_unsigned`) only runs cheap pre-validation, so those amounts are
+/// attacker-controlled. Combined with the nullifier-based `provides` tag, an
+/// amount-derived priority would let junk with inflated PIs usurp a victim's
+/// same-tag exit (the pool replaces on strictly higher priority). A constant
+/// makes first-seen win; amount-based ordering is not needed for `Pays::No`
+/// exit traffic.
+pub const UNSIGNED_EXIT_PRIORITY: u64 = 1;
+
 /// Expected public-input count of the private-batch circuit compiled into this runtime.
 fn private_batch_expected_public_inputs() -> usize {
 	PRIVATE_BATCH_PI_HEADER_FELTS + circuit_config::NUM_LEAF_PROOFS * PUBLIC_INPUTS_FELTS_LEN
@@ -217,11 +228,15 @@ pub mod pallet {
 
 	/// Current storage version of the pallet.
 	///
-	/// v1 introduces the wormhole soundness counters (`PotentialWormholeBalance` and
-	/// `TotalWormholeExits`). The v0 -> v1 migration seeds `PotentialWormholeBalance` so
-	/// that wormhole deposits made before the soundness tracking existed can still be
-	/// exited (see `migrations::v1`).
-	pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+	/// - v1 introduces the wormhole soundness counters (`PotentialWormholeBalance` and
+	///   `TotalWormholeExits`). The v0 -> v1 migration seeds `PotentialWormholeBalance` so that
+	///   wormhole deposits made before the soundness tracking existed can still be exited (see
+	///   `migrations::v1`).
+	/// - v2 re-keys `TransferCount` onto the Goldilocks-canonical recipient form. The v1 -> v2
+	///   migration merges any pre-upgrade raw-keyed entries into their canonical key (see
+	///   `migrations::v2`) so prospective deposits cannot restart a count sequence that collides
+	///   with pre-upgrade leaves.
+	pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
 	#[pallet::pallet]
 	#[pallet::storage_version(STORAGE_VERSION)]
@@ -368,6 +383,10 @@ pub mod pallet {
 		type WeightInfo: WeightInfo;
 
 		/// Override system AccountId for wormhole operations
+		///
+		/// The `AsRef<[u8]>`/`From<[u8; 32]>` bounds allow `record_transfer` to
+		/// canonicalize recipients (reduce each 8-byte limb mod the Goldilocks prime)
+		/// before keying `TransferCount` and inserting ZK-tree leaves.
 		type WormholeAccountId: Parameter
 			+ Member
 			+ MaybeSerializeDeserialize
@@ -375,6 +394,8 @@ pub mod pallet {
 			+ MaybeDisplay
 			+ Ord
 			+ MaxEncodedLen
+			+ AsRef<[u8]>
+			+ From<[u8; 32]>
 			+ Into<<Self as frame_system::Config>::AccountId>
 			+ From<<Self as frame_system::Config>::AccountId>;
 
@@ -393,6 +414,11 @@ pub mod pallet {
 		StorageMap<_, Blake2_128Concat, [u8; 32], bool, ValueQuery>;
 
 	/// Transfer count per recipient - used to generate unique leaf indices in the ZK trie.
+	///
+	/// Keyed on the *canonical* recipient (each 8-byte limb reduced mod the Goldilocks
+	/// prime, matching the ZK leaf encoding — see `canonical_leaf_recipient`), so that a
+	/// recipient and its non-canonical byte aliases share one count sequence and two
+	/// distinct deposits can never commit to identical leaves.
 	#[pallet::storage]
 	#[pallet::getter(fn transfer_count)]
 	pub type TransferCount<T: Config> =
@@ -628,21 +654,20 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
 
-			// Full validation including ZK verification (defense-in-depth, also done in
-			// validate_unsigned). Weight returned depends on which stage failed.
-			let (bundle, _) = match Self::validate_private_batch_proof(&proof_bytes) {
+			// The ZK verification is the block-inclusion gate in `ValidateUnsigned::pre_dispatch`,
+			// which always runs before this dispatch for a bare (unsigned) extrinsic and rejects
+			// any proof that fails to verify. This body therefore only re-runs the cheap
+			// pre-validation to recover the bundle before processing — re-verifying here would
+			// double the ZK-verify cost while the declared weight only accounts for one verify.
+			let (_, _, bundle, _) = match Self::pre_validate_private_batch_proof(&proof_bytes) {
 				Ok(result) => result,
 				Err(e) => {
-					// Determine weight based on which stage failed
-					let actual_weight = match e {
-						// ZK verification was attempted - full weight consumed
-						Error::<T>::ProofVerificationFailed =>
-							Some(<T as Config>::WeightInfo::verify_private_batch()),
-						// Failed before ZK verification - minimal weight
-						_ => Some(<T as Config>::WeightInfo::pre_validate_proof()),
-					};
+					// Only cheap pre-validation runs here, so any failure is pre-verify work.
 					return Err(DispatchErrorWithPostInfo {
-						post_info: PostDispatchInfo { actual_weight, pays_fee: Pays::No },
+						post_info: PostDispatchInfo {
+							actual_weight: Some(<T as Config>::WeightInfo::pre_validate_proof()),
+							pays_fee: Pays::No,
+						},
 						error: e.into(),
 					});
 				},
@@ -666,16 +691,18 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
 
-			let (bundle, _) = match Self::validate_public_batch_proof(&proof_bytes) {
+			// ZK verification is the block-inclusion gate in `pre_dispatch` (see
+			// `verify_private_batch`); this body only re-runs the cheap pre-validation.
+			let (_, _, bundle, _) = match Self::pre_validate_public_batch_proof(&proof_bytes) {
 				Ok(result) => result,
 				Err(e) => {
-					let actual_weight = match e {
-						Error::<T>::ProofVerificationFailed =>
-							Some(<T as Config>::WeightInfo::verify_public_batch()),
-						_ => Some(<T as Config>::WeightInfo::pre_validate_public_batch_proof()),
-					};
 					return Err(DispatchErrorWithPostInfo {
-						post_info: PostDispatchInfo { actual_weight, pays_fee: Pays::No },
+						post_info: PostDispatchInfo {
+							actual_weight: Some(
+								<T as Config>::WeightInfo::pre_validate_public_batch_proof(),
+							),
+							pays_fee: Pays::No,
+						},
 						error: e.into(),
 					});
 				},
@@ -1016,45 +1043,36 @@ pub mod pallet {
 		type Call = Call<T>;
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+			// Pool admission runs on every gossiped transaction, so it deliberately performs
+			// only the cheap pre-validation (deserialize, parse, bundle checks) and NOT the
+			// expensive ZK verification. The full verify is the block-inclusion gate in
+			// `pre_dispatch`; deferring it here prevents unsigned, fee-free traffic from
+			// forcing unbounded verification work per gossiped byte-variant of a proof.
 			match call {
 				Call::verify_private_batch { proof_bytes } => {
-					let (bundle, validity) = Self::validate_private_batch_proof(proof_bytes)
-						.map_err(|_| InvalidTransaction::Call)?;
-
-					let total_amount: u64 = bundle
-						.segments
-						.iter()
-						.zip(validity.iter())
-						.filter(|(_, valid)| **valid)
-						.flat_map(|(segment, _)| segment.account_data.iter())
-						.map(|a| a.summed_output_amount as u64)
-						.sum();
+					// `validity` is computed for its side-effect of rejecting
+					// wholly-unspendable / all-dummy bundles via the cheap checks;
+					// priority must not read amounts from it (see UNSIGNED_EXIT_PRIORITY).
+					let (_, _, bundle, _validity) =
+						Self::pre_validate_private_batch_proof(proof_bytes)
+							.map_err(|_| InvalidTransaction::Call)?;
 
 					ValidTransaction::with_tag_prefix("WormholePrivateBatch")
-						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
-						.priority(total_amount)
+						.and_provides(Self::exit_bundle_provides_tag(&bundle))
+						.priority(crate::UNSIGNED_EXIT_PRIORITY)
 						.longevity(5)
 						.propagate(true)
 						.build()
 				},
 				Call::verify_public_batch { proof_bytes } => {
-					let (bundle, validity) = Self::validate_public_batch_proof(proof_bytes)
-						.map_err(|_| InvalidTransaction::Call)?;
-
-					// Inert (dummy-padded) segments are already `false` in `validity`,
-					// so filtering on validity alone excludes them.
-					let total_amount: u64 = bundle
-						.segments
-						.iter()
-						.zip(validity.iter())
-						.filter(|(_, valid)| **valid)
-						.flat_map(|(segment, _)| segment.account_data.iter())
-						.map(|a| a.summed_output_amount as u64)
-						.sum();
+					// Same as the private-batch path: cheap checks only, fixed priority.
+					let (_, _, bundle, _validity) =
+						Self::pre_validate_public_batch_proof(proof_bytes)
+							.map_err(|_| InvalidTransaction::Call)?;
 
 					ValidTransaction::with_tag_prefix("WormholePublicBatch")
-						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
-						.priority(total_amount)
+						.and_provides(Self::exit_bundle_provides_tag(&bundle))
+						.priority(crate::UNSIGNED_EXIT_PRIORITY)
 						.longevity(5)
 						.propagate(true)
 						.build()
@@ -1064,10 +1082,20 @@ pub mod pallet {
 		}
 
 		fn pre_dispatch(call: &Self::Call) -> Result<(), TransactionValidityError> {
-			// Skip re-validation - validate_unsigned already did full verification,
-			// and dispatch will verify again as defense-in-depth
+			// Block-inclusion gate. Unlike `validate_unsigned` (pool admission), this runs
+			// the FULL validation including ZK verification, and returning `Err` here
+			// excludes the transaction from the block being built (and makes a block that
+			// includes an unverifiable proof invalid on import). This is what keeps
+			// unverified/junk proofs out of blocks now that pool admission is verify-free.
 			match call {
-				Call::verify_private_batch { .. } | Call::verify_public_batch { .. } => Ok(()),
+				Call::verify_private_batch { proof_bytes } =>
+					Self::validate_private_batch_proof(proof_bytes)
+						.map(|_| ())
+						.map_err(|_| InvalidTransaction::Call.into()),
+				Call::verify_public_batch { proof_bytes } =>
+					Self::validate_public_batch_proof(proof_bytes)
+						.map(|_| ())
+						.map_err(|_| InvalidTransaction::Call.into()),
 				_ => Err(InvalidTransaction::Call.into()),
 			}
 		}
@@ -1094,10 +1122,26 @@ pub mod pallet {
 			Ok(validity)
 		}
 
-		/// Validate a private-batch proof (cheap checks + full ZK verification).
-		fn validate_private_batch_proof(
+		/// Cheap pre-validation of a private-batch proof: deserialize, parse public
+		/// inputs, and run the cheap bundle checks — but **not** the expensive ZK
+		/// verification. Returns the verifier and deserialized proof (so a caller can
+		/// optionally run the ZK verify), plus the parsed bundle and per-segment validity.
+		///
+		/// This is the work performed on the transaction-pool admission path
+		/// (`validate_unsigned`), where running the full ZK verify would let unsigned,
+		/// fee-free traffic force unbounded verification work per gossiped proof. The
+		/// full verification is deferred to the block-inclusion gate (`pre_dispatch`).
+		fn pre_validate_private_batch_proof(
 			proof_bytes: &[u8],
-		) -> Result<(ExitBundle, Vec<bool>), Error<T>> {
+		) -> Result<
+			(
+				&'static crate::WormholeVerifier,
+				ProofWithPublicInputs<F, C, D>,
+				ExitBundle,
+				Vec<bool>,
+			),
+			Error<T>,
+		> {
 			let verifier = crate::get_private_batch_verifier()
 				.map_err(|_| Error::<T>::VerifierNotAvailable)?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
@@ -1111,6 +1155,16 @@ pub mod pallet {
 
 			let validity = Self::validate_exit_bundle_common(&bundle)?;
 
+			Ok((verifier, proof, bundle, validity))
+		}
+
+		/// Validate a private-batch proof (cheap checks + full ZK verification).
+		fn validate_private_batch_proof(
+			proof_bytes: &[u8],
+		) -> Result<(ExitBundle, Vec<bool>), Error<T>> {
+			let (verifier, proof, bundle, validity) =
+				Self::pre_validate_private_batch_proof(proof_bytes)?;
+
 			verifier.verify(proof).map_err(|e| {
 				log::error!("Private-batch proof verification failed: {:?}", e);
 				Error::<T>::ProofVerificationFailed
@@ -1119,10 +1173,19 @@ pub mod pallet {
 			Ok((bundle, validity))
 		}
 
-		/// Validate a public-batch proof (cheap checks + full ZK verification).
-		fn validate_public_batch_proof(
+		/// Cheap pre-validation of a public-batch proof (no ZK verify). See
+		/// [`Self::pre_validate_private_batch_proof`].
+		fn pre_validate_public_batch_proof(
 			proof_bytes: &[u8],
-		) -> Result<(ExitBundle, Vec<bool>), Error<T>> {
+		) -> Result<
+			(
+				&'static crate::WormholeVerifier,
+				ProofWithPublicInputs<F, C, D>,
+				ExitBundle,
+				Vec<bool>,
+			),
+			Error<T>,
+		> {
 			let verifier =
 				crate::get_public_batch_verifier().map_err(|_| Error::<T>::VerifierNotAvailable)?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
@@ -1144,12 +1207,38 @@ pub mod pallet {
 
 			let validity = Self::validate_exit_bundle_common(&bundle)?;
 
+			Ok((verifier, proof, bundle, validity))
+		}
+
+		/// Validate a public-batch proof (cheap checks + full ZK verification).
+		fn validate_public_batch_proof(
+			proof_bytes: &[u8],
+		) -> Result<(ExitBundle, Vec<bool>), Error<T>> {
+			let (verifier, proof, bundle, validity) =
+				Self::pre_validate_public_batch_proof(proof_bytes)?;
+
 			verifier.verify(proof).map_err(|e| {
 				log::error!("Public-batch proof verification failed: {:?}", e);
 				Error::<T>::ProofVerificationFailed
 			})?;
 
 			Ok((bundle, validity))
+		}
+
+		/// Stable, semantic transaction-pool dedup tag for an exit bundle: a hash of the
+		/// bundle's nullifiers. Two encodings of the same logical exit (e.g. a proof
+		/// resubmitted with a mutated non-PI byte) share nullifiers and therefore collide
+		/// on this tag, so the pool holds one entry per logical exit instead of one per
+		/// distinct byte string (which `blake2_256(proof_bytes)` allowed an attacker to
+		/// bypass with a single-byte change).
+		fn exit_bundle_provides_tag(bundle: &ExitBundle) -> [u8; 32] {
+			let mut preimage = Vec::new();
+			for segment in &bundle.segments {
+				for nullifier in &segment.nullifiers {
+					preimage.extend_from_slice(nullifier.as_ref());
+				}
+			}
+			sp_io::hashing::blake2_256(&preimage)
 		}
 
 		/// Whether `account` is "ambiguous": it has never signed a transaction (`nonce == 0`) and
@@ -1217,6 +1306,22 @@ pub mod pallet {
 			}
 		}
 
+		/// Canonical form of a recipient for ZK-leaf keying.
+		///
+		/// Reduces each 8-byte limb of the 32-byte account mod the Goldilocks prime —
+		/// the exact reduction the leaf hash's lossy encoding applies — so that
+		/// `TransferCount` and the stored leaf recipient are keyed per leaf-encoding
+		/// class rather than per raw byte string. The withdrawal circuit binds the
+		/// leaf's recipient felts to a canonical Poseidon output, so canonicalizing
+		/// never changes who can exit a leaf. Non-32-byte accounts are returned
+		/// unchanged (the leaf hash requires 32-byte accounts anyway).
+		fn canonical_leaf_recipient(to: &T::WormholeAccountId) -> T::WormholeAccountId {
+			match <[u8; 32]>::try_from(to.as_ref()) {
+				Ok(bytes) => pallet_zk_tree::tree::canonicalize_account_bytes(bytes).into(),
+				Err(_) => to.clone(),
+			}
+		}
+
 		/// Record a transfer in the ZK tree and emit events.
 		///
 		/// This inserts the transfer data into the 4-ary Poseidon Merkle tree
@@ -1230,15 +1335,27 @@ pub mod pallet {
 			to: &<T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
 		) {
-			let current_count = TransferCount::<T>::get(to);
+			// The ZK leaf commits to the recipient through a lossy encoding that reduces
+			// each 8-byte limb mod the Goldilocks prime, so a recipient and its
+			// non-canonical byte aliases encode identically. Key the transfer count and
+			// the stored leaf on the canonical form so every deposit gets a unique
+			// (recipient-class, count) pair — otherwise a deposit to an alias would start
+			// its own count at 0 and could commit to the same leaf (and thus the same
+			// `H(secret, transfer_count)` nullifier) as a canonical deposit, leaving one
+			// of the two permanently unexitable.
+			let leaf_to = Self::canonical_leaf_recipient(to);
+			let current_count = TransferCount::<T>::get(&leaf_to);
 
 			// Increment transfer count for this recipient
-			TransferCount::<T>::insert(to, current_count.saturating_add(T::TransferCount::one()));
+			TransferCount::<T>::insert(
+				&leaf_to,
+				current_count.saturating_add(T::TransferCount::one()),
+			);
 
 			// Insert into ZK tree for Merkle proof generation
 			// Returns the leaf index for clients to use when fetching proofs
 			let leaf_index = T::ZkTree::record_transfer(
-				to.clone().into(),
+				leaf_to.into(),
 				current_count.into(),
 				asset_id.clone(),
 				amount,
@@ -1292,9 +1409,40 @@ pub mod pallet {
 			from: <T as Config>::WormholeAccountId,
 			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
-		) {
-			let asset_id_value = asset_id.unwrap_or_default();
-			Self::record_transfer(asset_id_value, &from, &to, amount);
+		) -> bool {
+			// The wormhole tags native leaves with `asset_id == 0`, but `pallet_assets` uses
+			// id 0 for an unrelated, independently-mintable token. Genuine native reaches us as
+			// `None` (from `Balances` events); a `pallet_assets` asset-0 credit reaches us as
+			// `Some(0)` (from `Assets::Issued`). These must not be conflated: a `Some(0)` credit
+			// is backed by no native, so recording it as a native deposit would inflate the
+			// native potential-balance pool and insert a natively-exitable leaf, letting an
+			// asset-0 issuer mint unbacked native out of the wormhole.
+			match asset_id {
+				// Native token.
+				None => {
+					Self::record_transfer(T::AssetId::default(), &from, &to, amount);
+					true
+				},
+				// A `pallet_assets` asset whose id collides with the reserved native id. The
+				// wormhole only supports native exits, and this is not a native deposit, so it
+				// must not touch native accounting — drop it.
+				Some(id) if id == T::AssetId::default() => {
+					log::warn!(
+						target: "runtime::wormhole",
+						"Dropping pallet_assets asset-0 credit (not native): from={:?} to={:?} amount={:?}",
+						from,
+						to,
+						amount,
+					);
+					false
+				},
+				// A genuine non-native asset: recorded as an inert (non-native, never-exitable)
+				// leaf, preserving the existing behaviour for future asset-wormhole support.
+				Some(id) => {
+					Self::record_transfer(id, &from, &to, amount);
+					true
+				},
+			}
 		}
 
 		fn reveal_address(account: <T as Config>::WormholeAccountId) {

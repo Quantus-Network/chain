@@ -156,10 +156,11 @@ impl qp_wormhole::TransferProofRecorder<sp_core::crypto::AccountId32, u32, u128>
 		from: sp_core::crypto::AccountId32,
 		to: sp_core::crypto::AccountId32,
 		amount: u128,
-	) {
+	) -> bool {
 		RECORDED_PROOFS.with(|proofs| {
 			proofs.borrow_mut().push(RecordedTransferProof { asset_id, from, to, amount });
 		});
+		true
 	}
 
 	fn reveal_address(_account: sp_core::crypto::AccountId32) {}

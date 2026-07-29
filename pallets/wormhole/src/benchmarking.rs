@@ -12,8 +12,9 @@ use qp_wormhole_verifier::{ProofWithPublicInputs, C, F};
 /// This proof is used to benchmark the actual deserialization and verification cost.
 const PRIVATE_BATCH_PROOF_HEX: &str = include_str!("../test-data/private_batch.hex");
 
-/// Maximum number of nullifiers in an private-batch proof (default aggregation size)
-const MAX_NULLIFIERS: u32 = 32;
+/// Maximum number of nullifiers in a private-batch proof: one per leaf proof, derived
+/// from the compiled circuit so the benchmark tracks the `QP_NUM_LEAF_PROOFS` build knob.
+const MAX_NULLIFIERS: u32 = crate::circuit_config::NUM_LEAF_PROOFS as u32;
 
 /// The D const parameter for plonky2 proofs (extension degree = 2)
 const D: usize = 2;

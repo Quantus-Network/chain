@@ -76,15 +76,22 @@ pub const MINTING_ACCOUNT: sp_core::crypto::AccountId32 =
 /// Trait giving other pallets a handle into the wormhole pallet's bookkeeping, without taking a
 /// hard dependency on `pallet-wormhole` itself.
 pub trait TransferProofRecorder<AccountId, AssetId, Balance> {
-	/// Record a transfer proof for native or asset tokens
-	/// - `None` for native tokens (asset_id = 0)
+	/// Record a transfer proof for native or asset tokens.
+	///
+	/// - `None` for native tokens (internally tagged as asset_id = 0)
 	/// - `Some(asset_id)` for specific assets
+	///
+	/// Returns `true` if a proof was actually recorded (ZK-tree leaf insert / bookkeeping
+	/// work performed), and `false` if the credit was deliberately dropped (e.g. a
+	/// `pallet_assets` asset-0 credit, which must not be conflated with native). Callers
+	/// that reconcile weight against recorded work must use this return value — counting
+	/// the call itself over-charges dropped credits.
 	fn record_transfer_proof(
 		asset_id: Option<AssetId>,
 		from: AccountId,
 		to: AccountId,
 		amount: Balance,
-	);
+	) -> bool;
 
 	/// Reveal `account` to the wormhole soundness counter, removing its current balance from the
 	/// pool of value that could be exited via the wormhole.

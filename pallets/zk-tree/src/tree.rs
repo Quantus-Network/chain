@@ -33,6 +33,30 @@ pub fn capacity_at_depth(depth: u8) -> u64 {
 /// 10^10 means 1 DEV (10^12 planck) becomes 100 in the leaf.
 pub const AMOUNT_SCALE_DOWN_FACTOR: u128 = 10_000_000_000;
 
+/// The Goldilocks prime `p = 2^64 - 2^32 + 1`.
+pub const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
+
+/// Reduce each 8-byte little-endian limb of a 32-byte account mod the Goldilocks prime.
+///
+/// This is the same reduction the lossy leaf encoding applies inside [`hash_leaf`], so
+/// the returned bytes are the canonical representative of the input's leaf-encoding
+/// class: two accounts produce the same `to_account` felts iff they canonicalize
+/// identically. Callers that key state on the leaf recipient (e.g. the wormhole's
+/// per-recipient transfer count) must key on this canonical form so that two distinct
+/// deposits can never commit to identical leaves (see the encoding-safety invariant on
+/// [`hash_leaf`]).
+pub fn canonicalize_account_bytes(bytes: [u8; 32]) -> [u8; 32] {
+	let mut out = bytes;
+	for limb in out.chunks_exact_mut(8) {
+		let value = u64::from_le_bytes(limb.try_into().expect("8-byte limb"));
+		if value >= GOLDILOCKS_P {
+			// A u64 is < 2p, so a single subtraction fully reduces.
+			limb.copy_from_slice(&(value - GOLDILOCKS_P).to_le_bytes());
+		}
+	}
+	out
+}
+
 /// Compact 8-byte/felt encoding that *reduces* non-canonical limbs mod P.
 ///
 /// The circuit encodes compact bytes with plonky2's `from_noncanonical_u64`, i.e.
@@ -62,15 +86,16 @@ fn bytes_to_felts_compact_lossy(input: &[u8]) -> impl Iterator<Item = Goldilocks
 ///
 /// The 8-byte/felt compact encoding is *non-injective*: an 8-byte limb `≥ p`
 /// (the Goldilocks prime) is reduced mod `p`, so `to` bytes and their canonical
-/// reduction hash identically. `to` is an arbitrary recipient (this runs on every
-/// transfer), so it need not be canonical. This is safe **only** because the
-/// withdrawal circuit binds the leaf's `to_account` felts to `WA(secret)`, a
-/// canonical Poseidon output, and range-checks the numeric fields — so the leaf
-/// hash commits to the canonical *reduction* of the recipient, never the bytes.
-/// If you ever need to recover the exact recipient bytes from a leaf, or relax
-/// the `to_account = WA(s)` binding, this invariant breaks. The `debug_assert`
-/// below documents (and in test/dev builds enforces) that production deposits use
-/// canonical recipients.
+/// reduction hash identically. Callers must therefore pass a recipient that is
+/// already canonical — i.e. run arbitrary recipients through
+/// [`canonicalize_account_bytes`] first, and key any per-recipient state (such as
+/// the wormhole's transfer count) on that canonical form. Otherwise a recipient
+/// and its non-canonical alias get independent count sequences and two distinct
+/// deposits can commit to the *same* leaf, which in the wormhole means a shared
+/// nullifier and one permanently unexitable deposit. The withdrawal circuit binds
+/// the leaf's `to_account` felts to `WA(secret)` (a canonical Poseidon output), so
+/// canonicalizing the recipient never changes who can exit a leaf. The
+/// `debug_assert` below enforces the caller contract in test/dev builds.
 pub fn hash_leaf<T: Config>(leaf: &ZkLeaf<AccountIdOf<T>, T::AssetId, T::Balance>) -> Hash256
 where
 	AccountIdOf<T>: AsRef<[u8]>,
@@ -88,8 +113,7 @@ where
 	debug_assert!(
 		to_bytes
 			.chunks_exact(8)
-			.all(|limb| u64::from_le_bytes(limb.try_into().expect("8-byte limb")) <
-				0xFFFF_FFFF_0000_0001),
+			.all(|limb| u64::from_le_bytes(limb.try_into().expect("8-byte limb")) < GOLDILOCKS_P),
 		"recipient account is non-canonical for the 8-byte/felt leaf encoding"
 	);
 	felts.extend(bytes_to_felts_compact_lossy(to_bytes));
@@ -98,17 +122,30 @@ where
 	felts.extend(u64_to_felts(leaf.transfer_count));
 
 	// asset_id: 1 felt (u32 -> u64 -> 8 bytes LE -> 1 felt via compact encoding)
-	// Convert via u128 then truncate to u32 (asset IDs should always fit in u32)
+	// The circuit commits asset IDs as u32. The runtime's asset ID type is u32, so the
+	// narrowing is lossless today; saturate (rather than truncate) as hardening for any
+	// future runtime with a wider type, so distinct assets can never wrap onto each
+	// other's low 32 bits. The debug_assert keeps dev builds loud about it.
 	let asset_id_u128: u128 = leaf.asset_id.into();
-	let asset_id_u32 = asset_id_u128 as u32;
+	let asset_id_u32 = u32::try_from(asset_id_u128).unwrap_or(u32::MAX);
 	debug_assert_eq!(asset_id_u128, asset_id_u32 as u128, "Asset ID must fit in u32");
 	felts.extend(bytes_to_felts_compact_lossy(&(asset_id_u32 as u64).to_le_bytes()));
 
 	// amount: 1 felt (u32 quantized -> u64 -> 8 bytes LE -> 1 felt via compact encoding)
 	// Quantize by dividing by AMOUNT_SCALE_DOWN_FACTOR (10^10)
 	// This gives 2 decimal places of precision (1 DEV = 100 quantized units)
+	//
+	// The circuit commits amounts as u32, so quantized values above u32::MAX are
+	// unrepresentable. Saturate instead of truncating: a wrapping cast would let an
+	// oversized transfer commit to the same leaf data as a small one (amount mod 2^32),
+	// making the authoritative root ambiguous between economically different transfers.
+	// Saturation pins every oversized amount to the same transparent cap, from which a
+	// prover can only ever claim *at most* the cap. Unreachable for the native token
+	// (the 2.1e19-planck supply cap quantizes to ~2.1e9 < u32::MAX) but reachable for
+	// permissionlessly minted pallet-assets amounts, which are also recorded here.
 	let amount_u128: u128 = leaf.amount.into();
-	let amount_quantized = (amount_u128 / AMOUNT_SCALE_DOWN_FACTOR) as u32;
+	let amount_quantized =
+		u32::try_from(amount_u128 / AMOUNT_SCALE_DOWN_FACTOR).unwrap_or(u32::MAX);
 	felts.extend(bytes_to_felts_compact_lossy(&(amount_quantized as u64).to_le_bytes()));
 
 	debug_assert_eq!(felts.len(), 8, "Leaf preimage must be exactly 8 felts");
@@ -342,5 +379,42 @@ mod tests {
 	fn test_empty_hash() {
 		let h = empty_hash();
 		assert_eq!(h, [0u8; 32]);
+	}
+
+	#[test]
+	fn canonicalize_is_identity_on_canonical_accounts() {
+		// All limbs < p (largest canonical limb is p - 1).
+		let mut bytes = [0x11u8; 32];
+		bytes[24..32].copy_from_slice(&(GOLDILOCKS_P - 1).to_le_bytes());
+		assert_eq!(canonicalize_account_bytes(bytes), bytes);
+	}
+
+	#[test]
+	fn canonicalize_reduces_each_non_canonical_limb() {
+		// Each limb i holds p + i (fits in u64 since i < 2^32 - 1) and must reduce to i.
+		let mut bytes = [0u8; 32];
+		for i in 0..4u64 {
+			let start = (i as usize) * 8;
+			bytes[start..start + 8].copy_from_slice(&(GOLDILOCKS_P + i).to_le_bytes());
+		}
+		let mut expected = [0u8; 32];
+		for i in 0..4u64 {
+			let start = (i as usize) * 8;
+			expected[start..start + 8].copy_from_slice(&i.to_le_bytes());
+		}
+		assert_eq!(canonicalize_account_bytes(bytes), expected);
+	}
+
+	#[test]
+	fn canonicalize_reduces_max_limb() {
+		// u64::MAX = p + (2^32 - 2): the largest possible limb still reduces correctly.
+		let mut bytes = [0u8; 32];
+		bytes[0..8].copy_from_slice(&u64::MAX.to_le_bytes());
+		let out = canonicalize_account_bytes(bytes);
+		let reduced = u64::from_le_bytes(out[0..8].try_into().unwrap());
+		assert_eq!(reduced, u64::MAX - GOLDILOCKS_P);
+		assert!(reduced < GOLDILOCKS_P);
+		// Other limbs untouched.
+		assert_eq!(&out[8..], &bytes[8..]);
 	}
 }

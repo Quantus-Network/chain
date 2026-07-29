@@ -99,6 +99,85 @@ fn test_hash_node() {
 	assert_ne!(hash, hash3);
 }
 
+/// Golden vector for the leaf hash.
+///
+/// Pins the exact `hash_leaf` output for a fixed canonical leaf so that any change to
+/// the encoding (felt layout, quantization, recipient handling) fails loudly. The leaf
+/// encoding must stay byte-compatible with the ZK circuit's
+/// `ZkLeafTargets::collect_for_hash()`; a cross-check against the real circuit crates
+/// lives in `pallet-wormhole`'s `pallet_leaf_hash_matches_circuit_leaf_hash` test.
+/// If this value ever needs to change, the deployed withdrawal circuit must change
+/// with it — do not update the constant casually.
+#[test]
+fn hash_leaf_golden_vector() {
+	let leaf = ZkLeaf::<AccountId, u32, u128> {
+		to: make_account(0x11),
+		transfer_count: 7,
+		asset_id: 5,
+		// 1234 quantized units (hash_leaf divides by AMOUNT_SCALE_DOWN_FACTOR).
+		amount: 1234 * tree::AMOUNT_SCALE_DOWN_FACTOR,
+	};
+	// Cross-checked against the circuit-side computation by
+	// `hash_leaf_golden_vector_matches_circuit` in pallet-wormhole's tests.
+	let expected: [u8; 32] = [
+		195, 94, 210, 27, 96, 177, 127, 68, 16, 231, 47, 227, 104, 21, 175, 254, 219, 85, 224, 111,
+		64, 162, 32, 119, 226, 89, 143, 126, 203, 254, 51, 93,
+	];
+	assert_eq!(tree::hash_leaf::<Test>(&leaf), expected);
+}
+
+/// Helper for the amount-commitment tests: a fixed leaf varying only in `amount`.
+fn amount_leaf(amount: u128) -> ZkLeaf<AccountId, u32, u128> {
+	ZkLeaf { to: make_account(0x11), transfer_count: 7, asset_id: 5, amount }
+}
+
+/// Oversized amounts must not alias small amounts in the leaf commitment.
+///
+/// The leaf commits the quantized amount (`amount / AMOUNT_SCALE_DOWN_FACTOR`) as a
+/// u32. Quantized values above `u32::MAX` are unrepresentable and must saturate to
+/// `u32::MAX` rather than wrap — otherwise a transfer of `X + 2^32·SCALE` commits to
+/// exactly the same leaf data as a transfer of `X`, making the authoritative Merkle
+/// root ambiguous between economically different transfers. This is unreachable for
+/// the native token (the supply cap keeps quantized amounts below u32::MAX) but fully
+/// reachable for permissionlessly minted pallet-assets amounts.
+#[test]
+fn hash_leaf_oversized_amount_does_not_alias_small_amount() {
+	let small = 1234 * tree::AMOUNT_SCALE_DOWN_FACTOR;
+	// Quantizes to 1234 + 2^32, which truncates back to a committed amount of 1234
+	// if the encoding wraps instead of saturating.
+	let wrapping_alias = small + (1u128 << 32) * tree::AMOUNT_SCALE_DOWN_FACTOR;
+
+	assert_ne!(
+		tree::hash_leaf::<Test>(&amount_leaf(small)),
+		tree::hash_leaf::<Test>(&amount_leaf(wrapping_alias)),
+		"an oversized amount must not commit to the same leaf as a small amount"
+	);
+}
+
+/// Pins the saturation semantics: every quantized amount at or above `u32::MAX`
+/// commits to the same capped value, `u32::MAX`.
+#[test]
+fn hash_leaf_saturates_oversized_amounts_at_u32_max() {
+	let cap = (u32::MAX as u128) * tree::AMOUNT_SCALE_DOWN_FACTOR;
+	let at_cap = tree::hash_leaf::<Test>(&amount_leaf(cap));
+
+	assert_eq!(
+		at_cap,
+		tree::hash_leaf::<Test>(&amount_leaf(cap + tree::AMOUNT_SCALE_DOWN_FACTOR)),
+		"one quantized unit above the cap must saturate to the cap commitment"
+	);
+	assert_eq!(
+		at_cap,
+		tree::hash_leaf::<Test>(&amount_leaf(u128::MAX)),
+		"u128::MAX must saturate to the cap commitment"
+	);
+	assert_ne!(
+		at_cap,
+		tree::hash_leaf::<Test>(&amount_leaf(cap - tree::AMOUNT_SCALE_DOWN_FACTOR)),
+		"amounts below the cap must still commit to their true value"
+	);
+}
+
 #[test]
 fn insert_first_leaf_works() {
 	new_test_ext().execute_with(|| {
