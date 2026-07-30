@@ -23,6 +23,7 @@ frame-support.workspace = true
 frame-system.workspace = true
 log.workspace = true
 pallet-treasury = { path = "../treasury", default-features = false }
+pallet-zk-tree.workspace = true
 qp-wormhole.workspace = true
 scale-info = { workspace = true, default-features = false, features = ["derive"] }
 sp-consensus-qpow.workspace = true
@@ -47,6 +48,7 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"pallet-treasury/std",
+	"pallet-zk-tree/std",
 	"qp-wormhole/std",
 	"scale-info/std",
 	"sp-consensus-qpow/std",
@@ -54,4 +56,5 @@ std = [
 ]
 try-runtime = [
 	"frame-support/try-runtime",
+	"pallet-zk-tree/try-runtime",
 ]
