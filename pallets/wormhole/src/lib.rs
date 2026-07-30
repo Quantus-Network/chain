@@ -232,11 +232,12 @@ pub mod pallet {
 	///   `TotalWormholeExits`). The v0 -> v1 migration seeds `PotentialWormholeBalance` so that
 	///   wormhole deposits made before the soundness tracking existed can still be exited (see
 	///   `migrations::v1`).
-	/// - v2 re-keys `TransferCount` onto the Goldilocks-canonical recipient form. The v1 -> v2
-	///   migration merges any pre-upgrade raw-keyed entries into their canonical key (see
-	///   `migrations::v2`) so prospective deposits cannot restart a count sequence that collides
-	///   with pre-upgrade leaves.
-	pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
+	///
+	/// `TransferCount` is keyed on the Goldilocks-canonical recipient form, but that is enforced
+	/// in `record_transfer` at write time (see `canonical_leaf_recipient` and the test
+	/// `deposits_to_non_canonical_alias_do_not_collide_with_canonical_leaf`), not by a storage
+	/// migration — the layout is unchanged — so it does not carry its own storage version.
+	pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
 	#[pallet::pallet]
 	#[pallet::storage_version(STORAGE_VERSION)]
