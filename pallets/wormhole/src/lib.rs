@@ -721,10 +721,15 @@ pub mod pallet {
 
 		/// Compute per-segment validity for an exit bundle.
 		///
-		/// A segment is valid iff none of its nullifiers is already used on-chain and none
-		/// appeared in an earlier valid segment of the same bundle. Duplicates *within* a
-		/// segment are allowed: the private-batch circuit's exit dedup zeroes the repeated
-		/// exit slots (so they mint nothing) and re-inserting a nullifier is idempotent.
+		/// A segment is valid iff none of its real nullifiers is already used on-chain,
+		/// none appeared in an earlier valid segment of the same bundle, and none is
+		/// repeated *within* the segment itself. Intra-segment duplicates are rejected
+		/// because the private-batch circuit's exit grouping sums a replayed leaf's amount
+		/// into a single inflated exit while only one shared nullifier would be marked
+		/// spent — accepting the duplicate would mint value backed by a single spend. A
+		/// well-formed batch never repeats a real nullifier, so this only rejects replays.
+		/// (The circuit now also enforces this, but the check is cheap and kept here as an
+		/// in-consensus defense that does not trust the aggregation circuit's constraints.)
 		/// Zero nullifiers (from dummy leaf padding inside a real private batch) mint
 		/// nothing and are exempt from the collision checks entirely.
 		pub(crate) fn segment_validity(bundle: &ExitBundle) -> Result<Vec<bool>, Error<T>> {
@@ -749,9 +754,18 @@ pub mod pallet {
 					nullifier_bytes.push(bytes);
 				}
 
-				let valid = nullifier_bytes.iter().all(|bytes| {
-					!UsedNullifiers::<T>::contains_key(bytes) && !claimed.contains(bytes)
-				});
+				// A real nullifier repeated within this segment can only be a leaf proof
+				// replayed across slots; reject the whole segment before it can mint the
+				// summed, inflated exit. `insert` returns false the first time a value
+				// repeats, so `all` is false iff any duplicate exists.
+				let mut seen = alloc::collections::BTreeSet::<[u8; 32]>::new();
+				let intra_segment_unique =
+					nullifier_bytes.iter().all(|bytes| seen.insert(*bytes));
+
+				let valid = intra_segment_unique
+					&& nullifier_bytes.iter().all(|bytes| {
+						!UsedNullifiers::<T>::contains_key(bytes) && !claimed.contains(bytes)
+					});
 
 				if valid {
 					claimed.extend(nullifier_bytes);
