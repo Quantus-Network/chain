@@ -15,6 +15,7 @@ log = { workspace = true, default-features = false }
 parking_lot = { workspace = true, default-features = true }
 primitive-types = { workspace = true, default-features = false }
 prometheus-endpoint = { workspace = true, default-features = true }
+qp-header = { workspace = true }
 sc-client-api = { workspace = true, default-features = false }
 sc-consensus = { workspace = true }
 sp-api = { workspace = true, default-features = false }
@@ -32,6 +33,7 @@ default = ["std"]
 std = [
 	"codec/std",
 	"primitive-types/std",
+	"qp-header/std",
 	"sp-api/std",
 	"sp-consensus-qpow/std",
 	"sp-runtime/std",

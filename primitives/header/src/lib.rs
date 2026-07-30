@@ -31,6 +31,20 @@ use alloc::vec::Vec;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+/// Size of the fixed digest window (in bytes) committed by [`Header::hash`].
+///
+/// The SCALE-encoded digest is folded into the Poseidon preimage through a
+/// buffer of exactly this size, and the wormhole circuit hashes a digest field
+/// of the same width. It is sized to hold exactly one 32-byte pre-runtime
+/// preimage plus one 64-byte PoW seal (the canonical post-seal digest), so a
+/// well-formed header uses the whole window with no slack.
+///
+/// Headers whose encoded digest exceeds this bound must be **rejected** before
+/// import rather than silently truncated; see the digest length check in
+/// `sc-consensus-qpow`. Truncation would let two distinct headers share a block
+/// hash on the bytes past this window.
+pub const DIGEST_LOGS_SIZE: usize = 110;
+
 /// Extension trait for headers that support ZK tree root.
 ///
 /// This trait allows frame_system to set the ZK Merkle tree root on headers
@@ -193,9 +207,6 @@ where
 	/// Convenience helper for computing the hash of the header without having
 	/// to import the trait.
 	pub fn hash(&self) -> H256 {
-		/// Fixed size for digest encoding - must match circuit expectation
-		const DIGEST_LOGS_SIZE: usize = 110;
-
 		// 4 hash fields (4 felts each) + 1 u32 + 28 felts for injective digest encoding
 		let max_encoded_felts = 4 * 4 + 1 + 28;
 		let mut felts = Vec::with_capacity(max_encoded_felts);
@@ -237,8 +248,22 @@ where
 			self.zk_tree_root.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
-		// digest – SCALE encode then pad to fixed 110 bytes to match circuit expectation
+		// digest – SCALE encode then pad to the fixed DIGEST_LOGS_SIZE window to
+		// match circuit expectation. An encoded digest longer than the window
+		// is a malformed header that the import path rejects before this point
+		// (see the digest length check in `sc-consensus-qpow`); truncating here
+		// would drop the tail from the committed hash and let two distinct
+		// headers collide. `hash()` itself must stay infallible even on
+		// adversarial bytes, so we keep the saturating copy as a backstop and
+		// only assert the invariant in debug builds.
 		let digest_encoded = self.digest.encode();
+		debug_assert!(
+			digest_encoded.len() <= DIGEST_LOGS_SIZE,
+			"encoded digest ({} bytes) exceeds DIGEST_LOGS_SIZE ({}); header should have been \
+			 rejected before hashing",
+			digest_encoded.len(),
+			DIGEST_LOGS_SIZE,
+		);
 		let mut digest_padded = [0u8; DIGEST_LOGS_SIZE];
 		let copy_len = digest_encoded.len().min(DIGEST_LOGS_SIZE);
 		digest_padded[..copy_len].copy_from_slice(&digest_encoded[..copy_len]);
@@ -422,5 +447,53 @@ mod tests {
 			expected_hash,
 			"Header hash changed! This would break consensus."
 		);
+	}
+
+	/// The canonical post-seal digest (one 32-byte pre-runtime preimage plus a
+	/// 64-byte PoW seal) must encode to exactly `DIGEST_LOGS_SIZE`: the hash
+	/// window is sized with no slack, so anything larger overflows it and must
+	/// be rejected rather than truncated.
+	fn canonical_pow_digest() -> Digest {
+		Digest {
+			logs: vec![
+				DigestItem::PreRuntime([112, 111, 119, 95], vec![0u8; 32]),
+				DigestItem::Seal([112, 111, 119, 95], vec![0u8; 64]),
+			],
+		}
+	}
+
+	#[test]
+	fn canonical_pow_digest_fills_hash_window_exactly() {
+		assert_eq!(
+			canonical_pow_digest().encode().len(),
+			DIGEST_LOGS_SIZE,
+			"a well-formed pre-runtime + seal digest must fill the window exactly"
+		);
+	}
+
+	/// A digest larger than the window must trip the invariant in `hash()`
+	/// rather than silently truncate. `hash()` keeps a saturating backstop in
+	/// release, so this only asserts in debug builds (where `debug_assert`
+	/// fires); the real rejection for release is the import-path length check
+	/// in `sc-consensus-qpow`.
+	#[cfg(debug_assertions)]
+	#[test]
+	#[should_panic(expected = "exceeds DIGEST_LOGS_SIZE")]
+	fn oversized_digest_trips_hash_invariant() {
+		let mut digest = canonical_pow_digest();
+		// One extra item pushes the encoded digest past the 110-byte window.
+		digest.logs.push(DigestItem::Other(vec![0u8; 8]));
+
+		let header = Header::<u32, BlakeTwo256> {
+			parent_hash: Default::default(),
+			number: 1,
+			state_root: Default::default(),
+			extrinsics_root: Default::default(),
+			zk_tree_root: Default::default(),
+			digest,
+			_marker: core::marker::PhantomData,
+		};
+
+		let _ = header.hash();
 	}
 }

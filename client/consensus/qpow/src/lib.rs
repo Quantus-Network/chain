@@ -13,6 +13,9 @@ use sp_consensus_qpow::{QPoWApi, Seal as RawSeal};
 use sp_runtime::traits::Block as BlockT;
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
+use codec::Encode;
+use qp_header::DIGEST_LOGS_SIZE;
+
 use crate::worker::UntilImportedOrTransaction;
 pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata, RebuildTrigger};
 use futures::{Future, Stream, StreamExt};
@@ -67,6 +70,10 @@ pub enum Error<B: BlockT> {
 	CheckInherentsUnknownError(sp_inherents::InherentIdentifier),
 	#[error("Multiple pre-runtime digests")]
 	MultiplePreRuntimeDigests,
+	#[error(
+		"Header {0:?} has an encoded digest of {1} bytes, exceeding the {2}-byte commitment window"
+	)]
+	DigestTooLong(B::Hash, usize, usize),
 	#[error(transparent)]
 	Client(sp_blockchain::Error),
 	#[error(transparent)]
@@ -244,6 +251,23 @@ where
 		)?;
 
 		let pre_hash = block_import_params.header.hash();
+
+		// Reject any header whose canonical (post-seal) digest encodes to more
+		// than the fixed window committed by `Header::hash()`. Past that window
+		// the digest bytes are not covered by the block hash, so silently
+		// truncating (as `hash()` does defensively) would let two distinct
+		// sealed headers collide on the same block hash. Fail closed here
+		// instead, on the same digest that `post_header().hash()` commits below.
+		let post_header = block_import_params.post_header();
+		let encoded_digest_len = post_header.digest().encode().len();
+		if encoded_digest_len > DIGEST_LOGS_SIZE {
+			return Err(Error::<B>::DigestTooLong(
+				post_header.hash(),
+				encoded_digest_len,
+				DIGEST_LOGS_SIZE,
+			)
+			.into());
+		}
 
 		// Convert seal to nonce
 		let nonce: [u8; 64] = inner_seal
