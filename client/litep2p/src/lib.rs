@@ -51,7 +51,7 @@ use crate::{
 use crate::transport::websocket::WebSocketTransport;
 
 use hickory_resolver::{
-	config::{ResolverConfig, GOOGLE},
+	config::{ResolverConfig, ResolverOpts, GOOGLE},
 	TokioResolver,
 };
 use multiaddr::{Multiaddr, Protocol};
@@ -157,24 +157,8 @@ impl Litep2p {
 		let bandwidth_sink = BandwidthSink::new();
 		let mut listen_addresses = vec![];
 
-		let (resolver_config, resolver_opts) = if litep2p_config.use_system_dns_config {
-			// `ResolverConfig::default()` has no nameservers since hickory 0.26, so on a
-			// failed system read fall back to public DNS rather than leave the node unable
-			// to resolve `/dns/` peers.
-			match hickory_resolver::system_conf::read_system_conf() {
-				Ok(conf) => conf,
-				Err(error) => {
-					tracing::error!(
-						target: LOG_TARGET,
-						?error,
-						"failed to read system DNS config; falling back to public DNS",
-					);
-					(ResolverConfig::udp_and_tcp(&GOOGLE), Default::default())
-				},
-			}
-		} else {
-			(Default::default(), Default::default())
-		};
+		let (resolver_config, resolver_opts) =
+			resolver_config_or_fallback(hickory_resolver::system_conf::read_system_conf());
 		let resolver = Arc::new(
 			TokioResolver::builder_with_config(resolver_config, Default::default())
 				.with_options(resolver_opts)
@@ -494,17 +478,55 @@ impl Litep2p {
 	}
 }
 
+fn resolver_config_or_fallback<E: std::fmt::Debug>(
+	system_config: std::result::Result<(ResolverConfig, ResolverOpts), E>,
+) -> (ResolverConfig, ResolverOpts) {
+	match system_config {
+		Ok((config, options)) if !config.name_servers().is_empty() => (config, options),
+		Ok(_) => {
+			tracing::error!(
+				target: LOG_TARGET,
+				"system DNS config contains no nameservers; falling back to public DNS",
+			);
+			(ResolverConfig::udp_and_tcp(&GOOGLE), Default::default())
+		},
+		Err(error) => {
+			tracing::error!(
+				target: LOG_TARGET,
+				?error,
+				"failed to read system DNS config; falling back to public DNS",
+			);
+			(ResolverConfig::udp_and_tcp(&GOOGLE), Default::default())
+		},
+	}
+}
+
 #[cfg(test)]
 mod tests {
+	use super::resolver_config_or_fallback;
 	use crate::{
 		config::ConfigBuilder,
 		protocol::{libp2p::ping, notification::Config as NotificationConfig},
 		types::protocol::ProtocolName,
 		Litep2p, Litep2pEvent, PeerId,
 	};
+	use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 	use multiaddr::{Multiaddr, Protocol};
 	use multihash::Multihash;
 	use std::net::Ipv4Addr;
+
+	#[test]
+	fn resolver_config_falls_back_when_system_config_is_unavailable_or_empty() {
+		let (config, _) =
+			resolver_config_or_fallback(Err::<(ResolverConfig, ResolverOpts), _>("unavailable"));
+		assert!(!config.name_servers().is_empty());
+
+		let (config, _) = resolver_config_or_fallback(Ok::<_, &str>((
+			ResolverConfig::default(),
+			ResolverOpts::default(),
+		)));
+		assert!(!config.name_servers().is_empty());
+	}
 
 	#[tokio::test]
 	async fn initialize_litep2p() {
