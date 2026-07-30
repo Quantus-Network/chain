@@ -48,6 +48,9 @@ jobs:
     name: 🛠️ Build & Test Matrix
     needs: fast-checks
     runs-on: ${{ matrix.os }}
+    # Production default is 53 (build.rs). Do not override here — CI must exercise
+    # the same public-batch circuit size as release builds (fixtures regenerated
+    # for 53; weights measured against that verifier).
     strategy:
       fail-fast: true
       matrix:

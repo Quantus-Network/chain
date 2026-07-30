@@ -122,9 +122,9 @@ parameter_types! {
 	/// The "from" account used when recording transfer proofs for minted tokens.
 	/// Uses the shared MINTING_ACCOUNT constant from qp_wormhole.
 	pub const MintingAccount: AccountId = MINTING_ACCOUNT;
-	/// Minimum transfer amount (10 QUAN)
-	pub const MinimumTransferAmount: Balance = 10 * UNIT;
-	/// Volume fee rate in basis points (10 bps = 0.1%)
+	/// Volume fee rate in basis points.
+	/// Kept at 10 to match the committed private/public batch hex fixtures
+	/// (`test-data/*.hex`); the live runtime uses 4 bps.
 	pub const VolumeFeeRateBps: u32 = 10;
 	/// Proportion of volume fees to burn (50% burned, 50% to miner)
 	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
@@ -159,7 +159,6 @@ impl pallet_wormhole::Config for Test {
 	type AssetBalance = Balance;
 	type TransferCount = u64;
 	type MintingAccount = MintingAccount;
-	type MinimumTransferAmount = MinimumTransferAmount;
 	type NonWormholeAccounts = ExcludedAccounts;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;

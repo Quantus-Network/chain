@@ -29,6 +29,12 @@ fn print_bin_hash(dir: &Path, filename: &str) {
 }
 
 fn main() {
+	// Rebuild when circuit sizing knobs change. Without these, Cargo can reuse a
+	// previous OUT_DIR (e.g. a fixture build with QP_NUM_PRIVATE_BATCH_PROOFS=4)
+	// after the env var is unset, silently embedding the wrong verifier/config.
+	println!("cargo:rerun-if-env-changed=QP_NUM_LEAF_PROOFS");
+	println!("cargo:rerun-if-env-changed=QP_NUM_PRIVATE_BATCH_PROOFS");
+
 	let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
 	// Default to 7 leaves: fits in degree_bits=15 (~1.5 GB peak memory for mobile).
 	// 8+ leaves require degree_bits=16 (~2.5 GB peak), limiting to 6GB+ devices.
@@ -37,9 +43,11 @@ fn main() {
 		.parse()
 		.expect("QP_NUM_LEAF_PROOFS must be a valid usize");
 
-	// Default to 4 inner private batches per public batch.
+	// Default to 53 inner private batches per public batch. Larger batches amortize
+	// aggregator proving cost as the volume fee falls (runtime: 4 bps). Override with
+	// QP_NUM_PRIVATE_BATCH_PROOFS for smaller local/fixture builds.
 	let num_private_batch_proofs: usize = env::var("QP_NUM_PRIVATE_BATCH_PROOFS")
-		.unwrap_or_else(|_| "4".to_string())
+		.unwrap_or_else(|_| "53".to_string())
 		.parse()
 		.expect("QP_NUM_PRIVATE_BATCH_PROOFS must be a valid usize");
 
