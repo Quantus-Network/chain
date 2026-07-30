@@ -1713,6 +1713,57 @@ mod exit_bundle_tests {
 	}
 
 	#[test]
+	fn process_exit_bundle_skips_below_ed_exit_without_reverting_others() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+
+			// Raise the ED so a small exit to a fresh account cannot be minted, while a
+			// larger co-bundled exit clears it. AMOUNT_A (20 QUAN) stays below the ED;
+			// AMOUNT_B (30 QUAN) is above it. The bundle total still clears the 10 QUAN
+			// MinimumTransferAmount.
+			ExistentialDeposit::set(scaled(2500));
+
+			let dust_exit = AccountId32::new([10u8; 32]);
+			let good_exit = AccountId32::new([11u8; 32]);
+
+			// Two independent segments (as in a public batch): a dust-to-fresh-account
+			// exit and an honest above-ED exit. The dust one must be skipped, not abort
+			// the whole bundle.
+			let b = bundle(
+				vec![segment(&[1], &[(10, AMOUNT_A)]), segment(&[2], &[(11, AMOUNT_B)])],
+				None,
+			);
+			assert_ok!(Wormhole::process_exit_bundle(b));
+
+			// The honest exit landed; the below-ED exit was skipped (account not created).
+			assert_eq!(Balances::balance(&good_exit), scaled(AMOUNT_B));
+			assert_eq!(
+				Balances::balance(&dust_exit),
+				0,
+				"below-ED exit must be skipped, not create the account"
+			);
+
+			// A skip event was surfaced for the dust exit.
+			System::assert_has_event(
+				crate::Event::<Test>::ExitMintFailed {
+					account: dust_exit.clone(),
+					amount: scaled(AMOUNT_A),
+				}
+				.into(),
+			);
+
+			// Only the successfully minted exit is committed to the cumulative total.
+			assert_eq!(TotalWormholeExits::<Test>::get(), scaled(AMOUNT_B));
+
+			// Both segments' nullifiers are marked used: the skipped exit's deposit
+			// cannot be re-exited (isolation, not a free retry).
+			assert!(UsedNullifiers::<Test>::contains_key(nullifier_bytes(1)));
+			assert!(UsedNullifiers::<Test>::contains_key(nullifier_bytes(2)));
+		});
+	}
+
+	#[test]
 	fn process_exit_bundle_burns_rebate_when_aggregator_mint_fails() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);

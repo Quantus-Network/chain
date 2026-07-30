@@ -503,6 +503,16 @@ pub mod pallet {
 		SegmentsDenied {
 			indices: Vec<u32>,
 		},
+		/// An exit slot could not be minted (e.g. a below-existential-deposit credit to
+		/// a fresh account) and was skipped so the rest of the bundle still processed.
+		/// The skipped exit's nullifier stays marked, so this exit cannot be retried.
+		///
+		/// NOTE: keep new variants appended at the end — indexers decode events by their
+		/// position in this enum, so existing variants must never be reordered.
+		ExitMintFailed {
+			account: <T as frame_system::Config>::AccountId,
+			amount: BalanceOf<T>,
+		},
 	}
 
 	#[pallet::error]
@@ -993,15 +1003,30 @@ pub mod pallet {
 					_,
 				>(digest.logs.iter())
 				{
-					<T::Currency as Unbalanced<_>>::increase_balance(
+					// A failed miner-fee mint (e.g. the author account doesn't exist and
+					// the fee is below the existential deposit) must not revert the whole
+					// bundle and drag users' exits down with it. Burn it instead, exactly
+					// like the no-author branch below and the aggregator-rebate fallback.
+					match <T::Currency as Unbalanced<_>>::increase_balance(
 						&author,
 						miner_fee,
 						frame_support::traits::tokens::Precision::Exact,
-					)?;
-					Self::deposit_event(Event::MinerVolumeFeePaid {
-						miner: author,
-						amount: miner_fee,
-					});
+					) {
+						Ok(_) => {
+							Self::deposit_event(Event::MinerVolumeFeePaid {
+								miner: author,
+								amount: miner_fee,
+							});
+						},
+						Err(e) => {
+							log::warn!(
+								"Miner fee of {:?} could not be minted ({:?}); burning it instead",
+								miner_fee,
+								e
+							);
+							burn_amount_u128 = burn_amount_u128.saturating_add(miner_fee_u128);
+						},
+					}
 				} else {
 					// No block author found - add miner fee to burn amount
 					log::warn!(
@@ -1025,13 +1050,38 @@ pub mod pallet {
 			}
 
 			// Process transfers and record proofs
+			let mut minted_exit_amount: BalanceOf<T> = Zero::zero();
 			for (exit_account, exit_balance) in &processed_accounts {
-				// Native token transfer - mint tokens to the exit account
-				<T::Currency as Unbalanced<_>>::increase_balance(
+				// Native token transfer - mint tokens to the exit account.
+				//
+				// A single exit that can't be minted (e.g. a below-existential-deposit
+				// credit to a fresh account) must not revert the whole bundle and deny
+				// every co-bundled user's exit — that is the per-segment isolation
+				// documented on `ExitSegment`. Skip just this slot; its nullifier is
+				// already marked so the deposit cannot be re-exited, and the skipped
+				// value is left out of the committed exit total below.
+				match <T::Currency as Unbalanced<_>>::increase_balance(
 					exit_account,
 					*exit_balance,
 					frame_support::traits::tokens::Precision::Exact,
-				)?;
+				) {
+					Ok(_) => {},
+					Err(e) => {
+						log::warn!(
+							"Exit mint of {:?} to {:?} failed ({:?}); skipping this exit",
+							*exit_balance,
+							exit_account,
+							e
+						);
+						Self::deposit_event(Event::ExitMintFailed {
+							account: exit_account.clone(),
+							amount: *exit_balance,
+						});
+						continue;
+					},
+				}
+
+				minted_exit_amount = minted_exit_amount.saturating_add(*exit_balance);
 
 				// Record transfer proof for the minted tokens
 				let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
@@ -1044,9 +1094,15 @@ pub mod pallet {
 				);
 			}
 
-			// Commit the new cumulative exit total now that all exits succeeded. The invariant
-			// `exits_after <= potential_balance` was checked above before any minting.
-			TotalWormholeExits::<T>::put(exits_after);
+			// Commit only the exits that actually minted. Skipped exits keep their
+			// nullifiers marked (their deposits can never be re-exited), so leaving their
+			// value out of the total cannot enable a double-mint. The soundness bound
+			// `exits_after <= potential_balance` was checked above against the full total,
+			// which is an upper bound on this committed value.
+			let committed_exits =
+				TotalWormholeExits::<T>::get().saturating_add(minted_exit_amount);
+			debug_assert!(committed_exits <= exits_after);
+			TotalWormholeExits::<T>::put(committed_exits);
 
 			// Success - use declared weight (actual_weight: None means use declared weight)
 			Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
