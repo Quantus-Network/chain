@@ -770,11 +770,10 @@ pub mod pallet {
 				// summed, inflated exit. `insert` returns false the first time a value
 				// repeats, so `all` is false iff any duplicate exists.
 				let mut seen = alloc::collections::BTreeSet::<[u8; 32]>::new();
-				let intra_segment_unique =
-					nullifier_bytes.iter().all(|bytes| seen.insert(*bytes));
+				let intra_segment_unique = nullifier_bytes.iter().all(|bytes| seen.insert(*bytes));
 
-				let valid = intra_segment_unique
-					&& nullifier_bytes.iter().all(|bytes| {
+				let valid = intra_segment_unique &&
+					nullifier_bytes.iter().all(|bytes| {
 						!UsedNullifiers::<T>::contains_key(bytes) && !claimed.contains(bytes)
 					});
 
@@ -1099,8 +1098,7 @@ pub mod pallet {
 			// value out of the total cannot enable a double-mint. The soundness bound
 			// `exits_after <= potential_balance` was checked above against the full total,
 			// which is an upper bound on this committed value.
-			let committed_exits =
-				TotalWormholeExits::<T>::get().saturating_add(minted_exit_amount);
+			let committed_exits = TotalWormholeExits::<T>::get().saturating_add(minted_exit_amount);
 			debug_assert!(committed_exits <= exits_after);
 			TotalWormholeExits::<T>::put(committed_exits);
 

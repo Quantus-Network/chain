@@ -576,7 +576,6 @@ mod wormhole_tests {
 			);
 		});
 	}
-
 }
 
 /// Tests for private-batch proof verification
