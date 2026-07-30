@@ -142,25 +142,33 @@ pub fn derive_wormhole_address(inner_digest: [u8; 32]) -> Result<[u8; 32], &'sta
 /// Returns `None` if no valid pre-runtime digest is found, the preimage is not a
 /// canonical field-element encoding (the preimage is miner-supplied, so this must
 /// not panic), or decoding fails.
-pub fn extract_author_from_digest<AccountId, Digest>(digest: Digest) -> Option<AccountId>
+pub fn extract_author_from_digest<'a, AccountId, I>(digest: I) -> Option<AccountId>
 where
 	AccountId: Decode,
-	Digest: IntoIterator<Item = DigestItem>,
+	I: IntoIterator<Item = &'a DigestItem>,
 {
 	for log in digest {
-		if let DigestItem::PreRuntime(engine_id, data) = log {
-			if engine_id == POW_ENGINE_ID && data.len() == 32 {
-				let preimage: [u8; 32] = match data.as_slice().try_into() {
-					Ok(arr) => arr,
-					Err(_) => continue,
-				};
-				let address_bytes = match derive_wormhole_address(preimage) {
-					Ok(bytes) => bytes,
-					Err(_) => continue,
-				};
-				return AccountId::decode(&mut &address_bytes[..]).ok();
-			}
+		let DigestItem::PreRuntime(engine_id, data) = log else {
+			continue;
+		};
+		if *engine_id != POW_ENGINE_ID {
+			continue;
 		}
+
+		// The QPoW author preimage is the first POW pre-runtime item — and,
+		// under the header digest-size bound enforced at block import (see
+		// `DIGEST_LOGS_SIZE` in `qp-header` / the length check in
+		// `sc-consensus-qpow`), the only one that fits. Evaluate just this item
+		// and stop: a malformed or padded digest can never force extra
+		// scan work, so extraction stays O(1) in the digest length regardless
+		// of any upstream bound. Items are borrowed, so no payloads are cloned
+		// during the scan either.
+		if data.len() != 32 {
+			return None;
+		}
+		let preimage: [u8; 32] = data.as_slice().try_into().ok()?;
+		let address_bytes = derive_wormhole_address(preimage).ok()?;
+		return AccountId::decode(&mut &address_bytes[..]).ok();
 	}
 	None
 }

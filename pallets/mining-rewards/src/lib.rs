@@ -203,7 +203,7 @@ pub mod pallet {
 		/// Extract miner wormhole address by hashing the preimage from pre-runtime digest
 		fn extract_miner_from_digest() -> Option<T::AccountId> {
 			let digest = <frame_system::Pallet<T>>::digest();
-			qp_wormhole::extract_author_from_digest(digest.logs.iter().cloned())
+			qp_wormhole::extract_author_from_digest(digest.logs.iter())
 		}
 
 		pub fn collect_transaction_fees(fees: BalanceOf<T>) {

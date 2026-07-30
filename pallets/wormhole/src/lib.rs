@@ -991,7 +991,7 @@ pub mod pallet {
 				if let Some(author) = qp_wormhole::extract_author_from_digest::<
 					<T as frame_system::Config>::AccountId,
 					_,
-				>(digest.logs.iter().cloned())
+				>(digest.logs.iter())
 				{
 					<T::Currency as Unbalanced<_>>::increase_balance(
 						&author,
