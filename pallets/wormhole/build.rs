@@ -29,6 +29,12 @@ fn print_bin_hash(dir: &Path, filename: &str) {
 }
 
 fn main() {
+	// Rebuild when circuit sizing knobs change. Without these, Cargo can reuse a
+	// previous OUT_DIR (e.g. a fixture build with QP_NUM_PRIVATE_BATCH_PROOFS=4)
+	// after the env var is unset, silently embedding the wrong verifier/config.
+	println!("cargo:rerun-if-env-changed=QP_NUM_LEAF_PROOFS");
+	println!("cargo:rerun-if-env-changed=QP_NUM_PRIVATE_BATCH_PROOFS");
+
 	let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
 	// Default to 7 leaves: fits in degree_bits=15 (~1.5 GB peak memory for mobile).
 	// 8+ leaves require degree_bits=16 (~2.5 GB peak), limiting to 6GB+ devices.
