@@ -22,8 +22,8 @@ const PUBLIC_BATCH_PROOF_HEX: &str = include_str!("../test-data/public_batch.hex
 const MAX_NULLIFIERS: u32 = crate::circuit_config::NUM_LEAF_PROOFS as u32;
 
 /// Maximum number of nullifiers across a full public-batch proof.
-const MAX_PUBLIC_NULLIFIERS: u32 =
-	(crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS * crate::circuit_config::NUM_LEAF_PROOFS) as u32;
+const MAX_PUBLIC_NULLIFIERS: u32 = (crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS *
+	crate::circuit_config::NUM_LEAF_PROOFS) as u32;
 
 /// The D const parameter for plonky2 proofs (extension degree = 2)
 const D: usize = 2;
