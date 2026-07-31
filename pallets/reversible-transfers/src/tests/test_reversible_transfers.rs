@@ -352,8 +352,8 @@ fn schedule_transfer_with_timestamp_works() {
 		let current_time = MockTimestamp::<Test>::now();
 		let HighSecurityAccountData { delay: user_delay, .. } =
 			ReversibleTransfers::is_high_security(&user).unwrap();
-		let expected_raw_timestamp = (current_time / timestamp_bucket_size) * timestamp_bucket_size
-			+ user_delay.as_timestamp().unwrap();
+		let expected_raw_timestamp = (current_time / timestamp_bucket_size) * timestamp_bucket_size +
+			user_delay.as_timestamp().unwrap();
 
 		// With the scheduler fix, After(Timestamp) tasks go to next bucket after normalization
 		// normalize() adds one bucket, then scheduler adds another for safety

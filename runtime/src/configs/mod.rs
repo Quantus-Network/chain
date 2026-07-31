@@ -33,9 +33,7 @@ use crate::{
 };
 use frame_support::{
 	derive_impl, parameter_types,
-	traits::{
-		ConstU128, ConstU16, ConstU32, ConstU8, Contains, NeverEnsureOrigin, VariantCountOf,
-	},
+	traits::{ConstU128, ConstU16, ConstU32, ConstU8, Contains, NeverEnsureOrigin, VariantCountOf},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
 		IdentityFee, Weight, WeightToFeeCoefficient, WeightToFeeCoefficients,
