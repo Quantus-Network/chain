@@ -116,18 +116,23 @@ impl Pair for DilithiumPair {
 		phrase: &str,
 		password: Option<&str>,
 	) -> Result<(Self, Self::Seed), SecretStringError> {
-		use qp_rusty_crystals_hdwallet::{hderive::ExtendedPrivKey, mnemonic_to_seed};
+		use qp_rusty_crystals_hdwallet::{
+			hderive::ExtendedPrivKey, mnemonic_to_seed, SensitiveBytes64,
+		};
 		// Default derivation path for Quantus: m/44'/189189'/0'/0'/0'
 		const DEFAULT_PATH: &str = "m/44'/189189'/0'/0'/0'";
-		let seed_bytes = mnemonic_to_seed(phrase.to_string(), password)
+		let mut seed_bytes = mnemonic_to_seed(phrase.to_string(), password)
 			.map_err(|_| SecretStringError::InvalidPhrase)?;
+		// Wrap the BIP39 seed so that both the stack original (wiped by `from`) and the
+		// wrapped copy (`ZeroizeOnDrop`) are zeroized once derivation is done.
+		let seed_bytes = SensitiveBytes64::from(&mut seed_bytes);
 		// The returned seed must be the actual entropy of the returned pair, so that
 		// `from_seed(seed)` reconstructs the very same account (users back up the
 		// displayed seed as recovery material). That entropy is the 32-byte secret
 		// derived at the default HD path: `derive_key_from_mnemonic` internally runs
 		// `Keypair::generate` on exactly these bytes, which is also what `from_seed`
 		// does.
-		let xpriv = ExtendedPrivKey::derive(&seed_bytes, DEFAULT_PATH)
+		let xpriv = ExtendedPrivKey::derive(seed_bytes.as_bytes(), DEFAULT_PATH)
 			.map_err(|_| SecretStringError::InvalidPath)?;
 		let seed = xpriv.secret();
 		let pair = DilithiumPair::from_seed(&seed).map_err(|_| SecretStringError::InvalidSeed)?;
