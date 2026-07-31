@@ -1,6 +1,6 @@
 use codec::{Decode, Encode};
 use qp_dilithium_crypto::{
-	Dilithium65Pair, DilithiumSignatureScheme, Dilithium87SignatureWithPublic, PUB_KEY_BYTES,
+	Dilithium65Pair, Dilithium87SignatureWithPublic, DilithiumSignatureScheme, PUB_KEY_BYTES,
 };
 use sp_core::{ByteArray, Pair};
 use sp_runtime::{
@@ -113,7 +113,8 @@ mod tests {
 			println!("Decoded Address: {:?}", decoded_address);
 			println!("Decoded Extra: ()");
 
-			let DilithiumSignatureScheme::Dilithium87(sig_public) = decoded_signature.clone() else {
+			let DilithiumSignatureScheme::Dilithium87(sig_public) = decoded_signature.clone()
+			else {
 				panic!("Expected Dilithium87 (ML-DSA-87) signature variant")
 			};
 			let sig = sig_public.signature();

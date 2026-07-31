@@ -251,7 +251,8 @@ mod tests {
 		// (this is the path the CLI key commands use).
 		let phrase = "legal winner thank year wave sausage worth useful legal winner thank yellow";
 
-		let (pair87, _) = Dilithium87Pair::from_phrase(phrase, None).expect("87 from_phrase failed");
+		let (pair87, _) =
+			Dilithium87Pair::from_phrase(phrase, None).expect("87 from_phrase failed");
 		let (pair87_again, _) =
 			Dilithium87Pair::from_phrase(phrase, None).expect("87 from_phrase failed");
 		assert_eq!(pair87.public(), pair87_again.public(), "87 derivation must be deterministic");
