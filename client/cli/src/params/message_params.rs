@@ -28,8 +28,7 @@ use std::io::{BufRead, Read};
 /// Matches Dilithium's `MAX_MESSAGE_SIZE` so oversized stdin/`--message` input is
 /// rejected with a recoverable error before `Pair::sign` can panic on
 /// `SignatureError::MessageTooLong`.
-pub const MAX_MESSAGE_BYTES: usize =
-	qp_rusty_crystals_dilithium::ml_dsa_87::MAX_MESSAGE_SIZE;
+pub const MAX_MESSAGE_BYTES: usize = qp_rusty_crystals_dilithium::ml_dsa_87::MAX_MESSAGE_SIZE;
 
 /// Params to configure how a message should be passed into a command.
 #[derive(Debug, Clone, Args)]
@@ -65,11 +64,8 @@ impl MessageParams {
 			},
 		};
 		ensure_message_len(raw.len())?;
-		let message = if self.hex {
-			hex2bytes(hex_bytes2hex_str(&raw)?).map_err(Error::from)?
-		} else {
-			raw
-		};
+		let message =
+			if self.hex { hex2bytes(hex_bytes2hex_str(&raw)?).map_err(Error::from)? } else { raw };
 		ensure_message_len(message.len())?;
 		Ok(message)
 	}

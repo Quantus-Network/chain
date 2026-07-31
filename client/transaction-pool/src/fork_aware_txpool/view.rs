@@ -33,7 +33,9 @@ use crate::{
 	},
 	LOG_TARGET,
 };
-use futures::channel::mpsc::{channel, Receiver as StatusStreamReceiver, Sender as StatusStreamSink};
+use futures::channel::mpsc::{
+	channel, Receiver as StatusStreamReceiver, Sender as StatusStreamSink,
+};
 use indexmap::IndexMap;
 use parking_lot::Mutex;
 use sc_transaction_pool_api::{error::Error as TxPoolError, PoolStatus, TransactionStatus};
@@ -752,8 +754,7 @@ mod status_channel_tests {
 	/// after a drain still succeed (the stream stays open through backpressure).
 	#[tokio::test]
 	async fn view_status_streams_bound_backlog_and_stay_open() {
-		let (observer, mut dropped_rx, mut aggregated_rx) =
-			ViewPoolObserver::<MockChainApi>::new();
+		let (observer, mut dropped_rx, mut aggregated_rx) = ViewPoolObserver::<MockChainApi>::new();
 
 		let flood = VIEW_STATUS_CHANNEL_CAPACITY + 500;
 		for i in 0..flood {

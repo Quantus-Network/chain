@@ -714,7 +714,6 @@ mod enactment_state_tests {
 		assert!(matches!(result, EnactmentAction::HandleEnactment { .. }));
 		assert_es_eq(&es, x1(), b1());
 	}
-
 }
 
 /// Tests for routes that are long even though the block-number distance between the

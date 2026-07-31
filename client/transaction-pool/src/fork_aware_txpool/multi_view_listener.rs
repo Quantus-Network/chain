@@ -315,8 +315,7 @@ enum ExternalWatcherCommand<ChainApi: graph::ChainApi> {
 impl<ChainApi: graph::ChainApi> std::fmt::Debug for ExternalWatcherCommand<ChainApi> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Self::PoolTransactionStatus(request) =>
-				write!(f, "PoolTransactionStatus({request:?})"),
+			Self::PoolTransactionStatus(request) => write!(f, "PoolTransactionStatus({request:?})"),
 			Self::ViewTransactionStatus(h, status) =>
 				write!(f, "ViewTransactionStatus({h:?},{status:?})"),
 			Self::AddView(h) => write!(f, "AddView({h:?})"),
@@ -1188,8 +1187,7 @@ mod backlog_tests {
 		// is not consuming. Each Ready still occupies a queue slot even though the
 		// watcher context coalesces duplicates when drained.
 		const FLOOD: usize = STATUS_CHANNEL_CAPACITY + 200;
-		let events: Vec<_> =
-			(0..FLOOD).map(|_| (tx_hash, TransactionStatus::Ready)).collect();
+		let events: Vec<_> = (0..FLOOD).map(|_| (tx_hash, TransactionStatus::Ready)).collect();
 		// Keep the view stream alive (same pattern as other MVL tests) so the
 		// listener task does not observe a fully empty StreamMap.
 		listener.add_view_aggregated_stream(

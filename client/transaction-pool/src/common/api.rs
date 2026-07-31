@@ -102,11 +102,9 @@ fn spawn_validation_pool_task(
 			loop {
 				let start = Instant::now();
 
-				let Some(task) = recv_next_validation_task(
-					receiver_normal.clone(),
-					receiver_maintained.clone(),
-				)
-				.await
+				let Some(task) =
+					recv_next_validation_task(receiver_normal.clone(), receiver_maintained.clone())
+						.await
 				else {
 					return;
 				};
@@ -426,11 +424,21 @@ mod validation_lane_tests {
 			let which_maintained = which.clone();
 
 			tx_normal
-				.send(async move { which_normal.store(1, Ordering::SeqCst); }.boxed())
+				.send(
+					async move {
+						which_normal.store(1, Ordering::SeqCst);
+					}
+					.boxed(),
+				)
 				.await
 				.unwrap();
 			tx_maintained
-				.send(async move { which_maintained.store(2, Ordering::SeqCst); }.boxed())
+				.send(
+					async move {
+						which_maintained.store(2, Ordering::SeqCst);
+					}
+					.boxed(),
+				)
 				.await
 				.unwrap();
 

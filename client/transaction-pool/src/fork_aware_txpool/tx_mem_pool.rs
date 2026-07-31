@@ -1461,8 +1461,7 @@ mod sync_bridge_tests {
 		let xts = vec![Arc::from(xt(1)), Arc::from(xt(2)), Arc::from(xt(3))];
 		let input_len = xts.len();
 
-		let results =
-			mempool.extend_unwatched_sync(TransactionSource::Local, 0, xts);
+		let results = mempool.extend_unwatched_sync(TransactionSource::Local, 0, xts);
 
 		assert_eq!(results.len(), input_len);
 		assert!(

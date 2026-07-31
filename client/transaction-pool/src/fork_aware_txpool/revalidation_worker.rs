@@ -24,8 +24,8 @@
 //!
 //! Queues are capacity-limited:
 //! - view jobs use a bounded channel (inline revalidation when full)
-//! - mempool jobs use a latest-wins slot so finalization bursts cannot accumulate
-//!   unbounded `RevalidateMempool` payloads
+//! - mempool jobs use a latest-wins slot so finalization bursts cannot accumulate unbounded
+//!   `RevalidateMempool` payloads
 //!
 //! The [*Background tasks*](../index.html#background-tasks) section provides some extra details on
 //! revalidation process.
@@ -279,11 +279,8 @@ where
 		);
 
 		if let (Some(slot), Some(wake)) = (&self.mempool_pending, &self.mempool_wake) {
-			*slot.pending.lock() = Some(RevalidateMempoolPayload {
-				mempool,
-				view_store,
-				finalized_hash,
-			});
+			*slot.pending.lock() =
+				Some(RevalidateMempoolPayload { mempool, view_store, finalized_hash });
 			// Capacity-1 wake: ignore full (worker already notified).
 			let wake_result = { wake.lock().try_send(()) };
 			if let Err(error) = wake_result {
@@ -370,15 +367,17 @@ mod tests {
 
 #[cfg(test)]
 mod concurrency_tests {
-	use super::super::{
-		dropped_watcher::MultiViewDroppedWatcherController,
-		import_notification_sink::MultiViewImportNotificationSink,
-		multi_view_listener::MultiViewListener,
-		tx_mem_pool::{TxMemPool, TXMEMPOOL_REVALIDATION_PERIOD},
-		view::View,
-		view_store::ViewStore,
+	use super::{
+		super::{
+			dropped_watcher::MultiViewDroppedWatcherController,
+			import_notification_sink::MultiViewImportNotificationSink,
+			multi_view_listener::MultiViewListener,
+			tx_mem_pool::{TxMemPool, TXMEMPOOL_REVALIDATION_PERIOD},
+			view::View,
+			view_store::ViewStore,
+		},
+		*,
 	};
-	use super::*;
 	use crate::common::mock_api::{xt, MockChainApi, TestBlock};
 	use sp_core::H256;
 	use sp_runtime::transaction_validity::TransactionSource;
@@ -439,9 +438,7 @@ mod concurrency_tests {
 			hash: H256::from_low_u64_be(TXMEMPOOL_REVALIDATION_PERIOD + 1),
 			number: TXMEMPOOL_REVALIDATION_PERIOD + 1,
 		};
-		queue
-			.revalidate_mempool(mempool.clone(), view_store.clone(), finalized)
-			.await;
+		queue.revalidate_mempool(mempool.clone(), view_store.clone(), finalized).await;
 
 		// Ensure the mempool job is dequeued before the view job is enqueued.
 		tokio::time::sleep(Duration::from_millis(20)).await;
