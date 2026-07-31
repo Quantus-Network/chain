@@ -218,15 +218,6 @@ fn extract_all_transfers(
 			if let MultiAddress::Id(id) = dest {
 				results.push((id.clone(), *value, None));
 			},
-		RuntimeCall::Assets(pallet_assets::Call::transfer { id, target: dest, amount }) |
-		RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive {
-			id,
-			target: dest,
-			amount,
-		}) =>
-			if let MultiAddress::Id(d) = dest {
-				results.push((d.clone(), *amount, Some(id.0)));
-			},
 		RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
 		RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
 		RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) =>
@@ -286,22 +277,6 @@ mod tests {
 		})
 	}
 
-	fn asset_transfer(asset_id: u32, dest: &AccountId, amount: Balance) -> RuntimeCall {
-		RuntimeCall::Assets(pallet_assets::Call::transfer {
-			id: codec::Compact(asset_id),
-			target: addr(dest),
-			amount,
-		})
-	}
-
-	fn asset_transfer_keep_alive(asset_id: u32, dest: &AccountId, amount: Balance) -> RuntimeCall {
-		RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive {
-			id: codec::Compact(asset_id),
-			target: addr(dest),
-			amount,
-		})
-	}
-
 	fn batch(calls: Vec<RuntimeCall>) -> RuntimeCall {
 		RuntimeCall::Utility(pallet_utility::Call::batch { calls })
 	}
@@ -336,45 +311,24 @@ mod tests {
 	}
 
 	#[test]
-	fn detects_asset_transfer() {
-		let call = asset_transfer(42, &merchant(), 500);
-		let result = extract_transfers_to(&call, &merchant());
-		assert_eq!(result, vec![(500, Some(42))]);
-	}
-
-	#[test]
-	fn detects_asset_transfer_keep_alive() {
-		let call = asset_transfer_keep_alive(7, &merchant(), 1000);
-		let result = extract_transfers_to(&call, &merchant());
-		assert_eq!(result, vec![(1000, Some(7))]);
-	}
-
-	#[test]
-	fn ignores_asset_transfer_to_different_address() {
-		let call = asset_transfer(42, &other(), 500);
-		let result = extract_transfers_to(&call, &merchant());
-		assert!(result.is_empty());
-	}
-
-	#[test]
 	fn detects_transfers_inside_batch() {
 		let call = batch(vec![
 			native_transfer(&merchant(), 10 * UNIT),
 			native_transfer(&other(), 20 * UNIT),
-			asset_transfer(5, &merchant(), 300),
+			native_transfer(&merchant(), 300),
 		]);
 		let result = extract_transfers_to(&call, &merchant());
-		assert_eq!(result, vec![(10 * UNIT, None), (300, Some(5))]);
+		assert_eq!(result, vec![(10 * UNIT, None), (300, None)]);
 	}
 
 	#[test]
 	fn detects_transfers_inside_batch_all() {
 		let call = batch_all(vec![
 			native_transfer(&merchant(), 10 * UNIT),
-			asset_transfer(1, &merchant(), 200),
+			native_transfer(&merchant(), 200),
 		]);
 		let result = extract_transfers_to(&call, &merchant());
-		assert_eq!(result, vec![(10 * UNIT, None), (200, Some(1))]);
+		assert_eq!(result, vec![(10 * UNIT, None), (200, None)]);
 	}
 
 	#[test]
@@ -406,7 +360,7 @@ mod tests {
 		let call = batch(vec![
 			native_transfer(&other(), 100 * UNIT),
 			RuntimeCall::System(frame_system::Call::remark { remark: vec![] }),
-			asset_transfer(1, &customer(), 50),
+			native_transfer(&customer(), 50),
 		]);
 		let result = extract_transfers_to(&call, &merchant());
 		assert!(result.is_empty());
@@ -475,12 +429,12 @@ mod tests {
 		let call = batch(vec![
 			native_transfer(&merchant(), 10 * UNIT),
 			native_transfer(&other(), 20 * UNIT),
-			asset_transfer(5, &customer(), 300),
+			native_transfer(&customer(), 300),
 		]);
 		let all = extract_all_transfers(&call, 0);
 		assert_eq!(all.len(), 3);
 		assert_eq!(all[0], (merchant(), 10 * UNIT, None));
 		assert_eq!(all[1], (other(), 20 * UNIT, None));
-		assert_eq!(all[2], (customer(), 300, Some(5)));
+		assert_eq!(all[2], (customer(), 300, None));
 	}
 }

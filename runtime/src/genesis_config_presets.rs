@@ -18,9 +18,7 @@
 // this module is used by the client, so it's ok to panic/unwrap here
 #![allow(clippy::expect_used)]
 
-use crate::{
-	AccountId, AssetsConfig, BalancesConfig, RuntimeGenesisConfig, EXISTENTIAL_DEPOSIT, UNIT,
-};
+use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, UNIT};
 use alloc::{
 	string::{String, ToString},
 	vec,
@@ -31,10 +29,7 @@ use qp_dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
 use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};
-use sp_runtime::{
-	traits::{IdentifyAccount, Zero},
-	Permill,
-};
+use sp_runtime::{traits::IdentifyAccount, Permill};
 
 /// Well-known test secret for testing ZK proof spending.
 /// This is a simple pattern (`[42u8; 32]`) for easy testing.
@@ -182,18 +177,12 @@ fn genesis_template(
 
 	// No pre-mine: the treasury starts at zero balance and is funded only by its share of
 	// mining rewards. It is intentionally NOT added to `balances`.
-	let treasury_account = treasury.account.clone();
 
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances: balances.clone(), dev_accounts: None },
 		treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
 			treasury_account: Some(treasury.account),
 			treasury_portion: Some(treasury.portion),
-		},
-		assets: AssetsConfig {
-			// Reserve asset id 0 for native token representation used with wormhole.
-			assets: vec![(Zero::zero(), treasury_account, false, EXISTENTIAL_DEPOSIT)],
-			..Default::default()
 		},
 		wormhole: pallet_wormhole::GenesisConfig::<crate::Runtime> {
 			// Record transfer proofs for ALL endowed addresses, enabling ZK spending.

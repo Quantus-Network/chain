@@ -34,8 +34,7 @@ use crate::{
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		AsEnsureOriginWithArg, ConstU128, ConstU16, ConstU32, ConstU8, Contains, NeverEnsureOrigin,
-		VariantCountOf,
+		ConstU128, ConstU16, ConstU32, ConstU8, Contains, NeverEnsureOrigin, VariantCountOf,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -46,7 +45,7 @@ use frame_support::{
 };
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
-	EnsureRoot, EnsureRootWithSuccess, EnsureSigned,
+	EnsureRoot, EnsureRootWithSuccess,
 };
 use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
@@ -61,7 +60,7 @@ use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
-	AccountId, Assets, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
+	AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
 	PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
 	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Wormhole, ZkTree,
 	DAYS, EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
@@ -166,10 +165,6 @@ parameter_types! {
 	/// Used as the `from` address in TransferProofs when native tokens are minted.
 	/// This is a well-known sentinel address, not a real account.
 	pub const MintingAccount: AccountId = AccountId::new([1u8; 32]);
-	/// Canonical minting account for pallet_assets mint operations.
-	/// Used as the `from` address in TransferProofs when assets are minted.
-	/// This is a well-known sentinel address, not a real account.
-	pub const AssetMintingAccount: AccountId = AccountId::new([2u8; 32]);
 }
 
 type Moment = u64;
@@ -502,6 +497,7 @@ parameter_types! {
 }
 
 impl pallet_reversible_transfers::Config for Runtime {
+	type AssetId = AssetId;
 	type SchedulerOrigin = OriginCaller;
 	type Scheduler = Scheduler;
 	type BlockNumberProvider = System;
@@ -526,48 +522,6 @@ parameter_types! {
 
 impl pallet_treasury::Config for Runtime {
 	type WeightInfo = pallet_treasury::weights::SubstrateWeight<Runtime>;
-}
-
-parameter_types! {
-	pub const AssetDeposit: Balance = MILLI_UNIT;
-	pub const AssetAccountDeposit: Balance = MILLI_UNIT;
-	pub const AssetsStringLimit: u32 = 50;
-	pub const MetadataDepositBase: Balance = MILLI_UNIT;
-	pub const MetadataDepositPerByte: Balance = MILLI_UNIT;
-}
-
-/// We allow root to execute privileged asset operations.
-pub type AssetsForceOrigin = EnsureRoot<AccountId>;
-type AssetId = u32;
-
-impl pallet_assets::Config for Runtime {
-	type Balance = Balance;
-	type RuntimeEvent = RuntimeEvent;
-	type AssetId = AssetId;
-	type AssetIdParameter = codec::Compact<AssetId>;
-	type Currency = Balances;
-	type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
-	type ForceOrigin = AssetsForceOrigin;
-	type AssetDeposit = AssetDeposit;
-	type MetadataDepositBase = MetadataDepositBase;
-	type MetadataDepositPerByte = MetadataDepositPerByte;
-	type ApprovalDeposit = ExistentialDeposit;
-	type StringLimit = AssetsStringLimit;
-	type Freezer = ();
-	type Extra = ();
-	type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
-	type CallbackHandle = pallet_assets::AutoIncAssetId<Runtime, ()>;
-	type AssetAccountDeposit = AssetAccountDeposit;
-	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
-	type Holder = pallet_assets_holder::Pallet<Runtime>;
-	type ReserveData = ();
-	#[cfg(feature = "runtime-benchmarks")]
-	type BenchmarkHelper = ();
-}
-
-impl pallet_assets_holder::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type RuntimeHoldReason = RuntimeHoldReason;
 }
 
 // Multisig configuration
@@ -598,8 +552,8 @@ parameter_types! {
 ///
 /// Whitelist includes only delayed, reversible operations:
 /// - `schedule_transfer`: Schedule delayed native token transfer
-/// - `schedule_asset_transfer`: Schedule delayed asset transfer
 /// - `cancel`: Cancel pending delayed transfer
+/// - `recover_funds`: Guardian-initiated recovery
 pub struct HighSecurityConfig;
 
 impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSecurityConfig {
@@ -613,8 +567,6 @@ impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSec
 			call,
 			RuntimeCall::ReversibleTransfers(
 				pallet_reversible_transfers::Call::schedule_transfer { .. }
-			) | RuntimeCall::ReversibleTransfers(
-				pallet_reversible_transfers::Call::schedule_asset_transfer { .. }
 			) | RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. }) |
 				RuntimeCall::ReversibleTransfers(
 					pallet_reversible_transfers::Call::recover_funds { .. }
@@ -656,16 +608,6 @@ impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 	}
 }
 
-impl TryFrom<RuntimeCall> for pallet_assets::Call<Runtime> {
-	type Error = ();
-	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
-		match call {
-			RuntimeCall::Assets(c) => Ok(c),
-			_ => Err(()),
-		}
-	}
-}
-
 parameter_types! {
 	/// Volume fee rate in basis points (4 bps = 0.04%).
 	/// The circuit already enforces a one-quantum (0.01 QUAN) minimum fee via ceil
@@ -688,12 +630,11 @@ parameter_types! {
 	/// `PalletId`-derived address (`py/trsry`); the actually-*configured* treasury account (which
 	/// may differ in this fork) is excluded separately in `NonWormholeAccounts::contains` via the
 	/// runtime `treasury_account()` storage getter.
-	pub KeylessNonWormholeAccounts: [AccountId; 5] = [
+	pub KeylessNonWormholeAccounts: [AccountId; 4] = [
 		TreasuryPalletId::get().into_account_truncating(),
 		MultisigPalletId::get().into_account_truncating(),
 		ReversibleTransfersPalletIdValue::get().into_account_truncating(),
 		MintingAccount::get(),
-		AssetMintingAccount::get(),
 	];
 }
 
@@ -733,7 +674,6 @@ impl Contains<AccountId> for NonWormholeAccounts {
 impl pallet_wormhole::Config for Runtime {
 	type NativeBalance = Balance;
 	type Currency = Balances;
-	type Assets = Assets;
 	type AssetId = AssetId;
 	type AssetBalance = Balance;
 	type TransferCount = u64;
