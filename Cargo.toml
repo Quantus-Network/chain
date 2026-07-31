@@ -233,10 +233,8 @@ sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = f
 qp-plonky2 = { version = "1.5.4", default-features = false }
 qp-plonky2-verifier = { version = "1.5.4", default-features = false }
 qp-poseidon-core = { version = "3.0.2", default-features = false }
-# Git pin: crates.io 3.0.1 ships only ML-DSA-87; the ml-dsa-44/65/87 feature split
-# lives on qp-rusty-crystals main and is not published yet.
-qp-rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/qp-rusty-crystals", rev = "6e2d91eb5e927df3e3fccbbc9c1557e8fdc570e1", default-features = false, features = ["ml-dsa-65", "ml-dsa-87"] }
-qp-rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/qp-rusty-crystals", rev = "6e2d91eb5e927df3e3fccbbc9c1557e8fdc570e1", features = ["ml-dsa-65"] }
+qp-rusty-crystals-dilithium = { version = "4.0.0", default-features = false, features = ["ml-dsa-65", "ml-dsa-87"] }
+qp-rusty-crystals-hdwallet = { version = "4.0.0", features = ["ml-dsa-65"] }
 qp-wormhole-aggregator = { version = "3.1.0", default-features = false }
 qp-wormhole-circuit = { version = "3.1.0", default-features = false }
 qp-wormhole-circuit-builder = { version = "3.1.0", default-features = false }
