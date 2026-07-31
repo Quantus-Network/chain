@@ -230,14 +230,18 @@ mod tests {
 
 	#[test]
 	fn test_schemes_produce_different_accounts() {
+		use sp_runtime::traits::IdentifyAccount;
+
 		let seed = [0u8; 32];
 		let pair87 = DilithiumPair::from_seed(&seed).expect("Failed to create 87 pair");
 		let pair65 = Dilithium65Pair::from_seed(&seed).expect("Failed to create 65 pair");
 
+		// The security property: the same seed must not yield the same on-chain
+		// account under the two schemes.
 		assert_ne!(
-			pair87.public().as_ref().len(),
-			pair65.public().as_ref().len(),
-			"ML-DSA-87 and ML-DSA-65 public keys must differ in size"
+			pair87.public().into_account(),
+			pair65.public().into_account(),
+			"ML-DSA-87 and ML-DSA-65 keys must derive different AccountIds"
 		);
 	}
 
