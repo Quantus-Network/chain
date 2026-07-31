@@ -53,65 +53,115 @@ pub trait WeightInfo {
 	fn on_finalize_rewarded_miner() -> Weight;
 }
 
+/// Maximum number of ZK-tree leaf inserts a single `on_finalize` can trigger.
+///
+/// `on_finalize` mints up to three rewards — transaction fees and the block
+/// reward to the miner, plus the treasury portion — and each successful mint
+/// records a wormhole transfer proof that inserts one leaf. Priced as three
+/// independent inserts (no cross-insert storage dedup) for a conservative
+/// worst case.
+const MAX_LEAF_INSERTS: u64 = 3;
+
+/// Non-Zk-tree storage measured by the benchmark, split out from the leaf-insert
+/// cost so the latter can be priced at the live tree depth. Covers
+/// `MiningRewards::CollectedFees` (r1 w1), `TreasuryPallet::TreasuryPortion`
+/// (r1), `TreasuryPallet::TreasuryAccount` (r1), `System::Account` (r2 w2) and
+/// `Wormhole::TransferCount` (r2 w2).
+const BASE_READS: u64 = 7;
+const BASE_WRITES: u64 = 5;
+
 /// Weights for `pallet_mining_rewards` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
-	/// Storage: `MiningRewards::CollectedFees` (r:1 w:1)
-	/// Proof: `MiningRewards::CollectedFees` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `TreasuryPallet::TreasuryPortion` (r:1 w:0)
-	/// Proof: `TreasuryPallet::TreasuryPortion` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `TreasuryPallet::TreasuryAccount` (r:1 w:0)
-	/// Proof: `TreasuryPallet::TreasuryAccount` (`max_values`: Some(1), `max_size`: Some(32), added: 527, mode: `MaxEncodedLen`)
-	/// Storage: `System::Account` (r:2 w:2)
-	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
-	/// Storage: `Wormhole::TransferCount` (r:2 w:2)
-	/// Proof: `Wormhole::TransferCount` (`max_values`: None, `max_size`: Some(56), added: 2531, mode: `MaxEncodedLen`)
-	/// Storage: `ZkTree::LeafCount` (r:1 w:1)
-	/// Proof: `ZkTree::LeafCount` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `ZkTree::Depth` (r:1 w:1)
-	/// Proof: `ZkTree::Depth` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
-	/// Storage: `ZkTree::Leaves` (r:3 w:3)
-	/// Proof: `ZkTree::Leaves` (`max_values`: None, `max_size`: Some(68), added: 2543, mode: `MaxEncodedLen`)
-	/// Storage: `ZkTree::Root` (r:0 w:1)
-	/// Proof: `ZkTree::Root` (`max_values`: Some(1), `max_size`: Some(32), added: 527, mode: `MaxEncodedLen`)
+	/// `on_finalize` mints up to three rewards, each recording a wormhole transfer
+	/// proof whose ZK-tree leaf insert walks the tree leaf-to-root, so its cost
+	/// grows with the tree depth *at finalize*. This weight is reserved in
+	/// `on_initialize`, before any extrinsics run, and the tree can grow by several
+	/// depths in between (a single public-batch exit bundle inserts hundreds of
+	/// leaves), so the start-of-block depth — even plus one — is not a bound on the
+	/// depth the hook will walk. Mandatory finalization cannot correct its consumed
+	/// weight afterwards, so the leaf inserts are priced at `MAX_TREE_DEPTH`, the
+	/// only provable upper bound. The compute time and proof size stay at the
+	/// benchmarked values; the depth-sensitive cost is the tree reads/writes.
 	fn on_finalize_rewarded_miner() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `568`
-		//  Estimated: `8619`
 		// Minimum execution time: 161_000_000 picoseconds.
+		let (tree_reads, tree_writes) =
+			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
 		Weight::from_parts(163_000_000, 8619)
-			.saturating_add(T::DbWeight::get().reads(12_u64))
-			.saturating_add(T::DbWeight::get().writes(11_u64))
+			.saturating_add(T::DbWeight::get().reads(
+				BASE_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_reads)),
+			))
+			.saturating_add(T::DbWeight::get().writes(
+				BASE_WRITES.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_writes)),
+			))
 	}
 }
 
 // For backwards compatibility and tests.
 impl WeightInfo for () {
-	/// Storage: `MiningRewards::CollectedFees` (r:1 w:1)
-	/// Proof: `MiningRewards::CollectedFees` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `TreasuryPallet::TreasuryPortion` (r:1 w:0)
-	/// Proof: `TreasuryPallet::TreasuryPortion` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `TreasuryPallet::TreasuryAccount` (r:1 w:0)
-	/// Proof: `TreasuryPallet::TreasuryAccount` (`max_values`: Some(1), `max_size`: Some(32), added: 527, mode: `MaxEncodedLen`)
-	/// Storage: `System::Account` (r:2 w:2)
-	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
-	/// Storage: `Wormhole::TransferCount` (r:2 w:2)
-	/// Proof: `Wormhole::TransferCount` (`max_values`: None, `max_size`: Some(56), added: 2531, mode: `MaxEncodedLen`)
-	/// Storage: `ZkTree::LeafCount` (r:1 w:1)
-	/// Proof: `ZkTree::LeafCount` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `ZkTree::Depth` (r:1 w:1)
-	/// Proof: `ZkTree::Depth` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
-	/// Storage: `ZkTree::Leaves` (r:3 w:3)
-	/// Proof: `ZkTree::Leaves` (`max_values`: None, `max_size`: Some(68), added: 2543, mode: `MaxEncodedLen`)
-	/// Storage: `ZkTree::Root` (r:0 w:1)
-	/// Proof: `ZkTree::Root` (`max_values`: Some(1), `max_size`: Some(32), added: 527, mode: `MaxEncodedLen`)
+	/// Same worst-case (`MAX_TREE_DEPTH`) pricing as `SubstrateWeight`, with
+	/// `RocksDbWeight` in place of the runtime's configured `DbWeight`.
 	fn on_finalize_rewarded_miner() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `568`
-		//  Estimated: `8619`
 		// Minimum execution time: 161_000_000 picoseconds.
+		let (tree_reads, tree_writes) =
+			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
 		Weight::from_parts(163_000_000, 8619)
-			.saturating_add(RocksDbWeight::get().reads(12_u64))
-			.saturating_add(RocksDbWeight::get().writes(11_u64))
+			.saturating_add(RocksDbWeight::get().reads(
+				BASE_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_reads)),
+			))
+			.saturating_add(RocksDbWeight::get().writes(
+				BASE_WRITES.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_writes)),
+			))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// The finalize cost the hook actually incurs when the tree sits at `depth`
+	/// while it runs: the benchmarked base plus three leaf inserts at that depth.
+	fn finalize_cost_at_depth(depth: u8) -> Weight {
+		let (tree_reads, tree_writes) = pallet_zk_tree::insert_leaf_db_ops_at_depth(depth);
+		Weight::from_parts(163_000_000, 8619)
+			.saturating_add(RocksDbWeight::get().reads(
+				BASE_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_reads)),
+			))
+			.saturating_add(RocksDbWeight::get().writes(
+				BASE_WRITES.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_writes)),
+			))
+	}
+
+	/// Regression test for the stale-depth hole: the weight is reserved in
+	/// `on_initialize` (shallow tree), but intervening extrinsics can grow the tree
+	/// by any number of depths before `on_finalize` walks it — a single public-batch
+	/// exit bundle alone inserts hundreds of leaves. The reserved weight must
+	/// therefore cover the finalize cost at *every* depth the tree can reach by
+	/// end of block, up to the hard `MAX_TREE_DEPTH` cap, not just the
+	/// start-of-block depth plus one.
+	#[test]
+	fn reserved_weight_covers_any_end_of_block_depth() {
+		// The reservation is depth-independent (it never reads the live tree), so
+		// what it returns at the shallow start-of-block state is what the block got.
+		let reserved = <() as WeightInfo>::on_finalize_rewarded_miner();
+
+		for end_depth in 0..=pallet_zk_tree::MAX_TREE_DEPTH {
+			let cost = finalize_cost_at_depth(end_depth);
+			assert!(
+				reserved.all_gte(cost),
+				"reserved weight {reserved:?} must cover finalize at depth {end_depth} ({cost:?})"
+			);
+		}
+	}
+
+	/// The weight must price its leaf inserts at `MAX_TREE_DEPTH`: it is the only
+	/// upper bound on the tree depth at finalize that holds regardless of what runs
+	/// earlier in the block. (`SubstrateWeight` is the identical formula with the
+	/// runtime's configured `DbWeight`; the mock's zero `DbWeight` makes asserting
+	/// on it vacuous, so only the RocksDb fallback is pinned here.)
+	#[test]
+	fn weight_is_priced_at_max_tree_depth() {
+		let expected = finalize_cost_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
+		assert_eq!(<() as WeightInfo>::on_finalize_rewarded_miner(), expected);
 	}
 }

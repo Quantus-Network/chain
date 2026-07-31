@@ -576,50 +576,6 @@ mod wormhole_tests {
 			);
 		});
 	}
-
-	/// Pre-upgrade `TransferCount` entries keyed on non-canonical recipients must be merged
-	/// into the canonical key (max of the counts) so post-upgrade deposits cannot restart a
-	/// count sequence that collides with already-committed leaves.
-	#[test]
-	fn migration_merges_non_canonical_transfer_count_keys() {
-		use frame_support::traits::UncheckedOnRuntimeUpgrade;
-		use pallet_zk_tree::tree::{canonicalize_account_bytes, GOLDILOCKS_P};
-
-		new_test_ext().execute_with(|| {
-			// Non-canonical: first limb = p + 7 (reduces to 7). Canonical sibling has limb 7.
-			let mut raw_bytes = [0u8; 32];
-			raw_bytes[0..8].copy_from_slice(&(GOLDILOCKS_P + 7).to_le_bytes());
-			let raw = AccountId::from(raw_bytes);
-			let canonical = AccountId::from(canonicalize_account_bytes(raw_bytes));
-			assert_ne!(raw, canonical);
-
-			crate::TransferCount::<Test>::insert(&raw, 5u64);
-			crate::TransferCount::<Test>::insert(&canonical, 3u64);
-
-			crate::migrations::v2::CanonicalizeTransferCountKeys::<Test>::on_runtime_upgrade();
-
-			assert!(
-				!crate::TransferCount::<Test>::contains_key(&raw),
-				"non-canonical TransferCount key must be removed"
-			);
-			assert_eq!(
-				crate::TransferCount::<Test>::get(&canonical),
-				5,
-				"canonical key must keep the max of the alias and canonical counts"
-			);
-
-			// A fresh deposit to either form must continue from the merged count (5), not
-			// restart at 0 under the canonical key.
-			let from = account_id(1);
-			Wormhole::record_transfer(0u32, &from, &canonical, 10 * UNIT);
-			assert_eq!(crate::TransferCount::<Test>::get(&canonical), 6);
-			assert_eq!(
-				crate::TransferCount::<Test>::get(&raw),
-				0,
-				"raw alias must stay empty after merge"
-			);
-		});
-	}
 }
 
 /// Tests for private-batch proof verification
@@ -1750,6 +1706,57 @@ mod exit_bundle_tests {
 			let result = Wormhole::process_exit_bundle(b);
 			assert!(result.is_err());
 			assert_eq!(result.unwrap_err().error, Error::<Test>::NoValidSegments.into());
+		});
+	}
+
+	#[test]
+	fn process_exit_bundle_skips_below_ed_exit_without_reverting_others() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+
+			// Raise the ED so a small exit to a fresh account cannot be minted, while a
+			// larger co-bundled exit clears it. AMOUNT_A (20 QUAN) stays below the ED;
+			// AMOUNT_B (30 QUAN) is above it. The bundle total still clears the 10 QUAN
+			// MinimumTransferAmount.
+			ExistentialDeposit::set(scaled(2500));
+
+			let dust_exit = AccountId32::new([10u8; 32]);
+			let good_exit = AccountId32::new([11u8; 32]);
+
+			// Two independent segments (as in a public batch): a dust-to-fresh-account
+			// exit and an honest above-ED exit. The dust one must be skipped, not abort
+			// the whole bundle.
+			let b = bundle(
+				vec![segment(&[1], &[(10, AMOUNT_A)]), segment(&[2], &[(11, AMOUNT_B)])],
+				None,
+			);
+			assert_ok!(Wormhole::process_exit_bundle(b));
+
+			// The honest exit landed; the below-ED exit was skipped (account not created).
+			assert_eq!(Balances::balance(&good_exit), scaled(AMOUNT_B));
+			assert_eq!(
+				Balances::balance(&dust_exit),
+				0,
+				"below-ED exit must be skipped, not create the account"
+			);
+
+			// A skip event was surfaced for the dust exit.
+			System::assert_has_event(
+				crate::Event::<Test>::ExitMintFailed {
+					account: dust_exit.clone(),
+					amount: scaled(AMOUNT_A),
+				}
+				.into(),
+			);
+
+			// Only the successfully minted exit is committed to the cumulative total.
+			assert_eq!(TotalWormholeExits::<Test>::get(), scaled(AMOUNT_B));
+
+			// Both segments' nullifiers are marked used: the skipped exit's deposit
+			// cannot be re-exited (isolation, not a free retry).
+			assert!(UsedNullifiers::<Test>::contains_key(nullifier_bytes(1)));
+			assert!(UsedNullifiers::<Test>::contains_key(nullifier_bytes(2)));
 		});
 	}
 

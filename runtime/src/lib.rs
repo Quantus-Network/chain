@@ -166,8 +166,6 @@ pub type SignedPayload = generic::SignedPayload<RuntimeCall, TxExtension>;
 pub type Migrations = (
 	// v0 -> v1: seed the wormhole soundness counters so pre-upgrade deposits remain exitable.
 	pallet_wormhole::migrations::MigrateV0ToV1<Runtime>,
-	// v1 -> v2: merge pre-upgrade non-canonical TransferCount keys into their canonical form.
-	pallet_wormhole::migrations::MigrateV1ToV2<Runtime>,
 	// v0 -> v1: set the treasury portion to 50% (50/50 treasury/miner reward split).
 	pallet_treasury::migrations::MigrateV0ToV1<Runtime>,
 );

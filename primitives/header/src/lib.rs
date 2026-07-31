@@ -31,6 +31,20 @@ use alloc::vec::Vec;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+/// Size of the fixed digest window (in bytes) committed by [`Header::hash`].
+///
+/// The SCALE-encoded digest is folded into the Poseidon preimage through a
+/// buffer of exactly this size, and the wormhole circuit hashes a digest field
+/// of the same width. It is sized to hold exactly one 32-byte pre-runtime
+/// preimage plus one 64-byte PoW seal (the canonical post-seal digest), so a
+/// well-formed header uses the whole window with no slack.
+///
+/// Headers whose encoded digest exceeds this bound must be **rejected** before
+/// import rather than silently truncated; see the digest length check in
+/// `sc-consensus-qpow`. Truncation would let two distinct headers share a block
+/// hash on the bytes past this window.
+pub const DIGEST_LOGS_SIZE: usize = 110;
+
 /// Extension trait for headers that support ZK tree root.
 ///
 /// This trait allows frame_system to set the ZK Merkle tree root on headers
@@ -193,9 +207,6 @@ where
 	/// Convenience helper for computing the hash of the header without having
 	/// to import the trait.
 	pub fn hash(&self) -> H256 {
-		/// Fixed size for digest encoding - must match circuit expectation
-		const DIGEST_LOGS_SIZE: usize = 110;
-
 		// 4 hash fields (4 felts each) + 1 u32 + 28 felts for injective digest encoding
 		let max_encoded_felts = 4 * 4 + 1 + 28;
 		let mut felts = Vec::with_capacity(max_encoded_felts);
@@ -237,7 +248,17 @@ where
 			self.zk_tree_root.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
-		// digest – SCALE encode then pad to fixed 110 bytes to match circuit expectation
+		// digest – SCALE encode then pad to the fixed DIGEST_LOGS_SIZE window to
+		// match circuit expectation. Bytes past the window are NOT committed by
+		// this hash: an encoded digest longer than the window would let two
+		// distinct headers collide, which is why the import path rejects such
+		// headers outright (see the digest length checks in `sc-consensus-qpow`).
+		// No assertion here, not even a debug one: generic network code hashes
+		// completely unverified headers long before any consensus check runs
+		// (e.g. block-announce validation in `sc-network-sync` hashes the
+		// announced header on receipt), so `hash()` must accept arbitrary
+		// adversarial input and the saturating copy below is the required
+		// behavior, not a backstop.
 		let digest_encoded = self.digest.encode();
 		let mut digest_padded = [0u8; DIGEST_LOGS_SIZE];
 		let copy_len = digest_encoded.len().min(DIGEST_LOGS_SIZE);
@@ -422,5 +443,76 @@ mod tests {
 			expected_hash,
 			"Header hash changed! This would break consensus."
 		);
+	}
+
+	/// The canonical post-seal digest (one 32-byte pre-runtime preimage plus a
+	/// 64-byte PoW seal) must encode to exactly `DIGEST_LOGS_SIZE`: the hash
+	/// window is sized with no slack, so anything larger overflows it and must
+	/// be rejected rather than truncated.
+	fn canonical_pow_digest() -> Digest {
+		Digest {
+			logs: vec![
+				DigestItem::PreRuntime([112, 111, 119, 95], vec![0u8; 32]),
+				DigestItem::Seal([112, 111, 119, 95], vec![0u8; 64]),
+			],
+		}
+	}
+
+	#[test]
+	fn canonical_pow_digest_fills_hash_window_exactly() {
+		assert_eq!(
+			canonical_pow_digest().encode().len(),
+			DIGEST_LOGS_SIZE,
+			"a well-formed pre-runtime + seal digest must fill the window exactly"
+		);
+	}
+
+	fn header_with_digest(digest: Digest) -> Header<u32, BlakeTwo256> {
+		Header::<u32, BlakeTwo256> {
+			parent_hash: Default::default(),
+			number: 1,
+			state_root: Default::default(),
+			extrinsics_root: Default::default(),
+			zk_tree_root: Default::default(),
+			digest,
+			_marker: core::marker::PhantomData,
+		}
+	}
+
+	/// `hash()` must accept an oversized digest without panicking, even in
+	/// debug builds: generic network code (e.g. block-announce validation in
+	/// `sc-network-sync`) hashes completely unverified headers before any
+	/// consensus check runs, so any assertion here would be a remotely
+	/// triggerable node crash. This test also documents the consequence of
+	/// that infallibility — bytes past the window are not committed, so two
+	/// headers differing only there collide — which is exactly why the import
+	/// path in `sc-consensus-qpow` rejects oversized digests outright.
+	#[test]
+	fn oversized_digest_hashes_infallibly_but_is_not_committed_past_window() {
+		// The canonical digest fills the window exactly, so a third item's
+		// payload lands entirely past `DIGEST_LOGS_SIZE` (the extra item does
+		// not change the compact length prefix: 3 < 64 still encodes in one
+		// byte, so the first two items' bytes keep their offsets).
+		let mut digest_a = canonical_pow_digest();
+		digest_a.logs.push(DigestItem::Other(vec![0x00u8; 8]));
+		let mut digest_b = canonical_pow_digest();
+		digest_b.logs.push(DigestItem::Other(vec![0xffu8; 8]));
+
+		assert!(digest_a.encode().len() > DIGEST_LOGS_SIZE);
+		assert_eq!(digest_a.encode().len(), digest_b.encode().len());
+
+		// Infallible: no panic on either. Colliding: the differing tails are
+		// past the committed window.
+		let hash_a = header_with_digest(digest_a).hash();
+		let hash_b = header_with_digest(digest_b).hash();
+		assert_eq!(
+			hash_a, hash_b,
+			"digest bytes past the window are not committed by the hash; such headers \
+			 must be rejected at import instead"
+		);
+
+		// Sanity: a within-window digest change does alter the hash.
+		let hash_canonical = header_with_digest(canonical_pow_digest()).hash();
+		assert_ne!(hash_a, hash_canonical);
 	}
 }

@@ -232,11 +232,12 @@ pub mod pallet {
 	///   `TotalWormholeExits`). The v0 -> v1 migration seeds `PotentialWormholeBalance` so that
 	///   wormhole deposits made before the soundness tracking existed can still be exited (see
 	///   `migrations::v1`).
-	/// - v2 re-keys `TransferCount` onto the Goldilocks-canonical recipient form. The v1 -> v2
-	///   migration merges any pre-upgrade raw-keyed entries into their canonical key (see
-	///   `migrations::v2`) so prospective deposits cannot restart a count sequence that collides
-	///   with pre-upgrade leaves.
-	pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
+	///
+	/// `TransferCount` is keyed on the Goldilocks-canonical recipient form, but that is enforced
+	/// in `record_transfer` at write time (see `canonical_leaf_recipient` and the test
+	/// `deposits_to_non_canonical_alias_do_not_collide_with_canonical_leaf`), not by a storage
+	/// migration — the layout is unchanged — so it does not carry its own storage version.
+	pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
 	#[pallet::pallet]
 	#[pallet::storage_version(STORAGE_VERSION)]
@@ -497,6 +498,16 @@ pub mod pallet {
 		SegmentsDenied {
 			indices: Vec<u32>,
 		},
+		/// An exit slot could not be minted (e.g. a below-existential-deposit credit to
+		/// a fresh account) and was skipped so the rest of the bundle still processed.
+		/// The skipped exit's nullifier stays marked, so this exit cannot be retried.
+		///
+		/// NOTE: keep new variants appended at the end — indexers decode events by their
+		/// position in this enum, so existing variants must never be reordered.
+		ExitMintFailed {
+			account: <T as frame_system::Config>::AccountId,
+			amount: BalanceOf<T>,
+		},
 	}
 
 	#[pallet::error]
@@ -714,10 +725,15 @@ pub mod pallet {
 
 		/// Compute per-segment validity for an exit bundle.
 		///
-		/// A segment is valid iff none of its nullifiers is already used on-chain and none
-		/// appeared in an earlier valid segment of the same bundle. Duplicates *within* a
-		/// segment are allowed: the private-batch circuit's exit dedup zeroes the repeated
-		/// exit slots (so they mint nothing) and re-inserting a nullifier is idempotent.
+		/// A segment is valid iff none of its real nullifiers is already used on-chain,
+		/// none appeared in an earlier valid segment of the same bundle, and none is
+		/// repeated *within* the segment itself. Intra-segment duplicates are rejected
+		/// because the private-batch circuit's exit grouping sums a replayed leaf's amount
+		/// into a single inflated exit while only one shared nullifier would be marked
+		/// spent — accepting the duplicate would mint value backed by a single spend. A
+		/// well-formed batch never repeats a real nullifier, so this only rejects replays.
+		/// (The circuit now also enforces this, but the check is cheap and kept here as an
+		/// in-consensus defense that does not trust the aggregation circuit's constraints.)
 		/// Zero nullifiers (from dummy leaf padding inside a real private batch) mint
 		/// nothing and are exempt from the collision checks entirely.
 		pub(crate) fn segment_validity(bundle: &ExitBundle) -> Result<Vec<bool>, Error<T>> {
@@ -742,9 +758,17 @@ pub mod pallet {
 					nullifier_bytes.push(bytes);
 				}
 
-				let valid = nullifier_bytes.iter().all(|bytes| {
-					!UsedNullifiers::<T>::contains_key(bytes) && !claimed.contains(bytes)
-				});
+				// A real nullifier repeated within this segment can only be a leaf proof
+				// replayed across slots; reject the whole segment before it can mint the
+				// summed, inflated exit. `insert` returns false the first time a value
+				// repeats, so `all` is false iff any duplicate exists.
+				let mut seen = alloc::collections::BTreeSet::<[u8; 32]>::new();
+				let intra_segment_unique = nullifier_bytes.iter().all(|bytes| seen.insert(*bytes));
+
+				let valid = intra_segment_unique &&
+					nullifier_bytes.iter().all(|bytes| {
+						!UsedNullifiers::<T>::contains_key(bytes) && !claimed.contains(bytes)
+					});
 
 				if valid {
 					claimed.extend(nullifier_bytes);
@@ -963,17 +987,32 @@ pub mod pallet {
 				if let Some(author) = qp_wormhole::extract_author_from_digest::<
 					<T as frame_system::Config>::AccountId,
 					_,
-				>(digest.logs.iter().cloned())
+				>(digest.logs.iter())
 				{
-					<T::Currency as Unbalanced<_>>::increase_balance(
+					// A failed miner-fee mint (e.g. the author account doesn't exist and
+					// the fee is below the existential deposit) must not revert the whole
+					// bundle and drag users' exits down with it. Burn it instead, exactly
+					// like the no-author branch below and the aggregator-rebate fallback.
+					match <T::Currency as Unbalanced<_>>::increase_balance(
 						&author,
 						miner_fee,
 						frame_support::traits::tokens::Precision::Exact,
-					)?;
-					Self::deposit_event(Event::MinerVolumeFeePaid {
-						miner: author,
-						amount: miner_fee,
-					});
+					) {
+						Ok(_) => {
+							Self::deposit_event(Event::MinerVolumeFeePaid {
+								miner: author,
+								amount: miner_fee,
+							});
+						},
+						Err(e) => {
+							log::warn!(
+								"Miner fee of {:?} could not be minted ({:?}); burning it instead",
+								miner_fee,
+								e
+							);
+							burn_amount_u128 = burn_amount_u128.saturating_add(miner_fee_u128);
+						},
+					}
 				} else {
 					// No block author found - add miner fee to burn amount
 					log::warn!(
@@ -997,13 +1036,38 @@ pub mod pallet {
 			}
 
 			// Process transfers and record proofs
+			let mut minted_exit_amount: BalanceOf<T> = Zero::zero();
 			for (exit_account, exit_balance) in &processed_accounts {
-				// Native token transfer - mint tokens to the exit account
-				<T::Currency as Unbalanced<_>>::increase_balance(
+				// Native token transfer - mint tokens to the exit account.
+				//
+				// A single exit that can't be minted (e.g. a below-existential-deposit
+				// credit to a fresh account) must not revert the whole bundle and deny
+				// every co-bundled user's exit — that is the per-segment isolation
+				// documented on `ExitSegment`. Skip just this slot; its nullifier is
+				// already marked so the deposit cannot be re-exited, and the skipped
+				// value is left out of the committed exit total below.
+				match <T::Currency as Unbalanced<_>>::increase_balance(
 					exit_account,
 					*exit_balance,
 					frame_support::traits::tokens::Precision::Exact,
-				)?;
+				) {
+					Ok(_) => {},
+					Err(e) => {
+						log::warn!(
+							"Exit mint of {:?} to {:?} failed ({:?}); skipping this exit",
+							*exit_balance,
+							exit_account,
+							e
+						);
+						Self::deposit_event(Event::ExitMintFailed {
+							account: exit_account.clone(),
+							amount: *exit_balance,
+						});
+						continue;
+					},
+				}
+
+				minted_exit_amount = minted_exit_amount.saturating_add(*exit_balance);
 
 				// Record transfer proof for the minted tokens
 				let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
@@ -1016,9 +1080,14 @@ pub mod pallet {
 				);
 			}
 
-			// Commit the new cumulative exit total now that all exits succeeded. The invariant
-			// `exits_after <= potential_balance` was checked above before any minting.
-			TotalWormholeExits::<T>::put(exits_after);
+			// Commit only the exits that actually minted. Skipped exits keep their
+			// nullifiers marked (their deposits can never be re-exited), so leaving their
+			// value out of the total cannot enable a double-mint. The soundness bound
+			// `exits_after <= potential_balance` was checked above against the full total,
+			// which is an upper bound on this committed value.
+			let committed_exits = TotalWormholeExits::<T>::get().saturating_add(minted_exit_amount);
+			debug_assert!(committed_exits <= exits_after);
+			TotalWormholeExits::<T>::put(committed_exits);
 
 			// Success - use declared weight (actual_weight: None means use declared weight)
 			Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
