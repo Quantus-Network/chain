@@ -64,7 +64,8 @@ pub fn create_keypair(
 		PublicKey::from_bytes(public_key).map_err(|_| crate::types::Error::InvalidPublicKey)?;
 
 	// from_parts also validates that the public key corresponds to the secret.
-	let keypair = Keypair::from_parts(secret, public).map_err(|_| crate::types::Error::InvalidPublicKey)?;
+	let keypair =
+		Keypair::from_parts(secret, public).map_err(|_| crate::types::Error::InvalidPublicKey)?;
 	Ok(keypair)
 }
 
@@ -209,9 +210,8 @@ mod tests {
 		if let Some(byte) = signature_bytes.get_mut(0) {
 			*byte ^= 1;
 		}
-		let false_signature =
-			crate::Dilithium65SignatureWithPublic::from_slice(signature_bytes)
-				.expect("Failed to create signature");
+		let false_signature = crate::Dilithium65SignatureWithPublic::from_slice(signature_bytes)
+			.expect("Failed to create signature");
 		let public = pair.public();
 
 		assert!(

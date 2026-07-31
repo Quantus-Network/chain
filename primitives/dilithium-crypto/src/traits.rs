@@ -1,4 +1,6 @@
-use super::types::{DilithiumSignatureScheme, DilithiumSigner, WrappedPublicBytes, WrappedSignatureBytes};
+use super::types::{
+	DilithiumSignatureScheme, DilithiumSigner, WrappedPublicBytes, WrappedSignatureBytes,
+};
 
 use alloc::vec::Vec;
 use qp_poseidon_core::hash_bytes;
@@ -161,7 +163,11 @@ impl Verify for DilithiumSignatureScheme {
 				if account != *signer {
 					return false;
 				}
-				crate::verify(sig_public.public().as_ref(), msg.get(), sig_public.signature().as_ref())
+				crate::verify(
+					sig_public.public().as_ref(),
+					msg.get(),
+					sig_public.signature().as_ref(),
+				)
 			},
 			Self::Dilithium65(sig_public) => {
 				let account = sig_public.public().clone().into_account();
