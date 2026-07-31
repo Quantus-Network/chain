@@ -374,6 +374,23 @@ mod tests {
 		);
 	}
 
+	/// `zeroize()` must scrub the secret key material.
+	#[test]
+	fn test_zeroize_clears_secret() {
+		use zeroize::Zeroize;
+		let mut pair = DilithiumPair::from_seed(&[7u8; 32]).expect("valid seed");
+		assert!(pair.secret_bytes().iter().any(|b| *b != 0));
+		pair.zeroize();
+		assert!(pair.secret_bytes().iter().all(|b| *b == 0));
+	}
+
+	/// Compile-time guarantee that dropped pairs (including clones) wipe their secret.
+	#[test]
+	fn test_pair_zeroizes_on_drop() {
+		fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+		assert_zeroize_on_drop::<DilithiumPair>();
+	}
+
 	#[test]
 	fn test_from_raw_matching_keys_succeeds() {
 		let seed = [0u8; 32];
