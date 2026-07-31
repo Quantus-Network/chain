@@ -129,6 +129,25 @@ impl<C: ChainApi, L: EventHandler<C>> EventDispatcher<ExtrinsicHash<C>, C, L> {
 		sender.new_watcher(hash)
 	}
 
+	/// Reclaim watcher map state after a `Watcher` was dropped without a lifecycle event.
+	///
+	/// `submit_and_watch` registers a watcher before import; if import fails
+	/// (`AlreadyImported`, `TooLowPriority`, …) the returned `Watcher` is dropped while
+	/// its sender would otherwise remain until a later `fire`. Prune closed receivers
+	/// and remove the map entry when nothing remains — without notifying any still-live
+	/// watchers for the same hash.
+	pub fn reclaim_closed_watcher(&mut self, hash: &ExtrinsicHash<C>) {
+		let remove = if let Some(sender) = self.watchers.get_mut(hash) {
+			sender.prune_closed();
+			sender.is_done()
+		} else {
+			false
+		};
+		if remove {
+			self.watchers.remove(hash);
+		}
+	}
+
 	/// Notify the listeners about the extrinsic broadcast.
 	pub fn broadcasted(&mut self, tx_hash: &ExtrinsicHash<C>, peers: Vec<String>) {
 		trace!(
@@ -272,5 +291,52 @@ impl<C: ChainApi, L: EventHandler<C>> EventDispatcher<ExtrinsicHash<C>, C, L> {
 	/// Provides hashes of all watched transactions.
 	pub fn watched_transactions(&self) -> impl Iterator<Item = &ExtrinsicHash<C>> {
 		self.watchers.keys()
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::common::mock_api::MockChainApi;
+	use sp_core::H256;
+
+	type Dispatcher = EventDispatcher<H256, MockChainApi, ()>;
+
+	#[test]
+	fn reclaim_closed_watcher_removes_orphaned_entry() {
+		let mut dispatcher = Dispatcher::default();
+		let hash = H256::repeat_byte(0x11);
+
+		let watcher = dispatcher.create_watcher(hash);
+		assert_eq!(dispatcher.watched_transactions().count(), 1);
+
+		// Mimic submit_and_watch error path: Watcher dropped, no lifecycle event fired.
+		drop(watcher);
+		assert_eq!(
+			dispatcher.watched_transactions().count(),
+			1,
+			"without reclaim, closed watcher still occupies the map"
+		);
+
+		dispatcher.reclaim_closed_watcher(&hash);
+		assert_eq!(dispatcher.watched_transactions().count(), 0);
+	}
+
+	#[test]
+	fn reclaim_closed_watcher_keeps_live_watchers() {
+		let mut dispatcher = Dispatcher::default();
+		let hash = H256::repeat_byte(0x22);
+
+		let live = dispatcher.create_watcher(hash);
+		let orphan = dispatcher.create_watcher(hash);
+		drop(orphan);
+
+		dispatcher.reclaim_closed_watcher(&hash);
+		assert_eq!(dispatcher.watched_transactions().count(), 1);
+		assert_eq!(live.hash(), &hash);
+
+		// Live watcher must still receive events after reclaim.
+		dispatcher.ready(&hash, None);
+		drop(live);
 	}
 }

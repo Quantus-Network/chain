@@ -454,11 +454,24 @@ impl<B: ChainApi, L: EventHandler<B>> ValidatedPool<B, L> {
 				let mut results = self.submit(std::iter::once(ValidatedTransaction::Valid(tx)));
 				// We submitted exactly one transaction, so we get exactly one result
 				match results.pop() {
-					Some(result) => result.map(|outcome| outcome.with_watcher(watcher)),
-					None => Err(sc_transaction_pool_api::error::Error::InvalidBlockId(
-						"submit returned no results".into(),
-					)
-					.into()),
+					Some(Ok(outcome)) => Ok(outcome.with_watcher(watcher)),
+					Some(Err(err)) => {
+						// Import failed after `create_watcher`. Drop the unused watcher and
+						// reclaim its map entry / closed sender — otherwise eventless
+						// failures (AlreadyImported, TooLowPriority, …) leak permanently
+						// because cleanup only happens inside `fire`.
+						drop(watcher);
+						self.event_dispatcher.write().reclaim_closed_watcher(&hash);
+						Err(err)
+					},
+					None => {
+						drop(watcher);
+						self.event_dispatcher.write().reclaim_closed_watcher(&hash);
+						Err(sc_transaction_pool_api::error::Error::InvalidBlockId(
+							"submit returned no results".into(),
+						)
+						.into())
+					},
 				}
 			},
 			ValidatedTransaction::Invalid(hash, err) => {
@@ -902,5 +915,99 @@ fn fire_events<B, L, Ex>(
 			promoted.iter().for_each(|p| event_dispatcher.ready(p, None));
 		},
 		base::Imported::Future { ref hash } => event_dispatcher.future(hash),
+	}
+}
+
+#[cfg(test)]
+mod watcher_reclaim_tests {
+	use super::*;
+	use crate::common::mock_api::{xt, MockChainApi};
+	use codec::Encode;
+	use sc_transaction_pool_api::error::Error as TxPoolError;
+
+	fn pool() -> ValidatedPool<MockChainApi, ()> {
+		ValidatedPool::new(Options::default(), true.into(), Arc::new(MockChainApi::default()))
+	}
+
+	fn valid_tx(
+		api: &MockChainApi,
+		value: u64,
+		priority: TransactionPriority,
+		provides: Tag,
+	) -> ValidatedTransactionFor<MockChainApi> {
+		let data = Arc::new(xt(value));
+		let (hash, bytes) = api.hash_and_length(&data);
+		ValidatedTransaction::valid_at(
+			0,
+			hash,
+			base::TimedTransactionSource::new_external(false),
+			data,
+			bytes,
+			ValidTransaction {
+				priority,
+				requires: vec![],
+				provides: vec![provides],
+				longevity: 64,
+				propagate: true,
+			},
+		)
+	}
+
+	/// `submit` then `submit_and_watch` of the same hash fails with AlreadyImported and
+	/// must not leave an orphaned watcher map entry.
+	#[test]
+	fn submit_and_watch_already_imported_does_not_leak_watcher() {
+		let pool = pool();
+		let api = pool.api();
+		let tag = 1u64.encode();
+		let tx = valid_tx(api, 1, 10, tag.clone());
+
+		assert!(pool.submit(std::iter::once(tx)).pop().unwrap().is_ok());
+		assert!(pool.watched_transactions().is_empty());
+
+		let duplicate = valid_tx(api, 1, 10, tag);
+		let err = pool.submit_and_watch(duplicate).map(|_| ()).unwrap_err();
+		assert!(matches!(err, TxPoolError::AlreadyImported(_)));
+		assert!(
+			pool.watched_transactions().is_empty(),
+			"AlreadyImported after create_watcher must reclaim watcher state"
+		);
+	}
+
+	/// A lower-priority conflicting replacement fails with TooLowPriority and must not
+	/// leave an orphaned watcher map entry.
+	#[test]
+	fn submit_and_watch_too_low_priority_does_not_leak_watcher() {
+		let pool = pool();
+		let api = pool.api();
+		// Distinct extrinsic hashes that compete for the same provides tag.
+		let tag = b"shared-tag".to_vec();
+
+		assert!(pool
+			.submit(std::iter::once(valid_tx(api, 7, 100, tag.clone())))
+			.pop()
+			.unwrap()
+			.is_ok());
+
+		let low = valid_tx(api, 8, 1, tag);
+		let err = pool.submit_and_watch(low).map(|_| ()).unwrap_err();
+		assert!(matches!(err, TxPoolError::TooLowPriority { .. }));
+		assert!(
+			pool.watched_transactions().is_empty(),
+			"TooLowPriority after create_watcher must reclaim watcher state"
+		);
+	}
+
+	/// Successful submit_and_watch still registers a watcher.
+	#[test]
+	fn submit_and_watch_success_keeps_watcher() {
+		let pool = pool();
+		let api = pool.api();
+		let mut outcome = pool
+			.submit_and_watch(valid_tx(api, 3, 10, 3u64.encode()))
+			.map_err(|e| e.to_string())
+			.unwrap();
+		assert!(outcome.take_watcher().is_some());
+		assert_eq!(pool.watched_transactions().len(), 1);
 	}
 }
