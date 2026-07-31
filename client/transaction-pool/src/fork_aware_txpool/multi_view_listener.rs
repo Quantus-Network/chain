@@ -26,10 +26,12 @@ use crate::{
 	graph::{self, BlockHash, ExtrinsicHash},
 	LOG_TARGET,
 };
-use futures::{Future, FutureExt, Stream, StreamExt};
-use parking_lot::RwLock;
+use futures::{
+	channel::mpsc::{channel, Receiver as BoundedReceiver, Sender as BoundedSender},
+	Future, FutureExt, Stream, StreamExt,
+};
+use parking_lot::{Mutex, RwLock};
 use sc_transaction_pool_api::{TransactionStatus, TransactionStatusStream, TxIndex};
-use sc_utils::mpsc;
 use sp_runtime::traits::Block as BlockT;
 use std::{
 	collections::{hash_map::Entry, HashMap, HashSet},
@@ -37,23 +39,30 @@ use std::{
 	sync::Arc,
 };
 use tokio_stream::StreamMap;
-use tracing::trace;
+use tracing::{trace, warn};
 
 use super::{
 	dropped_watcher::{DroppedReason, DroppedTransaction},
 	metrics::EventsMetricsCollector,
 };
 
+/// Bound for the MultiViewListener task controller and per-transaction external watcher queues.
+///
+/// Matches the import-notification external sink capacity. A full channel drops the overflowing
+/// notification (or closes the watcher if a *final* status cannot be delivered) instead of growing
+/// without bound when RPC / downstream consumers stop polling.
+pub(super) const STATUS_CHANNEL_CAPACITY: usize = 1024;
+
 /// A side channel allowing to control the external stream instance (one per transaction) with
 /// [`ControllerCommand`].
 ///
 /// Set of instances of [`Controller`] lives within the [`MultiViewListener`].
-type Controller<T> = mpsc::TracingUnboundedSender<T>;
+type Controller<T> = BoundedSender<T>;
 
 /// A receiver of [`ControllerCommand`] instances allowing to control the external stream.
 ///
 /// Lives within the [`ExternalWatcherContext`] instance.
-type CommandReceiver<T> = mpsc::TracingUnboundedReceiver<T>;
+type CommandReceiver<T> = BoundedReceiver<T>;
 
 /// The stream of the transaction events.
 ///
@@ -248,7 +257,10 @@ where
 /// invalid, broadcast) independently of the view's stream.
 pub struct MultiViewListener<ChainApi: graph::ChainApi> {
 	/// Provides the controller for sending control commands to the listener's task.
-	controller: Controller<ControllerCommand<ChainApi>>,
+	///
+	/// Mutex avoids cloning the sender on every command (clones raise `futures::mpsc`
+	/// effective capacity).
+	controller: Mutex<Controller<ControllerCommand<ChainApi>>>,
 
 	/// The map containing the sinks of the streams representing the external listeners of
 	/// the individual transactions. Hash of the transaction is used as a map's key. A map is
@@ -298,6 +310,101 @@ enum ExternalWatcherCommand<ChainApi: graph::ChainApi> {
 	AddView(BlockHash<ChainApi>),
 	/// Notification about view being removed.
 	RemoveView(BlockHash<ChainApi>),
+}
+
+impl<ChainApi: graph::ChainApi> std::fmt::Debug for ExternalWatcherCommand<ChainApi> {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::PoolTransactionStatus(request) =>
+				write!(f, "PoolTransactionStatus({request:?})"),
+			Self::ViewTransactionStatus(h, status) =>
+				write!(f, "ViewTransactionStatus({h:?},{status:?})"),
+			Self::AddView(h) => write!(f, "AddView({h:?})"),
+			Self::RemoveView(h) => write!(f, "RemoveView({h:?})"),
+		}
+	}
+}
+
+impl<ChainApi: graph::ChainApi> ExternalWatcherCommand<ChainApi> {
+	/// Whether failing to deliver this command should close the external watcher.
+	///
+	/// Intermediate statuses / view membership updates are dropped on a full channel so a slow
+	/// consumer cannot OOM the node. Final statuses close the watcher instead of leaving the
+	/// subscription hung without a terminal event.
+	fn is_final(&self) -> bool {
+		match self {
+			Self::PoolTransactionStatus(request) => {
+				let status: TransactionStatus<_, _> = request.into();
+				status.is_final()
+			},
+			Self::ViewTransactionStatus(_, status) => status.is_final(),
+			Self::AddView(_) | Self::RemoveView(_) => false,
+		}
+	}
+}
+
+/// Attempts to enqueue a command for an external watcher.
+///
+/// Returns `true` if the watcher controller should be retained.
+fn try_send_external_watcher_command<ChainApi: graph::ChainApi>(
+	tx_hash: ExtrinsicHash<ChainApi>,
+	ctrl: &mut Controller<ExternalWatcherCommand<ChainApi>>,
+	command: ExternalWatcherCommand<ChainApi>,
+) -> bool {
+	match ctrl.try_send(command) {
+		Ok(()) => true,
+		Err(error) if error.is_full() => {
+			let command = error.into_inner();
+			if command.is_final() {
+				warn!(
+					target: LOG_TARGET,
+					?tx_hash,
+					?command,
+					"external watcher channel full while delivering final status; closing watcher"
+				);
+				false
+			} else {
+				warn!(
+					target: LOG_TARGET,
+					?tx_hash,
+					?command,
+					"external watcher channel full; dropping notification"
+				);
+				true
+			}
+		},
+		Err(error) => {
+			trace!(
+				target: LOG_TARGET,
+				?tx_hash,
+				%error,
+				"external watcher send failed (receiver gone)"
+			);
+			false
+		},
+	}
+}
+
+/// Attempts to enqueue a controller command for the listener task.
+fn try_send_controller_command<ChainApi: graph::ChainApi>(
+	controller: &Mutex<Controller<ControllerCommand<ChainApi>>>,
+	command: ControllerCommand<ChainApi>,
+) {
+	if let Err(error) = controller.lock().try_send(command) {
+		if error.is_full() {
+			warn!(
+				target: LOG_TARGET,
+				command = ?error.into_inner(),
+				"multi-view-listener controller channel full; dropping command"
+			);
+		} else {
+			trace!(
+				target: LOG_TARGET,
+				command = ?error.into_inner(),
+				"multi-view-listener controller send failed (task gone)"
+			);
+		}
+	}
 }
 
 impl<ChainApi: graph::ChainApi> ExternalWatcherContext<ChainApi>
@@ -470,11 +577,11 @@ where
 							?status,
 							"aggregated_stream_map event",
 						);
-						if let Err(error) = ctrl
-							.get_mut()
-							.unbounded_send(ExternalWatcherCommand::ViewTransactionStatus(view_hash, status))
-						{
-							trace!(target: LOG_TARGET, ?tx_hash, ?error, "send status failed");
+						if !try_send_external_watcher_command(
+							tx_hash,
+							ctrl.get_mut(),
+							ExternalWatcherCommand::ViewTransactionStatus(view_hash, status),
+						) {
 							ctrl.remove();
 						}
 					}
@@ -483,24 +590,22 @@ where
 					match cmd {
 						Some(ControllerCommand::AddViewStream(h,stream)) => {
 							aggregated_streams_map.insert(h,stream);
-							// //todo: aysnc and join all?
 							external_watchers_tx_hash_map.write().retain(|tx_hash, ctrl| {
-								ctrl.unbounded_send(ExternalWatcherCommand::AddView(h))
-									.inspect_err(|error| {
-										trace!(target: LOG_TARGET, ?tx_hash, ?error, "add_view: send message failed");
-									})
-									.is_ok()
+								try_send_external_watcher_command(
+									*tx_hash,
+									ctrl,
+									ExternalWatcherCommand::AddView(h),
+								)
 							})
 						},
 						Some(ControllerCommand::RemoveViewStream(h)) => {
 							aggregated_streams_map.remove(&h);
-							//todo: aysnc and join all?
 							external_watchers_tx_hash_map.write().retain(|tx_hash, ctrl| {
-								ctrl.unbounded_send(ExternalWatcherCommand::RemoveView(h))
-									.inspect_err(|error| {
-										trace!(target: LOG_TARGET, ?tx_hash, ?error, "remove_view: send message failed");
-									})
-									.is_ok()
+								try_send_external_watcher_command(
+									*tx_hash,
+									ctrl,
+									ExternalWatcherCommand::RemoveView(h),
+								)
 							})
 						},
 
@@ -508,11 +613,11 @@ where
 							let tx_hash = request.hash();
 							events_metrics_collector.report_status(tx_hash, (&request).into());
 							if let Entry::Occupied(mut ctrl) = external_watchers_tx_hash_map.write().entry(tx_hash) {
-								if let Err(error) = ctrl
-									.get_mut()
-									.unbounded_send(ExternalWatcherCommand::PoolTransactionStatus(request))
-								{
-									trace!(target: LOG_TARGET, ?tx_hash, ?error, "send message failed");
+								if !try_send_external_watcher_command(
+									tx_hash,
+									ctrl.get_mut(),
+									ExternalWatcherCommand::PoolTransactionStatus(request),
+								) {
 									ctrl.remove();
 								}
 							}
@@ -544,14 +649,10 @@ where
 			Controller<ExternalWatcherCommand<ChainApi>>,
 		>::default()));
 
-		const CONTROLLER_QUEUE_WARN_SIZE: usize = 100_000;
-		let (tx, rx) = mpsc::tracing_unbounded(
-			"txpool-multi-view-listener-task-controller",
-			CONTROLLER_QUEUE_WARN_SIZE,
-		);
+		let (tx, rx) = channel(STATUS_CHANNEL_CAPACITY);
 		let task = Self::task(external_controllers.clone(), rx, events_metrics_collector);
 
-		(Self { external_controllers, controller: tx }, task.boxed())
+		(Self { external_controllers, controller: Mutex::new(tx) }, task.boxed())
 	}
 
 	/// Creates an external tstream of events for given transaction.
@@ -571,11 +672,7 @@ where
 		let external_ctx = match self.external_controllers.write().entry(tx_hash) {
 			Entry::Occupied(_) => return None,
 			Entry::Vacant(entry) => {
-				const EXT_CONTROLLER_QUEUE_WARN_THRESHOLD: usize = 128;
-				let (tx, rx) = mpsc::tracing_unbounded(
-					"txpool-multi-view-listener",
-					EXT_CONTROLLER_QUEUE_WARN_THRESHOLD,
-				);
+				let (tx, rx) = channel(STATUS_CHANNEL_CAPACITY);
 				entry.insert(tx);
 				ExternalWatcherContext::new(tx_hash, rx)
 			},
@@ -646,17 +743,10 @@ where
 		stream: ViewStatusStream<ChainApi>,
 	) {
 		trace!(target: LOG_TARGET, ?block_hash, "mvl::add_view_aggregated_stream");
-		if let Err(error) = self
-			.controller
-			.unbounded_send(ControllerCommand::AddViewStream(block_hash, stream))
-		{
-			trace!(
-				target: LOG_TARGET,
-				?block_hash,
-				%error,
-				"add_view_aggregated_stream: send message failed"
-			);
-		}
+		try_send_controller_command(
+			&self.controller,
+			ControllerCommand::AddViewStream(block_hash, stream),
+		);
 	}
 
 	/// Removes a view's stream associated with a specific view hash.
@@ -665,16 +755,10 @@ where
 	/// dispatched to the external watcher context for every watched transaction.
 	pub(crate) fn remove_view(&self, block_hash: BlockHash<ChainApi>) {
 		trace!(target: LOG_TARGET, ?block_hash, "mvl::remove_view");
-		if let Err(error) =
-			self.controller.unbounded_send(ControllerCommand::RemoveViewStream(block_hash))
-		{
-			trace!(
-				target: LOG_TARGET,
-				?block_hash,
-				%error,
-				"remove_view: send message failed"
-			);
-		}
+		try_send_controller_command(
+			&self.controller,
+			ControllerCommand::RemoveViewStream(block_hash),
+		);
 	}
 
 	/// Invalidate given transaction.
@@ -687,16 +771,10 @@ where
 	pub(crate) fn transactions_invalidated(&self, invalid_hashes: &[ExtrinsicHash<ChainApi>]) {
 		log_xt_trace!(target: LOG_TARGET, invalid_hashes, "transactions_invalidated");
 		for tx_hash in invalid_hashes {
-			if let Err(error) =
-				self.controller.unbounded_send(ControllerCommand::new_invalidated(*tx_hash))
-			{
-				trace!(
-					target: LOG_TARGET,
-					?tx_hash,
-					%error,
-					"transactions_invalidated: send message failed"
-				);
-			}
+			try_send_controller_command(
+				&self.controller,
+				ControllerCommand::new_invalidated(*tx_hash),
+			);
 		}
 	}
 
@@ -709,17 +787,10 @@ where
 		propagated: HashMap<ExtrinsicHash<ChainApi>, Vec<String>>,
 	) {
 		for (tx_hash, peers) in propagated {
-			if let Err(error) = self
-				.controller
-				.unbounded_send(ControllerCommand::new_broadcasted(tx_hash, peers))
-			{
-				trace!(
-					target: LOG_TARGET,
-					?tx_hash,
-					%error,
-					"transactions_broadcasted: send message failed"
-				);
-			}
+			try_send_controller_command(
+				&self.controller,
+				ControllerCommand::new_broadcasted(tx_hash, peers),
+			);
 		}
 	}
 
@@ -730,16 +801,10 @@ where
 	pub(crate) fn transaction_dropped(&self, dropped: DroppedTransaction<ExtrinsicHash<ChainApi>>) {
 		let DroppedTransaction { tx_hash, reason } = dropped;
 		trace!(target: LOG_TARGET, ?tx_hash, ?reason, "transaction_dropped");
-		if let Err(error) =
-			self.controller.unbounded_send(ControllerCommand::new_dropped(tx_hash, reason))
-		{
-			trace!(
-				target: LOG_TARGET,
-				?tx_hash,
-				%error,
-				"transaction_dropped: send message failed"
-			);
-		}
+		try_send_controller_command(
+			&self.controller,
+			ControllerCommand::new_dropped(tx_hash, reason),
+		);
 	}
 
 	/// Send `Finalized` event for given transaction at given block.
@@ -752,17 +817,10 @@ where
 		idx: TxIndex,
 	) {
 		trace!(target: LOG_TARGET, ?tx_hash, "transaction_finalized");
-		if let Err(error) = self
-			.controller
-			.unbounded_send(ControllerCommand::new_finalized(tx_hash, block, idx))
-		{
-			trace!(
-				target: LOG_TARGET,
-				?tx_hash,
-				%error,
-				"transaction_finalized: send message failed"
-			);
-		};
+		try_send_controller_command(
+			&self.controller,
+			ControllerCommand::new_finalized(tx_hash, block, idx),
+		);
 	}
 
 	/// Send `FinalityTimeout` event for given transactions at given block.
@@ -775,17 +833,10 @@ where
 	) {
 		for tx_hash in tx_hashes {
 			trace!(target: LOG_TARGET, ?tx_hash, "transaction_finality_timeout");
-			if let Err(error) = self
-				.controller
-				.unbounded_send(ControllerCommand::new_finality_timeout(*tx_hash, block))
-			{
-				trace!(
-					target: LOG_TARGET,
-					?tx_hash,
-					%error,
-					"transaction_finality_timeout: send message failed"
-				);
-			};
+			try_send_controller_command(
+				&self.controller,
+				ControllerCommand::new_finality_timeout(*tx_hash, block),
+			);
 		}
 	}
 
@@ -1100,5 +1151,74 @@ mod tests {
 
 		let _ = terminate_listener.send(());
 		let _ = listener_task.await.unwrap();
+	}
+}
+
+#[cfg(test)]
+mod backlog_tests {
+	use super::*;
+	use crate::common::mock_api::MockChainApi;
+	use futures::{stream, FutureExt, StreamExt};
+	use sp_core::H256;
+	use std::time::Duration;
+	use tokio::select;
+
+	/// An unread external watcher must lose at most overflowing notifications, not its
+	/// subscription: a full channel is transient backpressure. After the backlog drains,
+	/// later statuses (including a final one) must still be deliverable.
+	#[tokio::test]
+	async fn external_watcher_survives_transient_backlog() {
+		sp_tracing::try_init_simple();
+
+		let (listener, listener_task) =
+			MultiViewListener::<MockChainApi>::new_with_worker(Default::default());
+		let (terminate_tx, terminate_rx) = tokio::sync::oneshot::channel();
+		let listener_handle = tokio::spawn(async move {
+			select! {
+				_ = listener_task => {},
+				_ = terminate_rx => {},
+			}
+		});
+
+		let tx_hash = H256::repeat_byte(0x0a);
+		let mut watcher = listener.create_external_watcher_for_tx(tx_hash).unwrap();
+
+		let block_hash = H256::repeat_byte(0x01);
+		// Flood more commands than the external watcher buffer while the subscriber
+		// is not consuming. Each Ready still occupies a queue slot even though the
+		// watcher context coalesces duplicates when drained.
+		const FLOOD: usize = STATUS_CHANNEL_CAPACITY + 200;
+		let events: Vec<_> =
+			(0..FLOOD).map(|_| (tx_hash, TransactionStatus::Ready)).collect();
+		// Keep the view stream alive (same pattern as other MVL tests) so the
+		// listener task does not observe a fully empty StreamMap.
+		listener.add_view_aggregated_stream(
+			block_hash,
+			stream::iter(events).chain(stream::pending()).boxed(),
+		);
+
+		// Allow the listener task to dispatch the flood into the per-tx channel.
+		tokio::time::sleep(Duration::from_millis(100)).await;
+
+		// Drain whatever was buffered. The stream must still be open afterwards.
+		let mut terminated = false;
+		while let Some(item) = watcher.next().now_or_never() {
+			if item.is_none() {
+				terminated = true;
+				break;
+			}
+		}
+		assert!(!terminated, "external watcher must survive a transient backlog");
+
+		// A subsequent final status must still reach the (now draining) subscriber.
+		listener.transaction_finalized(tx_hash, block_hash, 0);
+		let next = tokio::time::timeout(Duration::from_secs(5), watcher.next())
+			.await
+			.expect("final status should arrive")
+			.expect("watcher stream must still be open");
+		assert_eq!(next, TransactionStatus::Finalized((block_hash, 0)));
+
+		let _ = terminate_tx.send(());
+		listener_handle.await.unwrap();
 	}
 }
