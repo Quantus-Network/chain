@@ -33,6 +33,7 @@ default = ["std"]
 std = [
 	"codec/std",
 	"primitive-types/std",
+	"qp-header/serde",
 	"qp-header/std",
 	"sp-api/std",
 	"sp-consensus-qpow/std",

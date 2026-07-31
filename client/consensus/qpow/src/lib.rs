@@ -70,10 +70,8 @@ pub enum Error<B: BlockT> {
 	CheckInherentsUnknownError(sp_inherents::InherentIdentifier),
 	#[error("Multiple pre-runtime digests")]
 	MultiplePreRuntimeDigests,
-	#[error(
-		"Header {0:?} has an encoded digest of {1} bytes, exceeding the {2}-byte commitment window"
-	)]
-	DigestTooLong(B::Hash, usize, usize),
+	#[error("Header has an encoded digest of {0} bytes, exceeding the {1}-byte commitment window")]
+	DigestTooLong(usize, usize),
 	#[error(transparent)]
 	Client(sp_blockchain::Error),
 	#[error(transparent)]
@@ -226,6 +224,21 @@ where
 		&self,
 		mut block_import_params: BlockImportParams<B>,
 	) -> Result<ImportResult, Self::Error> {
+		// Reject any header whose canonical (post-seal) digest encodes to more
+		// than the fixed window committed by `Header::hash()`. Past that window
+		// the digest bytes are not covered by the block hash, so silently
+		// truncating (as `hash()` does defensively) would let two distinct
+		// sealed headers collide on the same block hash. Fail closed before
+		// *any* `hash()` call on this header — hashing an oversized digest
+		// trips a debug assertion in `qp-header` — and, for the same reason,
+		// without embedding a hash of the malformed header in the error. The
+		// pre-seal digest is a prefix of the post-seal one, so this bound also
+		// covers the pre-seal `header.hash()` calls below.
+		let encoded_digest_len = block_import_params.post_header().digest().encode().len();
+		if encoded_digest_len > DIGEST_LOGS_SIZE {
+			return Err(Error::<B>::DigestTooLong(encoded_digest_len, DIGEST_LOGS_SIZE).into());
+		}
+
 		let parent_hash = *block_import_params.header.parent_hash();
 
 		if let Some(inner_body) = block_import_params.body.take() {
@@ -251,23 +264,6 @@ where
 		)?;
 
 		let pre_hash = block_import_params.header.hash();
-
-		// Reject any header whose canonical (post-seal) digest encodes to more
-		// than the fixed window committed by `Header::hash()`. Past that window
-		// the digest bytes are not covered by the block hash, so silently
-		// truncating (as `hash()` does defensively) would let two distinct
-		// sealed headers collide on the same block hash. Fail closed here
-		// instead, on the same digest that `post_header().hash()` commits below.
-		let post_header = block_import_params.post_header();
-		let encoded_digest_len = post_header.digest().encode().len();
-		if encoded_digest_len > DIGEST_LOGS_SIZE {
-			return Err(Error::<B>::DigestTooLong(
-				post_header.hash(),
-				encoded_digest_len,
-				DIGEST_LOGS_SIZE,
-			)
-			.into());
-		}
 
 		// Convert seal to nonce
 		let nonce: [u8; 64] = inner_seal
@@ -401,6 +397,19 @@ async fn extract_pow_seal<B>(
 where
 	B: BlockT<Hash = H256>,
 {
+	// This is the first point in the import pipeline that hashes a
+	// network-supplied header, and hashing a digest longer than the committed
+	// window trips a debug assertion in `qp-header` (the hash would silently
+	// truncate it). Reject the oversized digest before any `hash()` call; the
+	// authoritative check lives in `import_block`, this one only keeps the
+	// hashing below panic-free in debug builds.
+	let encoded_digest_len = block.header.digest().encode().len();
+	if encoded_digest_len > DIGEST_LOGS_SIZE {
+		return Err(format!(
+			"Header has an encoded digest of {encoded_digest_len} bytes, exceeding the {DIGEST_LOGS_SIZE}-byte commitment window"
+		));
+	}
+
 	let hash = block.header.hash();
 	let header = &mut block.header;
 	let block_hash = hash;
