@@ -33,8 +33,12 @@ use crate::{
 	},
 	LOG_TARGET,
 };
-use futures::channel::mpsc::{
-	channel, Receiver as StatusStreamReceiver, Sender as StatusStreamSink,
+use futures::{
+	channel::mpsc::{
+		channel, unbounded, Receiver as StatusStreamReceiver, Sender as StatusStreamSink,
+		UnboundedSender,
+	},
+	StreamExt,
 };
 use indexmap::IndexMap;
 use parking_lot::Mutex;
@@ -44,7 +48,14 @@ use sp_runtime::{
 	generic::BlockId, traits::Block as BlockT, transaction_validity::TransactionValidityError,
 	SaturatedConversion,
 };
-use std::{sync::Arc, time::Instant};
+use std::{
+	pin::Pin,
+	sync::{
+		atomic::{AtomicUsize, Ordering},
+		Arc,
+	},
+	time::Instant,
+};
 use tracing::{debug, instrument, trace, warn, Level};
 
 pub(super) struct RevalidationResult<ChainApi: graph::ChainApi> {
@@ -120,13 +131,31 @@ pub(super) type TransactionStatusEvent<H, BH> = (H, TransactionStatus<H, BH>);
 ///
 /// A full channel drops the overflowing notification but keeps the stream open so a slow
 /// consumer cannot drive unbounded heap growth through `EventHandler` fan-out.
+///
+/// For the dropped-monitoring stream this bound applies only to droppable statuses
+/// (`Ready`/`Future`); actionable statuses (`Dropped`/`Usurped`/`Invalid`) are always delivered —
+/// see [`ViewPoolObserver::send_to_dropped_stream_sink`].
 pub(super) const VIEW_STATUS_CHANNEL_CAPACITY: usize = 1024;
 
 /// Stream of events providing statuses of all the transactions within the pool.
 pub(super) type AggregatedStream<H, BH> = StatusStreamReceiver<TransactionStatusEvent<H, BH>>;
 
 /// Type alias for a stream of events intended to track dropped transactions.
-type DroppedMonitoringStream<H, BH> = StatusStreamReceiver<TransactionStatusEvent<H, BH>>;
+type DroppedMonitoringStream<H, BH> =
+	Pin<Box<dyn futures::Stream<Item = TransactionStatusEvent<H, BH>> + Send>>;
+
+/// Whether the dropped-monitoring watcher must never lose this status.
+///
+/// `Dropped`, `Usurped` and `Invalid` drive mempool removal and view-tracking cleanup in
+/// [`super::dropped_watcher`]; losing one leaves the transaction stuck in the mempool and in the
+/// view-tracking maps. `Ready`/`Future` only refresh view membership and may be dropped under
+/// backpressure.
+fn requires_lossless_delivery<H, BH>(status: &TransactionStatus<H, BH>) -> bool {
+	matches!(
+		status,
+		TransactionStatus::Dropped | TransactionStatus::Usurped(_) | TransactionStatus::Invalid
+	)
+}
 
 /// Notification handler for transactions updates triggered in `ValidatedPool`.
 ///
@@ -137,14 +166,21 @@ pub(super) struct ViewPoolObserver<ChainApi: graph::ChainApi> {
 	/// The sink used to notify dropped by enforcing limits or by being usurped, or invalid
 	/// transactions.
 	///
+	/// The channel is unbounded so actionable statuses (`Dropped`/`Usurped`/`Invalid`) can never
+	/// be lost; the flood-prone `Ready`/`Future` traffic is bounded via
+	/// `droppable_events_in_flight`. Actionable events correspond to transactions leaving the
+	/// view's pool, so their backlog is bounded in practice by the pool's own capacity limits.
+	///
 	/// Note: Ready and future statuses are alse communicated through this channel, enabling the
 	/// stream consumer to track views that reference the transaction.
+	dropped_stream_sink:
+		UnboundedSender<TransactionStatusEvent<ExtrinsicHash<ChainApi>, BlockHash<ChainApi>>>,
+
+	/// Number of droppable (`Ready`/`Future`) events currently buffered in
+	/// `dropped_stream_sink`, used to bound that traffic at [`VIEW_STATUS_CHANNEL_CAPACITY`].
 	///
-	/// Wrapped in a mutex so `EventHandler` (`&self`) can `try_send` without cloning the
-	/// sender (each clone would raise the effective `futures::mpsc` capacity).
-	dropped_stream_sink: Mutex<
-		StatusStreamSink<TransactionStatusEvent<ExtrinsicHash<ChainApi>, BlockHash<ChainApi>>>,
-	>,
+	/// Incremented on send, decremented by the receiving stream as events are consumed.
+	droppable_events_in_flight: Arc<AtomicUsize>,
 
 	/// The sink of the single, merged stream providing updates for all the transactions in the
 	/// associated pool.
@@ -215,12 +251,26 @@ impl<ChainApi: graph::ChainApi> ViewPoolObserver<ChainApi> {
 		DroppedMonitoringStream<ExtrinsicHash<ChainApi>, BlockHash<ChainApi>>,
 		AggregatedStream<ExtrinsicHash<ChainApi>, BlockHash<ChainApi>>,
 	) {
-		let (dropped_stream_sink, dropped_stream) = channel(VIEW_STATUS_CHANNEL_CAPACITY);
+		let (dropped_stream_sink, dropped_stream) = unbounded();
 		let (aggregated_stream_sink, aggregated_stream) = channel(VIEW_STATUS_CHANNEL_CAPACITY);
+
+		let droppable_events_in_flight = Arc::new(AtomicUsize::new(0));
+		let dropped_stream = {
+			let in_flight = droppable_events_in_flight.clone();
+			dropped_stream
+				.map(move |event: TransactionStatusEvent<_, _>| {
+					if !requires_lossless_delivery(&event.1) {
+						in_flight.fetch_sub(1, Ordering::Relaxed);
+					}
+					event
+				})
+				.boxed()
+		};
 
 		(
 			Self {
-				dropped_stream_sink: Mutex::new(dropped_stream_sink),
+				dropped_stream_sink,
+				droppable_events_in_flight,
 				aggregated_stream_sink: Mutex::new(aggregated_stream_sink),
 			},
 			dropped_stream,
@@ -230,22 +280,17 @@ impl<ChainApi: graph::ChainApi> ViewPoolObserver<ChainApi> {
 
 	/// Sends given event to the `dropped_stream_sink`.
 	///
-	/// A full channel drops only this notification (slow consumer); a disconnected
-	/// receiver is ignored.
+	/// Actionable statuses (`Dropped`/`Usurped`/`Invalid`) are always delivered — losing them
+	/// would leave transactions stuck in the mempool and view-tracking maps. Droppable statuses
+	/// (`Ready`/`Future`) are dropped once [`VIEW_STATUS_CHANNEL_CAPACITY`] of them are already
+	/// buffered (slow consumer). A disconnected receiver is ignored.
 	fn send_to_dropped_stream_sink(
 		&self,
 		tx: ExtrinsicHash<ChainApi>,
 		status: TransactionStatus<ExtrinsicHash<ChainApi>, BlockHash<ChainApi>>,
 	) {
-		if let Err(error) = self.dropped_stream_sink.lock().try_send((tx, status.clone())) {
-			if error.is_full() {
-				warn!(
-					target: LOG_TARGET,
-					?tx,
-					?status,
-					"dropped_sink: channel full, dropping status notification"
-				);
-			} else {
+		if requires_lossless_delivery(&status) {
+			if self.dropped_stream_sink.unbounded_send((tx, status.clone())).is_err() {
 				trace!(
 					target: LOG_TARGET,
 					?tx,
@@ -253,6 +298,27 @@ impl<ChainApi: graph::ChainApi> ViewPoolObserver<ChainApi> {
 					"dropped_sink: send message failed (receiver gone)"
 				);
 			}
+			return;
+		}
+
+		if self.droppable_events_in_flight.load(Ordering::Relaxed) >= VIEW_STATUS_CHANNEL_CAPACITY {
+			warn!(
+				target: LOG_TARGET,
+				?tx,
+				?status,
+				"dropped_sink: channel full, dropping status notification"
+			);
+			return;
+		}
+		self.droppable_events_in_flight.fetch_add(1, Ordering::Relaxed);
+		if self.dropped_stream_sink.unbounded_send((tx, status.clone())).is_err() {
+			self.droppable_events_in_flight.fetch_sub(1, Ordering::Relaxed);
+			trace!(
+				target: LOG_TARGET,
+				?tx,
+				?status,
+				"dropped_sink: send message failed (receiver gone)"
+			);
 		}
 	}
 
@@ -787,5 +853,50 @@ mod status_channel_tests {
 		observer.ready(H256::repeat_byte(0xff));
 		assert!(dropped_rx.next().now_or_never().flatten().is_some());
 		assert!(aggregated_rx.next().now_or_never().flatten().is_some());
+	}
+
+	/// Actionable statuses (`Dropped`/`Usurped`/`Invalid`) drive mempool removal and
+	/// view-tracking cleanup in the dropped watcher and must never be lost, even while the
+	/// dropped-monitoring stream is saturated by a `Ready` flood. Regression test for
+	/// actionable events being discarded on a full sink, which left transactions stuck in
+	/// the mempool and view-tracking maps.
+	#[tokio::test]
+	async fn dropped_sink_never_loses_actionable_events_under_ready_flood() {
+		let (observer, mut dropped_rx, _aggregated_rx) = ViewPoolObserver::<MockChainApi>::new();
+
+		// Saturate the dropped-monitoring stream with droppable events while nothing drains.
+		let flood = VIEW_STATUS_CHANNEL_CAPACITY + 500;
+		for i in 0..flood {
+			observer.ready(H256::from_low_u64_be(i as u64 + 1_000_000));
+		}
+
+		// Actionable events arriving on the saturated sink must still be delivered.
+		let dropped_tx = H256::repeat_byte(0xaa);
+		let usurped_tx = H256::repeat_byte(0xbb);
+		let usurper = H256::repeat_byte(0xbc);
+		let invalid_tx = H256::repeat_byte(0xcc);
+		observer.limits_enforced(dropped_tx);
+		observer.usurped(usurped_tx, usurper);
+		observer.invalid(invalid_tx);
+
+		let mut actionable = Vec::new();
+		while let Some((tx, status)) = dropped_rx.next().now_or_never().flatten() {
+			if matches!(
+				status,
+				TransactionStatus::Dropped |
+					TransactionStatus::Usurped(_) |
+					TransactionStatus::Invalid
+			) {
+				actionable.push((tx, status));
+			}
+		}
+		assert_eq!(
+			actionable,
+			vec![
+				(dropped_tx, TransactionStatus::Dropped),
+				(usurped_tx, TransactionStatus::Usurped(usurper)),
+				(invalid_tx, TransactionStatus::Invalid),
+			]
+		);
 	}
 }
