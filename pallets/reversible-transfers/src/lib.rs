@@ -912,12 +912,17 @@ pub mod pallet {
 		/// Cancels a previously scheduled transaction. Internal logic used by `cancel` extrinsic.
 		fn cancel_transfer(who: &T::AccountId, tx_id: T::Hash) -> DispatchResult {
 			let pending = PendingTransfers::<T>::get(tx_id).ok_or(Error::<T>::PendingTxNotFound)?;
-			let high_security_account_data = HighSecurityAccounts::<T>::get(&pending.from);
 
-			// Determine recipient and apply fee based on account type
-			let (recipient, apply_fee) = if let Some(ref data) = high_security_account_data {
-				ensure!(who == &data.guardian, Error::<T>::InvalidReverser);
-				(data.guardian.clone(), true)
+			// Authority, recipient, and fee policy are frozen at schedule time in
+			// `pending.guardian` (high-security schedules store the configured guardian;
+			// one-time schedules store the sender). Do not re-read live
+			// `HighSecurityAccounts` here — a later `set_high_security` would otherwise
+			// retroactively rewrite cancel rights and burn a volume fee for transfers
+			// the owner scheduled while still a regular account.
+			let apply_fee = pending.guardian != pending.from;
+			let (recipient, apply_fee) = if apply_fee {
+				ensure!(who == &pending.guardian, Error::<T>::InvalidReverser);
+				(pending.guardian.clone(), true)
 			} else {
 				ensure!(who == &pending.from, Error::<T>::NotOwner);
 				(pending.from.clone(), false)
