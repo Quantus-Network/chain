@@ -25,8 +25,6 @@ use codec::Encode;
 use jsonrpsee::tokio;
 use quantus_miner_api::{ApiResponseStatus, MiningRequest, MiningResult};
 use sc_basic_authorship::ProposerFactory;
-use sc_cli::TransactionPoolType;
-use sc_transaction_pool::TransactionPoolOptions;
 use sp_api::ProvideRuntimeApi;
 use sp_consensus::SyncOracle;
 use sp_consensus_qpow::QPoWApi;
@@ -612,21 +610,15 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		telemetry
 	});
 
-	let pool_options = TransactionPoolOptions::new_with_params(
-		36772, /* each tx is about 7300 bytes so if we have 268MB for the pool we can fit this
-		        * many txs */
-		268_435_456,
-		None,
-		TransactionPoolType::SingleState.into(),
-		false,
-	);
+	// Pool type/limits come from CLI (`--pool-type`, `--pool-limit`, `--pool-kbytes`, …)
+	// via `Configuration::transaction_pool`. Builder logs the selected type at create time.
 	let transaction_pool = Arc::from(
 		sc_transaction_pool::Builder::new(
 			task_manager.spawn_essential_handle(),
 			client.clone(),
 			config.role.is_authority().into(),
 		)
-		.with_options(pool_options)
+		.with_options(config.transaction_pool.clone())
 		.with_prometheus(config.prometheus_registry())
 		.build(),
 	);

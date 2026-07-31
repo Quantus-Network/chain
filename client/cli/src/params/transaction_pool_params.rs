@@ -43,11 +43,15 @@ impl Into<sc_transaction_pool::TransactionPoolType> for TransactionPoolType {
 #[derive(Debug, Clone, Args)]
 pub struct TransactionPoolParams {
 	/// Maximum number of transactions in the transaction pool.
-	#[arg(long, value_name = "COUNT", default_value_t = 8192)]
+	///
+	/// Default sized for Quantus PQ signatures (~7300 bytes/tx) within ~268 MiB.
+	#[arg(long, value_name = "COUNT", default_value_t = 36772)]
 	pub pool_limit: usize,
 
 	/// Maximum number of kilobytes of all transactions stored in the pool.
-	#[arg(long, value_name = "COUNT", default_value_t = 20480)]
+	///
+	/// Default is 262144 KiB (256 MiB), matching the previous hardcoded node sizing.
+	#[arg(long, value_name = "COUNT", default_value_t = 262144)]
 	pub pool_kbytes: usize,
 
 	/// How long a transaction is banned for.
@@ -57,7 +61,10 @@ pub struct TransactionPoolParams {
 	pub tx_ban_seconds: Option<u64>,
 
 	/// The type of transaction pool to be instantiated.
-	#[arg(long, value_enum, default_value_t = TransactionPoolType::ForkAware)]
+	///
+	/// Defaults to `single-state` to preserve prior Quantus node behavior; pass
+	/// `--pool-type fork-aware` to exercise the fork-aware pool.
+	#[arg(long, value_enum, default_value_t = TransactionPoolType::SingleState)]
 	pub pool_type: TransactionPoolType,
 }
 
