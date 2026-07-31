@@ -506,21 +506,34 @@ impl<Hash: hash::Hash + Member + Serialize, Ex: std::fmt::Debug> BasePool<Hash, 
 			let worst = self.future.fold(|worst, current| match worst {
 				None => Some(current.clone()),
 				Some(worst) => Some(
-					match (worst.transaction.source.timestamp, current.transaction.source.timestamp)
-					{
-						(Some(worst_timestamp), Some(current_timestamp)) => {
-							if worst_timestamp > current_timestamp {
-								current.clone()
-							} else {
-								worst
-							}
-						},
-						_ =>
-							if worst.imported_at > current.imported_at {
-								current.clone()
-							} else {
-								worst
+					// Prefer to evict the lowest-priority transaction first, matching the
+					// ready-queue policy and this function's documented behavior. Without
+					// this, age-only eviction lets an attacker flood the future queue with
+					// low-priority transactions to force out a victim's older, higher-priority
+					// future transaction (which `ValidatedPool` then bans), turning queue
+					// pressure into a priority-bypassing censorship path. Age is only used to
+					// break ties between equal priorities (evict the one waiting longest).
+					match worst.transaction.priority.cmp(&current.transaction.priority) {
+						Ordering::Less => worst,
+						Ordering::Greater => current.clone(),
+						Ordering::Equal => match (
+							worst.transaction.source.timestamp,
+							current.transaction.source.timestamp,
+						) {
+							(Some(worst_timestamp), Some(current_timestamp)) => {
+								if worst_timestamp > current_timestamp {
+									current.clone()
+								} else {
+									worst
+								}
 							},
+							_ =>
+								if worst.imported_at > current.imported_at {
+									current.clone()
+								} else {
+									worst
+								},
+						},
 					},
 				),
 			});
@@ -1249,6 +1262,60 @@ source: TimedTransactionSource { source: TransactionSource::External, timestamp:
 
 		// then
 		assert_eq!(pool.future.len(), 0);
+	}
+
+	#[test]
+	fn future_limit_enforcement_evicts_lowest_priority_first() {
+		use std::time::Duration;
+
+		let mut pool = pool();
+
+		// Older, high-priority future transaction (submitted first).
+		let t_old = Instant::now();
+		pool.import(Transaction {
+			data: vec![0u8].into(),
+			hash: 0x10,
+			priority: 1_000u64,
+			requires: vec![vec![10]],
+			provides: vec![vec![11]],
+			source: TimedTransactionSource {
+				source: TransactionSource::External,
+				timestamp: Some(t_old),
+			},
+			..default_tx().clone()
+		})
+		.unwrap();
+
+		// Newer, low-priority future transaction (submitted later).
+		pool.import(Transaction {
+			data: vec![1u8].into(),
+			hash: 0x20,
+			priority: 1u64,
+			requires: vec![vec![20]],
+			provides: vec![vec![21]],
+			source: TimedTransactionSource {
+				source: TransactionSource::External,
+				timestamp: Some(t_old + Duration::from_secs(1)),
+			},
+			..default_tx().clone()
+		})
+		.unwrap();
+
+		assert_eq!(pool.future.len(), 2);
+
+		// Enforce a future limit that only leaves room for a single transaction.
+		let removed = pool.enforce_limits(
+			&Limit { count: 100, total_bytes: 100 },
+			&Limit { count: 1, total_bytes: 100 },
+		);
+
+		// The low-priority transaction must be evicted even though it is newer; the
+		// older but higher-priority transaction must survive. Age-only eviction would
+		// (incorrectly) drop the older high-priority one.
+		assert_eq!(removed.len(), 1);
+		assert_eq!(removed[0].hash, 0x20);
+		let remaining = pool.futures().map(|tx| tx.hash).collect::<Vec<_>>();
+		assert_eq!(remaining, vec![0x10]);
 	}
 
 	#[test]
