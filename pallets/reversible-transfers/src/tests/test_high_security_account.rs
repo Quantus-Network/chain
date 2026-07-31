@@ -241,3 +241,85 @@ fn too_many_pending_transactions_error() {
 		);
 	});
 }
+
+/// Mirrors the `recover_funds` benchmark's worst-case setup: one scheduled
+/// transfer per block so cancellations touch `n` distinct `Scheduler::Agenda`
+/// keys (not a handful of clustered buckets).
+#[test]
+fn recover_funds_cancels_across_distinct_agenda_buckets() {
+	use pallet_scheduler::Agenda;
+	use qp_scheduler::{BlockNumberOrTimestamp, ScheduleNamed};
+	use std::collections::BTreeSet;
+
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let hs_user = alice();
+		let guardian = bob();
+		let dest = charlie();
+		let amount = 100u128;
+		let n = MaxPendingPerAccount::get();
+
+		for i in 0..n {
+			if i > 0 {
+				System::set_block_number(System::block_number() + 1);
+			}
+			assert_ok!(ReversibleTransfers::schedule_transfer(
+				RuntimeOrigin::signed(hs_user.clone()),
+				dest.clone(),
+				amount
+			));
+		}
+
+		let pending = crate::PendingTransfersBySender::<Test>::get(&hs_user);
+		assert_eq!(pending.len() as u32, n);
+
+		let mut agenda_keys = BTreeSet::new();
+		for tx_id in pending.iter() {
+			let schedule_id = ReversibleTransfers::make_schedule_id(tx_id).expect("schedule id");
+			let when = <Scheduler as ScheduleNamed<u64, u64, RuntimeCall, OriginCaller>>::next_dispatch_time(
+				schedule_id,
+			)
+			.expect("named task is scheduled");
+			let agenda_key = BlockNumberOrTimestamp::BlockNumber(when);
+			agenda_keys.insert(agenda_key);
+			assert!(
+				!Agenda::<Test>::get(agenda_key).is_empty(),
+				"expected a non-empty agenda at {agenda_key:?}"
+			);
+		}
+		assert_eq!(
+			agenda_keys.len() as u32,
+			n,
+			"one schedule per block must produce n distinct Agenda keys; \
+			 clustering would under-weight recover_funds cancellations"
+		);
+
+		assert_ok!(ReversibleTransfers::recover_funds(
+			RuntimeOrigin::signed(guardian),
+			hs_user.clone()
+		));
+		assert!(crate::PendingTransfersBySender::<Test>::get(&hs_user).is_empty());
+		for when in agenda_keys {
+			assert!(
+				Agenda::<Test>::get(when).is_empty(),
+				"recover_funds must clear agenda bucket at {when:?}"
+			);
+		}
+	});
+}
+
+#[test]
+fn recover_funds_weight_charges_agenda_per_pending_transfer() {
+	use crate::weights::WeightInfo;
+
+	let w0 = <() as WeightInfo>::recover_funds(0);
+	let w1 = <() as WeightInfo>::recover_funds(1);
+	let step = w1.saturating_sub(w0);
+	// Agenda MEL (added: 12493) must dominate the per-n proof component; the
+	// pre-fix weight used PendingTransfers MEL (2640) because Agenda was fixed.
+	assert_eq!(
+		step.proof_size(),
+		12493,
+		"recover_funds(n) must charge one Scheduler::Agenda proof per pending transfer"
+	);
+}

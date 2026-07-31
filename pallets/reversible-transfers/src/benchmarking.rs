@@ -286,6 +286,16 @@ mod benchmarks {
 	// upper bound for any mix of successful and failed releases. Do not change
 	// this to a cheaper (e.g. all-failing) path without re-deriving the weight
 	// model, or failed-release recoveries would be undercharged.
+	//
+	// Scheduler worst case: each pending transfer's `dispatch_time` is derived
+	// from the current block plus the configured delay (`DefaultDelay` is
+	// block-based). Submitting one transfer per block therefore spreads the
+	// sender's pending set across `n` distinct `Scheduler::Agenda` keys.
+	// `cancel_named` mutates and cleans up the agenda entry for each `when`, so
+	// the benchmark must advance the block between every schedule — not cluster
+	// many transfers into a few agenda buckets. Clustering under-measures Agenda
+	// DB/proof work. Advancing every iteration also keeps each agenda at a
+	// single task, so `MaxScheduledPerBlock` is never a constraint here.
 	#[benchmark]
 	fn recover_funds(n: Linear<0, 16>) -> Result<(), BenchmarkError> {
 		assert_eq!(
@@ -306,7 +316,8 @@ mod benchmarks {
 
 		let transfer_amount: BalanceOf<T> = 100u128.into();
 		for i in 0..n {
-			if i > 0 && i.is_multiple_of(8) {
+			if i > 0 {
+				// One transfer per block => `n` distinct Agenda keys on cancel.
 				let bn = frame_system::Pallet::<T>::block_number();
 				frame_system::Pallet::<T>::set_block_number(bn + BlockNumberFor::<T>::one());
 			}
