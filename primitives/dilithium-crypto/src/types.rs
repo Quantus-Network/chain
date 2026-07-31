@@ -56,7 +56,7 @@ pub struct WrappedSignatureBytes<const N: usize, SubTag>(pub SignatureBytes<N, S
 
 /// Dilithium signature scheme - drop-in replacement for MultiSignature
 ///
-/// Supports ML-DSA-87 (`Dilithium`) and ML-DSA-65 (`Dilithium65`). New variants
+/// Supports ML-DSA-87 (`Dilithium87`) and ML-DSA-65 (`Dilithium65`). New variants
 /// must only be appended: existing variant indices are part of the extrinsic
 /// wire format.
 #[derive(
@@ -71,7 +71,7 @@ pub struct WrappedSignatureBytes<const N: usize, SubTag>(pub SignatureBytes<N, S
 	DecodeWithMemTracking,
 )]
 pub enum DilithiumSignatureScheme {
-	Dilithium(DilithiumSignatureWithPublic),
+	Dilithium87(Dilithium87SignatureWithPublic),
 	Dilithium65(Dilithium65SignatureWithPublic),
 }
 
@@ -91,7 +91,7 @@ pub enum DilithiumSignatureScheme {
 	DecodeWithMemTracking,
 )]
 pub enum DilithiumSigner {
-	Dilithium(DilithiumPublic),
+	Dilithium87(Dilithium87Public),
 	Dilithium65(Dilithium65Public),
 }
 
@@ -114,14 +114,14 @@ pub enum Error {
 }
 
 define_dilithium_scheme! {
-	variant = Dilithium,
-	tag = DilithiumCryptoTag,
-	pair = DilithiumPair,
-	public = DilithiumPublic,
-	signature = DilithiumSignature,
-	sig_with_public = DilithiumSignatureWithPublic,
+	variant = Dilithium87,
+	tag = Dilithium87CryptoTag,
+	pair = Dilithium87Pair,
+	public = Dilithium87Public,
+	signature = Dilithium87Signature,
+	sig_with_public = Dilithium87SignatureWithPublic,
 	module = ml_dsa_87,
-	verify_fn = verify,
+	verify_fn = verify_ml_dsa_87,
 }
 
 define_dilithium_scheme! {

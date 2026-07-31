@@ -290,8 +290,8 @@ macro_rules! with_crypto_scheme {
 		$method:ident<$($generics:ty),*>( $( $params:expr ),* $(,)?) $(,)?
 	) => {
 		match $scheme {
-			$crate::CryptoScheme::Dilithium => {
-				$method::<qp_dilithium_crypto::DilithiumPair, $($generics),*>($($params),*)
+			$crate::CryptoScheme::Dilithium87 => {
+				$method::<qp_dilithium_crypto::Dilithium87Pair, $($generics),*>($($params),*)
 			}
 			$crate::CryptoScheme::Dilithium65 => {
 				$method::<qp_dilithium_crypto::Dilithium65Pair, $($generics),*>($($params),*)

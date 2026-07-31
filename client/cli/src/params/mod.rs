@@ -136,7 +136,7 @@ impl BlockNumberOrHash {
 #[derive(Debug, Clone, Args)]
 pub struct CryptoSchemeFlag {
 	/// cryptography scheme
-	#[arg(long, value_name = "SCHEME", value_enum, ignore_case = true, default_value_t = CryptoScheme::Dilithium)]
+	#[arg(long, value_name = "SCHEME", value_enum, ignore_case = true, default_value_t = CryptoScheme::Dilithium87)]
 	pub scheme: CryptoScheme,
 }
 

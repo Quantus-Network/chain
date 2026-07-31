@@ -7,7 +7,7 @@ use crate::{
 };
 #[cfg(feature = "runtime-benchmarks")]
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
-use qp_dilithium_crypto::{traits::WormholeAddress, DilithiumPair};
+use qp_dilithium_crypto::{traits::WormholeAddress, Dilithium87Pair};
 use qp_rusty_crystals_hdwallet::{
 	derive_key_from_mnemonic, derive_wormhole_from_mnemonic, generate_mnemonic, mnemonic_to_seed,
 	wormhole::WormholePair, SensitiveBytes32, QUANTUS_DILITHIUM_CHAIN_ID,
@@ -127,7 +127,7 @@ pub fn generate_quantus_key(
 							eprintln!("Error deriving from mnemonic: {:?}", e);
 							sc_cli::Error::Input("Failed to derive from mnemonic".into())
 						})?;
-					let dilithium_pair = DilithiumPair::from_keypair(keypair);
+					let dilithium_pair = Dilithium87Pair::from_keypair(keypair);
 					let account_id = AccountId32::from(dilithium_pair.public());
 					return Ok(QuantusKeyDetails {
 						address: account_id
@@ -188,7 +188,7 @@ pub fn generate_quantus_key(
 						})?;
 					let mut new_words = new_words;
 					new_words.zeroize();
-					let dilithium_pair = DilithiumPair::from_keypair(keypair);
+					let dilithium_pair = Dilithium87Pair::from_keypair(keypair);
 					let account_id = AccountId32::from(dilithium_pair.public());
 					return Ok(QuantusKeyDetails {
 						address: account_id
@@ -203,8 +203,8 @@ pub fn generate_quantus_key(
 				}
 			};
 
-			let dilithium_pair = DilithiumPair::from_seed(&seed_for_pair).map_err(|e| {
-				eprintln!("Error creating DilithiumPair: {:?}", e);
+			let dilithium_pair = Dilithium87Pair::from_seed(&seed_for_pair).map_err(|e| {
+				eprintln!("Error creating Dilithium87Pair: {:?}", e);
 				sc_cli::Error::Input("Failed to create keypair".into())
 			})?;
 

@@ -158,12 +158,12 @@ impl Verify for DilithiumSignatureScheme {
 		signer: &<Self::Signer as IdentifyAccount>::AccountId,
 	) -> bool {
 		match self {
-			Self::Dilithium(sig_public) => {
+			Self::Dilithium87(sig_public) => {
 				let account = sig_public.public().clone().into_account();
 				if account != *signer {
 					return false;
 				}
-				crate::verify(
+				crate::verify_ml_dsa_87(
 					sig_public.public().as_ref(),
 					msg.get(),
 					sig_public.signature().as_ref(),
@@ -194,7 +194,7 @@ impl IdentifyAccount for DilithiumSigner {
 	fn into_account(self) -> AccountId32 {
 		// Use injective encoding for account ID derivation (collision-resistant for security)
 		match self {
-			Self::Dilithium(who) => hash_bytes(who.as_ref()).into(),
+			Self::Dilithium87(who) => hash_bytes(who.as_ref()).into(),
 			Self::Dilithium65(who) => hash_bytes(who.as_ref()).into(),
 		}
 	}

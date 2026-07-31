@@ -122,8 +122,9 @@ pub enum NodeKeyType {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "kebab-case")]
 pub enum CryptoScheme {
-	/// Use dilithium (ML-DSA-87).
-	Dilithium,
+	/// Use dilithium ML-DSA-87.
+	#[value(alias = "dilithium")]
+	Dilithium87,
 	/// Use dilithium ML-DSA-65.
 	Dilithium65,
 }

@@ -1,4 +1,4 @@
-use super::types::DilithiumPair;
+use super::types::Dilithium87Pair;
 use qp_rusty_crystals_dilithium::{
 	ml_dsa_87::{Keypair, PublicKey, SecretKey},
 	params::SEEDBYTES,
@@ -6,17 +6,17 @@ use qp_rusty_crystals_dilithium::{
 };
 use sp_core::Pair;
 
-pub fn crystal_alice() -> DilithiumPair {
+pub fn crystal_alice() -> Dilithium87Pair {
 	let seed = [0u8; 32];
-	DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
+	Dilithium87Pair::from_seed_slice(&seed).expect("Always succeeds")
 }
-pub fn dilithium_bob() -> DilithiumPair {
+pub fn dilithium_bob() -> Dilithium87Pair {
 	let seed = [1u8; 32];
-	DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
+	Dilithium87Pair::from_seed_slice(&seed).expect("Always succeeds")
 }
-pub fn crystal_charlie() -> DilithiumPair {
+pub fn crystal_charlie() -> Dilithium87Pair {
 	let seed = [2u8; 32];
-	DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
+	Dilithium87Pair::from_seed_slice(&seed).expect("Always succeeds")
 }
 
 /// Generates a new Dilithium ML-DSA-87 keypair
@@ -72,7 +72,7 @@ pub fn create_keypair(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::{Dilithium65Pair, DilithiumSignatureWithPublic};
+	use crate::{Dilithium65Pair, Dilithium87SignatureWithPublic};
 	use sp_core::ByteArray;
 
 	fn setup() {
@@ -87,13 +87,13 @@ mod tests {
 
 		let seed = vec![0u8; 32];
 
-		let pair = DilithiumPair::from_seed_slice(&seed).expect("Failed to create pair");
+		let pair = Dilithium87Pair::from_seed_slice(&seed).expect("Failed to create pair");
 		let message = b"Something";
 		let signature = pair.sign(message);
 
 		let public = pair.public();
 
-		let result = DilithiumPair::verify(&signature, message, &public);
+		let result = Dilithium87Pair::verify(&signature, message, &public);
 
 		assert!(result, "Signature should verify");
 	}
@@ -101,7 +101,7 @@ mod tests {
 	#[test]
 	fn test_sign_different_message_fails() {
 		let seed = [0u8; 32];
-		let pair = DilithiumPair::from_seed(&seed).expect("Failed to create pair");
+		let pair = Dilithium87Pair::from_seed(&seed).expect("Failed to create pair");
 		let message = b"Hello, world!";
 		let wrong_message = b"Goodbye, world!";
 
@@ -109,7 +109,7 @@ mod tests {
 		let public = pair.public();
 
 		assert!(
-			!DilithiumPair::verify(&signature, wrong_message, &public),
+			!Dilithium87Pair::verify(&signature, wrong_message, &public),
 			"Signature should not verify with wrong message"
 		);
 	}
@@ -117,7 +117,7 @@ mod tests {
 	#[test]
 	fn test_wrong_signature_fails() {
 		let seed = [0u8; 32];
-		let pair = DilithiumPair::from_seed(&seed).expect("Failed to create pair");
+		let pair = Dilithium87Pair::from_seed(&seed).expect("Failed to create pair");
 		let message = b"Hello, world!";
 
 		let mut signature = pair.sign(message);
@@ -126,12 +126,12 @@ mod tests {
 		if let Some(byte) = signature_bytes.get_mut(0) {
 			*byte ^= 1;
 		}
-		let false_signature = DilithiumSignatureWithPublic::from_slice(signature_bytes)
+		let false_signature = Dilithium87SignatureWithPublic::from_slice(signature_bytes)
 			.expect("Failed to create signature");
 		let public = pair.public();
 
 		assert!(
-			!DilithiumPair::verify(&false_signature, message, &public),
+			!Dilithium87Pair::verify(&false_signature, message, &public),
 			"Corrupted signature should not verify"
 		);
 	}
@@ -140,8 +140,8 @@ mod tests {
 	fn test_different_seed_different_public() {
 		let seed1 = vec![0u8; 32];
 		let seed2 = vec![1u8; 32];
-		let pair1 = DilithiumPair::from_seed(&seed1).expect("Failed to create pair");
-		let pair2 = DilithiumPair::from_seed(&seed2).expect("Failed to create pair");
+		let pair1 = Dilithium87Pair::from_seed(&seed1).expect("Failed to create pair");
+		let pair2 = Dilithium87Pair::from_seed(&seed2).expect("Failed to create pair");
 
 		let pub1 = pair1.public();
 		let pub2 = pair2.public();
@@ -156,11 +156,11 @@ mod tests {
 	#[test]
 	fn test_from_raw_matching_keys_succeeds() {
 		let seed = [0u8; 32];
-		let pair = DilithiumPair::from_seed(&seed).expect("Failed to create pair");
+		let pair = Dilithium87Pair::from_seed(&seed).expect("Failed to create pair");
 		let public = pair.public().as_ref().to_vec();
 		let secret = pair.secret_bytes().to_vec();
 		let restored =
-			DilithiumPair::from_raw(&public, &secret).expect("Matching keys should succeed");
+			Dilithium87Pair::from_raw(&public, &secret).expect("Matching keys should succeed");
 		assert_eq!(restored.public().as_ref(), pair.public().as_ref());
 	}
 
@@ -168,10 +168,10 @@ mod tests {
 	fn test_from_raw_mismatched_keys_fails() {
 		let seed1 = [0u8; 32];
 		let seed2 = [1u8; 32];
-		let pair1 = DilithiumPair::from_seed(&seed1).expect("Failed to create pair1");
-		let pair2 = DilithiumPair::from_seed(&seed2).expect("Failed to create pair2");
+		let pair1 = Dilithium87Pair::from_seed(&seed1).expect("Failed to create pair1");
+		let pair2 = Dilithium87Pair::from_seed(&seed2).expect("Failed to create pair2");
 		// Swap: pair1's secret with pair2's public - should fail validation
-		let result = DilithiumPair::from_raw(pair2.public().as_ref(), pair1.secret_bytes());
+		let result = Dilithium87Pair::from_raw(pair2.public().as_ref(), pair1.secret_bytes());
 		assert!(result.is_err(), "Mismatched public/secret should be rejected");
 	}
 
@@ -233,7 +233,7 @@ mod tests {
 		use sp_runtime::traits::IdentifyAccount;
 
 		let seed = [0u8; 32];
-		let pair87 = DilithiumPair::from_seed(&seed).expect("Failed to create 87 pair");
+		let pair87 = Dilithium87Pair::from_seed(&seed).expect("Failed to create 87 pair");
 		let pair65 = Dilithium65Pair::from_seed(&seed).expect("Failed to create 65 pair");
 
 		// The security property: the same seed must not yield the same on-chain
@@ -251,9 +251,9 @@ mod tests {
 		// (this is the path the CLI key commands use).
 		let phrase = "legal winner thank year wave sausage worth useful legal winner thank yellow";
 
-		let (pair87, _) = DilithiumPair::from_phrase(phrase, None).expect("87 from_phrase failed");
+		let (pair87, _) = Dilithium87Pair::from_phrase(phrase, None).expect("87 from_phrase failed");
 		let (pair87_again, _) =
-			DilithiumPair::from_phrase(phrase, None).expect("87 from_phrase failed");
+			Dilithium87Pair::from_phrase(phrase, None).expect("87 from_phrase failed");
 		assert_eq!(pair87.public(), pair87_again.public(), "87 derivation must be deterministic");
 
 		let (pair65, _) =

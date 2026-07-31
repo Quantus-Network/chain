@@ -1,6 +1,6 @@
 use codec::{Decode, Encode};
 use qp_dilithium_crypto::{
-	Dilithium65Pair, DilithiumSignatureScheme, DilithiumSignatureWithPublic, PUB_KEY_BYTES,
+	Dilithium65Pair, DilithiumSignatureScheme, Dilithium87SignatureWithPublic, PUB_KEY_BYTES,
 };
 use sp_core::{ByteArray, Pair};
 use sp_runtime::{
@@ -26,7 +26,7 @@ pub fn format_hex_truncated(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-	use qp_dilithium_crypto::{DilithiumPublic, DilithiumSignature};
+	use qp_dilithium_crypto::{Dilithium87Public, Dilithium87Signature};
 	use qp_poseidon_core::hash_bytes;
 
 	use super::*;
@@ -60,7 +60,7 @@ mod tests {
 		println!("Gen Signature (hex): {:?}", format_hex_truncated(&sig_bytes));
 
 		let signature =
-			DilithiumSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
+			Dilithium87Signature::from_slice(&sig_bytes).expect("Signature length mismatch");
 
 		let bytes: &[u8] = signature.as_ref(); // or signature.as_slice()
 		println!("Gen Signature bytes: {:?}", format_hex_truncated(bytes));
@@ -73,15 +73,15 @@ mod tests {
 		println!("Payload AccountId: {:?}", &id);
 		let signed_extra: SignedExtra = ();
 
-		let sig_with_public = DilithiumSignatureWithPublic::new(
+		let sig_with_public = Dilithium87SignatureWithPublic::new(
 			signature,
-			DilithiumPublic::from_slice(&pk_bytes).unwrap(),
+			Dilithium87Public::from_slice(&pk_bytes).unwrap(),
 		);
 
 		let extrinsic = UncheckedExtrinsic::new_signed(
 			payload,
 			id,
-			DilithiumSignatureScheme::Dilithium(sig_with_public),
+			DilithiumSignatureScheme::Dilithium87(sig_with_public),
 			signed_extra,
 		);
 
@@ -113,8 +113,8 @@ mod tests {
 			println!("Decoded Address: {:?}", decoded_address);
 			println!("Decoded Extra: ()");
 
-			let DilithiumSignatureScheme::Dilithium(sig_public) = decoded_signature.clone() else {
-				panic!("Expected Dilithium (ML-DSA-87) signature variant")
+			let DilithiumSignatureScheme::Dilithium87(sig_public) = decoded_signature.clone() else {
+				panic!("Expected Dilithium87 (ML-DSA-87) signature variant")
 			};
 			let sig = sig_public.signature();
 			let sig_bytes = sig.as_slice();
@@ -169,19 +169,19 @@ mod tests {
 		let keypair2 =
 			qp_dilithium_crypto::generate(&entropy2).expect("Failed to generate keypair");
 		let sig_bytes_wrong_key = keypair2.sign(&msg, None, None).expect("Failed to sign message");
-		let signature_wrong_key = DilithiumSignature::try_from(&sig_bytes_wrong_key[..])
+		let signature_wrong_key = Dilithium87Signature::try_from(&sig_bytes_wrong_key[..])
 			.expect("Signature length mismatch");
 
-		let sig_with_public = DilithiumSignatureWithPublic::new(
+		let sig_with_public = Dilithium87SignatureWithPublic::new(
 			signature_wrong_key,
-			DilithiumPublic::from_slice(&pk_bytes).unwrap(),
+			Dilithium87Public::from_slice(&pk_bytes).unwrap(),
 		);
 
 		// Create transaction with invalid signature
 		let extrinsic = UncheckedExtrinsic::new_signed(
 			payload,
 			id,
-			DilithiumSignatureScheme::Dilithium(sig_with_public),
+			DilithiumSignatureScheme::Dilithium87(sig_with_public),
 			signed_extra,
 		);
 
@@ -223,7 +223,7 @@ mod tests {
 		let msg = payload.encode();
 		let sig_bytes = keypair.sign(&msg, None, None).expect("Failed to sign message");
 		let signature =
-			DilithiumSignature::try_from(&sig_bytes[..]).expect("Signature length mismatch");
+			Dilithium87Signature::try_from(&sig_bytes[..]).expect("Signature length mismatch");
 
 		// Create a second account
 		// Use injective encoding for account ID derivation (collision-resistant)
@@ -231,16 +231,16 @@ mod tests {
 		let id_2 = Address::Id(account_id_2);
 		let signed_extra: SignedExtra = ();
 
-		let sig_with_public = DilithiumSignatureWithPublic::new(
+		let sig_with_public = Dilithium87SignatureWithPublic::new(
 			signature,
-			DilithiumPublic::from_slice(&pk_bytes).unwrap(),
+			Dilithium87Public::from_slice(&pk_bytes).unwrap(),
 		);
 
 		// Create transaction with wrong account ID.
 		let extrinsic = UncheckedExtrinsic::new_signed(
 			payload,
 			id_2,
-			DilithiumSignatureScheme::Dilithium(sig_with_public), // correct signature!
+			DilithiumSignatureScheme::Dilithium87(sig_with_public), // correct signature!
 			signed_extra,
 		);
 
@@ -284,7 +284,7 @@ mod tests {
 		let msg = payload.encode();
 		let sig_bytes = keypair.sign(&msg, None, None).expect("Failed to sign message");
 		let signature =
-			DilithiumSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
+			Dilithium87Signature::from_slice(&sig_bytes).expect("Signature length mismatch");
 
 		// Use injective encoding for account ID derivation (collision-resistant)
 		let account_id = hash_bytes(&pk_bytes).into();
@@ -294,15 +294,15 @@ mod tests {
 		// Create transaction with wrong payload. Should fail.
 		let wrong_payload: RuntimeCall = 40;
 
-		let sig_with_public = DilithiumSignatureWithPublic::new(
+		let sig_with_public = Dilithium87SignatureWithPublic::new(
 			signature,
-			DilithiumPublic::from_slice(&pk_bytes).unwrap(),
+			Dilithium87Public::from_slice(&pk_bytes).unwrap(),
 		);
 
 		let extrinsic = UncheckedExtrinsic::new_signed(
 			wrong_payload,
 			id,
-			DilithiumSignatureScheme::Dilithium(sig_with_public),
+			DilithiumSignatureScheme::Dilithium87(sig_with_public),
 			signed_extra,
 		);
 

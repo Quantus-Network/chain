@@ -160,7 +160,7 @@ mod test {
 	fn sign_then_verify_roundtrip() {
 		// Derive public key from mnemonic
 		let mnemonic_pair =
-			utils::pair_from_suri::<qp_dilithium_crypto::types::DilithiumPair>(MNEMONIC, None)
+			utils::pair_from_suri::<qp_dilithium_crypto::types::Dilithium87Pair>(MNEMONIC, None)
 				.expect("Must derive pair from mnemonic");
 		let public_hex = format!("0x{}", hex::encode(mnemonic_pair.public().as_ref()));
 		// Sign via the sign command

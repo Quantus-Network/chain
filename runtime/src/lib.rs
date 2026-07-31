@@ -11,7 +11,7 @@ pub mod configs;
 
 pub use qp_dilithium_crypto::{
 	Dilithium65Pair, Dilithium65Public, Dilithium65Signature, Dilithium65SignatureWithPublic,
-	DilithiumPublic, DilithiumSignature, DilithiumSignatureScheme,
+	Dilithium87Public, Dilithium87Signature, DilithiumSignatureScheme,
 };
 
 use alloc::vec::Vec;
