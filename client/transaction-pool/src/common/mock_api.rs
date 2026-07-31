@@ -35,7 +35,10 @@ use sp_runtime::{
 		InvalidTransaction, TransactionSource, TransactionValidity, ValidTransaction,
 	},
 };
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+	sync::atomic::{AtomicUsize, Ordering},
+	time::Duration,
+};
 
 /// Extrinsic type used with [`MockChainApi`].
 pub(crate) type Extrinsic = sp_runtime::testing::TestXt<sp_runtime::testing::MockCallU64, ()>;
@@ -58,9 +61,16 @@ pub(crate) fn xt(value: u64) -> Extrinsic {
 pub(crate) struct MockChainApi {
 	/// Number of performed `validate_transaction` calls.
 	validation_count: AtomicUsize,
+	/// Optional artificial delay applied inside `validate_transaction`.
+	validation_delay: Option<Duration>,
 }
 
 impl MockChainApi {
+	/// Creates a mock that sleeps for `delay` on every `validate_transaction` call.
+	pub(crate) fn with_validation_delay(delay: Duration) -> Self {
+		Self { validation_delay: Some(delay), ..Default::default() }
+	}
+
 	/// Returns the number of performed `validate_transaction` calls.
 	pub(crate) fn validation_count(&self) -> usize {
 		self.validation_count.load(Ordering::Relaxed)
@@ -79,6 +89,9 @@ impl graph::ChainApi for MockChainApi {
 		uxt: ExtrinsicFor<Self>,
 		_priority: ValidateTransactionPriority,
 	) -> Result<TransactionValidity, Self::Error> {
+		if let Some(delay) = self.validation_delay {
+			tokio::time::sleep(delay).await;
+		}
 		self.validation_count.fetch_add(1, Ordering::Relaxed);
 		let value = uxt.function.0;
 		Ok(if value >= INVALID_CALL_THRESHOLD {

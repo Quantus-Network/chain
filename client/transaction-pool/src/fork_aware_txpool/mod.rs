@@ -242,16 +242,17 @@
 //!
 //! ### Background tasks
 //! The [maintain](#maintain) procedure shall be as quick as possible, so heavy revalidation job is
-//! delegated to the background worker. These includes view and *mempool* revalidation which are
-//! both handled by the [`RevalidationQueue`] which simply sends revalidation requests to the
-//! background thread.
+//! delegated to background workers. View and *mempool* revalidation are both handled by the
+//! [`RevalidationQueue`], which dispatches each kind of job to its own worker loop. Keeping these
+//! queues separate ensures that an uncancellable mempool batch cannot stall
+//! [`finish_background_revalidations`] on the maintain critical path.
 //!
 //! ####  View revalidation
-//! View revalidation is performed in the background thread. Revalidation is executed for every
+//! View revalidation is performed on the view background worker. Revalidation is executed for every
 //! view. All the transaction from the view are [revalidated][`view::revalidate`].
 //!
-//! The fork-aware pool utilizes two threads to execute maintain and revalidation process
-//! exclusively, ensuring maintain performance without overlapping with revalidation.
+//! The fork-aware pool keeps maintain off the revalidation workers so maintain performance is not
+//! overlapped with long-running validation work.
 //!
 //! The view revalidation process is [triggered][`start_background_revalidation`] at the very end of
 //! the [maintain][`maintain`] process, and [stopped][`finish_background_revalidations`] at the
@@ -259,9 +260,10 @@
 //! results from the revalidation are immediately applied once the revalidation is
 //! [terminated][crate::fork_aware_txpool::view::View::finish_revalidation].
 //! ```text
-//!                time: ---------------------->
-//!  maintenance thread: M----M------M--M-M---
-//! revalidation thread: -RRRR-RR-----RR-R-RRR
+//!                     time: ---------------------->
+//!       maintenance thread: M----M------M--M-M---
+//!    view revalidation worker: -RRRR-RR-----RR-R-RRR
+//! mempool revalidation worker: --MMMMMM----MM--MMMM
 //! ```
 //!
 //! ####  Mempool pruning/revalidation
