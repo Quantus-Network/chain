@@ -39,8 +39,8 @@ pub fn generate(entropy: &[u8]) -> Result<Keypair, crate::types::Error> {
 	}
 	let mut entropy_array = [0u8; 32];
 	entropy_array.copy_from_slice(&entropy[..32]);
-	let sensitive_entropy = SensitiveBytes32::from(&mut entropy_array);
-	Ok(Keypair::generate(sensitive_entropy))
+	let mut sensitive_entropy = SensitiveBytes32::from(&mut entropy_array);
+	Ok(Keypair::generate(&mut sensitive_entropy))
 }
 
 /// Creates a keypair from existing public and secret key bytes

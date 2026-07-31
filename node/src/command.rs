@@ -10,7 +10,7 @@ use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE
 use qp_dilithium_crypto::{traits::WormholeAddress, Dilithium87Pair};
 use qp_rusty_crystals_hdwallet::{
 	derive_key_from_mnemonic, derive_wormhole_from_mnemonic, generate_mnemonic, mnemonic_to_seed,
-	wormhole::WormholePair, SensitiveBytes32, QUANTUS_DILITHIUM_CHAIN_ID,
+	wormhole::WormholePair, SensitiveBytes32, SensitiveBytes64, QUANTUS_DILITHIUM_CHAIN_ID,
 	QUANTUS_WORMHOLE_CHAIN_ID,
 };
 use quantus_runtime::Block;
@@ -112,14 +112,13 @@ pub fn generate_quantus_key(
 				// Use provided mnemonic. The caller already knows it, so it is
 				// deliberately NOT placed in `secret_phrase` for echoing back.
 				if no_derivation {
-					// Get raw seed from mnemonic (mnemonic_to_seed zeroizes its owned copy).
-					let mut seed64 =
-						mnemonic_to_seed(words_phrase.to_string(), None).map_err(|e| {
-							eprintln!("Error processing provided words: {:?}", e);
-							sc_cli::Error::Input("Failed to process provided words".into())
-						})?;
-					seed_for_pair = Zeroizing::new(seed64.to_vec());
-					seed64.zeroize();
+					// Get raw seed from mnemonic (writes into `seed64`, which zeroizes on drop).
+					let mut seed64 = SensitiveBytes64::zeroed();
+					mnemonic_to_seed(words_phrase.to_string(), None, &mut seed64).map_err(|e| {
+						eprintln!("Error processing provided words: {:?}", e);
+						sc_cli::Error::Input("Failed to process provided words".into())
+					})?;
+					seed_for_pair = Zeroizing::new(seed64.as_bytes().to_vec());
 				} else {
 					println!("Deriving HD path: {}", path);
 					let keypair =
@@ -172,13 +171,13 @@ pub fn generate_quantus_key(
 				words_to_print = Some(new_words.clone());
 
 				if no_derivation {
-					// Get raw seed from mnemonic (consumes and zeroizes `new_words`).
-					let mut seed64 = mnemonic_to_seed(new_words, None).map_err(|e| {
+					// Get raw seed from mnemonic (writes into `seed64`, which zeroizes on drop).
+					let mut seed64 = SensitiveBytes64::zeroed();
+					mnemonic_to_seed(new_words, None, &mut seed64).map_err(|e| {
 						eprintln!("Error converting mnemonic to seed: {:?}", e);
 						sc_cli::Error::Input("Failed to convert mnemonic to seed".into())
 					})?;
-					seed_for_pair = Zeroizing::new(seed64.to_vec());
-					seed64.zeroize();
+					seed_for_pair = Zeroizing::new(seed64.as_bytes().to_vec());
 				} else {
 					println!("Deriving HD path: {}", path);
 					let keypair =
@@ -244,14 +243,15 @@ pub fn generate_quantus_key(
 			};
 
 			let wormhole_pair = if no_derivation {
-				let mut seed64 = mnemonic_to_seed(words_phrase.to_string(), None).map_err(|e| {
+				let mut seed64 = SensitiveBytes64::zeroed();
+				mnemonic_to_seed(words_phrase.to_string(), None, &mut seed64).map_err(|e| {
 					eprintln!("Error processing provided words: {:?}", e);
 					sc_cli::Error::Input("Failed to process provided words".into())
 				})?;
 				let mut seed32 = [0u8; 32];
-				seed32.copy_from_slice(&seed64[..32]);
-				seed64.zeroize();
-				WormholePair::generate_new(SensitiveBytes32::from(&mut seed32))
+				seed32.copy_from_slice(&seed64.as_bytes()[..32]);
+				let mut sensitive_seed = SensitiveBytes32::from(&mut seed32);
+				WormholePair::generate_new(&mut sensitive_seed)
 			} else {
 				println!("Deriving wormhole HD path: {}", path);
 				derive_wormhole_from_mnemonic(&words_phrase, None, &path).map_err(|e| {

@@ -275,8 +275,10 @@ macro_rules! define_dilithium_scheme {
 				}
 				let mut entropy_array = [0u8; 32];
 				entropy_array.copy_from_slice(&seed[..32]);
+				let mut sensitive_entropy =
+					qp_rusty_crystals_dilithium::SensitiveBytes32::from(&mut entropy_array);
 				let keypair = qp_rusty_crystals_dilithium::$module::Keypair::generate(
-					qp_rusty_crystals_dilithium::SensitiveBytes32::from(&mut entropy_array),
+					&mut sensitive_entropy,
 				);
 				Ok(Self {
 					secret: *keypair.secret().to_bytes(),
@@ -412,13 +414,15 @@ macro_rules! define_dilithium_scheme {
 				)
 				.map_err(|_| sp_core::crypto::SecretStringError::InvalidPhrase)?;
 				let pair = Self::from_keypair(keypair);
-				let seed_bytes = qp_rusty_crystals_hdwallet::mnemonic_to_seed(
+				let mut seed_bytes = qp_rusty_crystals_hdwallet::SensitiveBytes64::zeroed();
+				qp_rusty_crystals_hdwallet::mnemonic_to_seed(
 					phrase.to_string(),
 					password,
+					&mut seed_bytes,
 				)
 				.map_err(|_| sp_core::crypto::SecretStringError::InvalidPhrase)?;
 				let mut seed = [0u8; 32];
-				seed.copy_from_slice(&seed_bytes[..32]);
+				seed.copy_from_slice(&seed_bytes.as_bytes()[..32]);
 				Ok((pair, seed))
 			}
 
