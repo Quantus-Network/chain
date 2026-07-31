@@ -27,7 +27,10 @@ use crate::{
 	LOG_TARGET,
 };
 use futures::{
-	channel::mpsc::{channel, Receiver as BoundedReceiver, Sender as BoundedSender},
+	channel::mpsc::{
+		channel, unbounded, Receiver as BoundedReceiver, Sender as BoundedSender,
+		UnboundedReceiver, UnboundedSender,
+	},
 	Future, FutureExt, Stream, StreamExt,
 };
 use parking_lot::{Mutex, RwLock};
@@ -51,6 +54,9 @@ use super::{
 /// Matches the import-notification external sink capacity. A full channel drops the overflowing
 /// notification (or closes the watcher if a *final* status cannot be delivered) instead of growing
 /// without bound when RPC / downstream consumers stop polling.
+///
+/// Terminal pool statuses (`Finalized`, `Dropped`, `Invalid`, `FinalityTimeout`) bypass this bound
+/// on a dedicated finals lane — see [`MultiViewListener::send_controller_command`].
 pub(super) const STATUS_CHANNEL_CAPACITY: usize = 1024;
 
 /// A side channel allowing to control the external stream instance (one per transaction) with
@@ -242,6 +248,20 @@ where
 			tx_hash, block_hash,
 		))
 	}
+
+	/// Whether this command carries a terminal transaction status.
+	///
+	/// Terminal statuses must reach the external watcher (or close it), so they are routed via
+	/// the loss-less finals lane instead of the bounded, drop-on-full controller channel.
+	fn is_final_status(&self) -> bool {
+		match self {
+			Self::TransactionStatusRequest(request) => {
+				let status: TransactionStatus<_, _> = request.into();
+				status.is_final()
+			},
+			Self::AddViewStream(..) | Self::RemoveViewStream(..) => false,
+		}
+	}
 }
 
 /// This struct allows to create and control listener for multiple transactions.
@@ -261,6 +281,15 @@ pub struct MultiViewListener<ChainApi: graph::ChainApi> {
 	/// Mutex avoids cloning the sender on every command (clones raise `futures::mpsc`
 	/// effective capacity).
 	controller: Mutex<Controller<ControllerCommand<ChainApi>>>,
+
+	/// Loss-less lane for commands carrying terminal transaction statuses (`Finalized`,
+	/// `Dropped`, `Invalid`, `FinalityTimeout`, `Usurped`).
+	///
+	/// Unbounded on purpose: each transaction known to the pool emits at most a handful of
+	/// terminal events and the pool itself is capacity-limited, so this lane is bounded in
+	/// practice. The flood-prone traffic (view churn, broadcasts) stays on the bounded
+	/// `controller` channel where dropping is acceptable.
+	final_controller: UnboundedSender<ControllerCommand<ChainApi>>,
 
 	/// The map containing the sinks of the streams representing the external listeners of
 	/// the individual transactions. Hash of the transaction is used as a map's key. A map is
@@ -558,6 +587,7 @@ where
 			RwLock<HashMap<ExtrinsicHash<ChainApi>, Controller<ExternalWatcherCommand<ChainApi>>>>,
 		>,
 		mut command_receiver: CommandReceiver<ControllerCommand<ChainApi>>,
+		mut final_command_receiver: UnboundedReceiver<ControllerCommand<ChainApi>>,
 		events_metrics_collector: EventsMetricsCollector<ChainApi>,
 	) {
 		let mut aggregated_streams_map: StreamMap<BlockHash<ChainApi>, ViewStatusStream<ChainApi>> =
@@ -585,46 +615,75 @@ where
 						}
 					}
 				},
+				Some(cmd) = final_command_receiver.next() => {
+					Self::dispatch_command(
+						&mut aggregated_streams_map,
+						&external_watchers_tx_hash_map,
+						&events_metrics_collector,
+						cmd,
+					);
+				},
 				cmd = command_receiver.next() => {
-					match cmd {
-						Some(ControllerCommand::AddViewStream(h,stream)) => {
-							aggregated_streams_map.insert(h,stream);
-							external_watchers_tx_hash_map.write().retain(|tx_hash, ctrl| {
-								try_send_external_watcher_command(
-									*tx_hash,
-									ctrl,
-									ExternalWatcherCommand::AddView(h),
-								)
-							})
-						},
-						Some(ControllerCommand::RemoveViewStream(h)) => {
-							aggregated_streams_map.remove(&h);
-							external_watchers_tx_hash_map.write().retain(|tx_hash, ctrl| {
-								try_send_external_watcher_command(
-									*tx_hash,
-									ctrl,
-									ExternalWatcherCommand::RemoveView(h),
-								)
-							})
-						},
-
-						Some(ControllerCommand::TransactionStatusRequest(request)) => {
-							let tx_hash = request.hash();
-							events_metrics_collector.report_status(tx_hash, (&request).into());
-							if let Entry::Occupied(mut ctrl) = external_watchers_tx_hash_map.write().entry(tx_hash) {
-								if !try_send_external_watcher_command(
-									tx_hash,
-									ctrl.get_mut(),
-									ExternalWatcherCommand::PoolTransactionStatus(request),
-								) {
-									ctrl.remove();
-								}
-							}
-						},
-						None =>  {}
+					if let Some(cmd) = cmd {
+						Self::dispatch_command(
+							&mut aggregated_streams_map,
+							&external_watchers_tx_hash_map,
+							&events_metrics_collector,
+							cmd,
+						);
 					}
 				},
 			};
+		}
+	}
+
+	/// Applies a single [`ControllerCommand`] within the listener's task.
+	///
+	/// Shared by the bounded controller lane and the loss-less finals lane.
+	fn dispatch_command(
+		aggregated_streams_map: &mut StreamMap<BlockHash<ChainApi>, ViewStatusStream<ChainApi>>,
+		external_watchers_tx_hash_map: &RwLock<
+			HashMap<ExtrinsicHash<ChainApi>, Controller<ExternalWatcherCommand<ChainApi>>>,
+		>,
+		events_metrics_collector: &EventsMetricsCollector<ChainApi>,
+		cmd: ControllerCommand<ChainApi>,
+	) {
+		match cmd {
+			ControllerCommand::AddViewStream(h, stream) => {
+				aggregated_streams_map.insert(h, stream);
+				external_watchers_tx_hash_map.write().retain(|tx_hash, ctrl| {
+					try_send_external_watcher_command(
+						*tx_hash,
+						ctrl,
+						ExternalWatcherCommand::AddView(h),
+					)
+				})
+			},
+			ControllerCommand::RemoveViewStream(h) => {
+				aggregated_streams_map.remove(&h);
+				external_watchers_tx_hash_map.write().retain(|tx_hash, ctrl| {
+					try_send_external_watcher_command(
+						*tx_hash,
+						ctrl,
+						ExternalWatcherCommand::RemoveView(h),
+					)
+				})
+			},
+			ControllerCommand::TransactionStatusRequest(request) => {
+				let tx_hash = request.hash();
+				events_metrics_collector.report_status(tx_hash, (&request).into());
+				if let Entry::Occupied(mut ctrl) =
+					external_watchers_tx_hash_map.write().entry(tx_hash)
+				{
+					if !try_send_external_watcher_command(
+						tx_hash,
+						ctrl.get_mut(),
+						ExternalWatcherCommand::PoolTransactionStatus(request),
+					) {
+						ctrl.remove();
+					}
+				}
+			},
 		}
 	}
 
@@ -649,9 +708,32 @@ where
 		>::default()));
 
 		let (tx, rx) = channel(STATUS_CHANNEL_CAPACITY);
-		let task = Self::task(external_controllers.clone(), rx, events_metrics_collector);
+		let (final_tx, final_rx) = unbounded();
+		let task = Self::task(external_controllers.clone(), rx, final_rx, events_metrics_collector);
 
-		(Self { external_controllers, controller: Mutex::new(tx) }, task.boxed())
+		(
+			Self { external_controllers, controller: Mutex::new(tx), final_controller: final_tx },
+			task.boxed(),
+		)
+	}
+
+	/// Routes a controller command to the appropriate lane.
+	///
+	/// Commands carrying terminal statuses go through the loss-less unbounded finals lane so
+	/// they cannot be dropped under backlog; everything else goes through the bounded,
+	/// drop-on-full controller channel.
+	fn send_controller_command(&self, command: ControllerCommand<ChainApi>) {
+		if command.is_final_status() {
+			if let Err(error) = self.final_controller.unbounded_send(command) {
+				trace!(
+					target: LOG_TARGET,
+					command = ?error.into_inner(),
+					"multi-view-listener finals lane send failed (task gone)"
+				);
+			}
+		} else {
+			try_send_controller_command(&self.controller, command);
+		}
 	}
 
 	/// Creates an external tstream of events for given transaction.
@@ -742,10 +824,7 @@ where
 		stream: ViewStatusStream<ChainApi>,
 	) {
 		trace!(target: LOG_TARGET, ?block_hash, "mvl::add_view_aggregated_stream");
-		try_send_controller_command(
-			&self.controller,
-			ControllerCommand::AddViewStream(block_hash, stream),
-		);
+		self.send_controller_command(ControllerCommand::AddViewStream(block_hash, stream));
 	}
 
 	/// Removes a view's stream associated with a specific view hash.
@@ -754,10 +833,7 @@ where
 	/// dispatched to the external watcher context for every watched transaction.
 	pub(crate) fn remove_view(&self, block_hash: BlockHash<ChainApi>) {
 		trace!(target: LOG_TARGET, ?block_hash, "mvl::remove_view");
-		try_send_controller_command(
-			&self.controller,
-			ControllerCommand::RemoveViewStream(block_hash),
-		);
+		self.send_controller_command(ControllerCommand::RemoveViewStream(block_hash));
 	}
 
 	/// Invalidate given transaction.
@@ -770,10 +846,7 @@ where
 	pub(crate) fn transactions_invalidated(&self, invalid_hashes: &[ExtrinsicHash<ChainApi>]) {
 		log_xt_trace!(target: LOG_TARGET, invalid_hashes, "transactions_invalidated");
 		for tx_hash in invalid_hashes {
-			try_send_controller_command(
-				&self.controller,
-				ControllerCommand::new_invalidated(*tx_hash),
-			);
+			self.send_controller_command(ControllerCommand::new_invalidated(*tx_hash));
 		}
 	}
 
@@ -786,10 +859,7 @@ where
 		propagated: HashMap<ExtrinsicHash<ChainApi>, Vec<String>>,
 	) {
 		for (tx_hash, peers) in propagated {
-			try_send_controller_command(
-				&self.controller,
-				ControllerCommand::new_broadcasted(tx_hash, peers),
-			);
+			self.send_controller_command(ControllerCommand::new_broadcasted(tx_hash, peers));
 		}
 	}
 
@@ -800,10 +870,7 @@ where
 	pub(crate) fn transaction_dropped(&self, dropped: DroppedTransaction<ExtrinsicHash<ChainApi>>) {
 		let DroppedTransaction { tx_hash, reason } = dropped;
 		trace!(target: LOG_TARGET, ?tx_hash, ?reason, "transaction_dropped");
-		try_send_controller_command(
-			&self.controller,
-			ControllerCommand::new_dropped(tx_hash, reason),
-		);
+		self.send_controller_command(ControllerCommand::new_dropped(tx_hash, reason));
 	}
 
 	/// Send `Finalized` event for given transaction at given block.
@@ -816,10 +883,7 @@ where
 		idx: TxIndex,
 	) {
 		trace!(target: LOG_TARGET, ?tx_hash, "transaction_finalized");
-		try_send_controller_command(
-			&self.controller,
-			ControllerCommand::new_finalized(tx_hash, block, idx),
-		);
+		self.send_controller_command(ControllerCommand::new_finalized(tx_hash, block, idx));
 	}
 
 	/// Send `FinalityTimeout` event for given transactions at given block.
@@ -832,10 +896,7 @@ where
 	) {
 		for tx_hash in tx_hashes {
 			trace!(target: LOG_TARGET, ?tx_hash, "transaction_finality_timeout");
-			try_send_controller_command(
-				&self.controller,
-				ControllerCommand::new_finality_timeout(*tx_hash, block),
-			);
+			self.send_controller_command(ControllerCommand::new_finality_timeout(*tx_hash, block));
 		}
 	}
 
@@ -1213,6 +1274,53 @@ mod backlog_tests {
 		let next = tokio::time::timeout(Duration::from_secs(5), watcher.next())
 			.await
 			.expect("final status should arrive")
+			.expect("watcher stream must still be open");
+		assert_eq!(next, TransactionStatus::Finalized((block_hash, 0)));
+
+		let _ = terminate_tx.send(());
+		listener_handle.await.unwrap();
+	}
+
+	/// Terminal statuses must not be discarded when the bounded controller channel is
+	/// saturated; they travel on a dedicated loss-less lane. Regression test for
+	/// `Finalized`/`Dropped`/`Invalid`/`FinalityTimeout` being dropped on a full controller,
+	/// which left `submit_and_watch` streams open forever without a terminal event.
+	#[tokio::test]
+	async fn final_status_survives_full_controller_channel() {
+		sp_tracing::try_init_simple();
+
+		let (listener, listener_task) =
+			MultiViewListener::<MockChainApi>::new_with_worker(Default::default());
+
+		let tx_hash = H256::repeat_byte(0x0a);
+		let mut watcher = listener.create_external_watcher_for_tx(tx_hash).unwrap();
+
+		// Saturate the bounded controller channel with non-final commands for unrelated
+		// transactions while the listener task is not yet running (so nothing drains it).
+		const FLOOD: usize = STATUS_CHANNEL_CAPACITY + 200;
+		for i in 0..FLOOD {
+			let unrelated = H256::from_low_u64_be(i as u64 + 1);
+			listener.transactions_broadcasted(
+				std::iter::once((unrelated, vec!["peer".to_string()])).collect(),
+			);
+		}
+
+		// With the controller channel full, a terminal status must still be enqueued.
+		let block_hash = H256::repeat_byte(0x01);
+		listener.transaction_finalized(tx_hash, block_hash, 0);
+
+		// Only now start the task, so the flood above could not have been drained early.
+		let (terminate_tx, terminate_rx) = tokio::sync::oneshot::channel();
+		let listener_handle = tokio::spawn(async move {
+			select! {
+				_ = listener_task => {},
+				_ = terminate_rx => {},
+			}
+		});
+
+		let next = tokio::time::timeout(Duration::from_secs(5), watcher.next())
+			.await
+			.expect("final status must arrive despite a full controller channel")
 			.expect("watcher stream must still be open");
 		assert_eq!(next, TransactionStatus::Finalized((block_hash, 0)));
 
