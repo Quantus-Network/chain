@@ -79,8 +79,14 @@ fn sign<P: sp_core::Pair>(
 	password: Option<SecretString>,
 	message: Vec<u8>,
 ) -> error::Result<String> {
-	let pair = utils::pair_from_suri::<P>(suri, password)?;
-	Ok(bytes2hex("0x", pair.sign(&message).as_ref()))
+	// `with_crypto_scheme!` only wires Dilithium; use its fallible `try_sign` so
+	// signer failures (notably MessageTooLong) are recoverable Input errors
+	// instead of panicking through the infallible `Pair::sign` trait method.
+	let _ = core::marker::PhantomData::<P>;
+	let pair = utils::pair_from_suri::<qp_dilithium_crypto::DilithiumPair>(suri, password)?;
+	let signature =
+		pair.try_sign(&message).map_err(|e| error::Error::Input(e.to_string()))?;
+	Ok(bytes2hex("0x", AsRef::<[u8]>::as_ref(&signature)))
 }
 
 #[cfg(test)]

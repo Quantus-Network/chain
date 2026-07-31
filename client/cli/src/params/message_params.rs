@@ -21,7 +21,15 @@
 use crate::error::Error;
 use array_bytes::{hex2bytes, hex_bytes2hex_str};
 use clap::Args;
-use std::io::BufRead;
+use std::io::{BufRead, Read};
+
+/// Maximum message size accepted by CLI sign/verify message params.
+///
+/// Matches Dilithium's `MAX_MESSAGE_SIZE` so oversized stdin/`--message` input is
+/// rejected with a recoverable error before `Pair::sign` can panic on
+/// `SignatureError::MessageTooLong`.
+pub const MAX_MESSAGE_BYTES: usize =
+	qp_rusty_crystals_dilithium::ml_dsa_87::MAX_MESSAGE_SIZE;
 
 /// Params to configure how a message should be passed into a command.
 #[derive(Debug, Clone, Args)]
@@ -49,17 +57,31 @@ impl MessageParams {
 		let raw = match &self.message {
 			Some(raw) => raw.as_bytes().to_vec(),
 			None => {
-				let mut raw = vec![];
-				create_reader().read_to_end(&mut raw)?;
+				// Read at most MAX+1 bytes so unbounded stdin cannot exhaust memory
+				// before the size check below.
+				let mut raw = Vec::new();
+				create_reader().take((MAX_MESSAGE_BYTES as u64) + 1).read_to_end(&mut raw)?;
 				raw
 			},
 		};
-		if self.hex {
-			hex2bytes(hex_bytes2hex_str(&raw)?).map_err(Into::into)
+		ensure_message_len(raw.len())?;
+		let message = if self.hex {
+			hex2bytes(hex_bytes2hex_str(&raw)?).map_err(Error::from)?
 		} else {
-			Ok(raw)
-		}
+			raw
+		};
+		ensure_message_len(message.len())?;
+		Ok(message)
 	}
+}
+
+fn ensure_message_len(len: usize) -> Result<(), Error> {
+	if len > MAX_MESSAGE_BYTES {
+		return Err(Error::Input(format!(
+			"message length ({len}) exceeds maximum allowed ({MAX_MESSAGE_BYTES} bytes)"
+		)));
+	}
+	Ok(())
 }
 
 #[cfg(test)]
@@ -116,5 +138,17 @@ mod tests {
 			("decode_hex_uppercase_works", "0xaAbbCCDd", true, Some(&[170, 187, 204, 221])),
 			("decode_hex_wrong_len_errors", "0x0011223", true, None),
 		]
+	}
+
+	#[test]
+	fn rejects_oversized_stream_message() {
+		let params = MessageParams { message: None, hex: false };
+		// One byte over the Dilithium max — must fail before any signing panic.
+		let oversized = vec![b'a'; MAX_MESSAGE_BYTES + 1];
+		let err = params.message_from(|| oversized.as_slice()).unwrap_err();
+		assert!(
+			matches!(err, Error::Input(ref msg) if msg.contains("exceeds maximum allowed")),
+			"unexpected error: {err:?}"
+		);
 	}
 }
