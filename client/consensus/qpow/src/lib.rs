@@ -699,3 +699,82 @@ where
 		.get_difficulty(parent)
 		.map_err(|_| Error::Runtime("Failed to fetch difficulty".into()))
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use sp_consensus::BlockOrigin;
+	use sp_runtime::{traits::BlakeTwo256, OpaqueExtrinsic};
+
+	type TestHeader = qp_header::Header<u32, BlakeTwo256>;
+	type TestBlock = sp_runtime::generic::Block<TestHeader, OpaqueExtrinsic>;
+
+	fn sealed_header(digest: Digest) -> TestHeader {
+		<TestHeader as HeaderT>::new(
+			1,
+			Default::default(),
+			Default::default(),
+			Default::default(),
+			digest,
+		)
+	}
+
+	/// The canonical QPoW digest: a 32-byte author preimage plus a 64-byte
+	/// seal, which together encode to exactly `DIGEST_LOGS_SIZE` bytes.
+	fn canonical_digest() -> Digest {
+		Digest {
+			logs: vec![
+				DigestItem::PreRuntime(POW_ENGINE_ID, vec![1u8; 32]),
+				DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64]),
+			],
+		}
+	}
+
+	/// Regression test for the remotely triggerable debug panic: the verifier
+	/// must reject a header whose encoded digest overflows the commitment
+	/// window with a clean error, *without* ever hashing it (`Header::hash()`
+	/// silently truncates past the window, so hashing must not be relied on —
+	/// and used to `debug_assert!` on exactly this input).
+	#[test]
+	fn verifier_rejects_oversized_digest_cleanly() {
+		let mut digest = canonical_digest();
+		// Push the encoded digest past the window while keeping a valid seal
+		// last, so only the length check can be the thing that rejects it.
+		digest.logs.insert(1, DigestItem::Other(vec![0u8; 64]));
+		assert!(digest.encode().len() > DIGEST_LOGS_SIZE);
+
+		let params = BlockImportParams::<TestBlock>::new(
+			BlockOrigin::NetworkBroadcast,
+			sealed_header(digest),
+		);
+		let result = futures::executor::block_on(extract_pow_seal::<TestBlock>(params));
+
+		let err = result.err().expect("oversized digest must be rejected");
+		assert!(err.contains("exceeding the"), "expected the digest-length rejection, got: {err}");
+	}
+
+	/// The canonical digest fits the window exactly and must pass the length
+	/// check, with the seal popped into `post_digests`.
+	#[test]
+	fn verifier_accepts_window_sized_digest_and_extracts_seal() {
+		let digest = canonical_digest();
+		assert_eq!(digest.encode().len(), DIGEST_LOGS_SIZE);
+
+		let params = BlockImportParams::<TestBlock>::new(
+			BlockOrigin::NetworkBroadcast,
+			sealed_header(digest),
+		);
+		let result = futures::executor::block_on(extract_pow_seal::<TestBlock>(params))
+			.expect("window-sized sealed header must pass");
+
+		assert_eq!(
+			result.post_digests.last(),
+			Some(&DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64])),
+			"seal must be moved into post_digests"
+		);
+		assert!(
+			!result.header.digest().logs.iter().any(|l| matches!(l, DigestItem::Seal(..))),
+			"seal must be removed from the pre-seal header"
+		);
+	}
+}

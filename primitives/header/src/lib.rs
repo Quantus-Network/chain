@@ -249,21 +249,17 @@ where
 		));
 
 		// digest – SCALE encode then pad to the fixed DIGEST_LOGS_SIZE window to
-		// match circuit expectation. An encoded digest longer than the window
-		// is a malformed header that the import path rejects before this point
-		// (see the digest length check in `sc-consensus-qpow`); truncating here
-		// would drop the tail from the committed hash and let two distinct
-		// headers collide. `hash()` itself must stay infallible even on
-		// adversarial bytes, so we keep the saturating copy as a backstop and
-		// only assert the invariant in debug builds.
+		// match circuit expectation. Bytes past the window are NOT committed by
+		// this hash: an encoded digest longer than the window would let two
+		// distinct headers collide, which is why the import path rejects such
+		// headers outright (see the digest length checks in `sc-consensus-qpow`).
+		// No assertion here, not even a debug one: generic network code hashes
+		// completely unverified headers long before any consensus check runs
+		// (e.g. block-announce validation in `sc-network-sync` hashes the
+		// announced header on receipt), so `hash()` must accept arbitrary
+		// adversarial input and the saturating copy below is the required
+		// behavior, not a backstop.
 		let digest_encoded = self.digest.encode();
-		debug_assert!(
-			digest_encoded.len() <= DIGEST_LOGS_SIZE,
-			"encoded digest ({} bytes) exceeds DIGEST_LOGS_SIZE ({}); header should have been \
-			 rejected before hashing",
-			digest_encoded.len(),
-			DIGEST_LOGS_SIZE,
-		);
 		let mut digest_padded = [0u8; DIGEST_LOGS_SIZE];
 		let copy_len = digest_encoded.len().min(DIGEST_LOGS_SIZE);
 		digest_padded[..copy_len].copy_from_slice(&digest_encoded[..copy_len]);
@@ -471,20 +467,8 @@ mod tests {
 		);
 	}
 
-	/// A digest larger than the window must trip the invariant in `hash()`
-	/// rather than silently truncate. `hash()` keeps a saturating backstop in
-	/// release, so this only asserts in debug builds (where `debug_assert`
-	/// fires); the real rejection for release is the import-path length check
-	/// in `sc-consensus-qpow`.
-	#[cfg(debug_assertions)]
-	#[test]
-	#[should_panic(expected = "exceeds DIGEST_LOGS_SIZE")]
-	fn oversized_digest_trips_hash_invariant() {
-		let mut digest = canonical_pow_digest();
-		// One extra item pushes the encoded digest past the 110-byte window.
-		digest.logs.push(DigestItem::Other(vec![0u8; 8]));
-
-		let header = Header::<u32, BlakeTwo256> {
+	fn header_with_digest(digest: Digest) -> Header<u32, BlakeTwo256> {
+		Header::<u32, BlakeTwo256> {
 			parent_hash: Default::default(),
 			number: 1,
 			state_root: Default::default(),
@@ -492,8 +476,43 @@ mod tests {
 			zk_tree_root: Default::default(),
 			digest,
 			_marker: core::marker::PhantomData,
-		};
+		}
+	}
 
-		let _ = header.hash();
+	/// `hash()` must accept an oversized digest without panicking, even in
+	/// debug builds: generic network code (e.g. block-announce validation in
+	/// `sc-network-sync`) hashes completely unverified headers before any
+	/// consensus check runs, so any assertion here would be a remotely
+	/// triggerable node crash. This test also documents the consequence of
+	/// that infallibility — bytes past the window are not committed, so two
+	/// headers differing only there collide — which is exactly why the import
+	/// path in `sc-consensus-qpow` rejects oversized digests outright.
+	#[test]
+	fn oversized_digest_hashes_infallibly_but_is_not_committed_past_window() {
+		// The canonical digest fills the window exactly, so a third item's
+		// payload lands entirely past `DIGEST_LOGS_SIZE` (the extra item does
+		// not change the compact length prefix: 3 < 64 still encodes in one
+		// byte, so the first two items' bytes keep their offsets).
+		let mut digest_a = canonical_pow_digest();
+		digest_a.logs.push(DigestItem::Other(vec![0x00u8; 8]));
+		let mut digest_b = canonical_pow_digest();
+		digest_b.logs.push(DigestItem::Other(vec![0xffu8; 8]));
+
+		assert!(digest_a.encode().len() > DIGEST_LOGS_SIZE);
+		assert_eq!(digest_a.encode().len(), digest_b.encode().len());
+
+		// Infallible: no panic on either. Colliding: the differing tails are
+		// past the committed window.
+		let hash_a = header_with_digest(digest_a).hash();
+		let hash_b = header_with_digest(digest_b).hash();
+		assert_eq!(
+			hash_a, hash_b,
+			"digest bytes past the window are not committed by the hash; such headers \
+			 must be rejected at import instead"
+		);
+
+		// Sanity: a within-window digest change does alter the hash.
+		let hash_canonical = header_with_digest(canonical_pow_digest()).hash();
+		assert_ne!(hash_a, hash_canonical);
 	}
 }
