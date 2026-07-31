@@ -49,11 +49,22 @@ pub struct PoolRotator<Hash> {
 	expected_size: usize,
 }
 
-impl<Hash: Clone> Clone for PoolRotator<Hash> {
+impl<Hash: Clone + hash::Hash + Eq> Clone for PoolRotator<Hash> {
 	fn clone(&self) -> Self {
+		// Fork-aware views clone the rotator when creating a new view. Drop expired
+		// entries here so a stale ban cannot be propagated into later views after
+		// `ban_time` has elapsed (even if `clear_timeouts` was never called).
+		let now = Instant::now();
+		let active = self
+			.banned_until
+			.read()
+			.iter()
+			.filter(|(_, until)| **until >= now)
+			.map(|(hash, until)| (hash.clone(), *until))
+			.collect();
 		Self {
 			ban_time: self.ban_time,
-			banned_until: RwLock::new(self.banned_until.read().clone()),
+			banned_until: RwLock::new(active),
 			expected_size: self.expected_size,
 		}
 	}
@@ -81,8 +92,25 @@ impl<Hash: hash::Hash + Eq + Clone> PoolRotator<Hash> {
 	}
 
 	/// Returns `true` if extrinsic hash is currently banned.
+	///
+	/// Respects the stored expiry: an entry whose ban time has elapsed is treated as
+	/// not banned (and lazily removed), so callers do not need to have run
+	/// [`clear_timeouts`] beforehand. Previously only key presence was checked, which
+	/// meant expired bans stayed authoritative until a separate cleanup ran — and
+	/// fork-aware view clones could keep them alive indefinitely.
 	pub fn is_banned(&self, hash: &Hash) -> bool {
-		self.banned_until.read().contains_key(hash)
+		let now = Instant::now();
+		{
+			let banned = self.banned_until.read();
+			match banned.get(hash) {
+				Some(until) if *until >= now => return true,
+				Some(_) => {},
+				None => return false,
+			}
+		}
+		// Expired entry — reclaim it so it does not linger until bulk cleanup.
+		self.banned_until.write().remove(hash);
+		false
 	}
 
 	/// Bans given set of hashes.
@@ -199,6 +227,41 @@ mod tests {
 
 		// then
 		assert!(!rotator.is_banned(&hash));
+	}
+
+	/// An expired ban must not reject the transaction even if `clear_timeouts` was never
+	/// called — otherwise correctness depends on every caller running maintenance before
+	/// every check, and fork-aware view clones can keep stale bans alive indefinitely.
+	#[test]
+	fn expired_ban_is_not_considered_banned_without_clear_timeouts() {
+		let (hash, _) = tx();
+		let rotator = rotator();
+		// Insert a ban whose expiry is already in the past.
+		let past = Instant::now() - rotator.ban_time - Duration::from_millis(1);
+		rotator.ban(&past, iter::once(hash));
+
+		assert!(
+			!rotator.is_banned(&hash),
+			"expired ban must not be treated as active without an explicit clear_timeouts"
+		);
+	}
+
+	/// Cloning a rotator (as fork-aware views do) must not resurrect expired bans into
+	/// the new view's rotator map.
+	#[test]
+	fn clone_does_not_propagate_expired_bans() {
+		let (hash, _) = tx();
+		let rotator = rotator();
+		let past = Instant::now() - rotator.ban_time - Duration::from_millis(1);
+		rotator.ban(&past, iter::once(hash));
+		assert!(rotator.banned_until.read().contains_key(&hash));
+
+		let cloned = rotator.clone();
+		assert!(!cloned.is_banned(&hash));
+		assert!(
+			!cloned.banned_until.read().contains_key(&hash),
+			"clone must drop expired ban entries rather than copy them into the new view"
+		);
 	}
 
 	#[test]
