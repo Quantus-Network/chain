@@ -2275,115 +2275,13 @@ mod reduce_multiview_result_tests {
 #[cfg(test)]
 mod submission_metrics_tests {
 	use super::*;
-	use codec::Encode;
+	use crate::common::mock_api::{xt, MockChainApi, TestBlock, INVALID_CALL_THRESHOLD};
 	use sp_core::H256;
-	use sp_runtime::{
-		testing::{Block as RawBlock, MockCallU64, TestXt},
-		traits::{BlakeTwo256, Hash as _},
-		transaction_validity::{InvalidTransaction, TransactionValidity},
-	};
 
-	type Extrinsic = TestXt<MockCallU64, ()>;
-	type TestBlock = RawBlock<Extrinsic>;
-
-	/// Transactions with a call value at or above this threshold are reported as invalid.
-	const INVALID_CALL_THRESHOLD: u64 = 1000;
-
-	/// Minimal `ChainApi` mock: treats every block id as existing and validates
-	/// transactions based on their call value only.
-	struct TestApi;
-
-	#[async_trait]
-	impl graph::ChainApi for TestApi {
-		type Block = TestBlock;
-		type Error = TxPoolApiError;
-
-		async fn validate_transaction(
-			&self,
-			_at: <Self::Block as BlockT>::Hash,
-			_source: TransactionSource,
-			uxt: ExtrinsicFor<Self>,
-			_priority: ValidateTransactionPriority,
-		) -> Result<TransactionValidity, Self::Error> {
-			let value = uxt.function.0;
-			Ok(if value >= INVALID_CALL_THRESHOLD {
-				Err(InvalidTransaction::Custom(0).into())
-			} else {
-				Ok(ValidTransaction {
-					priority: 4,
-					requires: vec![],
-					provides: vec![value.encode()],
-					longevity: 64,
-					propagate: true,
-				})
-			})
-		}
-
-		fn validate_transaction_blocking(
-			&self,
-			_at: <Self::Block as BlockT>::Hash,
-			_source: TransactionSource,
-			_uxt: ExtrinsicFor<Self>,
-		) -> Result<TransactionValidity, Self::Error> {
-			unimplemented!()
-		}
-
-		fn block_id_to_number(
-			&self,
-			at: &BlockId<Self::Block>,
-		) -> Result<Option<graph::NumberFor<Self>>, Self::Error> {
-			Ok(match at {
-				BlockId::Number(num) => Some(*num),
-				BlockId::Hash(hash) => Some(hash.to_low_u64_be()),
-			})
-		}
-
-		fn block_id_to_hash(
-			&self,
-			at: &BlockId<Self::Block>,
-		) -> Result<Option<<Self::Block as BlockT>::Hash>, Self::Error> {
-			Ok(match at {
-				BlockId::Number(num) => Some(H256::from_low_u64_be(*num)),
-				BlockId::Hash(hash) => Some(*hash),
-			})
-		}
-
-		fn hash_and_length(&self, uxt: &RawExtrinsicFor<Self>) -> (ExtrinsicHash<Self>, usize) {
-			let encoded = uxt.encode();
-			(BlakeTwo256::hash(&encoded), encoded.len())
-		}
-
-		async fn block_body(
-			&self,
-			_at: <Self::Block as BlockT>::Hash,
-		) -> Result<Option<Vec<<Self::Block as BlockT>::Extrinsic>>, Self::Error> {
-			Ok(None)
-		}
-
-		fn block_header(
-			&self,
-			_at: <Self::Block as BlockT>::Hash,
-		) -> Result<Option<<Self::Block as BlockT>::Header>, Self::Error> {
-			Ok(None)
-		}
-
-		fn tree_route(
-			&self,
-			_from: <Self::Block as BlockT>::Hash,
-			_to: <Self::Block as BlockT>::Hash,
-		) -> Result<TreeRoute<Self::Block>, Self::Error> {
-			unimplemented!()
-		}
-	}
-
-	fn xt(value: u64) -> Extrinsic {
-		Extrinsic::new_bare(MockCallU64(value))
-	}
-
-	fn test_pool() -> ForkAwareTxPool<TestApi, TestBlock> {
+	fn test_pool() -> ForkAwareTxPool<MockChainApi, TestBlock> {
 		let genesis = H256::from_low_u64_be(0);
 		let (pool, [combined_task, _mempool_task]) =
-			ForkAwareTxPool::new_test(Arc::new(TestApi), genesis, genesis, None);
+			ForkAwareTxPool::new_test(Arc::new(MockChainApi::default()), genesis, genesis, None);
 		tokio::spawn(combined_task);
 		pool
 	}

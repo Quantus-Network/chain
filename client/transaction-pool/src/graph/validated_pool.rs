@@ -259,6 +259,11 @@ impl<B: ChainApi, L: EventHandler<B>> ValidatedPool<B, L> {
 		}
 	}
 
+	/// Returns the pool configuration options.
+	pub fn options(&self) -> &Options {
+		&self.options
+	}
+
 	/// Bans given set of hashes.
 	pub fn ban(&self, now: &Instant, hashes: impl IntoIterator<Item = ExtrinsicHash<B>>) {
 		self.rotator.ban(now, hashes)
