@@ -22,21 +22,38 @@
 //! [`View::finish_revalidation`] (awaited on the maintain critical path) cannot
 //! stall behind an uncancellable [`TxMemPool::revalidate`] batch.
 //!
+//! Queues are capacity-limited:
+//! - view jobs use a bounded channel (inline revalidation when full)
+//! - mempool jobs use a latest-wins slot so finalization bursts cannot accumulate
+//!   unbounded `RevalidateMempool` payloads
+//!
 //! The [*Background tasks*](../index.html#background-tasks) section provides some extra details on
 //! revalidation process.
 
 use std::{marker::PhantomData, pin::Pin, sync::Arc};
 
 use crate::{graph::ChainApi, LOG_TARGET};
-use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
+use futures::{
+	channel::mpsc::{channel, Receiver, Sender},
+	prelude::*,
+};
+use parking_lot::Mutex;
 use sp_blockchain::HashAndNumber;
 use sp_runtime::traits::Block as BlockT;
-
-use super::{tx_mem_pool::TxMemPool, view_store::ViewStore};
-use futures::prelude::*;
 use tracing::{debug, warn};
 
-use super::view::{FinishRevalidationWorkerChannels, View};
+use super::{
+	tx_mem_pool::TxMemPool,
+	view::{FinishRevalidationWorkerChannels, View},
+	view_store::ViewStore,
+};
+
+/// Bound for the view-revalidation job channel.
+///
+/// Maintain enqueues at most one job per active view tip per cycle and waits on
+/// completion, so a modest bound is enough. When full, [`RevalidationQueue::revalidate_view`]
+/// falls back to inline revalidation so the finish protocol cannot hang.
+const VIEW_REVALIDATION_QUEUE_CAPACITY: usize = 64;
 
 /// Request to revalidate a [`View`].
 ///
@@ -60,6 +77,19 @@ where
 	finalized_hash: HashAndNumber<Block>,
 }
 
+/// Latest-wins mempool revalidation slot.
+///
+/// Producers overwrite `pending` and wake the worker. Only one payload is retained
+/// while the worker is busy, so finalization bursts cannot grow a queue of
+/// `Arc<TxMemPool>` / `Arc<ViewStore>` jobs.
+struct MempoolPendingSlot<Api, Block>
+where
+	Block: BlockT,
+	Api: ChainApi<Block = Block> + 'static,
+{
+	pending: Mutex<Option<RevalidateMempoolPayload<Api, Block>>>,
+}
+
 /// The background revalidation worker.
 struct RevalidationWorker<Block: BlockT> {
 	_phantom: PhantomData<Block>,
@@ -78,7 +108,7 @@ where
 	/// Worker loop for view revalidation payloads.
 	async fn run_view<Api: ChainApi<Block = Block> + 'static>(
 		self,
-		from_queue: TracingUnboundedReceiver<RevalidateViewPayload<Api>>,
+		from_queue: Receiver<RevalidateViewPayload<Api>>,
 	) {
 		let mut from_queue = from_queue.fuse();
 
@@ -90,18 +120,27 @@ where
 		}
 	}
 
-	/// Worker loop for mempool revalidation payloads.
+	/// Worker loop for mempool revalidation: always process the latest pending job.
 	async fn run_mempool<Api: ChainApi<Block = Block> + 'static>(
 		self,
-		from_queue: TracingUnboundedReceiver<RevalidateMempoolPayload<Api, Block>>,
+		slot: Arc<MempoolPendingSlot<Api, Block>>,
+		wake_rx: Receiver<()>,
 	) {
-		let mut from_queue = from_queue.fuse();
+		let mut wake_rx = wake_rx.fuse();
 
 		loop {
-			let Some(payload) = from_queue.next().await else {
+			let Some(()) = wake_rx.next().await else {
 				break;
 			};
-			payload.mempool.revalidate(payload.view_store, payload.finalized_hash).await;
+			// Drain whatever is pending; producers may overwrite while we work, so
+			// loop until the slot stays empty after a job completes.
+			loop {
+				let payload = { slot.pending.lock().take() };
+				let Some(payload) = payload else {
+					break;
+				};
+				payload.mempool.revalidate(payload.view_store, payload.finalized_hash).await;
+			}
 		}
 	}
 }
@@ -117,8 +156,10 @@ where
 	Api: ChainApi<Block = Block> + 'static,
 	Block: BlockT,
 {
-	view_background: Option<TracingUnboundedSender<RevalidateViewPayload<Api>>>,
-	mempool_background: Option<TracingUnboundedSender<RevalidateMempoolPayload<Api, Block>>>,
+	view_background: Option<Mutex<Sender<RevalidateViewPayload<Api>>>>,
+	mempool_pending: Option<Arc<MempoolPendingSlot<Api, Block>>>,
+	/// Capacity-1 wake signal owned by the queue; drop shuts the mempool worker down.
+	mempool_wake: Option<Mutex<Sender<()>>>,
 }
 
 impl<Api, Block> RevalidationQueue<Api, Block>
@@ -131,31 +172,34 @@ where
 	///
 	/// All validation requests will be blocking.
 	pub fn new() -> Self {
-		Self { view_background: None, mempool_background: None }
+		Self { view_background: None, mempool_pending: None, mempool_wake: None }
 	}
 
 	/// New revalidation queue with background workers.
 	///
 	/// View and mempool revalidation each run on their own worker loop so that a long
 	/// mempool batch cannot delay cancellation / completion of view revalidation.
+	///
+	/// Mempool jobs coalesce to a latest-wins slot (no unbounded FIFO backlog).
 	pub fn new_with_worker() -> (Self, Pin<Box<dyn Future<Output = ()> + Send>>) {
-		let (to_view_worker, from_view_queue) =
-			tracing_unbounded("mpsc_revalidation_view_queue", 100_000);
-		let (to_mempool_worker, from_mempool_queue) =
-			tracing_unbounded("mpsc_revalidation_mempool_queue", 100_000);
+		let (to_view_worker, from_view_queue) = channel(VIEW_REVALIDATION_QUEUE_CAPACITY);
+		let (wake_tx, wake_rx) = channel(1);
+		let mempool_slot = Arc::new(MempoolPendingSlot { pending: Mutex::new(None) });
+		let mempool_slot_worker = mempool_slot.clone();
 
 		let worker = async move {
 			futures::future::join(
 				RevalidationWorker::new().run_view(from_view_queue),
-				RevalidationWorker::new().run_mempool(from_mempool_queue),
+				RevalidationWorker::new().run_mempool(mempool_slot_worker, wake_rx),
 			)
 			.await;
 		};
 
 		(
 			Self {
-				view_background: Some(to_view_worker),
-				mempool_background: Some(to_mempool_worker),
+				view_background: Some(Mutex::new(to_view_worker)),
+				mempool_pending: Some(mempool_slot),
+				mempool_wake: Some(Mutex::new(wake_tx)),
 			},
 			worker.boxed(),
 		)
@@ -163,7 +207,9 @@ where
 
 	/// Queue the view for later revalidation.
 	///
-	/// If the queue is configured with background worker, this will return immediately.
+	/// If the queue is configured with background worker, this will return immediately
+	/// unless the bounded queue is full, in which case revalidation runs inline so
+	/// maintain's finish protocol cannot hang.
 	/// If the queue is configured without background worker, this will resolve after
 	/// revalidation is actually done.
 	///
@@ -180,15 +226,32 @@ where
 		);
 
 		if let Some(ref to_worker) = self.view_background {
-			if let Err(error) = to_worker.unbounded_send(RevalidateViewPayload {
-				view,
+			let payload = RevalidateViewPayload {
+				view: view.clone(),
 				worker_channels: finish_revalidation_worker_channels,
-			}) {
-				warn!(
-					target: LOG_TARGET,
-					?error,
-					"revalidation_queue::revalidate_view: Failed to update background worker"
-				);
+			};
+			// Drop the lock before any `.await` (parking_lot guards are not `Send`).
+			let send_result = { to_worker.lock().try_send(payload) };
+			match send_result {
+				Ok(()) => {},
+				Err(error) => {
+					let is_full = error.is_full();
+					let payload = error.into_inner();
+					if is_full {
+						warn!(
+							target: LOG_TARGET,
+							view_at_hash = ?view.at.hash,
+							"revalidation_queue::revalidate_view: queue full, running inline"
+						);
+					} else {
+						warn!(
+							target: LOG_TARGET,
+							view_at_hash = ?view.at.hash,
+							"revalidation_queue::revalidate_view: worker gone, running inline"
+						);
+					}
+					payload.view.revalidate(payload.worker_channels).await;
+				},
 			}
 		} else {
 			view.revalidate(finish_revalidation_worker_channels).await
@@ -197,7 +260,8 @@ where
 
 	/// Revalidates the given mempool instance.
 	///
-	/// If queue configured with background worker, this will return immediately.
+	/// If queue configured with background worker, this schedules a latest-wins job
+	/// (overwriting any not-yet-started mempool revalidation) and returns immediately.
 	/// If queue configured without background worker, this will resolve after
 	/// revalidation is actually done.
 	///
@@ -214,21 +278,36 @@ where
 			"Sent mempool to revalidation queue"
 		);
 
-		if let Some(ref to_worker) = self.mempool_background {
-			if let Err(error) = to_worker.unbounded_send(RevalidateMempoolPayload {
+		if let (Some(slot), Some(wake)) = (&self.mempool_pending, &self.mempool_wake) {
+			*slot.pending.lock() = Some(RevalidateMempoolPayload {
 				mempool,
 				view_store,
 				finalized_hash,
-			}) {
-				warn!(
-					target: LOG_TARGET,
-					?error,
-					"Failed to update background worker"
-				);
+			});
+			// Capacity-1 wake: ignore full (worker already notified).
+			let wake_result = { wake.lock().try_send(()) };
+			if let Err(error) = wake_result {
+				if error.is_disconnected() {
+					warn!(
+						target: LOG_TARGET,
+						"mempool revalidation worker gone; dropping job"
+					);
+				}
 			}
 		} else {
 			mempool.revalidate(view_store, finalized_hash).await
 		}
+	}
+
+	/// Number of mempool revalidation jobs currently waiting in the latest-wins slot.
+	///
+	/// Test-only helper (0 or 1).
+	#[cfg(test)]
+	pub(super) fn mempool_pending_jobs(&self) -> usize {
+		self.mempool_pending
+			.as_ref()
+			.map(|slot| usize::from(slot.pending.lock().is_some()))
+			.unwrap_or(0)
 	}
 }
 
@@ -305,14 +384,14 @@ mod concurrency_tests {
 	use sp_runtime::transaction_validity::TransactionSource;
 	use std::time::Duration;
 
-	/// `finish_revalidation` (maintain critical path) must not stall behind an uncancellable
-	/// mempool revalidation batch that was enqueued earlier on the shared worker infrastructure.
-	#[tokio::test]
-	async fn finish_view_revalidation_not_blocked_by_mempool_revalidation() {
-		let mempool_validation_delay = Duration::from_millis(500);
-		let finish_budget = Duration::from_millis(100);
-
-		let api = Arc::new(MockChainApi::with_validation_delay(mempool_validation_delay));
+	fn setup_mempool_and_view_store(
+		api: Arc<MockChainApi>,
+	) -> (
+		Arc<TxMemPool<MockChainApi, TestBlock>>,
+		Arc<ViewStore<MockChainApi, TestBlock>>,
+		impl Future<Output = ()> + Send,
+		impl Future<Output = ()> + Send,
+	) {
 		let (listener, listener_task) = MultiViewListener::new_with_worker(Default::default());
 		let listener = Arc::new(listener);
 		let (import_notification_sink, import_notification_sink_task) =
@@ -328,8 +407,22 @@ mod concurrency_tests {
 		));
 		// Only async mempool APIs are used below; the sync-bridge task is unused.
 		let (mempool, _mempool_task) =
-			TxMemPool::new(api.clone(), listener, Default::default(), 1024, usize::MAX);
+			TxMemPool::new(api, listener, Default::default(), 1024, usize::MAX);
 		let mempool = Arc::new(mempool);
+
+		(mempool, view_store, listener_task, import_notification_sink_task)
+	}
+
+	/// `finish_revalidation` (maintain critical path) must not stall behind an uncancellable
+	/// mempool revalidation batch that was enqueued earlier on the shared worker infrastructure.
+	#[tokio::test]
+	async fn finish_view_revalidation_not_blocked_by_mempool_revalidation() {
+		let mempool_validation_delay = Duration::from_millis(500);
+		let finish_budget = Duration::from_millis(100);
+
+		let api = Arc::new(MockChainApi::with_validation_delay(mempool_validation_delay));
+		let (mempool, view_store, listener_task, import_notification_sink_task) =
+			setup_mempool_and_view_store(api.clone());
 
 		let (queue, worker_task) = RevalidationQueue::<MockChainApi, TestBlock>::new_with_worker();
 		let queue = Arc::new(queue);
@@ -366,6 +459,64 @@ mod concurrency_tests {
 			 (budget {:?}, mempool validation delay {:?})",
 			finish_budget,
 			mempool_validation_delay
+		);
+	}
+
+	/// Finalization bursts must not enqueue unbounded mempool revalidation work: the slot
+	/// holds at most one pending job, and only the latest finalized tip is applied.
+	#[tokio::test]
+	async fn mempool_revalidation_latest_wins_under_finalization_burst() {
+		let api = Arc::new(MockChainApi::with_validation_delay(Duration::from_millis(50)));
+		let (mempool, view_store, listener_task, import_notification_sink_task) =
+			setup_mempool_and_view_store(api.clone());
+
+		let (queue, worker_task) = RevalidationQueue::<MockChainApi, TestBlock>::new_with_worker();
+
+		tokio::spawn(listener_task);
+		tokio::spawn(import_notification_sink_task);
+
+		let xts = vec![Arc::from(xt(1)), Arc::from(xt(2))];
+		let _ = mempool.extend_unwatched(TransactionSource::External, 0, &xts).await;
+
+		const BURST: u64 = 40;
+		// Enqueue before the worker runs so a FIFO would retain all jobs.
+		for i in 1..=BURST {
+			let number = TXMEMPOOL_REVALIDATION_PERIOD + i;
+			queue
+				.revalidate_mempool(
+					mempool.clone(),
+					view_store.clone(),
+					HashAndNumber { hash: H256::from_low_u64_be(number), number },
+				)
+				.await;
+			assert_eq!(
+				queue.mempool_pending_jobs(),
+				1,
+				"pending mempool revalidation jobs must stay latest-wins (at most one)"
+			);
+		}
+
+		tokio::spawn(worker_task);
+
+		tokio::time::timeout(Duration::from_secs(5), async {
+			loop {
+				if queue.mempool_pending_jobs() == 0 && api.validation_count() > 0 {
+					break;
+				}
+				tokio::time::sleep(Duration::from_millis(20)).await;
+			}
+		})
+		.await
+		.expect("mempool revalidation did not complete");
+
+		// All BURST enqueues coalesced into a single job before the worker started, so only
+		// one batch runs (one validation per mempool tx).
+		assert_eq!(
+			api.validation_count(),
+			xts.len(),
+			"expected a single coalesced revalidation batch, got {} validations for burst of {}",
+			api.validation_count(),
+			BURST
 		);
 	}
 }

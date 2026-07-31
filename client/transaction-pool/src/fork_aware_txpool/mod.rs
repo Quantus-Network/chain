@@ -245,7 +245,9 @@
 //! delegated to background workers. View and *mempool* revalidation are both handled by the
 //! [`RevalidationQueue`], which dispatches each kind of job to its own worker loop. Keeping these
 //! queues separate ensures that an uncancellable mempool batch cannot stall
-//! [`finish_background_revalidations`] on the maintain critical path.
+//! [`finish_background_revalidations`] on the maintain critical path. The view worker uses a
+//! bounded queue (inline fallback when full); mempool work is latest-wins coalesced so
+//! finalization bursts cannot accumulate an unbounded backlog of revalidation payloads.
 //!
 //! ####  View revalidation
 //! View revalidation is performed on the view background worker. Revalidation is executed for every
