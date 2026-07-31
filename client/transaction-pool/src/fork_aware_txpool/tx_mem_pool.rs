@@ -259,6 +259,19 @@ where
 	}
 }
 
+/// Priority used to order mempool entries for eviction (`try_insert_with_replacement`).
+///
+/// `None` (priority not yet known) deliberately ranks *above* any concrete priority, making
+/// unvalidated entries un-evictable. This matches upstream polkadot-sdk and is a conscious
+/// trade-off ("don't evict what you can't compare yet"): every transaction is `None` between
+/// mempool insertion and its first successful view submission, and ranking `None` lowest
+/// would let any prioritized replacement evict legitimate fresh transactions in steady state.
+///
+/// Security note (reviewed, accepted risk): while no views exist (startup/major sync) all
+/// entries stay `None`, so a saturated mempool rejects replacement-path insertions with
+/// `ImmediatelyDropped` regardless of the incoming priority. The condition is bounded (the
+/// mempool itself is limited) and self-heals once a view exists: resubmission assigns
+/// concrete priorities or drops invalid entries, restoring normal eviction.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 struct MempoolTxPriority(pub Option<TransactionPriority>);
 
