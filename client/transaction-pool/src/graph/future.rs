@@ -98,6 +98,19 @@ impl<Hash, Ex> WaitingTransaction<Hash, Ex> {
 		self.missing_tags.remove(tag);
 	}
 
+	/// Marks a previously satisfied requirement as missing again.
+	///
+	/// Used when a ready transaction that provided `tag` is removed from the pool (as opposed to
+	/// being pruned after inclusion). Returns `true` if the tag was newly inserted into
+	/// `missing_tags`.
+	pub fn unsatisfy_tag(&mut self, tag: &Tag) -> bool {
+		if self.transaction.requires.iter().any(|requires| requires == tag) {
+			self.missing_tags.insert(tag.clone())
+		} else {
+			false
+		}
+	}
+
 	/// Returns true if transaction has all requirements satisfied.
 	pub fn is_ready(&self) -> bool {
 		self.missing_tags.is_empty()
@@ -219,6 +232,30 @@ impl<Hash: hash::Hash + Eq + Clone + std::fmt::Debug, Ex: std::fmt::Debug>
 		}
 
 		became_ready
+	}
+
+	/// Re-marks tags as missing on future transactions that require them.
+	///
+	/// `WaitingTransaction::missing_tags` only records requirements that were unsatisfied at
+	/// import time. When a ready provider of a previously satisfied tag is removed (via
+	/// [`crate::graph::base_pool::BasePool::remove_subtree`]), those tags must be restored here
+	/// so a later `satisfy_tags` cannot promote an incompletely dependent transaction.
+	pub fn unsatisfy_tags<T: AsRef<Tag>>(&mut self, tags: impl IntoIterator<Item = T>) {
+		for tag in tags {
+			let tag = tag.as_ref();
+			let mut affected = Vec::new();
+			for (hash, waiting) in self.waiting.iter_mut() {
+				if waiting.unsatisfy_tag(tag) {
+					affected.push(hash.clone());
+				}
+			}
+			if !affected.is_empty() {
+				let entry = self.wanted_tags.entry(tag.clone()).or_insert_with(HashSet::new);
+				for hash in affected {
+					entry.insert(hash);
+				}
+			}
+		}
 	}
 
 	/// Removes transactions for given list of hashes.

@@ -369,6 +369,18 @@ impl<Hash: hash::Hash + Member + Serialize, Ex: std::fmt::Debug> BasePool<Hash, 
 					// If there were conflicting future transactions promoted, removed them from
 					// promoted set.
 					promoted.retain(|hash| replaced.iter().all(|tx| *hash != tx.hash));
+					// Tags uniquely provided by replaced ready txs are gone; re-mark them on
+					// futures that still require them (same invariant as `remove_subtree`).
+					if !replaced.is_empty() {
+						let provided = self.ready.provided_tags();
+						let lost_tags = replaced
+							.iter()
+							.flat_map(|tx| tx.provides.iter())
+							.filter(|tag| !provided.contains_key(*tag))
+							.cloned()
+							.collect::<Vec<_>>();
+						self.future.unsatisfy_tags(lost_tags);
+					}
 					// The transactions were removed from the ready pool. We might attempt to
 					// re-import them.
 					removed.append(&mut replaced);
@@ -415,7 +427,8 @@ impl<Hash: hash::Hash + Member + Serialize, Ex: std::fmt::Debug> BasePool<Hash, 
 		if removed.iter().any(|tx| tx.hash == tx_hash) {
 			// We still need to remove all transactions that we promoted
 			// since they depend on each other and will never get to the best iterator.
-			self.ready.remove_subtree(&promoted);
+			// Use `remove_subtree` so future txs re-mark deps on provides we drop.
+			self.remove_subtree(&promoted);
 
 			trace!(
 				target: LOG_TARGET,
@@ -558,6 +571,13 @@ impl<Hash: hash::Hash + Member + Serialize, Ex: std::fmt::Debug> BasePool<Hash, 
 	/// and you don't want them to be stored in the pool use `prune_tags` method.
 	pub fn remove_subtree(&mut self, hashes: &[Hash]) -> Vec<Arc<Transaction<Hash, Ex>>> {
 		let mut removed = self.ready.remove_subtree(hashes);
+		// Future txs only track tags that were missing at import. Tags that were
+		// satisfied by a ready provider which we just removed must be re-marked as
+		// missing, otherwise a later provider of the remaining tags can falsely
+		// promote an incompletely dependent future transaction into ready.
+		let tags_to_unsatisfy =
+			removed.iter().flat_map(|tx| tx.provides.iter().cloned()).collect::<Vec<_>>();
+		self.future.unsatisfy_tags(tags_to_unsatisfy);
 		removed.extend(self.future.remove(hashes));
 		removed
 	}
@@ -1100,6 +1120,61 @@ mod tests {
 		// then
 		assert_eq!(pool.ready().count(), 1);
 		assert_eq!(pool.future.len(), 0);
+	}
+
+	/// A future that required tags X and Y, imported while X was already ready, must not be
+	/// promoted once Y appears if the ready provider of X was removed in the meantime.
+	/// `missing_tags` only tracked Y at import; removing X's provider must re-mark X as missing.
+	#[test]
+	fn remove_subtree_re_marks_future_deps_on_removed_ready_provides() {
+		let mut pool = pool();
+		let tag_x = vec![0x11];
+		let tag_y = vec![0x22];
+		let tag_f = vec![0x33];
+
+		// Ready provider of X.
+		pool.import(Transaction {
+			data: vec![1u8],
+			hash: 1,
+			provides: vec![tag_x.clone()],
+			..default_tx()
+		})
+		.unwrap();
+
+		// Future requiring X and Y: X is satisfied at import, so missing_tags = {Y}.
+		pool.import(Transaction {
+			data: vec![2u8],
+			hash: 2,
+			requires: vec![tag_x.clone(), tag_y.clone()],
+			provides: vec![tag_f],
+			..default_tx()
+		})
+		.unwrap();
+		assert_eq!(pool.ready().count(), 1);
+		assert_eq!(pool.future.len(), 1);
+
+		// Remove the ready provider of X (e.g. invalidation / limit eviction).
+		pool.remove_subtree(&[1]);
+		assert_eq!(pool.ready().count(), 0);
+		assert_eq!(pool.future.len(), 1);
+
+		// A new transaction provides Y. Without re-marking X as missing, the future would
+		// be falsely promoted to ready with an incomplete dependency set.
+		pool.import(Transaction {
+			data: vec![3u8],
+			hash: 3,
+			provides: vec![tag_y],
+			..default_tx()
+		})
+		.unwrap();
+
+		assert_eq!(pool.ready().count(), 1, "only the Y provider should be ready");
+		assert_eq!(pool.future.len(), 1, "future still waiting for X");
+		assert!(
+			pool.ready().all(|tx| tx.hash == 3),
+			"future requiring X must not enter ready after X's provider was removed"
+		);
+		assert!(pool.futures().any(|tx| tx.hash == 2));
 	}
 
 	#[test]
