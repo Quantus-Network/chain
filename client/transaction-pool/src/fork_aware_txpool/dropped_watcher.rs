@@ -289,6 +289,11 @@ where
 				if let Some(mut views_keeping_tx_valid) = self.transaction_views(tx_hash) {
 					views_keeping_tx_valid.get_mut().remove(&block_hash);
 					if views_keeping_tx_valid.get().is_empty() {
+						// The consumer removes the reported transaction from the mempool,
+						// so drop the (now empty) map entry as well. Keeping it would leak
+						// it forever: `Command::RemoveTransactions` is only sent for
+						// finalized transactions.
+						views_keeping_tx_valid.remove_entry();
 						return Some(DroppedTransaction::new_enforced_by_limts(tx_hash));
 					}
 				} else {
@@ -296,12 +301,19 @@ where
 					return Some(DroppedTransaction::new_enforced_by_limts(tx_hash));
 				}
 			},
-			TransactionStatus::Usurped(by) =>
-				return Some(DroppedTransaction::new_usurped(tx_hash, by)),
+			TransactionStatus::Usurped(by) => {
+				// The usurped transaction is removed from the mempool by the consumer,
+				// so its view-tracking entries must be dropped here as well.
+				self.ready_transaction_views.remove(&tx_hash);
+				self.future_transaction_views.remove(&tx_hash);
+				return Some(DroppedTransaction::new_usurped(tx_hash, by))
+			},
 			TransactionStatus::Invalid => {
 				if let Some(mut views_keeping_tx_valid) = self.transaction_views(tx_hash) {
 					views_keeping_tx_valid.get_mut().remove(&block_hash);
 					if views_keeping_tx_valid.get().is_empty() {
+						// See the comment in the `Dropped` arm above.
+						views_keeping_tx_valid.remove_entry();
 						return Some(DroppedTransaction::new_invalid(tx_hash));
 					}
 				} else {
@@ -433,6 +445,93 @@ where
 			.map_err(|e| {
 				trace!(target: LOG_TARGET, "dropped_watcher: remove_transactions send message failed: {e}");
 			});
+	}
+}
+
+/// Tests that per-transaction view-map entries are reclaimed when transactions leave the
+/// pool for reasons other than finalization (dropped / invalid / usurped).
+///
+/// Unlike `dropped_watcher_tests` below, this module does not depend on the
+/// `test-helpers` feature (unavailable in this vendored workspace), so it runs as part
+/// of the regular `#[cfg(test)]` suite. It exercises `handle_event` directly on the
+/// private context.
+#[cfg(test)]
+mod map_cleanup_tests {
+	use super::*;
+	use crate::common::mock_api::MockChainApi;
+	use sp_core::H256;
+
+	fn ctx() -> MultiViewDropWatcherContext<MockChainApi> {
+		let (_sender, command_receiver) =
+			mpsc::tracing_unbounded::<Command<MockChainApi>>("test-cmd-stream", 16);
+		MultiViewDropWatcherContext {
+			stream_map: StreamMap::new(),
+			command_receiver,
+			ready_transaction_views: Default::default(),
+			future_transaction_views: Default::default(),
+			pending_dropped_transactions: Default::default(),
+		}
+	}
+
+	#[test]
+	fn dropped_event_removes_emptied_ready_map_entry() {
+		let mut ctx = ctx();
+		let view = H256::repeat_byte(0x01);
+		let tx = H256::repeat_byte(0x0a);
+
+		ctx.handle_event(view, (tx, TransactionStatus::Ready));
+		assert!(ctx.ready_transaction_views.contains_key(&tx));
+
+		let dropped = ctx.handle_event(view, (tx, TransactionStatus::Dropped));
+		assert_eq!(dropped, Some(DroppedTransaction::new_enforced_by_limts(tx)));
+		assert!(!ctx.ready_transaction_views.contains_key(&tx));
+		assert!(!ctx.future_transaction_views.contains_key(&tx));
+	}
+
+	#[test]
+	fn dropped_event_keeps_entry_while_other_views_reference_tx() {
+		let mut ctx = ctx();
+		let view_a = H256::repeat_byte(0x01);
+		let view_b = H256::repeat_byte(0x02);
+		let tx = H256::repeat_byte(0x0a);
+
+		ctx.handle_event(view_a, (tx, TransactionStatus::Ready));
+		ctx.handle_event(view_b, (tx, TransactionStatus::Ready));
+
+		let dropped = ctx.handle_event(view_a, (tx, TransactionStatus::Dropped));
+		assert_eq!(dropped, None);
+		assert!(ctx.ready_transaction_views.contains_key(&tx));
+	}
+
+	#[test]
+	fn invalid_event_removes_emptied_future_map_entry() {
+		let mut ctx = ctx();
+		let view = H256::repeat_byte(0x01);
+		let tx = H256::repeat_byte(0x0a);
+
+		ctx.handle_event(view, (tx, TransactionStatus::Future));
+		assert!(ctx.future_transaction_views.contains_key(&tx));
+
+		let dropped = ctx.handle_event(view, (tx, TransactionStatus::Invalid));
+		assert_eq!(dropped, Some(DroppedTransaction::new_invalid(tx)));
+		assert!(!ctx.ready_transaction_views.contains_key(&tx));
+		assert!(!ctx.future_transaction_views.contains_key(&tx));
+	}
+
+	#[test]
+	fn usurped_event_removes_map_entries() {
+		let mut ctx = ctx();
+		let view = H256::repeat_byte(0x01);
+		let tx = H256::repeat_byte(0x0a);
+		let by = H256::repeat_byte(0x0b);
+
+		ctx.handle_event(view, (tx, TransactionStatus::Ready));
+		assert!(ctx.ready_transaction_views.contains_key(&tx));
+
+		let dropped = ctx.handle_event(view, (tx, TransactionStatus::Usurped(by)));
+		assert_eq!(dropped, Some(DroppedTransaction::new_usurped(tx, by)));
+		assert!(!ctx.ready_transaction_views.contains_key(&tx));
+		assert!(!ctx.future_transaction_views.contains_key(&tx));
 	}
 }
 
