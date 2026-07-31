@@ -121,7 +121,7 @@ impl Keypair {
 
 	/// Get the public key of this keypair.
 	pub fn public(&self) -> PublicKey {
-		PublicKey(self.derive_internal().public)
+		PublicKey(self.derive_internal().public().clone())
 	}
 
 	/// Get the secret key (seed) of this keypair.

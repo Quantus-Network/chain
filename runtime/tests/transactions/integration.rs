@@ -1,6 +1,8 @@
 use codec::{Decode, Encode};
-use qp_dilithium_crypto::{DilithiumSignatureScheme, DilithiumSignatureWithPublic, PUB_KEY_BYTES};
-use sp_core::ByteArray;
+use qp_dilithium_crypto::{
+	Dilithium65Pair, DilithiumSignatureScheme, DilithiumSignatureWithPublic, PUB_KEY_BYTES,
+};
+use sp_core::{ByteArray, Pair};
 use sp_runtime::{
 	generic::{Preamble, UncheckedExtrinsic},
 	traits::Verify,
@@ -46,7 +48,7 @@ mod tests {
 		// Generate a keypair
 		let entropy = [0u8; 32]; // Fixed entropy of all zeros
 		let keypair = qp_dilithium_crypto::generate(&entropy).expect("Failed to generate keypair");
-		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
+		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public().to_bytes();
 
 		println!("Gen Public Key (hex): {:?}", format_hex_truncated(&pk_bytes));
 
@@ -111,7 +113,9 @@ mod tests {
 			println!("Decoded Address: {:?}", decoded_address);
 			println!("Decoded Extra: ()");
 
-			let DilithiumSignatureScheme::Dilithium(sig_public) = decoded_signature.clone();
+			let DilithiumSignatureScheme::Dilithium(sig_public) = decoded_signature.clone() else {
+				panic!("Expected Dilithium (ML-DSA-87) signature variant")
+			};
 			let sig = sig_public.signature();
 			let sig_bytes = sig.as_slice();
 			println!("Decoded Signature: {:?}", format_hex_truncated(sig_bytes));
@@ -150,7 +154,7 @@ mod tests {
 		// Generate a keypair
 		let entropy = [0u8; 32]; // Fixed entropy of all zeros
 		let keypair = qp_dilithium_crypto::generate(&entropy).expect("Failed to generate keypair");
-		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
+		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public().to_bytes();
 		// Use injective encoding for account ID derivation (collision-resistant)
 		let account_id = hash_bytes(&pk_bytes).into();
 		let id = Address::Id(account_id);
@@ -212,7 +216,7 @@ mod tests {
 		// Generate a keypair
 		let entropy = [0u8; 32]; // Fixed entropy of all zeros
 		let keypair = qp_dilithium_crypto::generate(&entropy).expect("Failed to generate keypair");
-		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
+		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public().to_bytes();
 
 		// Create and sign a payload
 		let payload: RuntimeCall = 77;
@@ -273,7 +277,7 @@ mod tests {
 		// Generate a keypair
 		let entropy = [0u8; 32]; // Fixed entropy of all zeros
 		let keypair = qp_dilithium_crypto::generate(&entropy).expect("Failed to generate keypair");
-		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
+		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public().to_bytes();
 
 		// Create and sign a payload
 		let payload: RuntimeCall = 42;
@@ -320,5 +324,106 @@ mod tests {
 		let msg_decoded = decoded.function.encode();
 		let is_valid = signature.verify(&msg_decoded[..], &decoded_account_id);
 		assert!(!is_valid, "Signature verification worked with wrong payload");
+	}
+
+	//
+	// Integration test for ML-DSA-65 signatures
+	// Tests the valid round-trip case
+	//
+	#[test]
+	fn test_dilithium65_extrinsic() {
+		setup();
+
+		let pair = Dilithium65Pair::from_seed_slice(&[0u8; 32]).expect("Failed to create pair");
+		let public = pair.public();
+		let account_id: AccountId32 = hash_bytes(public.as_ref()).into();
+		let id = Address::Id(account_id);
+		let signed_extra: SignedExtra = ();
+
+		let payload: RuntimeCall = 42;
+		let msg = payload.encode();
+		let sig_with_public = pair.sign(&msg);
+
+		let extrinsic = UncheckedExtrinsic::new_signed(
+			payload,
+			id,
+			DilithiumSignatureScheme::Dilithium65(sig_with_public),
+			signed_extra,
+		);
+
+		let encoded = extrinsic.encode();
+
+		let decoded: UncheckedExtrinsic<
+			MultiAddress<AccountId32, ()>,
+			RuntimeCall,
+			DilithiumSignatureScheme,
+			(),
+		> = UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
+
+		assert_eq!(decoded.function, payload, "Decoded function does not match original payload");
+
+		let Preamble::Signed(address, signature, _) = decoded.preamble else {
+			unreachable!("Test assumes Preamble::Signed")
+		};
+		let Address::Id(decoded_account_id) = address else {
+			unreachable!("Test assumes Address::Id")
+		};
+		let msg_decoded = decoded.function.encode();
+
+		let is_valid = signature.verify(&msg_decoded[..], &decoded_account_id);
+		assert!(
+			is_valid,
+			"ML-DSA-65 signature verification failed for AccountId: {:?}",
+			decoded_account_id
+		);
+	}
+
+	#[test]
+	fn test_dilithium65_extrinsic_fail_signature() {
+		setup();
+
+		let pair = Dilithium65Pair::from_seed_slice(&[0u8; 32]).expect("Failed to create pair");
+		let public = pair.public();
+		let account_id: AccountId32 = hash_bytes(public.as_ref()).into();
+		let id = Address::Id(account_id);
+		let signed_extra: SignedExtra = ();
+
+		let payload: RuntimeCall = 99;
+		let msg = payload.encode();
+
+		// Sign payload with a different key
+		let pair2 = Dilithium65Pair::from_seed_slice(&[1u8; 32]).expect("Failed to create pair");
+		let wrong_sig = pair2.sign(&msg);
+		// Recombine the wrong signature with the first pair's public key
+		let sig_with_public = qp_dilithium_crypto::Dilithium65SignatureWithPublic::new(
+			wrong_sig.signature(),
+			public.clone(),
+		);
+
+		let extrinsic = UncheckedExtrinsic::new_signed(
+			payload,
+			id,
+			DilithiumSignatureScheme::Dilithium65(sig_with_public),
+			signed_extra,
+		);
+
+		let encoded = extrinsic.encode();
+		let decoded: UncheckedExtrinsic<
+			MultiAddress<AccountId32, ()>,
+			RuntimeCall,
+			DilithiumSignatureScheme,
+			(),
+		> = UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
+
+		let Preamble::Signed(address, signature, _) = decoded.preamble else {
+			unreachable!("Test assumes Preamble::Signed")
+		};
+		let Address::Id(decoded_account_id) = address else {
+			unreachable!("Test assumes Address::Id")
+		};
+		let msg_decoded = decoded.function.encode();
+
+		let is_valid = signature.verify(&msg_decoded[..], &decoded_account_id);
+		assert!(!is_valid, "ML-DSA-65 signature verification unexpectedly succeeded");
 	}
 }

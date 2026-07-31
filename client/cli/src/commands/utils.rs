@@ -293,6 +293,9 @@ macro_rules! with_crypto_scheme {
 			$crate::CryptoScheme::Dilithium => {
 				$method::<qp_dilithium_crypto::DilithiumPair, $($generics),*>($($params),*)
 			}
+			$crate::CryptoScheme::Dilithium65 => {
+				$method::<qp_dilithium_crypto::Dilithium65Pair, $($generics),*>($($params),*)
+			}
 		}
 	};
 }

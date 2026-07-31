@@ -11,7 +11,7 @@ genesis logic, and the workspace primitive crates pulled in.
 - **Build:** `no_std` WASM via `substrate-wasm-builder` (`runtime/build.rs`); native `std` build for the node/client
 - **Block time target:** 12s (`TARGET_BLOCK_TIME_MS = 12_000`)
 - **Consensus:** QPoW (quantum-resistant Proof of Work, Poseidon2-based)
-- **Signatures:** Dilithium (ML-DSA-87) post-quantum signature scheme
+- **Signatures:** Dilithium post-quantum signature schemes (ML-DSA-87 and ML-DSA-65)
 - **SS58 prefix:** 189
 
 ---
@@ -281,7 +281,7 @@ Related transaction-payment RPC surface (patched for WASM + node builds):
 
 | Crate | Path | Role in runtime |
 | --- | --- | --- |
-| `qp-dilithium-crypto` | `primitives/dilithium-crypto` | ML-DSA-87 post-quantum signatures; `DilithiumSignatureScheme` = the chain's `Signature`/`AccountId`. |
+| `qp-dilithium-crypto` | `primitives/dilithium-crypto` | ML-DSA-87/ML-DSA-65 post-quantum signatures; `DilithiumSignatureScheme` = the chain's `Signature`/`AccountId`. |
 | `qp-header` | `primitives/header` | Custom block `Header` (Poseidon block hash + Blake2 state trie); `ZkTreeRootProvider` trait. |
 | `qp-high-security` | `primitives/high-security` | `HighSecurityInspector` trait shared by multisig, reversible-transfers, tx-extensions (breaks circular dep). |
 | `qp-scheduler` | `primitives/scheduler` | `BlockNumberOrTimestamp`, `DispatchTime`, `ScheduleNamed` trait for delayed dispatch. |

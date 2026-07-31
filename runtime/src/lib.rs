@@ -9,7 +9,10 @@ pub mod apis;
 mod benchmarks;
 pub mod configs;
 
-pub use qp_dilithium_crypto::{DilithiumPublic, DilithiumSignature, DilithiumSignatureScheme};
+pub use qp_dilithium_crypto::{
+	Dilithium65Pair, Dilithium65Public, Dilithium65Signature, Dilithium65SignatureWithPublic,
+	DilithiumPublic, DilithiumSignature, DilithiumSignatureScheme,
+};
 
 use alloc::vec::Vec;
 use sp_core::U512;
@@ -73,7 +76,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	//   `spec_version`, and `authoring_version` are the same between Wasm and native.
 	// This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
 	//   the compatible custom types.
-	spec_version: 137,
+	spec_version: 138,
 	impl_version: 1,
 	apis: apis::RUNTIME_API_VERSIONS,
 	transaction_version: 3,
