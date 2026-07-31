@@ -256,7 +256,8 @@ impl<C: ChainApi, L: EventHandler<C>> EventDispatcher<ExtrinsicHash<C>, C, L> {
 			if let Some((hash, txs)) = self.finality_watchers.pop_front() {
 				for tx in txs {
 					self.fire(&tx, |watcher| watcher.finality_timeout(hash));
-					self.event_handler.as_ref().map(|l| l.finality_timeout(tx, block_hash));
+					// Use the evicted block hash (`hash`), not the block currently being pruned.
+					self.event_handler.as_ref().map(|l| l.finality_timeout(tx, hash));
 				}
 			}
 		}
@@ -299,8 +300,46 @@ mod tests {
 	use super::*;
 	use crate::common::mock_api::MockChainApi;
 	use sp_core::H256;
+	use std::{cell::RefCell, rc::Rc};
 
 	type Dispatcher = EventDispatcher<H256, MockChainApi, ()>;
+
+	/// Records `finality_timeout` notifications for assertion.
+	struct RecordingFinalityHandler {
+		timeouts: Rc<RefCell<Vec<(H256, H256)>>>,
+	}
+
+	impl EventHandler<MockChainApi> for RecordingFinalityHandler {
+		fn finality_timeout(&self, tx: ExtrinsicHash<MockChainApi>, hash: BlockHash<MockChainApi>) {
+			self.timeouts.borrow_mut().push((tx, hash));
+		}
+	}
+
+	#[test]
+	fn finality_timeout_event_handler_uses_evicted_block_hash() {
+		let timeouts = Rc::new(RefCell::new(Vec::new()));
+		let mut dispatcher = EventDispatcher::<H256, MockChainApi, _>::new_with_event_handler(
+			Some(RecordingFinalityHandler { timeouts: timeouts.clone() }),
+		);
+
+		// Fill past the finality-watcher limit so the oldest block is evicted with a timeout.
+		for i in 0..=MAX_FINALITY_WATCHERS {
+			let block = H256::from_low_u64_be(i as u64);
+			let tx = H256::from_low_u64_be(10_000 + i as u64);
+			let _watcher = dispatcher.create_watcher(tx);
+			dispatcher.pruned(block, &tx);
+		}
+
+		let events = timeouts.borrow();
+		assert_eq!(events.len(), 1, "exactly one eviction timeout expected, got {events:?}");
+		let (tx, timed_out_block) = events[0];
+		assert_eq!(tx, H256::from_low_u64_be(10_000));
+		assert_eq!(
+			timed_out_block,
+			H256::from_low_u64_be(0),
+			"handler must report the evicted block, not the block currently being pruned"
+		);
+	}
 
 	#[test]
 	fn reclaim_closed_watcher_removes_orphaned_entry() {
