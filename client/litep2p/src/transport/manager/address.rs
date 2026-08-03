@@ -22,7 +22,6 @@ use crate::{error::DialError, PeerId};
 
 use ip_network::IpNetwork;
 use multiaddr::{Multiaddr, Protocol};
-use crate::types::multihash::Multihash;
 
 use std::collections::{hash_map::Entry, HashMap};
 

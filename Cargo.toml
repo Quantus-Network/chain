@@ -94,7 +94,14 @@ cfg-if = { version = "1.0" }
 chrono = { version = "0.4.31" }
 cid = { version = "0.11.3" }
 clap = { version = "4.5.13" }
-clatter = { version = "=1.1.0" }
+# rust-crypto ML-KEM only — avoid default use-pqclean-* (unmaintained pqcrypto-kyber).
+clatter = { version = "2.2.0", default-features = false, features = [
+	"getrandom",
+	"std",
+	"use-chacha20poly1305",
+	"use-rust-crypto-ml-kem",
+	"use-sha",
+] }
 codec = { version = "3.6.12", default-features = false, package = "parity-scale-codec" }
 const-hex = { version = "1.16.0", default-features = false }
 criterion = { version = "0.5.1", default-features = false }

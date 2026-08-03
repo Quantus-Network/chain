@@ -34,8 +34,6 @@ use crate::{
 };
 
 use multiaddr::{Multiaddr, Protocol};
-use crate::types::multihash::Multihash;
-
 /// Number of k-buckets.
 const NUM_BUCKETS: usize = 256;
 

@@ -1378,7 +1378,6 @@ mod tests {
 		ConnectionId,
 	};
 	use multiaddr::Protocol;
-	use crate::types::multihash::Multihash;
 	use std::str::FromStr;
 	use tokio::sync::mpsc::channel;
 

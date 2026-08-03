@@ -720,7 +720,6 @@ mod tests {
 		BandwidthSink, PeerId,
 	};
 	use multiaddr::Protocol;
-	use crate::types::multihash::Multihash;
 	use std::sync::Arc;
 	use tokio::sync::mpsc::channel;
 

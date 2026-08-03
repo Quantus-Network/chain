@@ -42,7 +42,6 @@ use address::{scores, AddressStore};
 use futures::{future::BoxFuture, stream::FuturesUnordered, Stream, StreamExt};
 use indexmap::IndexMap;
 use multiaddr::{Multiaddr, Protocol};
-use crate::types::multihash::Multihash;
 use parking_lot::RwLock;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
@@ -1412,8 +1411,6 @@ mod tests {
 	use crate::transport::manager::{address::AddressStore, peer_state::SecondaryOrDialing};
 	use limits::ConnectionLimitsConfig;
 
-	use crate::types::multihash::Multihash;
-
 	use super::*;
 	#[cfg(debug_assertions)]
 	use crate::transport::KEEP_ALIVE_TIMEOUT;
@@ -1534,7 +1531,7 @@ mod tests {
 			.with(Protocol::Ip4(Ipv4Addr::new(127, 0, 0, 1)))
 			.with(Protocol::Udp(8888))
 			.with(Protocol::QuicV1)
-			.with(Protocol::P2p(Multihash::from_bytes(&PeerId::random().to_bytes()).unwrap()));
+			.with(Protocol::P2p(PeerId::random().into()));
 
 		assert!(std::matches!(
 			manager.dial_address(address).await,
@@ -1703,14 +1700,14 @@ mod tests {
 		let address = Multiaddr::empty()
 			.with(Protocol::Ip6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)))
 			.with(Protocol::Tcp(8888))
-			.with(Protocol::P2p(Multihash::from_bytes(&PeerId::random().to_bytes()).unwrap()));
+			.with(Protocol::P2p(PeerId::random().into()));
 		assert!(handle.supported_transport(&address));
 
 		// ipv4
 		let address = Multiaddr::empty()
 			.with(Protocol::Ip4(Ipv4Addr::new(127, 0, 0, 1)))
 			.with(Protocol::Tcp(8888))
-			.with(Protocol::P2p(Multihash::from_bytes(&PeerId::random().to_bytes()).unwrap()));
+			.with(Protocol::P2p(PeerId::random().into()));
 		assert!(handle.supported_transport(&address));
 
 		// quic - not supported
@@ -1718,7 +1715,7 @@ mod tests {
 			.with(Protocol::Ip4(Ipv4Addr::new(127, 0, 0, 1)))
 			.with(Protocol::Udp(8888))
 			.with(Protocol::QuicV1)
-			.with(Protocol::P2p(Multihash::from_bytes(&PeerId::random().to_bytes()).unwrap()));
+			.with(Protocol::P2p(PeerId::random().into()));
 		assert!(!handle.supported_transport(&address));
 
 		// websocket

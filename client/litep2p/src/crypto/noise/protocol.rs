@@ -33,30 +33,13 @@ use clatter::{
 	transportstate::TransportState,
 	PqHandshake,
 };
-use rand::SeedableRng;
 use zeroize::Zeroize;
 
 use crate::error::NegotiationError;
 
 /// Clatter session that manages the pqXX handshake state with ML-KEM 768.
-///
-/// This struct owns both the RNG and handshake with proper lifetime management.
-/// The RNG is boxed for a stable address, allowing the handshake to borrow it.
-///
-/// # Safety
-/// This uses a self-referential pattern: the handshake borrows from the boxed RNG.
-/// This is sound because:
-/// 1. `_rng` is boxed, giving it a stable heap address
-/// 2. We never move or drop `_rng` while `handshake` exists
-/// 3. `ClatterSession` is not Clone/Copy, preventing aliasing
-/// 4. `handshake` is declared before `_rng`, so it drops first (fields drop in declaration order),
-///    ending the borrow before the RNG is freed
 pub struct ClatterSession {
-	/// The handshake state. The 'static lifetime is a lie - it actually borrows from `_rng`.
-	/// Declared before `_rng` so it is dropped first, while the borrowed RNG is still alive.
-	handshake: PqHandshake<'static, MlKem768, MlKem768, ChaChaPoly, Sha256, rand::rngs::StdRng>,
-	/// The RNG - must be boxed for stable address. Kept alive for the handshake's lifetime.
-	_rng: Box<rand::rngs::StdRng>,
+	handshake: PqHandshake<MlKem768, MlKem768, ChaChaPoly, Sha256>,
 }
 
 impl std::fmt::Debug for ClatterSession {
@@ -84,21 +67,7 @@ impl ClatterSession {
 		let kem_public = <MlKem768 as Kem>::PubKey::from_slice(static_keypair.public.as_ref());
 		let clatter_keypair = clatter::KeyPair { public: kem_public, secret: kem_secret };
 
-		let mut rng = Box::new(rand::rngs::StdRng::from_entropy());
-
-		// Get a raw pointer to the RNG
-		let rng_ptr = rng.as_mut() as *mut rand::rngs::StdRng;
-
-		// SAFETY: We're creating a reference that borrows from the boxed RNG.
-		// This is sound because:
-		// 1. The Box gives a stable heap address that won't move
-		// 2. We store the Box in the same struct, so it lives as long as the handshake
-		// 3. `handshake` is declared before `_rng`, so it drops first (fields drop in declaration
-		//    order), ending the borrow before the RNG is freed
-		// 4. We never expose &mut _rng or allow moving it
-		let rng_ref: &'static mut rand::rngs::StdRng = unsafe { &mut *rng_ptr };
-
-		let handshake = PqHandshake::<MlKem768, MlKem768, ChaChaPoly, Sha256, _>::new(
+		let handshake = PqHandshake::<MlKem768, MlKem768, ChaChaPoly, Sha256>::new(
 			noise_pqxx(),
 			prologue,
 			is_initiator,
@@ -106,13 +75,12 @@ impl ClatterSession {
 			None, // No pre-shared ephemeral key
 			None, // No remote static key (XX pattern)
 			None, // No remote ephemeral key
-			rng_ref,
 		)
 		.map_err(|e| {
 			NegotiationError::Clatter(format!("Failed to create pqXX handshake: {:?}", e))
 		})?;
 
-		Ok(Self { handshake, _rng: rng })
+		Ok(Self { handshake })
 	}
 
 	/// Write a handshake message.
@@ -195,8 +163,7 @@ pub struct Keypair {
 impl Keypair {
 	/// Generate a new ML-KEM 768 keypair.
 	pub fn new() -> Self {
-		let mut rng = rand::thread_rng();
-		let keypair = MlKem768::genkey(&mut rng).expect("ML-KEM key generation should not fail");
+		let keypair = MlKem768::genkey().expect("ML-KEM key generation should not fail");
 
 		let secret = SecretKey(keypair.secret.as_slice().to_vec());
 		let public = PublicKey(keypair.public.as_slice().to_vec());
