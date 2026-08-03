@@ -273,21 +273,50 @@ where
 		xts: Vec<TransactionFor<Self>>,
 	) -> Result<Vec<Result<TxHash<Self>, Self::Error>>, Self::Error> {
 		let pool = self.pool.clone();
-		let xts = xts
-			.into_iter()
-			.map(|xt| {
-				(TimedTransactionSource::from_transaction_source(source, false), Arc::from(xt))
-			})
-			.collect::<Vec<_>>();
+
+		// Pre-validation admission control: accept only as many transactions as the pool
+		// could possibly hold (count and cumulative bytes) and reject the excess up front.
+		// This bounds the validation work and the memory retained by a single batch before
+		// the pool storage limits (which are enforced only after validation) can engage.
+		let options = pool.validated_pool().options();
+		let max_count = options.total_count();
+		let max_bytes = options.ready.total_bytes.saturating_add(options.future.total_bytes);
+
+		let total_count = xts.len();
+		let mut cumulative_bytes = 0usize;
+		let mut accepted = Vec::with_capacity(total_count.min(max_count));
+		for xt in xts {
+			cumulative_bytes = cumulative_bytes.saturating_add(self.api.hash_and_length(&xt).1);
+			if accepted.len() >= max_count || cumulative_bytes > max_bytes {
+				break;
+			}
+			accepted.push((
+				TimedTransactionSource::from_transaction_source(source, false),
+				Arc::from(xt),
+			));
+		}
+		let rejected_count = total_count - accepted.len();
+		if rejected_count > 0 {
+			warn!(
+				target: LOG_TARGET,
+				total_count,
+				rejected_count,
+				"submit_at: rejecting batch transactions exceeding pool capacity"
+			);
+		}
 
 		let number = self.api.resolve_block_number(at);
 		let at = HashAndNumber { hash: at, number: number? };
-		let results = pool
-			.submit_at(&at, xts, ValidateTransactionPriority::Submitted)
+		let mut results = pool
+			.submit_at(&at, accepted, ValidateTransactionPriority::Submitted)
 			.await
 			.into_iter()
 			.map(|result| result.map(|outcome| outcome.hash()))
 			.collect::<Vec<_>>();
+		results.extend(
+			std::iter::repeat_with(|| Err(TxPoolError::ImmediatelyDropped.into()))
+				.take(rejected_count),
+		);
 		let success_count = results.iter().filter(|result| result.is_ok()).count() as u64;
 		if success_count > 0 {
 			self.metrics
@@ -839,6 +868,86 @@ where
 					);
 				}
 			}
+		}
+	}
+}
+
+#[cfg(test)]
+mod batch_admission_tests {
+	use super::*;
+	use crate::common::mock_api::{xt, MockChainApi, TestBlock};
+	use codec::Encode;
+	use sp_core::H256;
+
+	fn test_pool(
+		ready: graph::base_pool::Limit,
+		future: graph::base_pool::Limit,
+	) -> (BasicPool<MockChainApi, TestBlock>, Arc<MockChainApi>) {
+		let api = Arc::new(MockChainApi::default());
+		let genesis = H256::from_low_u64_be(0);
+		let options = graph::Options { ready, future, ..Default::default() };
+		let (pool, background_task) = BasicPool::new_test(api.clone(), genesis, genesis, options);
+		tokio::spawn(background_task);
+		(pool, api)
+	}
+
+	/// A batch with more transactions than the pool could ever hold must not have its
+	/// excess validated: validation work has to be bounded by the pool capacity before
+	/// any runtime validation is scheduled. Otherwise an attacker can saturate runtime
+	/// validation and retain arbitrarily large batches in memory before pool limits engage.
+	#[tokio::test]
+	async fn oversized_batch_count_is_capped_before_validation() {
+		let (pool, api) = test_pool(
+			graph::base_pool::Limit { count: 4, total_bytes: 1024 * 1024 },
+			graph::base_pool::Limit { count: 4, total_bytes: 1024 * 1024 },
+		);
+		let genesis = H256::from_low_u64_be(0);
+
+		let batch = (0..100).map(xt).collect::<Vec<_>>();
+		let results = pool
+			.submit_at(genesis, TransactionSource::External, batch)
+			.await
+			.expect("submit_at succeeds");
+
+		// Every transaction gets a result, in order.
+		assert_eq!(results.len(), 100);
+		// Only transactions that could possibly fit into the pool were validated.
+		assert!(
+			api.validation_count() <= 8,
+			"expected at most 8 validations, got {}",
+			api.validation_count()
+		);
+		// The excess was rejected up front.
+		for result in &results[8..] {
+			assert!(matches!(result, Err(TxPoolError::ImmediatelyDropped)));
+		}
+	}
+
+	/// Same as above, for the cumulative bytes limit.
+	#[tokio::test]
+	async fn oversized_batch_bytes_is_capped_before_validation() {
+		let tx_bytes = xt(0).encoded_size();
+		// Byte budget fits 4 transactions in total (2 ready + 2 future), counts are large.
+		let (pool, api) = test_pool(
+			graph::base_pool::Limit { count: 1024, total_bytes: 2 * tx_bytes },
+			graph::base_pool::Limit { count: 1024, total_bytes: 2 * tx_bytes },
+		);
+		let genesis = H256::from_low_u64_be(0);
+
+		let batch = (0..50).map(xt).collect::<Vec<_>>();
+		let results = pool
+			.submit_at(genesis, TransactionSource::External, batch)
+			.await
+			.expect("submit_at succeeds");
+
+		assert_eq!(results.len(), 50);
+		assert!(
+			api.validation_count() <= 4,
+			"expected at most 4 validations, got {}",
+			api.validation_count()
+		);
+		for result in &results[4..] {
+			assert!(matches!(result, Err(TxPoolError::ImmediatelyDropped)));
 		}
 	}
 }

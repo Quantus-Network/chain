@@ -641,6 +641,61 @@ fn no_volume_fee_for_regular_reversible_accounts() {
 	});
 }
 
+/// A one-time schedule freezes *cancel* authority in `pending.guardian` (= sender).
+/// Later `set_high_security` must not rewrite that: the owner keeps full-refund cancel
+/// rights, and the new guardian must not be able to cancel/seize via `cancel`.
+///
+/// This does **not** constrain `recover_funds`: once the account is high-security, the
+/// live guardian may still seize these holds through recovery (account-level seize).
+#[test]
+fn set_high_security_does_not_retroactively_reclassify_pending_one_time_cancel() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let owner = charlie(); // regular account
+		let recipient = dave();
+		let new_guardian = eve();
+		let amount = 10_000u128;
+
+		let initial_owner = Balances::free_balance(&owner);
+		let initial_guardian = Balances::free_balance(&new_guardian);
+		let initial_issuance = pallet_balances::TotalIssuance::<Test>::get();
+
+		let call = transfer_call(recipient.clone(), amount);
+		let tx_id = calculate_tx_id::<Test>(owner.clone(), &call);
+
+		assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+			RuntimeOrigin::signed(owner.clone()),
+			recipient,
+			amount,
+			BlockNumberOrTimestamp::BlockNumber(10),
+		));
+
+		// Policy frozen at schedule time: guardian is the owner themselves.
+		let pending = ReversibleTransfers::pending_dispatches(tx_id).expect("pending");
+		assert_eq!(pending.guardian, owner);
+
+		// Owner later enrolls in high security with a different guardian.
+		assert_ok!(ReversibleTransfers::set_high_security(
+			RuntimeOrigin::signed(owner.clone()),
+			BlockNumberOrTimestamp::BlockNumber(10),
+			new_guardian.clone(),
+		));
+
+		// New guardian must not be able to cancel / seize the pre-existing one-time transfer.
+		assert_err!(
+			ReversibleTransfers::cancel(RuntimeOrigin::signed(new_guardian.clone()), tx_id),
+			Error::<Test>::NotOwner
+		);
+
+		// Owner still cancels with a full refund and no volume fee.
+		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(owner.clone()), tx_id));
+		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
+		assert_eq!(Balances::free_balance(&owner), initial_owner);
+		assert_eq!(Balances::free_balance(&new_guardian), initial_guardian);
+		assert_eq!(pallet_balances::TotalIssuance::<Test>::get(), initial_issuance);
+	});
+}
+
 #[test]
 fn cancel_dispatch_fails_not_owner() {
 	new_test_ext().execute_with(|| {

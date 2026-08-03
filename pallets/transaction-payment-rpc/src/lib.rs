@@ -37,6 +37,30 @@ use sp_runtime::traits::{Block as BlockT, MaybeDisplay};
 
 pub use pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi as TransactionPaymentRuntimeApi;
 
+/// Maximum encoded extrinsic length accepted by fee-query RPCs before SCALE decode.
+///
+/// Aligned with this chain's maximum block length (`RuntimeBlockLength` = 5 MiB). Inputs
+/// larger than this cannot be included on-chain; without a local cap, the JSON-RPC
+/// handler would still decode them into a full `Block::Extrinsic` (e.g. a huge
+/// `remark` payload) and burn RPC worker CPU/heap for free.
+pub const MAX_ENCODED_EXTRINSIC_LEN: usize = 5 * 1024 * 1024;
+
+/// Rejects fee-query inputs that exceed `max_len` before any extrinsic decode work.
+fn ensure_query_extrinsic_size(encoded_xt: &[u8], max_len: usize) -> RpcResult<()> {
+	if encoded_xt.len() > max_len {
+		return Err(ErrorObject::owned(
+			ErrorCode::InvalidParams.code(),
+			format!(
+				"Encoded extrinsic length ({}) exceeds maximum allowed for fee query ({})",
+				encoded_xt.len(),
+				max_len
+			),
+			None::<()>,
+		));
+	}
+	Ok(())
+}
+
 #[rpc(client, server)]
 pub trait TransactionPaymentApi<BlockHash, ResponseType> {
 	#[method(name = "payment_queryInfo")]
@@ -54,13 +78,23 @@ pub trait TransactionPaymentApi<BlockHash, ResponseType> {
 pub struct TransactionPayment<C, P> {
 	/// Shared reference to the client.
 	client: Arc<C>,
+	/// Cap on `encoded_xt` accepted by fee-query RPCs before SCALE decode.
+	max_encoded_extrinsic_len: usize,
 	_marker: std::marker::PhantomData<P>,
 }
 
 impl<C, P> TransactionPayment<C, P> {
 	/// Creates a new instance of the TransactionPayment Rpc helper.
 	pub fn new(client: Arc<C>) -> Self {
-		Self { client, _marker: Default::default() }
+		Self::new_with_max_encoded_extrinsic_len(client, MAX_ENCODED_EXTRINSIC_LEN)
+	}
+
+	/// Creates a new instance with an explicit pre-decode size cap for `encoded_xt`.
+	pub fn new_with_max_encoded_extrinsic_len(
+		client: Arc<C>,
+		max_encoded_extrinsic_len: usize,
+	) -> Self {
+		Self { client, max_encoded_extrinsic_len, _marker: Default::default() }
 	}
 }
 
@@ -97,6 +131,8 @@ where
 		encoded_xt: Bytes,
 		at: Option<Block::Hash>,
 	) -> RpcResult<RuntimeDispatchInfo<Balance, sp_weights::Weight>> {
+		ensure_query_extrinsic_size(&encoded_xt, self.max_encoded_extrinsic_len)?;
+
 		let api = self.client.runtime_api();
 		let at_hash = at.unwrap_or_else(|| self.client.info().best_hash);
 
@@ -130,6 +166,8 @@ where
 		encoded_xt: Bytes,
 		at: Option<Block::Hash>,
 	) -> RpcResult<FeeDetails<NumberOrHex>> {
+		ensure_query_extrinsic_size(&encoded_xt, self.max_encoded_extrinsic_len)?;
+
 		let api = self.client.runtime_api();
 		let at_hash = at.unwrap_or_else(|| self.client.info().best_hash);
 
@@ -172,5 +210,31 @@ where
 			},
 			tip: Default::default(),
 		})
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn accepts_encoded_extrinsic_at_size_limit() {
+		let encoded = vec![0u8; 64];
+		assert!(ensure_query_extrinsic_size(&encoded, 64).is_ok());
+		assert!(ensure_query_extrinsic_size(&encoded, MAX_ENCODED_EXTRINSIC_LEN).is_ok());
+	}
+
+	#[test]
+	fn rejects_encoded_extrinsic_above_size_limit() {
+		let encoded = vec![0u8; 65];
+		let err = ensure_query_extrinsic_size(&encoded, 64).unwrap_err();
+		assert_eq!(err.code(), ErrorCode::InvalidParams.code());
+		assert!(err.message().contains("exceeds maximum allowed for fee query"));
+	}
+
+	#[test]
+	fn default_cap_matches_chain_max_block_length() {
+		// Must stay aligned with `RuntimeBlockLength` in runtime/src/configs/mod.rs.
+		assert_eq!(MAX_ENCODED_EXTRINSIC_LEN, 5 * 1024 * 1024);
 	}
 }

@@ -5,6 +5,7 @@ use sp_core::{
 	crypto::{PublicBytes, SignatureBytes},
 	ByteArray, RuntimeDebug,
 };
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Resonance Crypto Types
 ///
@@ -31,8 +32,11 @@ pub struct DilithiumCryptoTag;
 
 /// Dilithium cryptographic key pair
 ///
-/// Contains both secret and public key material for Dilithium ML-DSA-87 operations
-#[derive(Clone, Eq, PartialEq)]
+/// Contains both secret and public key material for Dilithium ML-DSA-87 operations.
+///
+/// The secret key material is zeroized when an instance (including any clone) is
+/// dropped, so released copies do not leave private-key bytes behind in memory.
+#[derive(Clone, Eq, PartialEq, Zeroize, ZeroizeOnDrop)]
 pub struct DilithiumPair {
 	pub(crate) secret: [u8; SECRETKEYBYTES],
 	pub(crate) public: [u8; PUBLICKEYBYTES],

@@ -221,6 +221,36 @@ impl<Hash: hash::Hash + Eq + Clone + std::fmt::Debug, Ex: std::fmt::Debug>
 		became_ready
 	}
 
+	/// Re-marks tags as missing on future transactions that require them.
+	///
+	/// `WaitingTransaction::missing_tags` only records requirements that were unsatisfied at
+	/// import time. When a ready provider of a previously satisfied tag is removed (via
+	/// [`crate::graph::base_pool::BasePool::remove_subtree`]), those tags must be restored here
+	/// so a later `satisfy_tags` cannot promote an incompletely dependent transaction.
+	///
+	/// Complexity is `O(future_entries × requirements_per_tx)` against a hashed tag set —
+	/// not `O(lost_tags × futures × requirements)`. Large ready-subtree removals can supply
+	/// tens of thousands of provides while thousands of futures sit in the pool; the
+	/// previous per-tag full scan was a DoS vector on the pool mutation path.
+	pub fn unsatisfy_tags(&mut self, tags: impl IntoIterator<Item = Tag>) {
+		let tags: HashSet<Tag> = tags.into_iter().collect();
+		if tags.is_empty() {
+			return;
+		}
+
+		let mut newly_missing = Vec::new();
+		for (hash, waiting) in self.waiting.iter_mut() {
+			for req in waiting.transaction.requires.iter() {
+				if tags.contains(req) && waiting.missing_tags.insert(req.clone()) {
+					newly_missing.push((hash.clone(), req.clone()));
+				}
+			}
+		}
+		for (hash, tag) in newly_missing {
+			self.wanted_tags.entry(tag).or_insert_with(HashSet::new).insert(hash);
+		}
+	}
+
 	/// Removes transactions for given list of hashes.
 	///
 	/// Returns a list of actually removed transactions.
