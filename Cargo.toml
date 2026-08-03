@@ -329,7 +329,6 @@ static_init = { version = "1.0.4" }
 strum = { version = "0.26.3", default-features = false, features = ["derive"] }
 substrate-build-script-utils = { version = "11.0.0", default-features = false }
 substrate-frame-rpc-system = { version = "49.0.0", default-features = false }
-substrate-test-utils = { version = "3.0.0", default-features = false }
 substrate-wasm-builder = { version = "31.1.0", default-features = false }
 
 [patch.crates-io]
