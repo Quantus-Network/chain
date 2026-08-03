@@ -66,7 +66,8 @@ optional = true
 default-features = true
 
 [dependencies.wasmtime]
-version = "35.0.0"
+# Quantus: bump 35.0.0 -> 36.0.13 to unify with patched sc-executor-wasmtime.
+version = "36.0.13"
 optional = true
 default-features = false
 

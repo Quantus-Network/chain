@@ -9,6 +9,7 @@ repository = "https://github.com/quantus-network/chain#"
 members = [
 	"client/cli",
 	"client/consensus/qpow",
+	"client/executor-wasmtime",
 	"client/informant",
 	"client/litep2p",
 	"client/network",
@@ -17,6 +18,7 @@ members = [
 	"client/service",
 	"client/telemetry",
 	"client/transaction-pool",
+	"client/wasm-interface",
 	"frame/benchmarking",
 	"frame/executive",
 	"frame/metadata",
@@ -350,6 +352,7 @@ pallet-transaction-payment = { path = "./pallets/transaction-payment" }
 pallet-transaction-payment-rpc = { path = "./pallets/transaction-payment-rpc" }
 pallet-transaction-payment-rpc-runtime-api = { path = "./pallets/transaction-payment-rpc-runtime-api" }
 sc-cli = { path = "./client/cli" }
+sc-executor-wasmtime = { path = "./client/executor-wasmtime" }
 sc-informant = { path = "./client/informant" }
 sc-network = { path = "client/network" }
 sc-network-sync = { path = "client/network-sync" }
@@ -357,6 +360,7 @@ sc-network-types = { path = "client/network-types" }
 sc-service = { path = "client/service" }
 sc-telemetry = { path = "client/telemetry" }
 sc-transaction-pool = { path = "client/transaction-pool" }
+sp-wasm-interface = { path = "./client/wasm-interface" }
 
 [profile.release]
 opt-level = 3

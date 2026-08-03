@@ -85,9 +85,12 @@ features = [
 	"parallel-compilation",
 	"pooling-allocator",
 	"profiling",
+	"runtime",
+	"std",
 	"threads",
 ]
-version = "35.0.0"
+# Quantus: bump 35.0.0 -> 36.0.13 for Apr 2026 RustSec advisories (no patched 35.x).
+version = "36.0.13"
 
 [dev-dependencies.cargo_metadata]
 version = "0.15.4"
