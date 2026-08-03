@@ -22,7 +22,7 @@ use crate::{error::DialError, PeerId};
 
 use ip_network::IpNetwork;
 use multiaddr::{Multiaddr, Protocol};
-use multihash::Multihash;
+use crate::types::multihash::Multihash;
 
 use std::collections::{hash_map::Entry, HashMap};
 
@@ -70,9 +70,7 @@ impl AddressRecord {
 	/// append the provided `PeerId` to the address.
 	pub fn new(peer: &PeerId, address: Multiaddr, score: i32) -> Self {
 		let address = if !std::matches!(address.iter().last(), Some(Protocol::P2p(_))) {
-			address.with(Protocol::P2p(
-				Multihash::from_bytes(&peer.to_bytes()).expect("valid peer id"),
-			))
+			address.with(Protocol::P2p((*peer).into()))
 		} else {
 			address
 		};
@@ -533,7 +531,7 @@ mod tests {
 		let address = Multiaddr::empty()
 			.with(Protocol::Ip4(Ipv4Addr::new(8, 8, 8, 8)))
 			.with(Protocol::Tcp(9999))
-			.with(Protocol::P2p(multihash::Multihash::from_bytes(&peer.to_bytes()).unwrap()));
+			.with(Protocol::P2p(peer.into()));
 
 		let record = AddressRecord::from_multiaddr(address.clone()).unwrap();
 		assert_eq!(record.score, 0);
@@ -570,7 +568,7 @@ mod tests {
 		let address = Multiaddr::empty()
 			.with(Protocol::Ip4(Ipv4Addr::new(8, 8, 8, 8)))
 			.with(Protocol::Tcp(9999))
-			.with(Protocol::P2p(multihash::Multihash::from_bytes(&peer.to_bytes()).unwrap()));
+			.with(Protocol::P2p(peer.into()));
 
 		// First, add the address normally.
 		let record = AddressRecord::from_multiaddr(address.clone()).unwrap();

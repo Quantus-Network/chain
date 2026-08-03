@@ -18,8 +18,6 @@
 
 use crate::multihash::Multihash;
 use litep2p::types::multiaddr::Protocol as LiteP2pProtocol;
-// Note: With multiaddr 0.17, LiteP2pProtocol and multiaddr::Protocol are the same type
-// (litep2p re-exports from the multiaddr crate), so we only need impls for one.
 use std::{
 	borrow::Cow,
 	fmt::{self, Debug, Display},
@@ -115,7 +113,9 @@ impl<'a> From<LiteP2pProtocol<'a>> for Protocol<'a> {
 			LiteP2pProtocol::Onion(str, port) => Protocol::Onion(str, port),
 			LiteP2pProtocol::Onion3(addr) =>
 				Protocol::Onion3(Cow::Owned(*addr.hash()), addr.port()),
-			LiteP2pProtocol::P2p(multihash) => Protocol::P2p(multihash.into()),
+			LiteP2pProtocol::P2p(peer_id) => Protocol::P2p(
+				Multihash::from_bytes(&peer_id.to_bytes()).expect("valid peer id multihash"),
+			),
 			LiteP2pProtocol::P2pCircuit => Protocol::P2pCircuit,
 			LiteP2pProtocol::Quic => Protocol::Quic,
 			LiteP2pProtocol::QuicV1 => Protocol::QuicV1,
@@ -129,6 +129,7 @@ impl<'a> From<LiteP2pProtocol<'a>> for Protocol<'a> {
 			LiteP2pProtocol::Utp => Protocol::Utp,
 			LiteP2pProtocol::Ws(str) => Protocol::Ws(str),
 			LiteP2pProtocol::Wss(str) => Protocol::Wss(str),
+			_ => panic!("unsupported multiaddr protocol variant"),
 		}
 	}
 }
@@ -153,7 +154,13 @@ impl<'a> From<Protocol<'a>> for LiteP2pProtocol<'a> {
 			Protocol::Memory(port) => LiteP2pProtocol::Memory(port),
 			Protocol::Onion(str, port) => LiteP2pProtocol::Onion(str, port),
 			Protocol::Onion3(str, port) => LiteP2pProtocol::Onion3((str.into_owned(), port).into()),
-			Protocol::P2p(multihash) => LiteP2pProtocol::P2p(multihash.into()),
+			Protocol::P2p(multihash) => {
+				let litep2p_multihash: litep2p::types::multihash::Multihash = multihash.into();
+				LiteP2pProtocol::P2p(
+					multiaddr::PeerId::try_from(litep2p_multihash)
+						.expect("valid peer id multihash"),
+				)
+			},
 			Protocol::P2pCircuit => LiteP2pProtocol::P2pCircuit,
 			Protocol::Quic => LiteP2pProtocol::Quic,
 			Protocol::QuicV1 => LiteP2pProtocol::QuicV1,

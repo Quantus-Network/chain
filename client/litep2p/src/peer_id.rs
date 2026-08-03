@@ -24,7 +24,7 @@
 use crate::crypto::PublicKey;
 
 use multiaddr::{Multiaddr, Protocol};
-use multihash::{Code, Error, Multihash, MultihashDigest};
+use multihash_codetable::{Code, MultihashDigest};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -34,6 +34,8 @@ use std::{convert::TryFrom, fmt, str::FromStr};
 /// Public keys with byte-lengths smaller than `MAX_INLINE_KEY_LENGTH` will be
 /// automatically used as the peer id using an identity multihash.
 const MAX_INLINE_KEY_LENGTH: usize = 42;
+pub(crate) const MULTIHASH_IDENTITY_CODE: u64 = 0x00;
+type Multihash = multihash::Multihash<64>;
 
 /// Identifier of a peer of the network.
 ///
@@ -64,18 +66,31 @@ impl PeerId {
 
 	/// Builds a `PeerId` from a public key in protobuf encoding.
 	pub fn from_public_key_protobuf(key_enc: &[u8]) -> PeerId {
-		let hash_algorithm =
-			if key_enc.len() <= MAX_INLINE_KEY_LENGTH { Code::Identity } else { Code::Sha2_256 };
-
-		let multihash = hash_algorithm.digest(key_enc);
+		let multihash = if key_enc.len() <= MAX_INLINE_KEY_LENGTH {
+			Multihash::wrap(MULTIHASH_IDENTITY_CODE, key_enc)
+				.expect("key_enc.len() <= MAX_INLINE_KEY_LENGTH which fits in Multihash<64>")
+		} else {
+			Code::Sha2_256.digest(key_enc)
+		};
 
 		PeerId { multihash }
 	}
 
 	/// Parses a `PeerId` from bytes.
-	pub fn from_bytes(data: &[u8]) -> Result<PeerId, Error> {
-		PeerId::from_multihash(Multihash::from_bytes(data)?)
-			.map_err(|mh| Error::UnsupportedCode(mh.code()))
+	pub fn from_bytes(data: &[u8]) -> Result<PeerId, ParseError> {
+		let multihash = Multihash::from_bytes(data).map_err(|error| {
+			tracing::debug!(?error, "failed to decode peer ID bytes as multihash",);
+			ParseError::MultiHash
+		})?;
+
+		PeerId::from_multihash(multihash).map_err(|multihash| {
+			tracing::debug!(
+				code = multihash.code(),
+				digest_len = multihash.digest().len(),
+				"decoded multihash is not a valid peer ID",
+			);
+			ParseError::MultiHash
+		})
 	}
 
 	/// Tries to turn a `Multihash` into a `PeerId`.
@@ -83,10 +98,15 @@ impl PeerId {
 	/// If the multihash does not use a valid hashing algorithm for peer IDs,
 	/// or the hash value does not satisfy the constraints for a hashed
 	/// peer ID, it is returned as an `Err`.
-	pub fn from_multihash(multihash: Multihash) -> Result<PeerId, Multihash> {
-		match Code::try_from(multihash.code()) {
-			Ok(Code::Sha2_256) => Ok(PeerId { multihash }),
-			Ok(Code::Identity) if multihash.digest().len() <= MAX_INLINE_KEY_LENGTH =>
+	///
+	/// Accepts anything that converts into `multihash::Multihash<64>`,
+	/// including `multiaddr::PeerId` which implements that conversion.
+	pub fn from_multihash(multihash: impl Into<Multihash>) -> Result<PeerId, Multihash> {
+		let multihash = multihash.into();
+
+		match multihash.code() {
+			code if code == u64::from(Code::Sha2_256) => Ok(PeerId { multihash }),
+			MULTIHASH_IDENTITY_CODE if multihash.digest().len() <= MAX_INLINE_KEY_LENGTH =>
 				Ok(PeerId { multihash }),
 			_ => Err(multihash),
 		}
@@ -98,7 +118,7 @@ impl PeerId {
 	/// will return the encapsulated [`PeerId`], otherwise it will return `None`.
 	pub fn try_from_multiaddr(address: &Multiaddr) -> Option<PeerId> {
 		address.iter().last().and_then(|p| match p {
-			Protocol::P2p(hash) => PeerId::from_multihash(hash).ok(),
+			Protocol::P2p(peer_id) => PeerId::from_multihash(peer_id).ok(),
 			_ => None,
 		})
 	}
@@ -109,7 +129,7 @@ impl PeerId {
 	pub fn random() -> PeerId {
 		let peer_id = rand::thread_rng().gen::<[u8; 32]>();
 		PeerId {
-			multihash: Multihash::wrap(Code::Identity.into(), &peer_id)
+			multihash: Multihash::wrap(MULTIHASH_IDENTITY_CODE, &peer_id)
 				.expect("The digest size is never too large"),
 		}
 	}
@@ -129,10 +149,26 @@ impl PeerId {
 	/// Returns `None` if this `PeerId`s hash algorithm is not supported when encoding the
 	/// given public key, otherwise `Some` boolean as the result of an equality check.
 	pub fn is_public_key(&self, public_key: &PublicKey) -> Option<bool> {
-		let alg = Code::try_from(self.multihash.code())
-			.expect("Internal multihash is always a valid `Code`");
 		let enc = public_key.to_protobuf_encoding();
-		Some(alg.digest(&enc) == self.multihash)
+
+		let expected = match self.multihash.code() {
+			code if code == u64::from(Code::Sha2_256) => Code::Sha2_256.digest(&enc),
+			MULTIHASH_IDENTITY_CODE => Multihash::wrap(MULTIHASH_IDENTITY_CODE, &enc).expect(
+				"identity key enc fits in Multihash<64> since it passed from_public_key_protobuf",
+			),
+			_ => return None,
+		};
+
+		Some(expected == self.multihash)
+	}
+
+	/// Converts this peer ID into a `multiaddr` peer ID.
+	///
+	/// This is a fallible conversion for callers that want to avoid relying on
+	/// the internal invariant that litep2p and multiaddr peer IDs accept the
+	/// same multihash forms.
+	pub fn to_multiaddr_peer_id(&self) -> Result<multiaddr::PeerId, Multihash> {
+		multiaddr::PeerId::try_from(*self.as_ref())
 	}
 }
 
@@ -179,6 +215,27 @@ impl From<PeerId> for Multihash {
 impl From<PeerId> for Vec<u8> {
 	fn from(peer_id: PeerId) -> Self {
 		peer_id.to_bytes()
+	}
+}
+
+impl From<PeerId> for multiaddr::PeerId {
+	/// Converts this peer ID into a `multiaddr` peer ID.
+	///
+	/// # Panics
+	///
+	/// Panics only if `PeerId`'s internal invariant has been violated. Safe
+	/// constructors accept the same multihash forms that `multiaddr::PeerId`
+	/// accepts, so this conversion should not fail for any valid `PeerId`.
+	fn from(peer_id: PeerId) -> Self {
+		peer_id
+			.to_multiaddr_peer_id()
+			.expect("litep2p PeerId is always a valid multiaddr PeerId")
+	}
+}
+
+impl From<&PeerId> for multiaddr::PeerId {
+	fn from(peer_id: &PeerId) -> Self {
+		(*peer_id).into()
 	}
 }
 
@@ -248,15 +305,17 @@ impl FromStr for PeerId {
 	#[inline]
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let bytes = bs58::decode(s).into_vec()?;
-		PeerId::from_bytes(&bytes).map_err(|_| ParseError::MultiHash)
+		PeerId::from_bytes(&bytes)
 	}
 }
 
 #[cfg(test)]
 mod tests {
+	use super::{ParseError, MAX_INLINE_KEY_LENGTH, MULTIHASH_IDENTITY_CODE};
 	use crate::{crypto::dilithium::Keypair, PeerId};
 	use multiaddr::{Multiaddr, Protocol};
-	use multihash::Multihash;
+	use crate::types::multihash::Multihash;
+	use multihash_codetable::Code;
 
 	#[test]
 	fn peer_id_is_public_key() {
@@ -294,7 +353,7 @@ mod tests {
 		let address = Multiaddr::empty()
 			.with(Protocol::from(address.ip()))
 			.with(Protocol::Tcp(address.port()))
-			.with(Protocol::P2p(Multihash::from(peer)));
+			.with(Protocol::P2p(peer.into()));
 
 		assert_eq!(peer, PeerId::try_from_multiaddr(&address).unwrap());
 	}
@@ -347,5 +406,25 @@ mod tests {
 			PeerId::from_multihash(Multihash::from_bytes(&bytes).unwrap()).map_err(From::from)
 		}
 		let _error = test().unwrap_err();
+	}
+
+	#[test]
+	fn from_public_key_protobuf_large_key_uses_sha256() {
+		let enc = vec![0u8; MAX_INLINE_KEY_LENGTH + 1];
+		let peer_id = PeerId::from_public_key_protobuf(&enc);
+		assert_eq!(peer_id.as_ref().code(), u64::from(Code::Sha2_256));
+	}
+
+	#[test]
+	fn identity_peer_id_roundtrip_through_multiaddr() {
+		let peer = PeerId::random();
+		assert_eq!(peer.as_ref().code(), MULTIHASH_IDENTITY_CODE);
+
+		let addr = Multiaddr::empty()
+			.with(Protocol::Ip4("127.0.0.1".parse().unwrap()))
+			.with(Protocol::Tcp(1234))
+			.with(Protocol::P2p(peer.into()));
+
+		assert_eq!(peer, PeerId::try_from_multiaddr(&addr).unwrap());
 	}
 }

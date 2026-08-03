@@ -192,7 +192,7 @@ impl WebSocketTransport {
 		};
 
 		let peer = match protocol_stack.next() {
-			Some(Protocol::P2p(multihash)) => PeerId::from_multihash(multihash)?,
+			Some(Protocol::P2p(peer_id)) => PeerId::from_multihash(peer_id)?,
 			protocol => {
 				tracing::warn!(
 					target: LOG_TARGET,

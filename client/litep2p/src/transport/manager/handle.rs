@@ -243,9 +243,9 @@ impl TransportManagerHandle {
 			}
 
 			// Check the peer ID if present.
-			if let Some(Protocol::P2p(multihash)) = address.iter().last() {
+			if let Some(Protocol::P2p(addr_peer_id)) = address.iter().last() {
 				// This can correspond to the provided peerID or to a different one.
-				if multihash != *peer.as_ref() {
+				if addr_peer_id.as_ref() != peer.as_ref() {
 					tracing::debug!(
 						target: LOG_TARGET,
 						?peer,
@@ -259,7 +259,7 @@ impl TransportManagerHandle {
 				peer_addresses.insert(address);
 			} else {
 				// Add the provided peer ID to the address.
-				let address = address.with(Protocol::P2p(multihash::Multihash::from(*peer)));
+				let address = address.with(Protocol::P2p(peer.into()));
 				peer_addresses.insert(address);
 			}
 		}
@@ -396,7 +396,7 @@ mod tests {
 	};
 
 	use super::*;
-	use multihash::Multihash;
+	use crate::types::multihash::Multihash;
 	use parking_lot::lock_api::RwLock;
 	use tokio::sync::mpsc::{channel, Receiver};
 
@@ -535,7 +535,7 @@ mod tests {
 
 		// only peer id (used by Polkadot sometimes)
 		assert!(!handle.supported_transport(
-			&Multiaddr::empty().with(Protocol::P2p(Multihash::from(PeerId::random())))
+			&Multiaddr::empty().with(Protocol::P2p(PeerId::random().into()))
 		));
 
 		// only one transport
@@ -599,7 +599,7 @@ mod tests {
 							address: Multiaddr::empty()
 								.with(Protocol::Ip4(std::net::Ipv4Addr::new(127, 0, 0, 1)))
 								.with(Protocol::Tcp(8888))
-								.with(Protocol::P2p(Multihash::from(peer))),
+								.with(Protocol::P2p(peer.into())),
 							connection_id: ConnectionId::from(0),
 						},
 						secondary: None,
@@ -609,7 +609,7 @@ mod tests {
 						vec![Multiaddr::empty()
 							.with(Protocol::Ip4(std::net::Ipv4Addr::new(127, 0, 0, 1)))
 							.with(Protocol::Tcp(8888))
-							.with(Protocol::P2p(Multihash::from(peer)))]
+							.with(Protocol::P2p(peer.into()))]
 						.into_iter(),
 					),
 				},
@@ -642,7 +642,7 @@ mod tests {
 							address: Multiaddr::empty()
 								.with(Protocol::Ip4(std::net::Ipv4Addr::new(127, 0, 0, 1)))
 								.with(Protocol::Tcp(8888))
-								.with(Protocol::P2p(Multihash::from(peer))),
+								.with(Protocol::P2p(peer.into())),
 							connection_id: ConnectionId::from(0),
 						},
 					},
@@ -651,7 +651,7 @@ mod tests {
 						vec![Multiaddr::empty()
 							.with(Protocol::Ip4(std::net::Ipv4Addr::new(127, 0, 0, 1)))
 							.with(Protocol::Tcp(8888))
-							.with(Protocol::P2p(Multihash::from(peer)))]
+							.with(Protocol::P2p(peer.into()))]
 						.into_iter(),
 					),
 				},
@@ -710,7 +710,7 @@ mod tests {
 							Multiaddr::empty()
 								.with(Protocol::Ip4(std::net::Ipv4Addr::new(127, 0, 0, 1)))
 								.with(Protocol::Tcp(8888))
-								.with(Protocol::P2p(Multihash::from(peer))),
+								.with(Protocol::P2p(peer.into())),
 							ConnectionId::from(0),
 						)),
 					},
@@ -719,7 +719,7 @@ mod tests {
 						vec![Multiaddr::empty()
 							.with(Protocol::Ip4(std::net::Ipv4Addr::new(127, 0, 0, 1)))
 							.with(Protocol::Tcp(8888))
-							.with(Protocol::P2p(Multihash::from(peer)))]
+							.with(Protocol::P2p(peer.into()))]
 						.into_iter(),
 					),
 				},

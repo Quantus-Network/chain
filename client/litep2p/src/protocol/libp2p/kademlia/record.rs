@@ -28,7 +28,7 @@ use crate::{
 };
 
 use bytes::Bytes;
-use multihash::Multihash;
+use crate::types::multihash::Multihash;
 
 use std::{borrow::Borrow, time::Instant};
 

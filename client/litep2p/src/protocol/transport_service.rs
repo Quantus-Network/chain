@@ -29,7 +29,7 @@ use crate::{
 
 use futures::{future::BoxFuture, stream::FuturesUnordered, Stream, StreamExt};
 use multiaddr::{Multiaddr, Protocol};
-use multihash::Multihash;
+use crate::types::multihash::Multihash;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use std::{
@@ -542,7 +542,7 @@ impl TransportService {
 		let addresses: HashSet<Multiaddr> = addresses
 			.filter_map(|address| {
 				if !std::matches!(address.iter().last(), Some(Protocol::P2p(_))) {
-					Some(address.with(Protocol::P2p(Multihash::from_bytes(&peer.to_bytes()).ok()?)))
+					Some(address.with(Protocol::P2p(peer.into())))
 				} else {
 					Some(address)
 				}

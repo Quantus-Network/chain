@@ -1378,7 +1378,7 @@ mod tests {
 		ConnectionId,
 	};
 	use multiaddr::Protocol;
-	use multihash::Multihash;
+	use crate::types::multihash::Multihash;
 	use std::str::FromStr;
 	use tokio::sync::mpsc::channel;
 
@@ -1492,13 +1492,13 @@ mod tests {
 		let peer = PeerId::random();
 		let address_a = Multiaddr::from_str("/dns/domain1.com/tcp/30333")
 			.unwrap()
-			.with(Protocol::P2p(Multihash::from_bytes(&peer.to_bytes()).unwrap()));
+			.with(Protocol::P2p(peer.into()));
 		let address_b = Multiaddr::from_str("/dns/domain1.com/tcp/30334")
 			.unwrap()
-			.with(Protocol::P2p(Multihash::from_bytes(&peer.to_bytes()).unwrap()));
+			.with(Protocol::P2p(peer.into()));
 		let address_c = Multiaddr::from_str("/dns/domain1.com/tcp/30339")
 			.unwrap()
-			.with(Protocol::P2p(Multihash::from_bytes(&peer.to_bytes()).unwrap()));
+			.with(Protocol::P2p(peer.into()));
 
 		// Added only with address a.
 		kademlia.routing_table.add_known_peer(

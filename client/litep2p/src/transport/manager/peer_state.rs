@@ -422,8 +422,8 @@ impl ConnectionRecord {
 
 	/// Ensures the peer ID is present in the address.
 	fn ensure_peer_id(peer: PeerId, mut address: Multiaddr) -> Multiaddr {
-		if let Some(Protocol::P2p(multihash)) = address.iter().last() {
-			if multihash != *peer.as_ref() {
+		if let Some(Protocol::P2p(addr_peer_id)) = address.iter().last() {
+			if addr_peer_id.as_ref() != peer.as_ref() {
 				tracing::warn!(
 					target: LOG_TARGET,
 					?address,
@@ -432,12 +432,12 @@ impl ConnectionRecord {
 				);
 
 				address.pop();
-				address.push(Protocol::P2p(*peer.as_ref()));
+				address.push(Protocol::P2p(peer.into()));
 			}
 
 			address
 		} else {
-			address.with(Protocol::P2p(*peer.as_ref()))
+			address.with(Protocol::P2p(peer.into()))
 		}
 	}
 }
