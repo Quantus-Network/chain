@@ -34,7 +34,10 @@ macro_rules! define_dilithium_scheme {
 		/// Dilithium cryptographic key pair
 		///
 		/// Contains both secret and public key material for this parameter set.
-		#[derive(Clone, Eq, PartialEq)]
+		///
+		/// The secret key material is zeroized when an instance (including any clone) is
+		/// dropped, so released copies do not leave private-key bytes behind in memory.
+		#[derive(Clone, Eq, PartialEq, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
 		pub struct $pair {
 			pub(crate) secret: [u8; qp_rusty_crystals_dilithium::$module::SECRETKEYBYTES],
 			pub(crate) public: [u8; qp_rusty_crystals_dilithium::$module::PUBLICKEYBYTES],
@@ -407,13 +410,6 @@ macro_rules! define_dilithium_scheme {
 			) -> Result<(Self, Self::Seed), sp_core::crypto::SecretStringError> {
 				// Default derivation path for Quantus: m/44'/189189'/0'/0'/0'
 				const DEFAULT_PATH: &str = "m/44'/189189'/0'/0'/0'";
-				let keypair = qp_rusty_crystals_hdwallet::$module::derive_key_from_mnemonic(
-					phrase,
-					password,
-					DEFAULT_PATH,
-				)
-				.map_err(|_| sp_core::crypto::SecretStringError::InvalidPhrase)?;
-				let pair = Self::from_keypair(keypair);
 				let mut seed_bytes = qp_rusty_crystals_hdwallet::SensitiveBytes64::zeroed();
 				qp_rusty_crystals_hdwallet::mnemonic_to_seed(
 					phrase.to_string(),
@@ -421,8 +417,23 @@ macro_rules! define_dilithium_scheme {
 					&mut seed_bytes,
 				)
 				.map_err(|_| sp_core::crypto::SecretStringError::InvalidPhrase)?;
+				// The returned seed must be the actual entropy of the returned pair, so
+				// that `from_seed(seed)` reconstructs the very same account (users back
+				// up the displayed seed as recovery material). That entropy is the
+				// 32-byte secret derived at the default HD path:
+				// `derive_key_from_mnemonic` internally runs `Keypair::generate` on
+				// exactly these bytes, which is also what `from_seed` does.
+				let mut xpriv = qp_rusty_crystals_hdwallet::hderive::ExtendedPrivKey::zeroed();
+				qp_rusty_crystals_hdwallet::hderive::ExtendedPrivKey::derive(
+					seed_bytes.as_bytes(),
+					DEFAULT_PATH,
+					&mut xpriv,
+				)
+				.map_err(|_| sp_core::crypto::SecretStringError::InvalidPath)?;
 				let mut seed = [0u8; 32];
-				seed.copy_from_slice(&seed_bytes.as_bytes()[..32]);
+				seed.copy_from_slice(xpriv.secret().as_bytes());
+				let pair = Self::from_seed(&seed)
+					.map_err(|_| sp_core::crypto::SecretStringError::InvalidSeed)?;
 				Ok((pair, seed))
 			}
 
@@ -431,19 +442,8 @@ macro_rules! define_dilithium_scheme {
 				s: &str,
 				password: Option<&str>,
 			) -> Result<(Self, Option<Self::Seed>), sp_core::crypto::SecretStringError> {
-				// Default derivation path for Quantus: m/44'/189189'/0'/0'/0'
-				const DEFAULT_PATH: &str = "m/44'/189189'/0'/0'/0'";
-				let keypair = qp_rusty_crystals_hdwallet::$module::derive_key_from_mnemonic(
-					s,
-					password,
-					DEFAULT_PATH,
-				)
-				.map_err(|_| sp_core::crypto::SecretStringError::InvalidPhrase)?;
-				let pair = Self::from_keypair(keypair);
-
-				// Return the pair with no seed since Dilithium doesn't use traditional
-				// seed-based generation
-				Ok((pair, None))
+				let (pair, seed) = <Self as sp_core::Pair>::from_phrase(s, password)?;
+				Ok((pair, Some(seed)))
 			}
 		}
 

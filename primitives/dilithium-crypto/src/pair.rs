@@ -161,8 +161,8 @@ mod tests {
 	/// their account from it with `from_seed` if the mnemonic is lost.
 	#[test]
 	fn test_from_phrase_returned_seed_reconstructs_same_pair() {
-		let (pair, seed) = DilithiumPair::from_phrase(TEST_PHRASE, None).expect("valid phrase");
-		let restored = DilithiumPair::from_seed(&seed).expect("valid seed");
+		let (pair, seed) = Dilithium87Pair::from_phrase(TEST_PHRASE, None).expect("valid phrase");
+		let restored = Dilithium87Pair::from_seed(&seed).expect("valid seed");
 		assert_eq!(
 			pair.public_bytes(),
 			restored.public_bytes(),
@@ -175,8 +175,8 @@ mod tests {
 	#[test]
 	fn test_from_phrase_returned_seed_reconstructs_same_pair_with_password() {
 		let password = Some("hunter2");
-		let (pair, seed) = DilithiumPair::from_phrase(TEST_PHRASE, password).expect("valid phrase");
-		let restored = DilithiumPair::from_seed(&seed).expect("valid seed");
+		let (pair, seed) = Dilithium87Pair::from_phrase(TEST_PHRASE, password).expect("valid phrase");
+		let restored = Dilithium87Pair::from_seed(&seed).expect("valid seed");
 		assert_eq!(
 			pair.public_bytes(),
 			restored.public_bytes(),
@@ -188,9 +188,9 @@ mod tests {
 	#[test]
 	fn test_from_string_with_seed_returns_matching_seed() {
 		let (pair, seed) =
-			DilithiumPair::from_string_with_seed(TEST_PHRASE, None).expect("valid phrase");
+			Dilithium87Pair::from_string_with_seed(TEST_PHRASE, None).expect("valid phrase");
 		let seed = seed.expect("a faithful seed is available for mnemonic inputs");
-		let restored = DilithiumPair::from_seed(&seed).expect("valid seed");
+		let restored = Dilithium87Pair::from_seed(&seed).expect("valid seed");
 		assert_eq!(pair.public_bytes(), restored.public_bytes());
 	}
 
@@ -204,8 +204,8 @@ mod tests {
 			"m/44'/189189'/0'/0'/0'",
 		)
 		.expect("valid phrase");
-		let expected = DilithiumPair::from_keypair(keypair);
-		let (pair, _) = DilithiumPair::from_phrase(TEST_PHRASE, None).expect("valid phrase");
+		let expected = Dilithium87Pair::from_keypair(keypair);
+		let (pair, _) = Dilithium87Pair::from_phrase(TEST_PHRASE, None).expect("valid phrase");
 		assert_eq!(
 			pair.public_bytes(),
 			expected.public_bytes(),
@@ -217,7 +217,7 @@ mod tests {
 	#[test]
 	fn test_zeroize_clears_secret() {
 		use zeroize::Zeroize;
-		let mut pair = DilithiumPair::from_seed(&[7u8; 32]).expect("valid seed");
+		let mut pair = Dilithium87Pair::from_seed(&[7u8; 32]).expect("valid seed");
 		assert!(pair.secret_bytes().iter().any(|b| *b != 0));
 		pair.zeroize();
 		assert!(pair.secret_bytes().iter().all(|b| *b == 0));
@@ -227,7 +227,7 @@ mod tests {
 	#[test]
 	fn test_pair_zeroizes_on_drop() {
 		fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
-		assert_zeroize_on_drop::<DilithiumPair>();
+		assert_zeroize_on_drop::<Dilithium87Pair>();
 	}
 
 	#[test]
