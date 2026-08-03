@@ -371,9 +371,28 @@ impl<Hash: hash::Hash + Member + Serialize, Ex: std::fmt::Debug> BasePool<Hash, 
 					promoted.retain(|hash| replaced.iter().all(|tx| *hash != tx.hash));
 					// Tags uniquely provided by replaced ready txs are gone; re-mark them on
 					// futures that still require them (same invariant as `remove_subtree`).
+					// Also reconcile already-queued promotions: `satisfy_tags` may have pulled
+					// them out of `self.future` before replacement ran, so a future-only repair
+					// would miss them and the next loop iteration would admit them incomplete.
 					if !replaced.is_empty() {
 						let lost_tags = self.lost_provides(replaced.iter().map(|tx| tx.as_ref()));
-						self.future.unsatisfy_tags(lost_tags);
+						if !lost_tags.is_empty() {
+							self.future.unsatisfy_tags(lost_tags.iter().cloned());
+							let mut still_ready = Vec::new();
+							for mut queued in to_import.drain(..) {
+								for req in queued.transaction.requires.iter() {
+									if lost_tags.contains(req) {
+										queued.missing_tags.insert(req.clone());
+									}
+								}
+								if queued.is_ready() {
+									still_ready.push(queued);
+								} else {
+									self.future.import(queued);
+								}
+							}
+							to_import = still_ready;
+						}
 					}
 					// The transactions were removed from the ready pool. We might attempt to
 					// re-import them.
@@ -1136,6 +1155,68 @@ mod tests {
 		// then
 		assert_eq!(pool.ready().count(), 1);
 		assert_eq!(pool.future.len(), 0);
+	}
+
+	/// Importing a higher-priority replacement can unlock a future (moving it into the
+	/// promotion queue) and simultaneously replace the ready tx that uniquely provided
+	/// one of that future's other requirements. The future has already left `self.future`
+	/// via `satisfy_tags`, so a repair that only scans the future map misses it and the
+	/// next loop iteration would admit it to Ready with an unsatisfied requirement.
+	#[test]
+	fn replace_during_promotion_keeps_incompletely_unlocked_tx_in_future() {
+		let mut pool = pool();
+		let tag_conflict = vec![0xAAu8];
+		let tag_lost = vec![0xBBu8];
+		let tag_unlock = vec![0xCCu8];
+		let tag_f = vec![0xDDu8];
+
+		// Ready R provides {conflict, lost}.
+		pool.import(Transaction {
+			data: vec![1u8],
+			hash: 1,
+			priority: 1u64,
+			provides: vec![tag_conflict.clone(), tag_lost.clone()],
+			..default_tx()
+		})
+		.unwrap();
+
+		// Future F requires {lost, unlock}; at import, lost is satisfied by R.
+		pool.import(Transaction {
+			data: vec![2u8],
+			hash: 2,
+			requires: vec![tag_lost.clone(), tag_unlock.clone()],
+			provides: vec![tag_f],
+			..default_tx()
+		})
+		.unwrap();
+		assert_eq!(pool.ready().count(), 1);
+		assert_eq!(pool.future.len(), 1);
+
+		// Higher-priority A provides {conflict, unlock}: unlocks F into to_import, then
+		// replaces R (losing `lost`). F must not enter Ready incomplete.
+		pool.import(Transaction {
+			data: vec![3u8],
+			hash: 3,
+			priority: 100u64,
+			provides: vec![tag_conflict, tag_unlock],
+			..default_tx()
+		})
+		.unwrap();
+
+		assert!(
+			pool.ready().any(|tx| tx.hash == 3),
+			"replacement A must be ready"
+		);
+		assert!(
+			!pool.ready().any(|tx| tx.hash == 2),
+			"F must not be admitted to Ready without `lost`"
+		);
+		assert_eq!(
+			pool.future.len(),
+			1,
+			"F must remain in future until `lost` is provided again"
+		);
+		assert!(pool.futures().any(|tx| tx.hash == 2));
 	}
 
 	/// A future that required tags X and Y, imported while X was already ready, must not be
