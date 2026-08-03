@@ -73,6 +73,15 @@ impl Multiaddr {
 	pub fn to_vec(&self) -> Vec<u8> {
 		self.multiaddr.to_vec()
 	}
+
+	/// Parse a litep2p multiaddr, rejecting protocols we do not model.
+	fn try_from_litep2p(multiaddr: LiteP2pMultiaddr) -> Result<Self, ParseError> {
+		for protocol in multiaddr.iter() {
+			protocol::try_from_litep2p_protocol(protocol)
+				.map_err(|tag| ParseError::UnsupportedProtocol(tag.to_string()))?;
+		}
+		Ok(Self { multiaddr })
+	}
 }
 
 impl Display for Multiaddr {
@@ -96,6 +105,8 @@ impl AsRef<[u8]> for Multiaddr {
 
 impl From<LiteP2pMultiaddr> for Multiaddr {
 	fn from(multiaddr: LiteP2pMultiaddr) -> Self {
+		// Infallible wrap for addresses already accepted by the litep2p stack. Iteration uses a
+		// non-panicking protocol conversion (see [`protocol::try_from_litep2p_protocol`]).
 		Self { multiaddr }
 	}
 }
@@ -132,7 +143,7 @@ impl TryFrom<Vec<u8>> for Multiaddr {
 
 	fn try_from(v: Vec<u8>) -> Result<Self, ParseError> {
 		let multiaddr = LiteP2pMultiaddr::try_from(v)?;
-		Ok(Self { multiaddr })
+		Self::try_from_litep2p(multiaddr)
 	}
 }
 
@@ -157,6 +168,9 @@ pub enum ParseError {
 	/// Failed to decode unsigned varint.
 	#[error("failed to decode unsigned varint: {0}")]
 	InvalidUvar(Box<dyn std::error::Error + Send + Sync>),
+	/// Protocol is valid in multiaddr but not modeled by [`Protocol`].
+	#[error("unsupported multiaddr protocol '{0}'")]
+	UnsupportedProtocol(String),
 	/// Other error emitted when parsing into the wrapped type.
 	#[error("multiaddr parsing error: {0}")]
 	ParsingError(Box<dyn std::error::Error + Send + Sync>),
@@ -182,7 +196,7 @@ impl FromStr for Multiaddr {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let multiaddr = LiteP2pMultiaddr::from_str(s)?;
-		Ok(Self { multiaddr })
+		Self::try_from_litep2p(multiaddr)
 	}
 }
 
@@ -273,4 +287,30 @@ macro_rules! build_multiaddr {
             elem.collect::<$crate::multiaddr::Multiaddr>()
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{Multiaddr, Protocol};
+	use std::{net::Ipv4Addr, str::FromStr};
+
+	/// multiaddr 0.18 accepts `/webtransport`, and iteration must not panic after parse.
+	#[test]
+	fn webtransport_multiaddr_parses_and_iterates() {
+		let s = "/ip4/127.0.0.1/udp/443/quic-v1/webtransport";
+		let address = Multiaddr::from_str(s).expect("valid multiaddr 0.18 address");
+		assert_eq!(address.to_string(), s);
+
+		let protocols: Vec<_> = address.iter().collect();
+		assert_eq!(
+			protocols,
+			vec![
+				Protocol::Ip4(Ipv4Addr::new(127, 0, 0, 1)),
+				Protocol::Udp(443),
+				Protocol::QuicV1,
+				Protocol::WebTransport,
+			]
+		);
+		assert_eq!(address.iter().count(), 4);
+	}
 }
