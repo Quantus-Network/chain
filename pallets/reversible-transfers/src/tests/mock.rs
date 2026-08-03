@@ -100,12 +100,6 @@ mod runtime {
 
 	#[runtime::pallet_index(6)]
 	pub type Utility = pallet_utility::Pallet<Test>;
-
-	#[runtime::pallet_index(7)]
-	pub type Assets = pallet_assets::Pallet<Test>;
-
-	#[runtime::pallet_index(8)]
-	pub type AssetsHolder = pallet_assets_holder::Pallet<Test>;
 }
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Test> {
@@ -113,16 +107,6 @@ impl TryFrom<RuntimeCall> for pallet_balances::Call<Test> {
 	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
 		match call {
 			RuntimeCall::Balances(c) => Ok(c),
-			_ => Err(()),
-		}
-	}
-}
-
-impl TryFrom<RuntimeCall> for pallet_assets::Call<Test> {
-	type Error = ();
-	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
-		match call {
-			RuntimeCall::Assets(c) => Ok(c),
 			_ => Err(()),
 		}
 	}
@@ -250,6 +234,7 @@ impl qp_wormhole::TransferProofRecorder<AccountId, u32, Balance> for MockProofRe
 }
 
 impl pallet_reversible_transfers::Config for Test {
+	type AssetId = u32;
 	type SchedulerOrigin = OriginCaller;
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type Scheduler = Scheduler;
@@ -266,45 +251,6 @@ impl pallet_reversible_transfers::Config for Test {
 	type MaxPendingPerAccount = MaxPendingPerAccount;
 	type VolumeFee = HighSecurityVolumeFee;
 	type ProofRecorder = MockProofRecorder;
-}
-
-parameter_types! {
-	pub const AssetDeposit: Balance = 0;
-	pub const AssetAccountDeposit: Balance = 0;
-	pub const AssetsStringLimit: u32 = 50;
-	pub const MetadataDepositBase: Balance = 0;
-	pub const MetadataDepositPerByte: Balance = 0;
-}
-
-impl pallet_assets::Config for Test {
-	type Balance = Balance;
-	type RuntimeEvent = RuntimeEvent;
-	type AssetId = u32;
-	type AssetIdParameter = codec::Compact<u32>;
-	type Currency = Balances;
-	type CreateOrigin =
-		frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
-	type ForceOrigin = frame_system::EnsureRoot<AccountId>;
-	type AssetDeposit = AssetDeposit;
-	type MetadataDepositBase = MetadataDepositBase;
-	type MetadataDepositPerByte = MetadataDepositPerByte;
-	type ApprovalDeposit = sp_core::ConstU128<0>;
-	type StringLimit = AssetsStringLimit;
-	type Freezer = ();
-	type Extra = ();
-	type WeightInfo = ();
-	type CallbackHandle = pallet_assets::AutoIncAssetId<Test, ()>;
-	type AssetAccountDeposit = AssetAccountDeposit;
-	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
-	type Holder = pallet_assets_holder::Pallet<Test>;
-	type ReserveData = ();
-	#[cfg(feature = "runtime-benchmarks")]
-	type BenchmarkHelper = ();
-}
-
-impl pallet_assets_holder::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
-	type RuntimeHoldReason = RuntimeHoldReason;
 }
 
 parameter_types! {

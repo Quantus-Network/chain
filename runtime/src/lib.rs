@@ -73,7 +73,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	//   `spec_version`, and `authoring_version` are the same between Wasm and native.
 	// This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
 	//   the compatible custom types.
-	spec_version: 137,
+	spec_version: 138,
 	impl_version: 1,
 	apis: apis::RUNTIME_API_VERSIONS,
 	transaction_version: 3,
@@ -250,11 +250,9 @@ mod runtime {
 	#[runtime::pallet_index(16)]
 	pub type Recovery = pallet_recovery;
 
-	#[runtime::pallet_index(17)]
-	pub type Assets = pallet_assets;
+	// Index 17 was `pallet_assets` (removed). Kept vacant so downstream pallet indices stay stable.
 
-	#[runtime::pallet_index(18)]
-	pub type AssetsHolder = pallet_assets_holder;
+	// Index 18 was `pallet_assets_holder` (removed with assets). Kept vacant.
 
 	#[runtime::pallet_index(19)]
 	pub type Multisig = pallet_multisig;

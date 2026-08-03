@@ -27,7 +27,7 @@ pub use weights::WeightInfo;
 use alloc::vec::Vec;
 use frame_support::{
 	pallet_prelude::*,
-	traits::tokens::{fungibles::MutateHold as AssetsHold, Fortitude, Restriction},
+	traits::tokens::{Fortitude, Restriction},
 };
 use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
@@ -68,7 +68,7 @@ pub struct HighSecurityAccountData<AccountId, Delay> {
 /// Stores all information needed to execute or cancel a scheduled transfer.
 /// The asset_id field determines the transfer type:
 /// - `None`: Native balance transfer via `pallet_balances`
-/// - `Some(id)`: Asset transfer via `pallet_assets`
+/// - `Some(id)`: Reserved for unsupported asset transfers
 #[derive(Encode, Decode, MaxEncodedLen, Clone, Default, TypeInfo, Debug, PartialEq, Eq)]
 pub struct PendingTransfer<AccountId, Balance, AssetId> {
 	/// The account that scheduled the transaction
@@ -77,7 +77,7 @@ pub struct PendingTransfer<AccountId, Balance, AssetId> {
 	pub to: AccountId,
 	/// The guardian who can cancel this transfer
 	pub guardian: AccountId,
-	/// The asset being transferred. `None` for native balance, `Some(id)` for assets.
+	/// The asset being transferred. `None` for native balance; `Some(id)` is unsupported.
 	pub asset_id: Option<AssetId>,
 	/// Amount frozen for the transaction
 	pub amount: Balance,
@@ -87,15 +87,10 @@ pub struct PendingTransfer<AccountId, Balance, AssetId> {
 type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
 
 /// AssetId type
-type AssetIdOf<T> = <T as pallet_assets::Config>::AssetId;
+type AssetIdOf<T> = <T as Config>::AssetId;
 
 /// Canonical RuntimeCall for this pallet (disambiguates multiple `RuntimeCall` providers)
 type RuntimeCallOf<T> = <T as frame_system::Config>::RuntimeCall;
-
-/// Type aliases for asset holder pallet
-type AssetsHoldReasonOf<T> = <T as pallet_assets_holder::Config>::RuntimeHoldReason;
-type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
-type AssetsHolderOf<T> = pallet_assets_holder::Pallet<T>;
 
 type PendingTransferOf<T> =
 	PendingTransfer<<T as frame_system::Config>::AccountId, BalanceOf<T>, AssetIdOf<T>>;
@@ -133,15 +128,14 @@ pub mod pallet {
 	pub trait Config:
 		frame_system::Config<
 			RuntimeCall: From<pallet_balances::Call<Self>>
-			                 + From<pallet_assets::Call<Self>>
 			                 + From<Call<Self>>
 			                 + Dispatchable<PostInfo = PostDispatchInfo>
-			                 + TryInto<pallet_balances::Call<Self>>
-			                 + TryInto<pallet_assets::Call<Self>>,
+			                 + TryInto<pallet_balances::Call<Self>>,
 		> + pallet_balances::Config<RuntimeHoldReason = <Self as Config>::RuntimeHoldReason>
-		+ pallet_assets::Config<Balance = <Self as pallet_balances::Config>::Balance>
-		+ pallet_assets_holder::Config<RuntimeHoldReason = <Self as Config>::RuntimeHoldReason>
 	{
+		/// Identifier used to retain the wire format of unsupported asset transfer calls.
+		type AssetId: Parameter + Member + MaxEncodedLen + Clone + PartialEq + Eq + Default;
+
 		/// Scheduler for the runtime. We use the Named scheduler for cancellability.
 		type Scheduler: ScheduleNamed<
 			BlockNumberFor<Self>,
@@ -329,6 +323,8 @@ pub mod pallet {
 		AccountAlreadyReversibleCannotScheduleOneTime,
 		/// The guardian has reached the maximum number of accounts they can protect.
 		TooManyGuardianAccounts,
+		/// Asset transfers are not supported.
+		AssetsNotSupported,
 	}
 
 	#[pallet::call]
@@ -347,8 +343,6 @@ pub mod pallet {
 		/// to only the following operations:
 		/// - [`schedule_transfer`](Self::schedule_transfer) - Schedule delayed native token
 		///   transfers
-		/// - [`schedule_asset_transfer`](Self::schedule_asset_transfer) - Schedule delayed asset
-		///   transfers
 		/// - [`cancel`](Self::cancel) - Cancel pending transfers
 		/// - [`recover_funds`](Self::recover_funds) - Guardian-initiated emergency fund recovery
 		///
@@ -363,8 +357,7 @@ pub mod pallet {
 		/// repeatedly as needed.
 		///
 		/// Users who no longer wish to use high-security features can simply transfer their
-		/// funds to a different account using [`schedule_transfer`](Self::schedule_transfer)
-		/// or [`schedule_asset_transfer`](Self::schedule_asset_transfer).
+		/// funds to a different account using [`schedule_transfer`](Self::schedule_transfer).
 		///
 		/// # Parameters
 		///
@@ -485,46 +478,9 @@ pub mod pallet {
 			Self::do_schedule_transfer_inner(who.clone(), dest, who, amount, delay, None)
 		}
 
-		/// Schedule an asset transfer (pallet-assets) for delayed execution using the configured
-		/// delay.
-		#[pallet::call_index(5)]
-		#[pallet::weight(<T as Config>::WeightInfo::schedule_asset_transfer())]
-		pub fn schedule_asset_transfer(
-			origin: OriginFor<T>,
-			asset_id: AssetIdOf<T>,
-			dest: <<T as frame_system::Config>::Lookup as StaticLookup>::Source,
-			amount: BalanceOf<T>,
-		) -> DispatchResult {
-			let who = ensure_signed(origin)?;
-			let HighSecurityAccountData { delay, guardian, .. } =
-				Self::high_security_accounts(&who).ok_or(Error::<T>::AccountNotHighSecurity)?;
-
-			Self::do_schedule_transfer_inner(who, dest, guardian, amount, delay, Some(asset_id))
-		}
-
-		/// Schedule an asset transfer (pallet-assets) with a custom one-time delay.
-		#[pallet::call_index(6)]
-		#[pallet::weight(<T as Config>::WeightInfo::schedule_asset_transfer())]
-		pub fn schedule_asset_transfer_with_delay(
-			origin: OriginFor<T>,
-			asset_id: AssetIdOf<T>,
-			dest: <<T as frame_system::Config>::Lookup as StaticLookup>::Source,
-			amount: BalanceOf<T>,
-			delay: BlockNumberOrTimestampOf<T>,
-		) -> DispatchResult {
-			let who = ensure_signed(origin)?;
-
-			// High security accounts cannot use this extrinsic.
-			ensure!(
-				!HighSecurityAccounts::<T>::contains_key(&who),
-				Error::<T>::AccountAlreadyReversibleCannotScheduleOneTime
-			);
-
-			// Validate the provided delay.
-			Self::validate_delay(&delay)?;
-
-			Self::do_schedule_transfer_inner(who.clone(), dest, who, amount, delay, Some(asset_id))
-		}
+		// Call indices 5 and 6 were `schedule_asset_transfer` /
+		// `schedule_asset_transfer_with_delay` (removed with assets support). Kept vacant so
+		// `recover_funds` stays at index 7.
 
 		/// Allows the guardian to recover all funds from a high-security account
 		/// by transferring the entire balance to themselves.
@@ -666,15 +622,7 @@ pub mod pallet {
 		ScheduledTransfer,
 	}
 
-	impl<T: Config> Pallet<T>
-	where
-		T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>
-			+ pallet_assets_holder::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
-	{
-		#[inline]
-		fn asset_hold_reason() -> AssetsHoldReasonOf<T> {
-			HoldReason::ScheduledTransfer.into()
-		}
+	impl<T: Config> Pallet<T> {
 		/// Check if an account has reversibility enabled and return its delay.
 		pub fn is_high_security(
 			who: &T::AccountId,
@@ -706,41 +654,23 @@ pub mod pallet {
 
 		fn do_execute_transfer(tx_id: &T::Hash) -> DispatchResultWithPostInfo {
 			let pending = PendingTransfers::<T>::get(tx_id).ok_or(Error::<T>::PendingTxNotFound)?;
+			ensure!(pending.asset_id.is_none(), Error::<T>::AssetsNotSupported);
 
 			// Build the transfer call from stored data
 			let to_lookup = T::Lookup::unlookup(pending.to.clone());
-			let call: RuntimeCallOf<T> = match pending.asset_id {
-				Some(ref id) => pallet_assets::Call::<T>::transfer_keep_alive {
-					id: id.clone().into(),
-					target: to_lookup,
-					amount: pending.amount,
-				}
-				.into(),
-				None => pallet_balances::Call::<T>::transfer_keep_alive {
-					dest: to_lookup,
-					value: pending.amount,
-				}
-				.into(),
-			};
+			let call: RuntimeCallOf<T> = pallet_balances::Call::<T>::transfer_keep_alive {
+				dest: to_lookup,
+				value: pending.amount,
+			}
+			.into();
 
 			// Release held funds
-			if let Some(ref id) = pending.asset_id {
-				let reason = Self::asset_hold_reason();
-				<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::release(
-					id.clone(),
-					&reason,
-					&pending.from,
-					pending.amount,
-					Precision::Exact,
-				)?;
-			} else {
-				pallet_balances::Pallet::<T>::release(
-					&HoldReason::ScheduledTransfer.into(),
-					&pending.from,
-					pending.amount,
-					Precision::Exact,
-				)?;
-			}
+			pallet_balances::Pallet::<T>::release(
+				&HoldReason::ScheduledTransfer.into(),
+				&pending.from,
+				pending.amount,
+				Precision::Exact,
+			)?;
 
 			// Remove transfer from storage
 			PendingTransfers::<T>::remove(tx_id);
@@ -787,21 +717,12 @@ pub mod pallet {
 			asset_id: Option<AssetIdOf<T>>,
 		) -> DispatchResult {
 			let recipient = T::Lookup::lookup(to.clone())?;
+			ensure!(asset_id.is_none(), Error::<T>::AssetsNotSupported);
 
 			// Build the transfer call for tx_id computation (not stored)
-			let transfer_call: RuntimeCallOf<T> = match asset_id {
-				Some(ref id) => pallet_assets::Call::<T>::transfer_keep_alive {
-					id: id.clone().into(),
-					target: to.clone(),
-					amount,
-				}
-				.into(),
-				None => pallet_balances::Call::<T>::transfer_keep_alive {
-					dest: to.clone(),
-					value: amount,
-				}
-				.into(),
-			};
+			let transfer_call: RuntimeCallOf<T> =
+				pallet_balances::Call::<T>::transfer_keep_alive { dest: to.clone(), value: amount }
+					.into();
 
 			let tx_id = T::Hashing::hash_of(
 				&(from.clone(), transfer_call.clone(), NextTransactionId::<T>::get()).encode(),
@@ -861,22 +782,11 @@ pub mod pallet {
 				Error::<T>::SchedulingFailed
 			})?;
 
-			// For assets, hold the funds using assets-holder; for native balances, hold the funds
-			if let Some(ref id) = asset_id {
-				let reason = Self::asset_hold_reason();
-				<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::hold(
-					id.clone(),
-					&reason,
-					&from,
-					amount,
-				)?;
-			} else {
-				pallet_balances::Pallet::<T>::hold(
-					&HoldReason::ScheduledTransfer.into(),
-					&from,
-					amount,
-				)?;
-			}
+			pallet_balances::Pallet::<T>::hold(
+				&HoldReason::ScheduledTransfer.into(),
+				&from,
+				amount,
+			)?;
 
 			NextTransactionId::<T>::mutate(|id| id.saturating_inc());
 
@@ -956,6 +866,8 @@ pub mod pallet {
 			recipient: &T::AccountId,
 			apply_fee: bool,
 		) -> DispatchResult {
+			ensure!(pending.asset_id.is_none(), Error::<T>::AssetsNotSupported);
+
 			let (fee_amount, remaining_amount) = if apply_fee {
 				let volume_fee = T::VolumeFee::get();
 				let fee = volume_fee * pending.amount;
@@ -964,51 +876,25 @@ pub mod pallet {
 				(Zero::zero(), pending.amount)
 			};
 
-			if let Some(ref asset_id) = pending.asset_id {
-				let reason = Self::asset_hold_reason();
+			// Burn fee amount
+			pallet_balances::Pallet::<T>::burn_held(
+				&HoldReason::ScheduledTransfer.into(),
+				&pending.from,
+				fee_amount,
+				Precision::Exact,
+				Fortitude::Polite,
+			)?;
 
-				// Burn fee amount
-				<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::burn_held(
-					asset_id.clone(),
-					&reason,
-					&pending.from,
-					fee_amount,
-					Precision::Exact,
-					Fortitude::Polite,
-				)?;
-
-				// Transfer remaining amount to recipient
-				<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
-					asset_id.clone(),
-					&reason,
-					&pending.from,
-					recipient,
-					remaining_amount,
-					Precision::Exact,
-					Restriction::Free,
-					Fortitude::Polite,
-				)?;
-			} else {
-				// Burn fee amount
-				pallet_balances::Pallet::<T>::burn_held(
-					&HoldReason::ScheduledTransfer.into(),
-					&pending.from,
-					fee_amount,
-					Precision::Exact,
-					Fortitude::Polite,
-				)?;
-
-				// Transfer remaining amount to recipient
-				pallet_balances::Pallet::<T>::transfer_on_hold(
-					&HoldReason::ScheduledTransfer.into(),
-					&pending.from,
-					recipient,
-					remaining_amount,
-					Precision::Exact,
-					Restriction::Free,
-					Fortitude::Polite,
-				)?;
-			}
+			// Transfer remaining amount to recipient
+			pallet_balances::Pallet::<T>::transfer_on_hold(
+				&HoldReason::ScheduledTransfer.into(),
+				&pending.from,
+				recipient,
+				remaining_amount,
+				Precision::Exact,
+				Restriction::Free,
+				Fortitude::Polite,
+			)?;
 
 			Ok(())
 		}

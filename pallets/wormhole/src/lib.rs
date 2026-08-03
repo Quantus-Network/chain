@@ -205,7 +205,6 @@ pub mod pallet {
 		pallet_prelude::*,
 		traits::{
 			fungible::{Inspect as FungibleInspect, Mutate, Unbalanced},
-			fungibles::{self},
 			BuildGenesisConfig, Contains, Currency,
 		},
 	};
@@ -309,15 +308,6 @@ pub mod pallet {
 		type Currency: Mutate<<Self as frame_system::Config>::AccountId, Balance = Self::NativeBalance>
 			+ Unbalanced<<Self as frame_system::Config>::AccountId>
 			+ Currency<<Self as frame_system::Config>::AccountId, Balance = Self::NativeBalance>;
-
-		/// Assets type used for managing fungible assets.
-		/// The AssetId must match Self::AssetId for consistency.
-		type Assets: fungibles::Inspect<
-				<Self as frame_system::Config>::AccountId,
-				AssetId = Self::AssetId,
-				Balance = Self::AssetBalance,
-			> + fungibles::Mutate<<Self as frame_system::Config>::AccountId>
-			+ fungibles::Create<<Self as frame_system::Config>::AccountId>;
 
 		/// Asset ID type for transfer proofs.
 		type AssetId: Parameter + Member + Default + From<u32> + Clone + MaxEncodedLen;
