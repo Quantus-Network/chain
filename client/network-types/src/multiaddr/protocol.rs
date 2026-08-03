@@ -26,6 +26,15 @@ use std::{
 
 const LOG_TARGET: &str = "sub-libp2p";
 
+/// Error converting a local [`Protocol`] into a litep2p/multiaddr protocol.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ProtocolConversionError {
+	/// [`Protocol::P2p`] carried a multihash that is not a valid peer id
+	/// (for example sha2-512, or an oversized identity digest).
+	#[error("p2p protocol multihash is not a valid peer id")]
+	InvalidPeerId,
+}
+
 /// [`Protocol`] describes all possible multiaddress protocols.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Protocol<'a> {
@@ -73,8 +82,10 @@ pub enum Protocol<'a> {
 
 impl Display for Protocol<'_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		let protocol = LiteP2pProtocol::from(self.clone());
-		Display::fmt(&protocol, f)
+		match LiteP2pProtocol::try_from(self.clone()) {
+			Ok(protocol) => Display::fmt(&protocol, f),
+			Err(ProtocolConversionError::InvalidPeerId) => f.write_str("/p2p/<invalid-peer-id>"),
+		}
 	}
 }
 
@@ -171,9 +182,11 @@ impl<'a> From<LiteP2pProtocol<'a>> for Protocol<'a> {
 	}
 }
 
-impl<'a> From<Protocol<'a>> for LiteP2pProtocol<'a> {
-	fn from(protocol: Protocol<'a>) -> Self {
-		match protocol {
+impl<'a> TryFrom<Protocol<'a>> for LiteP2pProtocol<'a> {
+	type Error = ProtocolConversionError;
+
+	fn try_from(protocol: Protocol<'a>) -> Result<Self, Self::Error> {
+		Ok(match protocol {
 			Protocol::Dccp(port) => LiteP2pProtocol::Dccp(port),
 			Protocol::Dns(str) => LiteP2pProtocol::Dns(str),
 			Protocol::Dns4(str) => LiteP2pProtocol::Dns4(str),
@@ -196,7 +209,7 @@ impl<'a> From<Protocol<'a>> for LiteP2pProtocol<'a> {
 				let litep2p_multihash: litep2p::types::multihash::Multihash = multihash.into();
 				LiteP2pProtocol::P2p(
 					multiaddr::PeerId::try_from(litep2p_multihash)
-						.expect("valid peer id multihash"),
+						.map_err(|_| ProtocolConversionError::InvalidPeerId)?,
 				)
 			},
 			Protocol::P2pCircuit => LiteP2pProtocol::P2pCircuit,
@@ -219,6 +232,28 @@ impl<'a> From<Protocol<'a>> for LiteP2pProtocol<'a> {
 			Protocol::Garlic32(addr) => LiteP2pProtocol::Garlic32(addr),
 			Protocol::Sni(str) => LiteP2pProtocol::Sni(str),
 			Protocol::P2pStardust => LiteP2pProtocol::P2pStardust,
-		}
+		})
 	}
+}
+
+/// Lossy conversion for legacy infallible call sites (`push` / `with`).
+///
+/// Prefer [`TryFrom`] — that is the real contract for [`Protocol::P2p`]. This helper never
+/// panics: invalid peer-id multihashes are replaced with a placeholder and logged.
+pub(super) fn into_litep2p_lossy<'a>(protocol: Protocol<'a>) -> LiteP2pProtocol<'a> {
+	LiteP2pProtocol::try_from(protocol).unwrap_or_else(|err| {
+		log::error!(
+			target: LOG_TARGET,
+			"Failed to convert Protocol to litep2p protocol: {err}; \
+			 replacing invalid /p2p component with a placeholder peer id",
+		);
+		LiteP2pProtocol::P2p(placeholder_peer_id())
+	})
+}
+
+/// Valid peer id used only as a non-panicking stand-in for a bad `/p2p` multihash.
+fn placeholder_peer_id() -> multiaddr::PeerId {
+	let multihash = litep2p::types::multihash::Multihash::wrap(0, &[0u8; 32])
+		.expect("32-byte identity digest fits Multihash<64>");
+	multiaddr::PeerId::try_from(multihash).expect("identity digests <= 42 bytes are valid peer ids")
 }

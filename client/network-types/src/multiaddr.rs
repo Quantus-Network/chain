@@ -30,7 +30,7 @@ use std::{
 };
 
 mod protocol;
-pub use protocol::Protocol;
+pub use protocol::{Protocol, ProtocolConversionError};
 
 // Re-export the macro under shorter name under `multiaddr`.
 pub use crate::build_multiaddr as multiaddr;
@@ -50,8 +50,18 @@ impl Multiaddr {
 	}
 
 	/// Adds an address component to the end of this multiaddr.
+	///
+	/// Prefer [`Multiaddr::try_push`] when the protocol may carry an arbitrary `/p2p` multihash.
 	pub fn push(&mut self, p: Protocol<'_>) {
-		self.multiaddr.push(p.into())
+		self.multiaddr.push(protocol::into_litep2p_lossy(p))
+	}
+
+	/// Fallible variant of [`Multiaddr::push`].
+	///
+	/// Fails if `p` is [`Protocol::P2p`] with a multihash that is not a valid peer id.
+	pub fn try_push(&mut self, p: Protocol<'_>) -> Result<(), ProtocolConversionError> {
+		self.multiaddr.push(LiteP2pProtocol::try_from(p)?);
+		Ok(())
 	}
 
 	/// Pops the last `Protocol` of this multiaddr, or `None` if the multiaddr is empty.
@@ -60,8 +70,15 @@ impl Multiaddr {
 	}
 
 	/// Like [`Multiaddr::push`] but consumes `self`.
+	///
+	/// Prefer [`Multiaddr::try_with`] when the protocol may carry an arbitrary `/p2p` multihash.
 	pub fn with(self, p: Protocol<'_>) -> Self {
-		self.multiaddr.with(p.into()).into()
+		self.multiaddr.with(protocol::into_litep2p_lossy(p)).into()
+	}
+
+	/// Fallible variant of [`Multiaddr::with`].
+	pub fn try_with(self, p: Protocol<'_>) -> Result<Self, ProtocolConversionError> {
+		Ok(self.multiaddr.with(LiteP2pProtocol::try_from(p)?).into())
 	}
 
 	/// Returns the components of this multiaddress.
@@ -247,13 +264,13 @@ impl<'a> FromIterator<Protocol<'a>> for Multiaddr {
 	where
 		T: IntoIterator<Item = Protocol<'a>>,
 	{
-		LiteP2pMultiaddr::from_iter(iter.into_iter().map(Into::into)).into()
+		LiteP2pMultiaddr::from_iter(iter.into_iter().map(protocol::into_litep2p_lossy)).into()
 	}
 }
 
 impl<'a> From<Protocol<'a>> for Multiaddr {
 	fn from(p: Protocol<'a>) -> Multiaddr {
-		let protocol: LiteP2pProtocol = p.into();
+		let protocol = protocol::into_litep2p_lossy(p);
 		let multiaddr: LiteP2pMultiaddr = protocol.into();
 		multiaddr.into()
 	}
@@ -291,7 +308,9 @@ macro_rules! build_multiaddr {
 
 #[cfg(test)]
 mod tests {
-	use super::{Multiaddr, Protocol};
+	use super::{Multiaddr, Protocol, ProtocolConversionError};
+	use crate::multihash::Multihash;
+	use litep2p::types::multiaddr::Protocol as LiteP2pProtocol;
 	use std::{net::Ipv4Addr, str::FromStr};
 
 	/// multiaddr 0.18 accepts `/webtransport`, and iteration must not panic after parse.
@@ -312,5 +331,37 @@ mod tests {
 			]
 		);
 		assert_eq!(address.iter().count(), 4);
+	}
+
+	/// sha2-512 is a valid multihash code but not a peer-id code.
+	fn non_peer_id_multihash() -> Multihash {
+		const SHA2_512: u64 = 0x13;
+		Multihash::wrap(SHA2_512, &[0u8; 64]).expect("64-byte digest fits Multihash<64>")
+	}
+
+	#[test]
+	fn p2p_try_from_rejects_non_peer_id_multihash() {
+		let protocol = Protocol::P2p(non_peer_id_multihash());
+		assert_eq!(
+			LiteP2pProtocol::try_from(protocol),
+			Err(ProtocolConversionError::InvalidPeerId)
+		);
+	}
+
+	#[test]
+	fn p2p_lossy_conversion_does_not_panic_on_non_peer_id_multihash() {
+		let protocol = Protocol::P2p(non_peer_id_multihash());
+		// Legacy infallible paths must not panic; they substitute a placeholder peer id.
+		let _ = Multiaddr::empty().with(protocol);
+	}
+
+	#[test]
+	fn try_push_rejects_non_peer_id_p2p() {
+		let mut addr = Multiaddr::empty();
+		assert_eq!(
+			addr.try_push(Protocol::P2p(non_peer_id_multihash())),
+			Err(ProtocolConversionError::InvalidPeerId)
+		);
+		assert_eq!(addr.iter().count(), 0);
 	}
 }
