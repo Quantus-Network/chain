@@ -200,26 +200,25 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Scheduler::Retries` (`max_values`: None, `max_size`: Some(40), added: 2515, mode: `MaxEncodedLen`)
 	/// The range of component `n` is `[0, 16]`.
 	///
-	/// NOTE: DB/proof components manually adjusted for the worst case where each of
-	/// the `n` cancelled transfers sits in a distinct `Scheduler::Agenda` bucket
-	/// (one schedule per block). Re-run the pallet benchmark after the
-	/// `recover_funds` setup fix to refresh measured CPU time; until then the
-	/// prior measured slope is retained and Agenda is charged as `O(n)`.
+	/// Re-benchmarked 2026-08-03 with one schedule per block (distinct Agenda
+	/// keys). Ref-time is the measured slope. Proof size per `n` is the *sum* of
+	/// MEL contributions of the n-scaling keys (PendingTransfers 2640 + Lookup
+	/// 2528 + Agenda 12493 + Retries 2515 = 20176): `frame-benchmarking-cli`
+	/// takes the max across storage prefixes instead of summing them, which
+	/// under-declares PoV by ~120 KiB at `n = 16`.
 	fn recover_funds(n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `522 + n * (364 ±0)` (pre-fix; Agenda now scales with n)
-		//  Estimated: `9482 + n * (12493 ±0)` — Agenda MEL dominates per-n proof
-		// Minimum execution time: 52_000_000 picoseconds.
-		Weight::from_parts(55_250_404, 9482)
-			// Standard Error: 70_515
-			.saturating_add(Weight::from_parts(56_328_935, 0).saturating_mul(n.into()))
+		//  Measured:  `514 + n * (383 ±0)`
+		//  Estimated: `10763 + n * (20176 ±0)` — sum of n-scaling MEL (see note)
+		// Minimum execution time: 62_000_000 picoseconds.
+		Weight::from_parts(65_862_538, 10763)
+			// Standard Error: 134_621
+			.saturating_add(Weight::from_parts(64_986_364, 0).saturating_mul(n.into()))
 			.saturating_add(T::DbWeight::get().reads(4_u64))
-			// PendingTransfers + Lookup + Agenda
 			.saturating_add(T::DbWeight::get().reads((3_u64).saturating_mul(n.into())))
 			.saturating_add(T::DbWeight::get().writes(3_u64))
-			// PendingTransfers + Lookup + Retries + Agenda
 			.saturating_add(T::DbWeight::get().writes((4_u64).saturating_mul(n.into())))
-			.saturating_add(Weight::from_parts(0, 12493).saturating_mul(n.into()))
+			.saturating_add(Weight::from_parts(0, 20176).saturating_mul(n.into()))
 	}
 }
 
@@ -364,25 +363,24 @@ impl WeightInfo for () {
 	/// Proof: `Scheduler::Retries` (`max_values`: None, `max_size`: Some(40), added: 2515, mode: `MaxEncodedLen`)
 	/// The range of component `n` is `[0, 16]`.
 	///
-	/// NOTE: DB/proof components manually adjusted for the worst case where each of
-	/// the `n` cancelled transfers sits in a distinct `Scheduler::Agenda` bucket
-	/// (one schedule per block). Re-run the pallet benchmark after the
-	/// `recover_funds` setup fix to refresh measured CPU time; until then the
-	/// prior measured slope is retained and Agenda is charged as `O(n)`.
+	/// Re-benchmarked 2026-08-03 with one schedule per block (distinct Agenda
+	/// keys). Ref-time is the measured slope. Proof size per `n` is the *sum* of
+	/// MEL contributions of the n-scaling keys (PendingTransfers 2640 + Lookup
+	/// 2528 + Agenda 12493 + Retries 2515 = 20176): `frame-benchmarking-cli`
+	/// takes the max across storage prefixes instead of summing them, which
+	/// under-declares PoV by ~120 KiB at `n = 16`.
 	fn recover_funds(n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `522 + n * (364 ±0)` (pre-fix; Agenda now scales with n)
-		//  Estimated: `9482 + n * (12493 ±0)` — Agenda MEL dominates per-n proof
-		// Minimum execution time: 52_000_000 picoseconds.
-		Weight::from_parts(55_250_404, 9482)
-			// Standard Error: 70_515
-			.saturating_add(Weight::from_parts(56_328_935, 0).saturating_mul(n.into()))
+		//  Measured:  `514 + n * (383 ±0)`
+		//  Estimated: `10763 + n * (20176 ±0)` — sum of n-scaling MEL (see note)
+		// Minimum execution time: 62_000_000 picoseconds.
+		Weight::from_parts(65_862_538, 10763)
+			// Standard Error: 134_621
+			.saturating_add(Weight::from_parts(64_986_364, 0).saturating_mul(n.into()))
 			.saturating_add(RocksDbWeight::get().reads(4_u64))
-			// PendingTransfers + Lookup + Agenda
 			.saturating_add(RocksDbWeight::get().reads((3_u64).saturating_mul(n.into())))
 			.saturating_add(RocksDbWeight::get().writes(3_u64))
-			// PendingTransfers + Lookup + Retries + Agenda
 			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(n.into())))
-			.saturating_add(Weight::from_parts(0, 12493).saturating_mul(n.into()))
+			.saturating_add(Weight::from_parts(0, 20176).saturating_mul(n.into()))
 	}
 }

@@ -309,17 +309,21 @@ fn recover_funds_cancels_across_distinct_agenda_buckets() {
 }
 
 #[test]
-fn recover_funds_weight_charges_agenda_per_pending_transfer() {
+fn recover_funds_weight_charges_summed_mel_per_pending_transfer() {
 	use crate::weights::WeightInfo;
 
 	let w0 = <() as WeightInfo>::recover_funds(0);
 	let w1 = <() as WeightInfo>::recover_funds(1);
 	let step = w1.saturating_sub(w0);
-	// Agenda MEL (added: 12493) must dominate the per-n proof component; the
-	// pre-fix weight used PendingTransfers MEL (2640) because Agenda was fixed.
+	// Sum of MEL for the n-scaling keys touched per cancelled transfer:
+	// PendingTransfers (2640) + Lookup (2528) + Agenda (12493) + Retries (2515).
+	// FRAME's weight writer takes the max across prefixes (Agenda only); we
+	// charge the sum so a full 16-transfer recovery is not under-declared by
+	// ~120 KiB of proof size.
+	const PER_N_PROOF_SIZE: u64 = 2640 + 2528 + 12493 + 2515;
 	assert_eq!(
 		step.proof_size(),
-		12493,
-		"recover_funds(n) must charge one Scheduler::Agenda proof per pending transfer"
+		PER_N_PROOF_SIZE,
+		"recover_funds(n) must charge the summed MEL of all n-scaling keys per pending transfer"
 	);
 }
