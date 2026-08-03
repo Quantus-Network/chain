@@ -63,11 +63,34 @@ pub struct FullChainApi<Client, Block> {
 	validate_transaction_maintained_stats: DurationSlidingStats,
 }
 
+/// Boxed validation job scheduled on a worker lane.
+type ValidationTask = Pin<Box<dyn Future<Output = ()> + Send>>;
+
+/// Receive the next validation job, preferring the Maintained lane when both are ready.
+///
+/// `biased` is required: an unbiased `tokio::select!` polls branches in random order, so
+/// `ValidateTransactionPriority::Maintained` would not actually outrank Submitted work.
+async fn recv_next_validation_task(
+	receiver_normal: Arc<Mutex<mpsc::Receiver<ValidationTask>>>,
+	receiver_maintained: Arc<Mutex<mpsc::Receiver<ValidationTask>>>,
+) -> Option<ValidationTask> {
+	tokio::select! {
+		biased;
+		Some(task) = async {
+			receiver_maintained.lock().await.recv().await
+		} => Some(task),
+		Some(task) = async {
+			receiver_normal.lock().await.recv().await
+		} => Some(task),
+		else => None,
+	}
+}
+
 /// Spawn a validation task that will be used by the transaction pool to validate transactions.
 fn spawn_validation_pool_task(
 	name: &'static str,
-	receiver_normal: Arc<Mutex<mpsc::Receiver<Pin<Box<dyn Future<Output = ()> + Send>>>>>,
-	receiver_maintained: Arc<Mutex<mpsc::Receiver<Pin<Box<dyn Future<Output = ()> + Send>>>>>,
+	receiver_normal: Arc<Mutex<mpsc::Receiver<ValidationTask>>>,
+	receiver_maintained: Arc<Mutex<mpsc::Receiver<ValidationTask>>>,
 	spawner: &impl SpawnEssentialNamed,
 	stats: DurationSlidingStats,
 	blocking_stats: DurationSlidingStats,
@@ -79,20 +102,11 @@ fn spawn_validation_pool_task(
 			loop {
 				let start = Instant::now();
 
-				let task = {
-					let receiver_maintained = receiver_maintained.clone();
-					let receiver_normal = receiver_normal.clone();
-					tokio::select! {
-						Some(task) = async {
-							receiver_maintained.lock().await.recv().await
-						} => { task }
-						Some(task) = async {
-							receiver_normal.lock().await.recv().await
-						} => { task }
-						else => {
-							return
-						}
-					}
+				let Some(task) =
+					recv_next_validation_task(receiver_normal.clone(), receiver_maintained.clone())
+						.await
+				else {
+					return;
 				};
 
 				let blocking_duration = {
@@ -388,4 +402,56 @@ where
 		"validate_transaction_blocking"
 	);
 	result
+}
+
+#[cfg(test)]
+mod validation_lane_tests {
+	use super::*;
+	use std::sync::atomic::{AtomicU8, Ordering};
+
+	/// When both lanes have a ready job, Maintained must always win.
+	#[tokio::test]
+	async fn recv_next_validation_task_prefers_maintained_lane() {
+		const TRIALS: usize = 32;
+		for _ in 0..TRIALS {
+			let (tx_normal, rx_normal) = mpsc::channel(1);
+			let (tx_maintained, rx_maintained) = mpsc::channel(1);
+			let rx_normal = Arc::new(Mutex::new(rx_normal));
+			let rx_maintained = Arc::new(Mutex::new(rx_maintained));
+
+			let which = Arc::new(AtomicU8::new(0));
+			let which_normal = which.clone();
+			let which_maintained = which.clone();
+
+			tx_normal
+				.send(
+					async move {
+						which_normal.store(1, Ordering::SeqCst);
+					}
+					.boxed(),
+				)
+				.await
+				.unwrap();
+			tx_maintained
+				.send(
+					async move {
+						which_maintained.store(2, Ordering::SeqCst);
+					}
+					.boxed(),
+				)
+				.await
+				.unwrap();
+
+			let task = recv_next_validation_task(rx_normal, rx_maintained)
+				.await
+				.expect("both lanes have work");
+			task.await;
+
+			assert_eq!(
+				which.load(Ordering::SeqCst),
+				2,
+				"Maintained lane must be preferred when both lanes are ready"
+			);
+		}
+	}
 }

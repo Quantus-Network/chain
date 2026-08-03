@@ -1,7 +1,7 @@
 use crate::{self as pallet_wormhole};
 use frame_support::{
 	construct_runtime, parameter_types,
-	traits::{ConstU128, ConstU32, Everything},
+	traits::{ConstU32, Everything},
 };
 use frame_system::mocking::MockUncheckedExtrinsic;
 use sp_core::H256;
@@ -17,7 +17,6 @@ construct_runtime!(
 	pub enum Test {
 		System: frame_system,
 		Balances: pallet_balances,
-		Assets: pallet_assets,
 		ZkTree: pallet_zk_tree,
 		Wormhole: pallet_wormhole,
 	}
@@ -92,32 +91,6 @@ impl pallet_balances::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 }
 
-impl pallet_assets::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
-	type Balance = Balance;
-	type AssetId = u32;
-	type AssetIdParameter = u32;
-	type Currency = Balances;
-	type CreateOrigin =
-		frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
-	type ForceOrigin = frame_system::EnsureRoot<AccountId>;
-	type AssetDeposit = ConstU128<1>;
-	type AssetAccountDeposit = ConstU128<1>;
-	type MetadataDepositBase = ConstU128<1>;
-	type MetadataDepositPerByte = ConstU128<1>;
-	type ApprovalDeposit = ConstU128<1>;
-	type StringLimit = ConstU32<50>;
-	type Freezer = ();
-	type Extra = ();
-	type WeightInfo = ();
-	type RemoveItemsLimit = ConstU32<1000>;
-	type CallbackHandle = ();
-	type Holder = ();
-	type ReserveData = ();
-	#[cfg(feature = "runtime-benchmarks")]
-	type BenchmarkHelper = ();
-}
-
 parameter_types! {
 	/// The "from" account used when recording transfer proofs for minted tokens.
 	/// Uses the shared MINTING_ACCOUNT constant from qp_wormhole.
@@ -154,7 +127,6 @@ impl pallet_zk_tree::Config for Test {
 impl pallet_wormhole::Config for Test {
 	type NativeBalance = Balance;
 	type Currency = Balances;
-	type Assets = Assets;
 	type AssetId = u32;
 	type AssetBalance = Balance;
 	type TransferCount = u64;

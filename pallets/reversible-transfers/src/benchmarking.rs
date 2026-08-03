@@ -4,7 +4,7 @@ use super::*;
 
 use crate::Pallet as ReversibleTransfers; // Alias the pallet
 use frame_benchmarking::{account as benchmark_account, v2::*, BenchmarkError};
-use frame_support::traits::{fungible::Mutate, fungibles::Create, Get};
+use frame_support::traits::{fungible::Mutate, Get};
 use frame_system::RawOrigin;
 use sp_runtime::{
 	traits::{BlockNumberProvider, Hash, One, StaticLookup},
@@ -76,10 +76,9 @@ type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
 #[benchmarks(
     where
     T: Send + Sync,
-    T: Config + pallet_balances::Config + pallet_assets::Config,
+    T: Config + pallet_balances::Config,
     <T as pallet_balances::Config>::Balance: From<u128> + Into<u128>,
-    <T as pallet_assets::Config>::AssetId: From<u32>,
-    RuntimeCallOf<T>: From<pallet_balances::Call<T>> + From<frame_system::Call<T>> + From<pallet_assets::Call<T>>,
+    RuntimeCallOf<T>: From<pallet_balances::Call<T>> + From<frame_system::Call<T>>,
 )]
 mod benchmarks {
 	use super::*;
@@ -125,64 +124,6 @@ mod benchmarks {
 
 		assert!(PendingTransfers::<T>::contains_key(tx_id));
 		// Check scheduler state (can be complex, checking count is simpler)
-		let execute_at = <T as pallet::Config>::BlockNumberProvider::current_block_number()
-			.saturating_add(
-				delay.as_block_number().expect("Timestamp delay not supported in benchmark"),
-			);
-		let task_name = ReversibleTransfers::<T>::make_schedule_id(&tx_id)?;
-		assert_eq!(T::Scheduler::next_dispatch_time(task_name)?, execute_at);
-
-		Ok(())
-	}
-
-	#[benchmark]
-	fn schedule_asset_transfer() -> Result<(), BenchmarkError> {
-		let caller: T::AccountId = whitelisted_caller();
-		fund_account::<T>(&caller, BalanceOf::<T>::from(10000u128));
-		let recipient: T::AccountId = benchmark_account("recipient", 0, SEED);
-		let guardian: T::AccountId = benchmark_account("guardian", 1, SEED);
-		let transfer_amount: BalanceOf<T> = 100u128.into();
-
-		// Create and mint an asset for the benchmark
-		let asset_id: <T as pallet_assets::Config>::AssetId = 1u32.into();
-		let min_balance: BalanceOf<T> = 1u128.into();
-
-		// Create the asset with caller as admin
-		<pallet_assets::Pallet<T> as Create<T::AccountId>>::create(
-			asset_id.clone(),
-			caller.clone(),
-			true, // is_sufficient
-			min_balance,
-		)?;
-
-		// Mint more assets than transfer amount to ensure sufficient balance for hold
-		let mint_amount: BalanceOf<T> = 10000u128.into();
-		<pallet_assets::Pallet<T> as frame_support::traits::fungibles::Mutate<T::AccountId>>::mint_into(
-			asset_id.clone(),
-			&caller,
-			mint_amount,
-		)?;
-
-		// Setup caller as high security
-		let delay = T::DefaultDelay::get();
-		setup_high_security_account::<T>(caller.clone(), delay, guardian.clone());
-
-		// Build the expected call for tx_id calculation
-		let recipient_lookup = <T as frame_system::Config>::Lookup::unlookup(recipient.clone());
-		let asset_call: RuntimeCallOf<T> = pallet_assets::Call::<T>::transfer_keep_alive {
-			id: asset_id.clone().into(),
-			target: recipient_lookup.clone(),
-			amount: transfer_amount,
-		}
-		.into();
-		let current_tx_id = NextTransactionId::<T>::get();
-		let tx_id = T::Hashing::hash_of(&(caller.clone(), asset_call, current_tx_id).encode());
-
-		// Schedule the asset transfer
-		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), asset_id, recipient_lookup, transfer_amount);
-
-		assert!(PendingTransfers::<T>::contains_key(tx_id));
 		let execute_at = <T as pallet::Config>::BlockNumberProvider::current_block_number()
 			.saturating_add(
 				delay.as_block_number().expect("Timestamp delay not supported in benchmark"),
@@ -286,6 +227,16 @@ mod benchmarks {
 	// upper bound for any mix of successful and failed releases. Do not change
 	// this to a cheaper (e.g. all-failing) path without re-deriving the weight
 	// model, or failed-release recoveries would be undercharged.
+	//
+	// Scheduler worst case: each pending transfer's `dispatch_time` is derived
+	// from the current block plus the configured delay (`DefaultDelay` is
+	// block-based). Submitting one transfer per block therefore spreads the
+	// sender's pending set across `n` distinct `Scheduler::Agenda` keys.
+	// `cancel_named` mutates and cleans up the agenda entry for each `when`, so
+	// the benchmark must advance the block between every schedule — not cluster
+	// many transfers into a few agenda buckets. Clustering under-measures Agenda
+	// DB/proof work. Advancing every iteration also keeps each agenda at a
+	// single task, so `MaxScheduledPerBlock` is never a constraint here.
 	#[benchmark]
 	fn recover_funds(n: Linear<0, 16>) -> Result<(), BenchmarkError> {
 		assert_eq!(
@@ -306,7 +257,8 @@ mod benchmarks {
 
 		let transfer_amount: BalanceOf<T> = 100u128.into();
 		for i in 0..n {
-			if i > 0 && i.is_multiple_of(8) {
+			if i > 0 {
+				// One transfer per block => `n` distinct Agenda keys on cancel.
 				let bn = frame_system::Pallet::<T>::block_number();
 				frame_system::Pallet::<T>::set_block_number(bn + BlockNumberFor::<T>::one());
 			}

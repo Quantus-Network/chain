@@ -104,11 +104,15 @@ where
 		let new_hash = event.hash();
 		let finalized = event.is_finalized();
 
-		// do not proceed with txpool maintain if block distance is too high
+		// do not proceed with txpool maintain if block distance is too high. The
+		// absolute height distance is a lower bound on the tree route length, so this
+		// cheaply rejects deep forward jumps (full sync) and deep backward reorgs
+		// without computing the route.
 		let skip_maintenance =
 			match (hash_to_number(new_hash), hash_to_number(self.recent_best_block)) {
 				(Ok(Some(new)), Ok(Some(current))) =>
-					new.saturating_sub(current) > SKIP_MAINTENANCE_THRESHOLD.into(),
+					new.saturating_sub(current).max(current.saturating_sub(new)) >
+						SKIP_MAINTENANCE_THRESHOLD.into(),
 				_ => true,
 			};
 
@@ -127,6 +131,18 @@ where
 		// compute actual tree route from best_block to notified block, and use
 		// it instead of tree_route provided with event
 		let tree_route = tree_route(self.recent_best_block, new_hash)?;
+
+		// The block-number check above cannot see deep same-height fork transitions
+		// (the height delta is zero while the route through the common ancestor may be
+		// arbitrarily long), so also bound the length of the actual route before the
+		// pools do per-block prune/resubmit work on it.
+		let route_len = tree_route.enacted().len() + tree_route.retracted().len();
+		if route_len > SKIP_MAINTENANCE_THRESHOLD as usize {
+			debug!(target: LOG_TARGET, route_len, "skip maintain: tree_route too long");
+			self.force_update(event);
+			return Ok(EnactmentAction::Skip);
+		}
+
 		trace!(
 			target: LOG_TARGET,
 			?new_hash,
@@ -697,5 +713,150 @@ mod enactment_state_tests {
 		let result = trigger_new_best_block(&mut es, b1(), x1());
 		assert!(matches!(result, EnactmentAction::HandleEnactment { .. }));
 		assert_es_eq(&es, x1(), b1());
+	}
+}
+
+/// Tests for routes that are long even though the block-number distance between the
+/// current best block and the notified block is small (or zero): deep same-height
+/// fork switches and deep backward reorgs.
+///
+/// Unlike `enactment_state_tests` above, this module does not depend on
+/// `substrate_test_runtime_client` (unavailable in this vendored workspace), so it runs
+/// as part of the regular `#[cfg(test)]` suite.
+#[cfg(test)]
+mod long_route_tests {
+	use super::{EnactmentAction, EnactmentState};
+	use crate::common::mock_api::TestBlock as Block;
+	use sc_transaction_pool_api::ChainEvent;
+	use sp_blockchain::{HashAndNumber, TreeRoute};
+	use sp_runtime::traits::NumberFor;
+
+	type Hash = <Block as sp_runtime::traits::Block>::Hash;
+
+	/// Common ancestor of the two forks, at height 1.
+	fn ancestor() -> HashAndNumber<Block> {
+		HashAndNumber { number: 1, hash: Hash::from([0xFF; 32]) }
+	}
+
+	/// `i`-th block (1-based) on fork `fork_id`, at height `1 + i`.
+	fn fork_block(fork_id: u8, i: u64) -> HashAndNumber<Block> {
+		let mut bytes = [fork_id; 32];
+		bytes[8..16].copy_from_slice(&i.to_be_bytes());
+		HashAndNumber { number: 1 + i, hash: Hash::from(bytes) }
+	}
+
+	fn fork(fork_id: u8, len: u64) -> Vec<HashAndNumber<Block>> {
+		(1..=len).map(|i| fork_block(fork_id, i)).collect()
+	}
+
+	/// Tree route for switching from the tip of fork 1 to the tip of fork 2
+	/// (both of length `len`), through the common ancestor.
+	fn fork_switch_route(len: u64) -> TreeRoute<Block> {
+		let mut route: Vec<_> = fork(1, len).into_iter().rev().collect();
+		route.push(ancestor());
+		route.extend(fork(2, len));
+		TreeRoute::new(route, len as usize).unwrap()
+	}
+
+	fn hash_to_number(len: u64) -> impl Fn(Hash) -> Result<Option<NumberFor<Block>>, String> {
+		move |hash| {
+			let mut chain = vec![ancestor()];
+			chain.extend(fork(1, len));
+			chain.extend(fork(2, len));
+			Ok(chain.iter().find(|x| x.hash == hash).map(|x| x.number))
+		}
+	}
+
+	fn assert_es_eq(
+		es: &EnactmentState<Block>,
+		expected_best_block: HashAndNumber<Block>,
+		expected_finalized_block: HashAndNumber<Block>,
+	) {
+		assert_eq!(es.recent_best_block, expected_best_block.hash);
+		assert_eq!(es.recent_finalized_block, expected_finalized_block.hash);
+	}
+
+	/// Switching between two same-height fork tips must be skipped when the actual
+	/// route exceeds the maintenance threshold, even though the block-number
+	/// distance between the tips is zero.
+	#[test]
+	fn test_enactment_skip_long_same_height_fork_route() {
+		sp_tracing::try_init_simple();
+		const LEN: u64 = 25;
+
+		let f1_tip = fork_block(1, LEN);
+		let f2_tip = fork_block(2, LEN);
+		let mut es = EnactmentState::new(f1_tip.hash, ancestor().hash);
+
+		let tree_route_fn =
+			|_: Hash, _: Hash| -> Result<TreeRoute<Block>, String> { Ok(fork_switch_route(LEN)) };
+
+		let result = es
+			.update(
+				&ChainEvent::NewBestBlock { hash: f2_tip.hash, tree_route: None },
+				&tree_route_fn,
+				&hash_to_number(LEN),
+			)
+			.unwrap();
+
+		// 25 retracted + 25 enacted blocks: way above the threshold.
+		assert!(matches!(result, EnactmentAction::Skip));
+		assert_es_eq(&es, f2_tip, ancestor());
+	}
+
+	/// A new-best notification for a deep ancestor of the current best block must be
+	/// skipped: the forward block-number delta is zero but the route retracts many
+	/// blocks.
+	#[test]
+	fn test_enactment_skip_long_backward_route() {
+		sp_tracing::try_init_simple();
+		const LEN: u64 = 25;
+
+		let f1_tip = fork_block(1, LEN);
+		let f1_first = fork_block(1, 1);
+		let mut es = EnactmentState::new(f1_tip.hash, ancestor().hash);
+
+		let tree_route_fn = |_: Hash, _: Hash| -> Result<TreeRoute<Block>, String> {
+			// f1 tip down to f1 first block: 24 retracted blocks.
+			let route: Vec<_> = fork(1, LEN).into_iter().rev().collect();
+			Ok(TreeRoute::new(route, (LEN - 1) as usize).unwrap())
+		};
+
+		let result = es
+			.update(
+				&ChainEvent::NewBestBlock { hash: f1_first.hash, tree_route: None },
+				&tree_route_fn,
+				&hash_to_number(LEN),
+			)
+			.unwrap();
+
+		assert!(matches!(result, EnactmentAction::Skip));
+		assert_es_eq(&es, f1_first, ancestor());
+	}
+
+	/// Guard: a same-height fork switch whose route is exactly at the threshold must
+	/// still be maintained.
+	#[test]
+	fn test_enactment_proceed_with_same_height_fork_route_at_threshold() {
+		sp_tracing::try_init_simple();
+		const LEN: u64 = 10; // 10 retracted + 10 enacted = threshold (20)
+
+		let f1_tip = fork_block(1, LEN);
+		let f2_tip = fork_block(2, LEN);
+		let mut es = EnactmentState::new(f1_tip.hash, ancestor().hash);
+
+		let tree_route_fn =
+			|_: Hash, _: Hash| -> Result<TreeRoute<Block>, String> { Ok(fork_switch_route(LEN)) };
+
+		let result = es
+			.update(
+				&ChainEvent::NewBestBlock { hash: f2_tip.hash, tree_route: None },
+				&tree_route_fn,
+				&hash_to_number(LEN),
+			)
+			.unwrap();
+
+		assert!(matches!(result, EnactmentAction::HandleEnactment { .. }));
+		assert_es_eq(&es, f2_tip, ancestor());
 	}
 }

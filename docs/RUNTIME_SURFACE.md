@@ -7,7 +7,7 @@ the runtime, their dispatchable calls, the runtime APIs, transaction extensions,
 genesis logic, and the workspace primitive crates pulled in.
 
 - **Crate:** `quantus-runtime` (`runtime/`), version `0.7.1-q-day-2`
-- **Spec:** `spec_name = quantus-runtime`, `spec_version = 131`, `transaction_version = 2`, `authoring_version = 1`
+- **Spec:** `spec_name = quantus-runtime`, `spec_version = 138`, `transaction_version = 3`, `authoring_version = 1`
 - **Build:** `no_std` WASM via `substrate-wasm-builder` (`runtime/build.rs`); native `std` build for the node/client
 - **Block time target:** 12s (`TARGET_BLOCK_TIME_MS = 12_000`)
 - **Consensus:** QPoW (quantum-resistant Proof of Work, Poseidon2-based)
@@ -77,13 +77,13 @@ The runtime derives `RuntimeCall`, `RuntimeEvent`, `RuntimeError`, `RuntimeOrigi
 | 14 | `TechReferenda` | `pallet-referenda::Pallet<Runtime, Instance1>` `45.0.0` | **Inlined** (2nd instance) | yes |
 | 15 | `TreasuryPallet` | `pallet-treasury` | **Local** (`pallets/treasury`) | yes |
 | 16 | `Recovery` | `pallet-recovery` `45.0.0` | **Inlined** (`pallets/recovery`) | yes |
-| 17 | `Assets` | `pallet-assets` `48.1.0` | **Inlined** (`pallets/assets`) | yes |
-| 18 | `AssetsHolder` | `pallet-assets-holder` `0.8.0` | **Inlined** (`pallets/assets-holder`) | (no extrinsics) |
+| 17 | — | *(vacant; was `pallet-assets`)* | — | — |
+| 18 | — | *(vacant; was `pallet-assets-holder`)* | — | — |
 | 19 | `Multisig` | `pallet-multisig` | **Local** (`pallets/multisig`) | yes |
 | 20 | `Wormhole` | `pallet-wormhole` | **Local** (`pallets/wormhole`) | yes |
 | 21 | `ZkTree` | `pallet-zk-tree` | **Local** (`pallets/zk-tree`) | no |
 
-> Index 4 is intentionally left vacant after `pallet-sudo` removal so downstream indices stay stable.
+> Indices 4, 17, and 18 are intentionally left vacant after pallet removals so downstream indices stay stable.
 
 ---
 
@@ -137,8 +137,8 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - **Calls:** `submit`, `place_decision_deposit`, `refund_decision_deposit`, `cancel`, `kill`, `nudge_referendum`, `one_fewer_deciding`, `refund_submission_deposit`, `set_metadata`.
 
 ### Index 11 — `ReversibleTransfers` (`pallet-reversible-transfers`, local)
-- `Scheduler = Scheduler`, `DefaultDelay = 1 DAY`, `MinDelayPeriodBlocks = 2`, `MaxGuardianAccounts = 32`, `MaxPendingPerAccount = 16`, `VolumeFee = 1%` (high-security reversals, burned), `ProofRecorder = Wormhole`, `PalletId = "rtpallet"`.
-- **Calls:** `set_high_security`(0), `cancel`(1), `execute_transfer`(2), `schedule_transfer`(3), `schedule_transfer_with_delay`(4), `schedule_asset_transfer`(5), `schedule_asset_transfer_with_delay`(6), `recover_funds`(7).
+- `AssetId = u32` (retained for wire-format compatibility; asset transfers are rejected), `Scheduler = Scheduler`, `DefaultDelay = 1 DAY`, `MinDelayPeriodBlocks = 2`, `MaxGuardianAccounts = 32`, `MaxPendingPerAccount = 16`, `VolumeFee = 1%` (high-security reversals, burned), `ProofRecorder = Wormhole`, `PalletId = "rtpallet"`.
+- **Calls:** `set_high_security`(0), `cancel`(1), `execute_transfer`(2), `schedule_transfer`(3), `schedule_transfer_with_delay`(4), `recover_funds`(7). Call indices 5/6 were `schedule_asset_transfer` / `schedule_asset_transfer_with_delay` (removed with assets); kept vacant so `recover_funds` stays at 7. Pending transfers with `Some(asset_id)` fail with `AssetsNotSupported`.
 - Backs `HighSecurityConfig` (account whitelist/guardian logic).
 
 ### Index 12 — `ConvictionVoting` (`pallet-conviction-voting`)
@@ -161,19 +161,12 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - `ConfigDepositBase = 10 UNIT`, `FriendDepositFactor = 1 UNIT`, `MaxFriends = 9`, `RecoveryDeposit = 10 UNIT`.
 - **Calls:** `as_recovered`, `set_recovered`, `create_recovery`, `initiate_recovery`, `vouch_recovery`, `claim_recovery`, `close_recovery`, `remove_recovery`, `cancel_recovered`.
 
-### Index 17 — `Assets` (`pallet-assets`)
-- `AssetId = u32`, `CreateOrigin = AsEnsureOriginWithArg<EnsureSigned>`, `ForceOrigin = EnsureRoot`, `AssetDeposit/AccountDeposit/Metadata = MILLI_UNIT`, `StringLimit = 50`, `CallbackHandle = AutoIncAssetId`, `Holder = AssetsHolder`, `RemoveItemsLimit = 1000`.
-- **Calls:** full `pallet-assets` surface (`create`, `force_create`, `mint`, `burn`, `transfer`, `transfer_keep_alive`, `force_transfer`, `freeze`/`thaw`, `set_metadata`, `approve_transfer`, `transfer_approved`, etc.).
-
-### Index 18 — `AssetsHolder` (`pallet-assets-holder`)
-- `RuntimeEvent`, `RuntimeHoldReason`. No standalone extrinsics; provides hold support to `Assets`.
-
 ### Index 19 — `Multisig` (`pallet-multisig`, local)
 - `MaxSigners = 100`, `MaxTotalProposalsInStorage = 200`, `MaxCallSize = 10 KB`, `MultisigFee = 0.6 UNIT` (burned), `ProposalDeposit = 1 UNIT`, `ProposalFee = 1 UNIT`, `MaxExpiryDuration ≈ 2 weeks`, `MaxInnerCallWeight = (10^12, 2.5 MB)`, `HighSecurity = HighSecurityConfig`, `PalletId = "py/mltsg"`.
 - **Calls:** `create_multisig`(0), `propose`(1), `approve`(2), `cancel`(3), `remove_expired`(4), `claim_deposits`(5), `execute`(6). Exposes `derive_multisig_address`.
 
 ### Index 20 — `Wormhole` (`pallet-wormhole`, local)
-- `Currency = Balances`, `Assets = Assets`, `VolumeFeeRateBps = 4` (0.04%; circuit ceil-rounds to ≥0.01 QUAN per exit), `VolumeFeesBurnRate = 50%`, `MintingAccount`, `WormholeAccountId = AccountId32`, `ZkTree = ZkTree`. No separate minimum exit amount.
+- `Currency = Balances`, `AssetId = u32` (native leaves tagged as asset id 0 internally; non-native exits unsupported), `VolumeFeeRateBps = 4` (0.04%; circuit ceil-rounds to ≥0.01 QUAN per exit), `VolumeFeesBurnRate = 50%`, `MintingAccount`, `WormholeAccountId = AccountId32`, `ZkTree = ZkTree`. No separate minimum exit amount. No `pallet-assets` dependency.
 - **Calls:** `verify_private_batch`(2) — verifies a private-batch ZK proof and processes batched transfers; `verify_public_batch`(3) — verifies a public-batch proof with per-segment denial and aggregator fee rebate.
 - Implements `TransferProofRecorder` (`record_transfer`) consumed by mining-rewards, reversible-transfers, and the wormhole tx-extension. `on_initialize` emits genesis endowment proofs at block 1. Loads a static aggregated verifier (`get_aggregated_verifier`).
 
@@ -219,7 +212,7 @@ Signed-extension pipeline applied to every extrinsic, in order:
 8. `pallet_transaction_payment::ChargeTransactionPayment`
 9. `frame_metadata_hash_extension::CheckMetadataHash`
 10. `transaction_extensions::ReversibleTransactionExtension` — **custom**: blocks non-whitelisted calls from high-security accounts.
-11. `transaction_extensions::WormholeProofRecorderExtension` — **custom**: in `post_dispatch`, scans emitted `Transfer`/`Transferred`/`Minted`/`Issued` events and records transfer proofs into the ZK tree (event-based, covers direct/batch/multisig/recovery/scheduled transfers).
+11. `transaction_extensions::WormholeProofRecorderExtension` — **custom**: in `post_dispatch`, scans emitted native `Balances::Transfer` / `Balances::Minted` events and records transfer proofs into the ZK tree (event-based, covers direct/batch/multisig/recovery/scheduled native transfers).
 
 ---
 
@@ -244,7 +237,6 @@ Signed-extension pipeline applied to every extrinsic, in order:
 - Dilithium well-known accounts: `crystal_alice`, `dilithium_bob`, `crystal_charlie` (public seeds `[0]` / `[1]` / `[2]`). Used by `dev` and **intentionally also by `heisenberg`** so integrators and CI can exercise governance, treasury, and transfer flows without distributing secrets. Those private keys are public by design; do **not** reuse this pattern on a mainnet or any value-bearing chain (Planck already uses distinct live treasury signers).
 - Treasury = 2-of-3 multisig of the three signers for `dev`/`heisenberg` (distinct nonce per preset); no genesis endowment (funded from mining-reward share only).
 - Tech-collective seeded via the chain-spec-only `tech_collective_seed_members` JSON field (`prepare_genesis_build_input` + `seed_tech_collective`).
-- Reserves asset id 0 for the native-token-in-assets wormhole path.
 - Endows all genesis balances with wormhole transfer proofs (ZK-spendable). `dev` also endows `TEST_WORMHOLE_SECRET`'s address.
 
 ---

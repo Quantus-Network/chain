@@ -34,7 +34,6 @@ qp-wormhole-circuit-builder.workspace = true
 
 [dev-dependencies]
 hex = { workspace = true, features = ["alloc"] }
-pallet-assets = { workspace = true, features = ["std"] }
 qp-dilithium-crypto = { workspace = true, features = ["std"] }
 qp-plonky2 = { workspace = true, default-features = false }
 qp-poseidon-core.workspace = true
@@ -55,7 +54,6 @@ runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-support/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
-	"pallet-assets/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 ]
 std = [

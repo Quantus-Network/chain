@@ -5863,40 +5863,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-assets"
-version = "48.1.0"
-dependencies = [
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "impl-trait-for-tuples",
- "log",
- "pallet-balances",
- "parity-scale-codec",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
-]
-
-[[package]]
-name = "pallet-assets-holder"
-version = "0.8.0"
-dependencies = [
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "log",
- "pallet-assets",
- "pallet-balances",
- "parity-scale-codec",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
-]
-
-[[package]]
 name = "pallet-balances"
 version = "46.0.0"
 dependencies = [
@@ -5959,8 +5925,6 @@ dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
- "pallet-assets",
- "pallet-assets-holder",
  "pallet-balances",
  "pallet-preimage",
  "pallet-recovery",
@@ -6073,8 +6037,6 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
- "pallet-assets",
- "pallet-assets-holder",
  "pallet-balances",
  "pallet-preimage",
  "pallet-recovery",
@@ -6230,7 +6192,6 @@ dependencies = [
  "hex",
  "lazy_static",
  "log",
- "pallet-assets",
  "pallet-balances",
  "pallet-zk-tree",
  "parity-scale-codec",
@@ -7446,6 +7407,7 @@ dependencies = [
  "sp-core",
  "sp-runtime",
  "thiserror 2.0.18",
+ "zeroize",
 ]
 
 [[package]]
@@ -7769,7 +7731,6 @@ dependencies = [
  "hex",
  "jsonrpsee",
  "log",
- "pallet-assets",
  "pallet-balances",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
@@ -7837,8 +7798,6 @@ dependencies = [
  "frame-try-runtime",
  "lazy_static",
  "log",
- "pallet-assets",
- "pallet-assets-holder",
  "pallet-balances",
  "pallet-mining-rewards",
  "pallet-multisig",

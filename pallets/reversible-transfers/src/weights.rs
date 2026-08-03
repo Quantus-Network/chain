@@ -52,7 +52,6 @@ use core::marker::PhantomData;
 pub trait WeightInfo {
 	fn set_high_security() -> Weight;
 	fn schedule_transfer() -> Weight;
-	fn schedule_asset_transfer() -> Weight;
 	fn cancel() -> Weight;
 	fn execute_transfer() -> Weight;
 	fn recover_funds(n: u32, ) -> Weight;
@@ -98,37 +97,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(59_000_000, 13483)
 			.saturating_add(T::DbWeight::get().reads(7_u64))
 			.saturating_add(T::DbWeight::get().writes(6_u64))
-	}
-	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
-	/// Proof: `ReversibleTransfers::HighSecurityAccounts` (`max_values`: None, `max_size`: Some(89), added: 2564, mode: `MaxEncodedLen`)
-	/// Storage: `ReversibleTransfers::NextTransactionId` (r:1 w:1)
-	/// Proof: `ReversibleTransfers::NextTransactionId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `ReversibleTransfers::PendingTransfersBySender` (r:1 w:1)
-	/// Proof: `ReversibleTransfers::PendingTransfersBySender` (`max_values`: None, `max_size`: Some(561), added: 3036, mode: `MaxEncodedLen`)
-	/// Storage: `Scheduler::Lookup` (r:1 w:1)
-	/// Proof: `Scheduler::Lookup` (`max_values`: None, `max_size`: Some(53), added: 2528, mode: `MaxEncodedLen`)
-	/// Storage: `Timestamp::Now` (r:1 w:0)
-	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `Scheduler::Agenda` (r:1 w:1)
-	/// Proof: `Scheduler::Agenda` (`max_values`: None, `max_size`: Some(10018), added: 12493, mode: `MaxEncodedLen`)
-	/// Storage: `Assets::Asset` (r:1 w:1)
-	/// Proof: `Assets::Asset` (`max_values`: None, `max_size`: Some(210), added: 2685, mode: `MaxEncodedLen`)
-	/// Storage: `Assets::Account` (r:1 w:1)
-	/// Proof: `Assets::Account` (`max_values`: None, `max_size`: Some(134), added: 2609, mode: `MaxEncodedLen`)
-	/// Storage: `AssetsHolder::BalancesOnHold` (r:1 w:1)
-	/// Proof: `AssetsHolder::BalancesOnHold` (`max_values`: None, `max_size`: Some(84), added: 2559, mode: `MaxEncodedLen`)
-	/// Storage: `AssetsHolder::Holds` (r:1 w:1)
-	/// Proof: `AssetsHolder::Holds` (`max_values`: None, `max_size`: Some(105), added: 2580, mode: `MaxEncodedLen`)
-	/// Storage: `ReversibleTransfers::PendingTransfers` (r:0 w:1)
-	/// Proof: `ReversibleTransfers::PendingTransfers` (`max_values`: None, `max_size`: Some(165), added: 2640, mode: `MaxEncodedLen`)
-	fn schedule_asset_transfer() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `629`
-		//  Estimated: `13483`
-		// Minimum execution time: 62_000_000 picoseconds.
-		Weight::from_parts(64_000_000, 13483)
-			.saturating_add(T::DbWeight::get().reads(10_u64))
-			.saturating_add(T::DbWeight::get().writes(9_u64))
 	}
 	/// Storage: `ReversibleTransfers::PendingTransfers` (r:1 w:1)
 	/// Proof: `ReversibleTransfers::PendingTransfers` (`max_values`: None, `max_size`: Some(165), added: 2640, mode: `MaxEncodedLen`)
@@ -194,24 +162,28 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
 	/// Storage: `Scheduler::Lookup` (r:16 w:16)
 	/// Proof: `Scheduler::Lookup` (`max_values`: None, `max_size`: Some(53), added: 2528, mode: `MaxEncodedLen`)
-	/// Storage: `Scheduler::Agenda` (r:2 w:2)
+	/// Storage: `Scheduler::Agenda` (r:16 w:16)
 	/// Proof: `Scheduler::Agenda` (`max_values`: None, `max_size`: Some(10018), added: 12493, mode: `MaxEncodedLen`)
 	/// Storage: `Scheduler::Retries` (r:0 w:16)
 	/// Proof: `Scheduler::Retries` (`max_values`: None, `max_size`: Some(40), added: 2515, mode: `MaxEncodedLen`)
 	/// The range of component `n` is `[0, 16]`.
+	///
+	/// Regenerated 2026-08-03 (`--steps=50 --repeat=20`) against the distinct-
+	/// Agenda-bucket `recover_funds` setup (one schedule per block). Values below
+	/// are the unmodified FRAME CLI output for both ref-time and proof size.
 	fn recover_funds(n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `522 + n * (364 ±0)`
-		//  Estimated: `9482 + n * (2640 ±32)`
-		// Minimum execution time: 52_000_000 picoseconds.
-		Weight::from_parts(55_250_404, 9482)
-			// Standard Error: 70_515
-			.saturating_add(Weight::from_parts(56_328_935, 0).saturating_mul(n.into()))
+		//  Measured:  `514 + n * (383 ±0)`
+		//  Estimated: `4026 + n * (12493 ±0)`
+		// Minimum execution time: 62_000_000 picoseconds.
+		Weight::from_parts(65_862_538, 4026)
+			// Standard Error: 134_621
+			.saturating_add(Weight::from_parts(64_986_364, 0).saturating_mul(n.into()))
 			.saturating_add(T::DbWeight::get().reads(4_u64))
-			.saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(n.into())))
+			.saturating_add(T::DbWeight::get().reads((3_u64).saturating_mul(n.into())))
 			.saturating_add(T::DbWeight::get().writes(3_u64))
-			.saturating_add(T::DbWeight::get().writes((3_u64).saturating_mul(n.into())))
-			.saturating_add(Weight::from_parts(0, 2640).saturating_mul(n.into()))
+			.saturating_add(T::DbWeight::get().writes((4_u64).saturating_mul(n.into())))
+			.saturating_add(Weight::from_parts(0, 12493).saturating_mul(n.into()))
 	}
 }
 
@@ -254,37 +226,6 @@ impl WeightInfo for () {
 		Weight::from_parts(59_000_000, 13483)
 			.saturating_add(RocksDbWeight::get().reads(7_u64))
 			.saturating_add(RocksDbWeight::get().writes(6_u64))
-	}
-	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
-	/// Proof: `ReversibleTransfers::HighSecurityAccounts` (`max_values`: None, `max_size`: Some(89), added: 2564, mode: `MaxEncodedLen`)
-	/// Storage: `ReversibleTransfers::NextTransactionId` (r:1 w:1)
-	/// Proof: `ReversibleTransfers::NextTransactionId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `ReversibleTransfers::PendingTransfersBySender` (r:1 w:1)
-	/// Proof: `ReversibleTransfers::PendingTransfersBySender` (`max_values`: None, `max_size`: Some(561), added: 3036, mode: `MaxEncodedLen`)
-	/// Storage: `Scheduler::Lookup` (r:1 w:1)
-	/// Proof: `Scheduler::Lookup` (`max_values`: None, `max_size`: Some(53), added: 2528, mode: `MaxEncodedLen`)
-	/// Storage: `Timestamp::Now` (r:1 w:0)
-	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `Scheduler::Agenda` (r:1 w:1)
-	/// Proof: `Scheduler::Agenda` (`max_values`: None, `max_size`: Some(10018), added: 12493, mode: `MaxEncodedLen`)
-	/// Storage: `Assets::Asset` (r:1 w:1)
-	/// Proof: `Assets::Asset` (`max_values`: None, `max_size`: Some(210), added: 2685, mode: `MaxEncodedLen`)
-	/// Storage: `Assets::Account` (r:1 w:1)
-	/// Proof: `Assets::Account` (`max_values`: None, `max_size`: Some(134), added: 2609, mode: `MaxEncodedLen`)
-	/// Storage: `AssetsHolder::BalancesOnHold` (r:1 w:1)
-	/// Proof: `AssetsHolder::BalancesOnHold` (`max_values`: None, `max_size`: Some(84), added: 2559, mode: `MaxEncodedLen`)
-	/// Storage: `AssetsHolder::Holds` (r:1 w:1)
-	/// Proof: `AssetsHolder::Holds` (`max_values`: None, `max_size`: Some(105), added: 2580, mode: `MaxEncodedLen`)
-	/// Storage: `ReversibleTransfers::PendingTransfers` (r:0 w:1)
-	/// Proof: `ReversibleTransfers::PendingTransfers` (`max_values`: None, `max_size`: Some(165), added: 2640, mode: `MaxEncodedLen`)
-	fn schedule_asset_transfer() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `629`
-		//  Estimated: `13483`
-		// Minimum execution time: 62_000_000 picoseconds.
-		Weight::from_parts(64_000_000, 13483)
-			.saturating_add(RocksDbWeight::get().reads(10_u64))
-			.saturating_add(RocksDbWeight::get().writes(9_u64))
 	}
 	/// Storage: `ReversibleTransfers::PendingTransfers` (r:1 w:1)
 	/// Proof: `ReversibleTransfers::PendingTransfers` (`max_values`: None, `max_size`: Some(165), added: 2640, mode: `MaxEncodedLen`)
@@ -350,23 +291,27 @@ impl WeightInfo for () {
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
 	/// Storage: `Scheduler::Lookup` (r:16 w:16)
 	/// Proof: `Scheduler::Lookup` (`max_values`: None, `max_size`: Some(53), added: 2528, mode: `MaxEncodedLen`)
-	/// Storage: `Scheduler::Agenda` (r:2 w:2)
+	/// Storage: `Scheduler::Agenda` (r:16 w:16)
 	/// Proof: `Scheduler::Agenda` (`max_values`: None, `max_size`: Some(10018), added: 12493, mode: `MaxEncodedLen`)
 	/// Storage: `Scheduler::Retries` (r:0 w:16)
 	/// Proof: `Scheduler::Retries` (`max_values`: None, `max_size`: Some(40), added: 2515, mode: `MaxEncodedLen`)
 	/// The range of component `n` is `[0, 16]`.
+	///
+	/// Regenerated 2026-08-03 (`--steps=50 --repeat=20`) against the distinct-
+	/// Agenda-bucket `recover_funds` setup (one schedule per block). Values below
+	/// are the unmodified FRAME CLI output for both ref-time and proof size.
 	fn recover_funds(n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `522 + n * (364 ±0)`
-		//  Estimated: `9482 + n * (2640 ±32)`
-		// Minimum execution time: 52_000_000 picoseconds.
-		Weight::from_parts(55_250_404, 9482)
-			// Standard Error: 70_515
-			.saturating_add(Weight::from_parts(56_328_935, 0).saturating_mul(n.into()))
+		//  Measured:  `514 + n * (383 ±0)`
+		//  Estimated: `4026 + n * (12493 ±0)`
+		// Minimum execution time: 62_000_000 picoseconds.
+		Weight::from_parts(65_862_538, 4026)
+			// Standard Error: 134_621
+			.saturating_add(Weight::from_parts(64_986_364, 0).saturating_mul(n.into()))
 			.saturating_add(RocksDbWeight::get().reads(4_u64))
-			.saturating_add(RocksDbWeight::get().reads((2_u64).saturating_mul(n.into())))
+			.saturating_add(RocksDbWeight::get().reads((3_u64).saturating_mul(n.into())))
 			.saturating_add(RocksDbWeight::get().writes(3_u64))
-			.saturating_add(RocksDbWeight::get().writes((3_u64).saturating_mul(n.into())))
-			.saturating_add(Weight::from_parts(0, 2640).saturating_mul(n.into()))
+			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(n.into())))
+			.saturating_add(Weight::from_parts(0, 12493).saturating_mul(n.into()))
 	}
 }

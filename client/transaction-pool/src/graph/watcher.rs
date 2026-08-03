@@ -134,6 +134,14 @@ impl<H: Clone, BH: Clone> Sender<H, BH> {
 		self.is_finalized || self.receivers.is_empty()
 	}
 
+	/// Drop receivers whose `Watcher` has already been dropped (channel closed).
+	///
+	/// Used to reclaim watcher state after a failed `submit_and_watch` without firing a
+	/// lifecycle event that would incorrectly notify any remaining live watchers.
+	pub fn prune_closed(&mut self) {
+		self.receivers.retain(|sender| !sender.is_closed());
+	}
+
 	fn send(&mut self, status: TransactionStatus<H, BH>) {
 		self.receivers.retain(|sender| sender.unbounded_send(status.clone()).is_ok())
 	}

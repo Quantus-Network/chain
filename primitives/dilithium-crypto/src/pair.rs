@@ -153,6 +153,83 @@ mod tests {
 		);
 	}
 
+	const TEST_PHRASE: &str =
+		"sample split bamboo west visual approve brain fox arch impact relief smile";
+
+	/// The seed returned by `from_phrase` must control the very same account as the
+	/// returned pair: users back up the displayed "secret seed" and expect to recover
+	/// their account from it with `from_seed` if the mnemonic is lost.
+	#[test]
+	fn test_from_phrase_returned_seed_reconstructs_same_pair() {
+		let (pair, seed) = DilithiumPair::from_phrase(TEST_PHRASE, None).expect("valid phrase");
+		let restored = DilithiumPair::from_seed(&seed).expect("valid seed");
+		assert_eq!(
+			pair.public_bytes(),
+			restored.public_bytes(),
+			"seed returned by from_phrase must reconstruct the same account"
+		);
+		assert_eq!(pair.secret_bytes(), restored.secret_bytes());
+	}
+
+	/// Same as above, with a password.
+	#[test]
+	fn test_from_phrase_returned_seed_reconstructs_same_pair_with_password() {
+		let password = Some("hunter2");
+		let (pair, seed) = DilithiumPair::from_phrase(TEST_PHRASE, password).expect("valid phrase");
+		let restored = DilithiumPair::from_seed(&seed).expect("valid seed");
+		assert_eq!(
+			pair.public_bytes(),
+			restored.public_bytes(),
+			"seed returned by from_phrase must reconstruct the same account"
+		);
+	}
+
+	/// `from_string_with_seed` shall expose the same faithful seed for mnemonic inputs.
+	#[test]
+	fn test_from_string_with_seed_returns_matching_seed() {
+		let (pair, seed) =
+			DilithiumPair::from_string_with_seed(TEST_PHRASE, None).expect("valid phrase");
+		let seed = seed.expect("a faithful seed is available for mnemonic inputs");
+		let restored = DilithiumPair::from_seed(&seed).expect("valid seed");
+		assert_eq!(pair.public_bytes(), restored.public_bytes());
+	}
+
+	/// Guard: `from_phrase` must keep deriving the keypair through the default HD path,
+	/// otherwise existing accounts created from mnemonics would change address.
+	#[test]
+	fn test_from_phrase_matches_hd_derivation() {
+		let keypair = qp_rusty_crystals_hdwallet::derive_key_from_mnemonic(
+			TEST_PHRASE,
+			None,
+			"m/44'/189189'/0'/0'/0'",
+		)
+		.expect("valid phrase");
+		let expected = DilithiumPair::from_keypair(keypair);
+		let (pair, _) = DilithiumPair::from_phrase(TEST_PHRASE, None).expect("valid phrase");
+		assert_eq!(
+			pair.public_bytes(),
+			expected.public_bytes(),
+			"from_phrase must not change the account derived from a mnemonic"
+		);
+	}
+
+	/// `zeroize()` must scrub the secret key material.
+	#[test]
+	fn test_zeroize_clears_secret() {
+		use zeroize::Zeroize;
+		let mut pair = DilithiumPair::from_seed(&[7u8; 32]).expect("valid seed");
+		assert!(pair.secret_bytes().iter().any(|b| *b != 0));
+		pair.zeroize();
+		assert!(pair.secret_bytes().iter().all(|b| *b == 0));
+	}
+
+	/// Compile-time guarantee that dropped pairs (including clones) wipe their secret.
+	#[test]
+	fn test_pair_zeroizes_on_drop() {
+		fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+		assert_zeroize_on_drop::<DilithiumPair>();
+	}
+
 	#[test]
 	fn test_from_raw_matching_keys_succeeds() {
 		let seed = [0u8; 32];

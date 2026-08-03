@@ -5,6 +5,7 @@ use sp_core::{
 	crypto::{PublicBytes, SignatureBytes},
 	RuntimeDebug,
 };
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Resonance Crypto Types
 ///

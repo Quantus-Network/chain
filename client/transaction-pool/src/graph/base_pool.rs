@@ -369,6 +369,31 @@ impl<Hash: hash::Hash + Member + Serialize, Ex: std::fmt::Debug> BasePool<Hash, 
 					// If there were conflicting future transactions promoted, removed them from
 					// promoted set.
 					promoted.retain(|hash| replaced.iter().all(|tx| *hash != tx.hash));
+					// Tags uniquely provided by replaced ready txs are gone; re-mark them on
+					// futures that still require them (same invariant as `remove_subtree`).
+					// Also reconcile already-queued promotions: `satisfy_tags` may have pulled
+					// them out of `self.future` before replacement ran, so a future-only repair
+					// would miss them and the next loop iteration would admit them incomplete.
+					if !replaced.is_empty() {
+						let lost_tags = self.lost_provides(replaced.iter().map(|tx| tx.as_ref()));
+						if !lost_tags.is_empty() {
+							self.future.unsatisfy_tags(lost_tags.iter().cloned());
+							let mut still_ready = Vec::new();
+							for mut queued in to_import.drain(..) {
+								for req in queued.transaction.requires.iter() {
+									if lost_tags.contains(req) {
+										queued.missing_tags.insert(req.clone());
+									}
+								}
+								if queued.is_ready() {
+									still_ready.push(queued);
+								} else {
+									self.future.import(queued);
+								}
+							}
+							to_import = still_ready;
+						}
+					}
 					// The transactions were removed from the ready pool. We might attempt to
 					// re-import them.
 					removed.append(&mut replaced);
@@ -415,7 +440,8 @@ impl<Hash: hash::Hash + Member + Serialize, Ex: std::fmt::Debug> BasePool<Hash, 
 		if removed.iter().any(|tx| tx.hash == tx_hash) {
 			// We still need to remove all transactions that we promoted
 			// since they depend on each other and will never get to the best iterator.
-			self.ready.remove_subtree(&promoted);
+			// Use `remove_subtree` so future txs re-mark deps on provides we drop.
+			self.remove_subtree(&promoted);
 
 			trace!(
 				target: LOG_TARGET,
@@ -506,21 +532,34 @@ impl<Hash: hash::Hash + Member + Serialize, Ex: std::fmt::Debug> BasePool<Hash, 
 			let worst = self.future.fold(|worst, current| match worst {
 				None => Some(current.clone()),
 				Some(worst) => Some(
-					match (worst.transaction.source.timestamp, current.transaction.source.timestamp)
-					{
-						(Some(worst_timestamp), Some(current_timestamp)) => {
-							if worst_timestamp > current_timestamp {
-								current.clone()
-							} else {
-								worst
-							}
-						},
-						_ =>
-							if worst.imported_at > current.imported_at {
-								current.clone()
-							} else {
-								worst
+					// Prefer to evict the lowest-priority transaction first, matching the
+					// ready-queue policy and this function's documented behavior. Without
+					// this, age-only eviction lets an attacker flood the future queue with
+					// low-priority transactions to force out a victim's older, higher-priority
+					// future transaction (which `ValidatedPool` then bans), turning queue
+					// pressure into a priority-bypassing censorship path. Age is only used to
+					// break ties between equal priorities (evict the one waiting longest).
+					match worst.transaction.priority.cmp(&current.transaction.priority) {
+						Ordering::Less => worst,
+						Ordering::Greater => current.clone(),
+						Ordering::Equal => match (
+							worst.transaction.source.timestamp,
+							current.transaction.source.timestamp,
+						) {
+							(Some(worst_timestamp), Some(current_timestamp)) => {
+								if worst_timestamp > current_timestamp {
+									current.clone()
+								} else {
+									worst
+								}
 							},
+							_ =>
+								if worst.imported_at > current.imported_at {
+									current.clone()
+								} else {
+									worst
+								},
+						},
 					},
 				),
 			});
@@ -545,8 +584,37 @@ impl<Hash: hash::Hash + Member + Serialize, Ex: std::fmt::Debug> BasePool<Hash, 
 	/// and you don't want them to be stored in the pool use `prune_tags` method.
 	pub fn remove_subtree(&mut self, hashes: &[Hash]) -> Vec<Arc<Transaction<Hash, Ex>>> {
 		let mut removed = self.ready.remove_subtree(hashes);
+		// Future txs only track tags that were missing at import. Tags that were
+		// satisfied by a ready provider which we just removed must be re-marked as
+		// missing, otherwise a later provider of the remaining tags can falsely
+		// promote an incompletely dependent future transaction into ready.
+		// Skip provides still covered by another ready tx or by recently pruned
+		// (included) tags — those remain satisfied.
+		let tags_to_unsatisfy = self.lost_provides(removed.iter().map(|tx| tx.as_ref()));
+		self.future.unsatisfy_tags(tags_to_unsatisfy);
 		removed.extend(self.future.remove(hashes));
 		removed
+	}
+
+	/// Tags provided by `removed` that are no longer satisfied by the ready pool or
+	/// by recently pruned (included) tags.
+	fn lost_provides<'a>(
+		&self,
+		removed: impl Iterator<Item = &'a Transaction<Hash, Ex>>,
+	) -> HashSet<Tag>
+	where
+		Hash: 'a,
+		Ex: 'a,
+	{
+		let provided = self.ready.provided_tags();
+		removed
+			.flat_map(|tx| tx.provides.iter())
+			.filter(|tag| {
+				!provided.contains_key(*tag) &&
+					!self.recently_pruned.iter().any(|set| set.contains(*tag))
+			})
+			.cloned()
+			.collect()
 	}
 
 	/// Removes and returns all transactions from the future queue.
@@ -1089,6 +1157,116 @@ mod tests {
 		assert_eq!(pool.future.len(), 0);
 	}
 
+	/// Importing a higher-priority replacement can unlock a future (moving it into the
+	/// promotion queue) and simultaneously replace the ready tx that uniquely provided
+	/// one of that future's other requirements. The future has already left `self.future`
+	/// via `satisfy_tags`, so a repair that only scans the future map misses it and the
+	/// next loop iteration would admit it to Ready with an unsatisfied requirement.
+	#[test]
+	fn replace_during_promotion_keeps_incompletely_unlocked_tx_in_future() {
+		let mut pool = pool();
+		let tag_conflict = vec![0xAAu8];
+		let tag_lost = vec![0xBBu8];
+		let tag_unlock = vec![0xCCu8];
+		let tag_f = vec![0xDDu8];
+
+		// Ready R provides {conflict, lost}.
+		pool.import(Transaction {
+			data: vec![1u8],
+			hash: 1,
+			priority: 1u64,
+			provides: vec![tag_conflict.clone(), tag_lost.clone()],
+			..default_tx()
+		})
+		.unwrap();
+
+		// Future F requires {lost, unlock}; at import, lost is satisfied by R.
+		pool.import(Transaction {
+			data: vec![2u8],
+			hash: 2,
+			requires: vec![tag_lost.clone(), tag_unlock.clone()],
+			provides: vec![tag_f],
+			..default_tx()
+		})
+		.unwrap();
+		assert_eq!(pool.ready().count(), 1);
+		assert_eq!(pool.future.len(), 1);
+
+		// Higher-priority A provides {conflict, unlock}: unlocks F into to_import, then
+		// replaces R (losing `lost`). F must not enter Ready incomplete.
+		pool.import(Transaction {
+			data: vec![3u8],
+			hash: 3,
+			priority: 100u64,
+			provides: vec![tag_conflict, tag_unlock],
+			..default_tx()
+		})
+		.unwrap();
+
+		assert!(pool.ready().any(|tx| tx.hash == 3), "replacement A must be ready");
+		assert!(
+			!pool.ready().any(|tx| tx.hash == 2),
+			"F must not be admitted to Ready without `lost`"
+		);
+		assert_eq!(pool.future.len(), 1, "F must remain in future until `lost` is provided again");
+		assert!(pool.futures().any(|tx| tx.hash == 2));
+	}
+
+	/// A future that required tags X and Y, imported while X was already ready, must not be
+	/// promoted once Y appears if the ready provider of X was removed in the meantime.
+	/// `missing_tags` only tracked Y at import; removing X's provider must re-mark X as missing.
+	#[test]
+	fn remove_subtree_re_marks_future_deps_on_removed_ready_provides() {
+		let mut pool = pool();
+		let tag_x = vec![0x11];
+		let tag_y = vec![0x22];
+		let tag_f = vec![0x33];
+
+		// Ready provider of X.
+		pool.import(Transaction {
+			data: vec![1u8],
+			hash: 1,
+			provides: vec![tag_x.clone()],
+			..default_tx()
+		})
+		.unwrap();
+
+		// Future requiring X and Y: X is satisfied at import, so missing_tags = {Y}.
+		pool.import(Transaction {
+			data: vec![2u8],
+			hash: 2,
+			requires: vec![tag_x.clone(), tag_y.clone()],
+			provides: vec![tag_f],
+			..default_tx()
+		})
+		.unwrap();
+		assert_eq!(pool.ready().count(), 1);
+		assert_eq!(pool.future.len(), 1);
+
+		// Remove the ready provider of X (e.g. invalidation / limit eviction).
+		pool.remove_subtree(&[1]);
+		assert_eq!(pool.ready().count(), 0);
+		assert_eq!(pool.future.len(), 1);
+
+		// A new transaction provides Y. Without re-marking X as missing, the future would
+		// be falsely promoted to ready with an incomplete dependency set.
+		pool.import(Transaction {
+			data: vec![3u8],
+			hash: 3,
+			provides: vec![tag_y],
+			..default_tx()
+		})
+		.unwrap();
+
+		assert_eq!(pool.ready().count(), 1, "only the Y provider should be ready");
+		assert_eq!(pool.future.len(), 1, "future still waiting for X");
+		assert!(
+			pool.ready().all(|tx| tx.hash == 3),
+			"future requiring X must not enter ready after X's provider was removed"
+		);
+		assert!(pool.futures().any(|tx| tx.hash == 2));
+	}
+
 	#[test]
 	fn should_prune_ready_transactions() {
 		// given
@@ -1249,6 +1427,60 @@ source: TimedTransactionSource { source: TransactionSource::External, timestamp:
 
 		// then
 		assert_eq!(pool.future.len(), 0);
+	}
+
+	#[test]
+	fn future_limit_enforcement_evicts_lowest_priority_first() {
+		use std::time::Duration;
+
+		let mut pool = pool();
+
+		// Older, high-priority future transaction (submitted first).
+		let t_old = Instant::now();
+		pool.import(Transaction {
+			data: vec![0u8].into(),
+			hash: 0x10,
+			priority: 1_000u64,
+			requires: vec![vec![10]],
+			provides: vec![vec![11]],
+			source: TimedTransactionSource {
+				source: TransactionSource::External,
+				timestamp: Some(t_old),
+			},
+			..default_tx().clone()
+		})
+		.unwrap();
+
+		// Newer, low-priority future transaction (submitted later).
+		pool.import(Transaction {
+			data: vec![1u8].into(),
+			hash: 0x20,
+			priority: 1u64,
+			requires: vec![vec![20]],
+			provides: vec![vec![21]],
+			source: TimedTransactionSource {
+				source: TransactionSource::External,
+				timestamp: Some(t_old + Duration::from_secs(1)),
+			},
+			..default_tx().clone()
+		})
+		.unwrap();
+
+		assert_eq!(pool.future.len(), 2);
+
+		// Enforce a future limit that only leaves room for a single transaction.
+		let removed = pool.enforce_limits(
+			&Limit { count: 100, total_bytes: 100 },
+			&Limit { count: 1, total_bytes: 100 },
+		);
+
+		// The low-priority transaction must be evicted even though it is newer; the
+		// older but higher-priority transaction must survive. Age-only eviction would
+		// (incorrectly) drop the older high-priority one.
+		assert_eq!(removed.len(), 1);
+		assert_eq!(removed[0].hash, 0x20);
+		let remaining = pool.futures().map(|tx| tx.hash).collect::<Vec<_>>();
+		assert_eq!(remaining, vec![0x10]);
 	}
 
 	#[test]

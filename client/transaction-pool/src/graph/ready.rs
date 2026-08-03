@@ -469,6 +469,14 @@ impl<Hash: hash::Hash + Member + Serialize, Ex> ReadyTransactions<Hash, Ex> {
 		let new_provides = tx.provides.iter().cloned().collect::<HashSet<_>>();
 		let removed = self.remove_subtree_with_tag_filter(to_remove, Some(new_provides));
 
+		// `unlocks` was collected before the tag-filtered removal. Descendants that
+		// depended on tags the replacement does not provide are gone from the ready
+		// map; keep only edges to transactions that actually survived so BestIterator
+		// never treats a stale hash as a satisfied dependency.
+		let ready = self.ready.read();
+		let unlocks =
+			unlocks.into_iter().filter(|hash| ready.contains_key(hash)).collect::<Vec<_>>();
+
 		Ok((removed, unlocks))
 	}
 
@@ -825,5 +833,66 @@ mod tests {
 		assert!(!tx1_unlocks.contains(&tx2.hash));
 		assert!(!tx1_unlocks.contains(&tx3.hash));
 		assert!(tx1_unlocks.contains(&tx4.hash));
+	}
+
+	/// Partial replacement (overlapping but non-identical provides) must not leave
+	/// unlock edges pointing at descendants that were dropped because they required
+	/// tags the replacement does not provide. Otherwise BestIterator can promote a
+	/// later re-imported descendant before its real provider is yielded.
+	#[test]
+	fn partial_replace_does_not_keep_stale_unlock_edges() {
+		let mut ready = ReadyTransactions::default();
+		let tag_x = vec![0x11];
+		let tag_y = vec![0x22];
+		let tag_z = vec![0x33];
+
+		let mut tx_a = tx(1);
+		tx_a.requires.clear();
+		tx_a.provides = vec![tag_x.clone(), tag_y.clone()];
+		tx_a.priority = 1;
+
+		let mut tx_d = tx(2);
+		tx_d.requires = vec![tag_y.clone()];
+		tx_d.provides = vec![tag_z.clone()];
+		tx_d.priority = 1;
+
+		import(&mut ready, tx_a).unwrap();
+		import(&mut ready, tx_d.clone()).unwrap();
+		assert_eq!(ready.get().count(), 2);
+
+		// Replacement provides only X (drops Y). Higher priority so it replaces tx_a.
+		let mut tx_c = tx(3);
+		tx_c.requires.clear();
+		tx_c.provides = vec![tag_x];
+		tx_c.priority = 10;
+		import(&mut ready, tx_c).unwrap();
+
+		// Descendant requiring Y must be gone, and the replacement must not retain
+		// a stale unlock edge to it.
+		assert!(!ready.contains(&tx_d.hash));
+		{
+			let lock = ready.ready.read();
+			let unlocks = &lock.get(&3).expect("replacement in ready").unlocks;
+			assert!(
+				!unlocks.contains(&tx_d.hash),
+				"stale unlock edge to removed descendant: {unlocks:?}"
+			);
+		}
+
+		// Real provider of Y, then re-submit the descendant.
+		let mut tx_y = tx(4);
+		tx_y.requires.clear();
+		tx_y.provides = vec![tag_y];
+		tx_y.priority = 1;
+		import(&mut ready, tx_y).unwrap();
+		import(&mut ready, tx_d).unwrap();
+
+		let order: Vec<_> = ready.get().map(|tx| tx.hash).collect();
+		let pos_y = order.iter().position(|h| *h == 4).expect("Y provider in ready set");
+		let pos_d = order.iter().position(|h| *h == 2).expect("descendant in ready set");
+		assert!(
+			pos_y < pos_d,
+			"descendant must not be ordered before its required-tag provider; order={order:?}"
+		);
 	}
 }

@@ -456,6 +456,13 @@ enum EventMetricsMessage<Hash, BlockHash> {
 	/// Message indicating the new status of a transaction, including the timestamp and transaction
 	/// hash.
 	Status(Instant, Hash, TransactionStatus<Hash, BlockHash>),
+	/// Message indicating that a previously submitted transaction was rejected before reaching
+	/// any view (e.g. it failed validation during submission) and no status events will ever be
+	/// reported for it, so its entry shall be removed from the collector's state.
+	SubmissionRejected(Hash),
+	/// Test-only query for the number of transactions currently tracked by the collector task.
+	#[cfg(test)]
+	TrackedTxsCount(futures::channel::oneshot::Sender<usize>),
 }
 
 /// Collects metrics related to transaction events.
@@ -512,6 +519,35 @@ impl<ChainApi: graph::ChainApi> EventsMetricsCollector<ChainApi> {
 				}
 			}
 		});
+	}
+
+	/// Reports that a submitted transaction was rejected before being included in any view.
+	///
+	/// Since no status events will ever be reported for such a transaction, this message
+	/// removes the transaction's entry from the collector's internal state, preventing
+	/// unbounded growth of the state for transactions that fail submission.
+	pub fn report_submission_rejected(&self, tx_hash: ExtrinsicHash<ChainApi>) {
+		self.metrics_message_sink.as_ref().map(|sink| {
+			if let Err(error) =
+				sink.unbounded_send(EventMetricsMessage::SubmissionRejected(tx_hash))
+			{
+				trace!(target: LOG_TARGET, %error, "tx submission rejected metrics message send failed")
+			}
+		});
+	}
+
+	/// Returns the number of transactions currently tracked by the metrics collector task.
+	///
+	/// Intended for testing only.
+	#[cfg(test)]
+	pub(crate) async fn tracked_txs_count(&self) -> usize {
+		let (tx, rx) = futures::channel::oneshot::channel();
+		self.metrics_message_sink
+			.as_ref()
+			.expect("metrics message sink is set in tests")
+			.unbounded_send(EventMetricsMessage::TrackedTxsCount(tx))
+			.expect("metrics collector task is running");
+		rx.await.expect("metrics collector task answers count queries")
 	}
 }
 
@@ -650,6 +686,13 @@ where
 						&mut submitted_timestamp_map,
 						&metrics,
 					);
+				},
+				Some(EventMetricsMessage::SubmissionRejected(hash)) => {
+					submitted_timestamp_map.remove(&hash);
+				},
+				#[cfg(test)]
+				Some(EventMetricsMessage::TrackedTxsCount(sender)) => {
+					let _ = sender.send(submitted_timestamp_map.len());
 				},
 				None => {
 					return; /* ? */

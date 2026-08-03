@@ -259,6 +259,19 @@ where
 	}
 }
 
+/// Priority used to order mempool entries for eviction (`try_insert_with_replacement`).
+///
+/// `None` (priority not yet known) deliberately ranks *above* any concrete priority, making
+/// unvalidated entries un-evictable. This matches upstream polkadot-sdk and is a conscious
+/// trade-off ("don't evict what you can't compare yet"): every transaction is `None` between
+/// mempool insertion and its first successful view submission, and ranking `None` lowest
+/// would let any prioritized replacement evict legitimate fresh transactions in steady state.
+///
+/// Security note (reviewed, accepted risk): while no views exist (startup/major sync) all
+/// entries stay `None`, so a saturated mempool rejects replacement-path insertions with
+/// `ImmediatelyDropped` regardless of the incoming priority. The condition is bounded (the
+/// mempool itself is limited) and self-heals once a view exists: resubmission assigns
+/// concrete priorities or drops invalid entries, restoring normal eviction.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 struct MempoolTxPriority(pub Option<TransactionPriority>);
 
@@ -420,6 +433,25 @@ where
 	) -> Self {
 		let (sync_channel, rx) = sync_bridge_channel();
 		tokio::task::spawn_blocking(move || Self::sync_bridge_task(rx));
+		Self {
+			api,
+			listener: Arc::from(MultiViewListener::new_with_worker(Default::default()).0),
+			transactions: Default::default(),
+			metrics: Default::default(),
+			sync_channel,
+			max_transactions_count,
+			max_transactions_total_bytes,
+		}
+	}
+
+	/// Like [`Self::new_test`], but drops the sync-bridge receiver so `_sync` calls fail.
+	#[cfg(test)]
+	fn new_test_without_sync_bridge(
+		api: Arc<ChainApi>,
+		max_transactions_count: usize,
+		max_transactions_total_bytes: usize,
+	) -> Self {
+		let (sync_channel, _rx) = sync_bridge_channel();
 		Self {
 			api,
 			listener: Arc::from(MultiViewListener::new_with_worker(Default::default()).0),
@@ -992,12 +1024,20 @@ where
 		xts: Vec<ExtrinsicFor<ChainApi>>,
 	) -> Vec<Result<InsertionInfo<ExtrinsicHash<ChainApi>>, sc_transaction_pool_api::error::Error>>
 	{
+		// Preserve the async `extend_unwatched` contract: one result per input, in order.
+		let input_len = xts.len();
 		let (response, request) =
 			TxMemPoolSyncRequest::extend_unwatched(self.clone(), source, validated_at, xts);
 		let _ = self.sync_channel.send(request);
 		response.recv().unwrap_or_else(|_| {
 			error!(target: LOG_TARGET, "extend_unwatched_sync: {}", SYNC_BRIDGE_EXPECT);
-			Vec::new()
+			(0..input_len)
+				.map(|_| {
+					Err(sc_transaction_pool_api::error::Error::InvalidBlockId(
+						SYNC_BRIDGE_EXPECT.into(),
+					))
+				})
+				.collect()
 		})
 	}
 
@@ -1399,5 +1439,39 @@ mod tx_mem_pool_tests {
 			result.unwrap_err(),
 			sc_transaction_pool_api::error::Error::ImmediatelyDropped
 		));
+	}
+}
+
+#[cfg(test)]
+mod sync_bridge_tests {
+	use super::*;
+	use crate::common::mock_api::{xt, MockChainApi, TestBlock};
+	use sp_runtime::transaction_validity::TransactionSource;
+
+	/// Bridge failure must still return one `Err` per input so callers like
+	/// `submit_local` (`.remove(0)`) never panic on an empty vector.
+	#[test]
+	fn extend_unwatched_sync_returns_one_error_per_input_when_bridge_dead() {
+		let api = Arc::new(MockChainApi::default());
+		let mempool = Arc::new(TxMemPool::<MockChainApi, TestBlock>::new_test_without_sync_bridge(
+			api,
+			1024,
+			usize::MAX,
+		));
+		let xts = vec![Arc::from(xt(1)), Arc::from(xt(2)), Arc::from(xt(3))];
+		let input_len = xts.len();
+
+		let results = mempool.extend_unwatched_sync(TransactionSource::Local, 0, xts);
+
+		assert_eq!(results.len(), input_len);
+		assert!(
+			results.iter().all(|r| matches!(
+				r,
+				Err(sc_transaction_pool_api::error::Error::InvalidBlockId(_))
+			)),
+			"expected per-input InvalidBlockId on dead bridge, got {results:?}"
+		);
+		// Mimic submit_local indexing: must not panic.
+		let _ = results.into_iter().next().expect("one result per input");
 	}
 }

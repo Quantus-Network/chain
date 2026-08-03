@@ -253,11 +253,9 @@ mod runtime {
 	#[runtime::pallet_index(16)]
 	pub type Recovery = pallet_recovery;
 
-	#[runtime::pallet_index(17)]
-	pub type Assets = pallet_assets;
+	// Index 17 was `pallet_assets` (removed). Kept vacant so downstream pallet indices stay stable.
 
-	#[runtime::pallet_index(18)]
-	pub type AssetsHolder = pallet_assets_holder;
+	// Index 18 was `pallet_assets_holder` (removed with assets). Kept vacant.
 
 	#[runtime::pallet_index(19)]
 	pub type Multisig = pallet_multisig;

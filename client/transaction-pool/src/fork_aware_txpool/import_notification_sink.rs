@@ -198,7 +198,12 @@ where
 									%error,
 									"import_sink_worker sending message failed"
 								);
-								false
+								// A full channel is transient backpressure: drop only this
+								// notification but keep the subscriber. Dropping the sink
+								// would permanently close the subscriber's stream (used
+								// e.g. for transaction propagation). Only remove sinks
+								// whose receiver is gone.
+								error.is_full()
 							} else {
 								true
 							}
@@ -381,6 +386,52 @@ mod tests {
 
 		drop(ctrl);
 		futures::future::join_all(vec![j0, j1, j2, j3]).await;
+	}
+
+	/// A subscriber whose channel temporarily fills up must lose at most the overflowing
+	/// notifications, not its subscription: a full channel is transient backpressure,
+	/// only a disconnected channel means the subscriber is gone.
+	#[tokio::test]
+	async fn transient_backlog_does_not_permanently_drop_subscriber() {
+		sp_tracing::try_init_simple();
+
+		let (ctrl, runnable) = MultiViewImportNotificationSink::<u64, i32>::new_with_worker();
+		let j0 = tokio::spawn(runnable);
+
+		let mut stream = ctrl.event_stream();
+
+		// Flood more events than the external channel buffer (1024) while the
+		// subscriber is not consuming.
+		const FLOOD: i32 = 1500;
+		ctrl.add_view(1000, futures::stream::iter(0..FLOOD).boxed());
+
+		// Wait until the worker has dispatched the whole flood.
+		tokio::time::timeout(Duration::from_secs(5), async {
+			while ctrl.notified_items_len() < FLOOD as usize {
+				tokio::time::sleep(Duration::from_millis(10)).await;
+			}
+		})
+		.await
+		.unwrap();
+
+		// Drain whatever was buffered. The stream must still be open afterwards.
+		let mut terminated = false;
+		while let Some(item) = stream.next().now_or_never() {
+			if item.is_none() {
+				terminated = true;
+				break;
+			}
+		}
+		assert!(!terminated, "subscriber stream must survive a transient backlog");
+
+		// New notifications must still reach the (now draining) subscriber.
+		ctrl.add_view(2000, futures::stream::iter(5000..5001).boxed());
+		let next = tokio::time::timeout(Duration::from_secs(5), stream.next()).await.unwrap();
+		assert_eq!(next, Some(5000));
+
+		drop(ctrl);
+		drop(stream);
+		j0.await.unwrap();
 	}
 
 	#[tokio::test]

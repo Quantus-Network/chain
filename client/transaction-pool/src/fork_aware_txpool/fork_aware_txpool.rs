@@ -257,7 +257,10 @@ where
 		mempool_max_transactions_count: usize,
 		finality_timeout_threshold: Option<usize>,
 	) -> (Self, [ForkAwareTxPoolTask; 2]) {
-		let (listener, listener_task) = MultiViewListener::new_with_worker(Default::default());
+		let (events_metrics_collector, event_metrics_task) =
+			EventsMetricsCollector::<ChainApi>::new_with_worker(Default::default());
+		let (listener, listener_task) =
+			MultiViewListener::new_with_worker(events_metrics_collector.clone());
 		let listener = Arc::new(listener);
 
 		let (import_notification_sink, import_notification_sink_task) =
@@ -293,7 +296,8 @@ where
 			tokio::select! {
 				_ = listener_task => {},
 				_ = import_notification_sink_task => {},
-				_ = dropped_monitor_task => {}
+				_ = dropped_monitor_task => {},
+				_ = event_metrics_task => {},
 			}
 		}
 		.boxed();
@@ -315,7 +319,7 @@ where
 				options,
 				is_validator: false.into(),
 				metrics: Default::default(),
-				events_metrics_collector: EventsMetricsCollector::default(),
+				events_metrics_collector,
 				finality_timeout_threshold: finality_timeout_threshold
 					.unwrap_or(FINALITY_TIMEOUT_THRESHOLD),
 				included_transactions: Default::default(),
@@ -762,6 +766,9 @@ where
 		match self.view_store.submit_and_watch(at, insertion.source, xt).await {
 			Err(e) => {
 				self.mempool.remove_transactions(&[insertion.hash]).await;
+				// The transaction never reached any view and no status events will be
+				// reported for it, so drop its entry from the events metrics collector.
+				self.events_metrics_collector.report_submission_rejected(insertion.hash);
 				Err(e.into())
 			},
 			Ok(mut outcome) => {
@@ -877,6 +884,10 @@ where
 					},
 					Err(e) => {
 						mempool.remove_transactions(&[hash]).await;
+						// The transaction never reached any view and no status events will
+						// be reported for it, so drop its entry from the events metrics
+						// collector.
+						self.events_metrics_collector.report_submission_rejected(hash);
 						final_results.push(Err(e));
 					},
 				},
@@ -2258,5 +2269,59 @@ mod reduce_multiview_result_tests {
 				Err(Error::Custom(33))
 			]
 		);
+	}
+}
+
+#[cfg(test)]
+mod submission_metrics_tests {
+	use super::*;
+	use crate::common::mock_api::{xt, MockChainApi, TestBlock, INVALID_CALL_THRESHOLD};
+	use sp_core::H256;
+
+	fn test_pool() -> ForkAwareTxPool<MockChainApi, TestBlock> {
+		let genesis = H256::from_low_u64_be(0);
+		let (pool, [combined_task, _mempool_task]) =
+			ForkAwareTxPool::new_test(Arc::new(MockChainApi::default()), genesis, genesis, None);
+		tokio::spawn(combined_task);
+		pool
+	}
+
+	/// A transaction which is accepted by the mempool but rejected during the view
+	/// submission must not leave a stale entry in the events metrics collector. Otherwise an
+	/// external party could grow the collector's memory without bounds by submitting unique
+	/// invalid transactions.
+	#[tokio::test]
+	async fn transaction_rejected_by_view_is_removed_from_event_metrics() {
+		let pool = test_pool();
+		let genesis = H256::from_low_u64_be(0);
+
+		// Control check: a valid transaction shall be tracked by the collector.
+		let results = pool
+			.submit_at(genesis, TransactionSource::External, vec![xt(1)])
+			.await
+			.expect("submit_at succeeds");
+		assert!(results[0].is_ok());
+		assert_eq!(pool.events_metrics_collector.tracked_txs_count().await, 1);
+
+		// Transaction rejected by the view shall not leak a collector entry.
+		let results = pool
+			.submit_at(genesis, TransactionSource::External, vec![xt(INVALID_CALL_THRESHOLD)])
+			.await
+			.expect("submit_at succeeds");
+		assert!(results[0].is_err());
+		assert_eq!(pool.events_metrics_collector.tracked_txs_count().await, 1);
+	}
+
+	/// Same as above, for the watched (`submit_and_watch`) submission path.
+	#[tokio::test]
+	async fn watched_transaction_rejected_by_view_is_removed_from_event_metrics() {
+		let pool = test_pool();
+		let genesis = H256::from_low_u64_be(0);
+
+		let result = pool
+			.submit_and_watch(genesis, TransactionSource::External, xt(INVALID_CALL_THRESHOLD))
+			.await;
+		assert!(result.is_err());
+		assert_eq!(pool.events_metrics_collector.tracked_txs_count().await, 0);
 	}
 }

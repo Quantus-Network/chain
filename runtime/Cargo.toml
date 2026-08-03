@@ -27,8 +27,6 @@ frame-system-rpc-runtime-api.workspace = true
 frame-try-runtime = { optional = true, workspace = true }
 lazy_static.workspace = true
 log.workspace = true
-pallet-assets.workspace = true
-pallet-assets-holder = { workspace = true, default-features = false }
 pallet-balances.workspace = true
 pallet-mining-rewards.workspace = true
 pallet-multisig.workspace = true
@@ -92,8 +90,6 @@ std = [
 	"frame-system/std",
 	"frame-try-runtime?/std",
 	"log/std",
-	"pallet-assets-holder/std",
-	"pallet-assets/std",
 	"pallet-balances/std",
 	"pallet-mining-rewards/std",
 	"pallet-multisig/std",
@@ -140,7 +136,6 @@ runtime-benchmarks = [
 	"frame-support/runtime-benchmarks",
 	"frame-system-benchmarking/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
-	"pallet-assets/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-mining-rewards/runtime-benchmarks",
 	"pallet-multisig/runtime-benchmarks",
@@ -163,7 +158,6 @@ try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 	"frame-try-runtime/try-runtime",
-	"pallet-assets/try-runtime",
 	"pallet-balances/try-runtime",
 	"pallet-mining-rewards/try-runtime",
 	"pallet-qpow/try-runtime",
