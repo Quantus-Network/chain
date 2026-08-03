@@ -55,8 +55,9 @@ use super::{
 /// notification (or closes the watcher if a *final* status cannot be delivered) instead of growing
 /// without bound when RPC / downstream consumers stop polling.
 ///
-/// Terminal pool statuses (`Finalized`, `Dropped`, `Invalid`, `FinalityTimeout`) bypass this bound
-/// on a dedicated finals lane — see [`MultiViewListener::send_controller_command`].
+/// Terminal pool statuses (`Finalized`, `Dropped`, `Invalid`, `FinalityTimeout`) and view stream
+/// management commands bypass this bound on a dedicated loss-less lane — see
+/// [`MultiViewListener::send_controller_command`].
 pub(super) const STATUS_CHANNEL_CAPACITY: usize = 1024;
 
 /// A side channel allowing to control the external stream instance (one per transaction) with
@@ -249,17 +250,23 @@ where
 		))
 	}
 
-	/// Whether this command carries a terminal transaction status.
+	/// Whether this command must not be dropped under backlog.
 	///
-	/// Terminal statuses must reach the external watcher (or close it), so they are routed via
-	/// the loss-less finals lane instead of the bounded, drop-on-full controller channel.
-	fn is_final_status(&self) -> bool {
+	/// Such commands are routed via the loss-less lane instead of the bounded, drop-on-full
+	/// controller channel:
+	/// - terminal transaction statuses must reach the external watcher (or close it),
+	/// - view stream management is intrinsically rare (per block, not per transaction) and losing
+	///   `AddViewStream` would silence all of that view's events for its lifetime.
+	///
+	/// Only the flood-prone `Broadcast` traffic (per transaction, driven by gossip) remains
+	/// droppable.
+	fn requires_lossless_delivery(&self) -> bool {
 		match self {
 			Self::TransactionStatusRequest(request) => {
 				let status: TransactionStatus<_, _> = request.into();
 				status.is_final()
 			},
-			Self::AddViewStream(..) | Self::RemoveViewStream(..) => false,
+			Self::AddViewStream(..) | Self::RemoveViewStream(..) => true,
 		}
 	}
 }
@@ -282,14 +289,16 @@ pub struct MultiViewListener<ChainApi: graph::ChainApi> {
 	/// effective capacity).
 	controller: Mutex<Controller<ControllerCommand<ChainApi>>>,
 
-	/// Loss-less lane for commands carrying terminal transaction statuses (`Finalized`,
-	/// `Dropped`, `Invalid`, `FinalityTimeout`, `Usurped`).
+	/// Loss-less lane for commands that must not be dropped under backlog: terminal transaction
+	/// statuses (`Finalized`, `Dropped`, `Invalid`, `FinalityTimeout`, `Usurped`) and view
+	/// stream management (`AddViewStream`/`RemoveViewStream`).
 	///
 	/// Unbounded on purpose: each transaction known to the pool emits at most a handful of
-	/// terminal events and the pool itself is capacity-limited, so this lane is bounded in
-	/// practice. The flood-prone traffic (view churn, broadcasts) stays on the bounded
-	/// `controller` channel where dropping is acceptable.
-	final_controller: UnboundedSender<ControllerCommand<ChainApi>>,
+	/// terminal events, the pool itself is capacity-limited, and view management occurs a
+	/// couple of times per block — so this lane is bounded in practice. The flood-prone
+	/// `Broadcast` traffic stays on the bounded `controller` channel where dropping is
+	/// acceptable.
+	lossless_controller: UnboundedSender<ControllerCommand<ChainApi>>,
 
 	/// The map containing the sinks of the streams representing the external listeners of
 	/// the individual transactions. Hash of the transaction is used as a map's key. A map is
@@ -587,7 +596,7 @@ where
 			RwLock<HashMap<ExtrinsicHash<ChainApi>, Controller<ExternalWatcherCommand<ChainApi>>>>,
 		>,
 		mut command_receiver: CommandReceiver<ControllerCommand<ChainApi>>,
-		mut final_command_receiver: UnboundedReceiver<ControllerCommand<ChainApi>>,
+		mut lossless_command_receiver: UnboundedReceiver<ControllerCommand<ChainApi>>,
 		events_metrics_collector: EventsMetricsCollector<ChainApi>,
 	) {
 		let mut aggregated_streams_map: StreamMap<BlockHash<ChainApi>, ViewStatusStream<ChainApi>> =
@@ -615,7 +624,7 @@ where
 						}
 					}
 				},
-				Some(cmd) = final_command_receiver.next() => {
+				Some(cmd) = lossless_command_receiver.next() => {
 					Self::dispatch_command(
 						&mut aggregated_streams_map,
 						&external_watchers_tx_hash_map,
@@ -639,7 +648,7 @@ where
 
 	/// Applies a single [`ControllerCommand`] within the listener's task.
 	///
-	/// Shared by the bounded controller lane and the loss-less finals lane.
+	/// Shared by the bounded controller lane and the loss-less lane.
 	fn dispatch_command(
 		aggregated_streams_map: &mut StreamMap<BlockHash<ChainApi>, ViewStatusStream<ChainApi>>,
 		external_watchers_tx_hash_map: &RwLock<
@@ -708,27 +717,32 @@ where
 		>::default()));
 
 		let (tx, rx) = channel(STATUS_CHANNEL_CAPACITY);
-		let (final_tx, final_rx) = unbounded();
-		let task = Self::task(external_controllers.clone(), rx, final_rx, events_metrics_collector);
+		let (lossless_tx, lossless_rx) = unbounded();
+		let task =
+			Self::task(external_controllers.clone(), rx, lossless_rx, events_metrics_collector);
 
 		(
-			Self { external_controllers, controller: Mutex::new(tx), final_controller: final_tx },
+			Self {
+				external_controllers,
+				controller: Mutex::new(tx),
+				lossless_controller: lossless_tx,
+			},
 			task.boxed(),
 		)
 	}
 
 	/// Routes a controller command to the appropriate lane.
 	///
-	/// Commands carrying terminal statuses go through the loss-less unbounded finals lane so
-	/// they cannot be dropped under backlog; everything else goes through the bounded,
-	/// drop-on-full controller channel.
+	/// Commands carrying terminal statuses or managing view streams go through the loss-less
+	/// unbounded lane so they cannot be dropped under backlog; everything else (`Broadcast`)
+	/// goes through the bounded, drop-on-full controller channel.
 	fn send_controller_command(&self, command: ControllerCommand<ChainApi>) {
-		if command.is_final_status() {
-			if let Err(error) = self.final_controller.unbounded_send(command) {
+		if command.requires_lossless_delivery() {
+			if let Err(error) = self.lossless_controller.unbounded_send(command) {
 				trace!(
 					target: LOG_TARGET,
 					command = ?error.into_inner(),
-					"multi-view-listener finals lane send failed (task gone)"
+					"multi-view-listener loss-less lane send failed (task gone)"
 				);
 			}
 		} else {
@@ -1323,6 +1337,58 @@ mod backlog_tests {
 			.expect("final status must arrive despite a full controller channel")
 			.expect("watcher stream must still be open");
 		assert_eq!(next, TransactionStatus::Finalized((block_hash, 0)));
+
+		let _ = terminate_tx.send(());
+		listener_handle.await.unwrap();
+	}
+
+	/// `AddViewStream` must not be discarded when the bounded controller channel is saturated
+	/// (e.g. by a gossip `Broadcast` flood): losing it would silence all of that view's events
+	/// (`Ready`/`InBlock`/...) for every watcher for the view's whole lifetime. View stream
+	/// management is intrinsically rare (per block), so it rides the loss-less lane.
+	#[tokio::test]
+	async fn add_view_stream_survives_full_controller_channel() {
+		sp_tracing::try_init_simple();
+
+		let (listener, listener_task) =
+			MultiViewListener::<MockChainApi>::new_with_worker(Default::default());
+
+		let tx_hash = H256::repeat_byte(0x0a);
+		let mut watcher = listener.create_external_watcher_for_tx(tx_hash).unwrap();
+
+		// Saturate the bounded controller channel with broadcasts for unrelated transactions
+		// while the listener task is not yet running (so nothing drains it).
+		const FLOOD: usize = STATUS_CHANNEL_CAPACITY + 200;
+		for i in 0..FLOOD {
+			let unrelated = H256::from_low_u64_be(i as u64 + 1);
+			listener.transactions_broadcasted(
+				std::iter::once((unrelated, vec!["peer".to_string()])).collect(),
+			);
+		}
+
+		// With the controller channel full, adding a view must still be enqueued.
+		let block_hash = H256::repeat_byte(0x01);
+		listener.add_view_aggregated_stream(
+			block_hash,
+			stream::iter(vec![(tx_hash, TransactionStatus::Ready)])
+				.chain(stream::pending())
+				.boxed(),
+		);
+
+		// Only now start the task, so the flood above could not have been drained early.
+		let (terminate_tx, terminate_rx) = tokio::sync::oneshot::channel();
+		let listener_handle = tokio::spawn(async move {
+			select! {
+				_ = listener_task => {},
+				_ = terminate_rx => {},
+			}
+		});
+
+		let next = tokio::time::timeout(Duration::from_secs(5), watcher.next())
+			.await
+			.expect("view events must arrive despite a full controller channel")
+			.expect("watcher stream must still be open");
+		assert_eq!(next, TransactionStatus::Ready);
 
 		let _ = terminate_tx.send(());
 		listener_handle.await.unwrap();
