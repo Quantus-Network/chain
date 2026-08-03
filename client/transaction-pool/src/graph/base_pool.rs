@@ -372,13 +372,7 @@ impl<Hash: hash::Hash + Member + Serialize, Ex: std::fmt::Debug> BasePool<Hash, 
 					// Tags uniquely provided by replaced ready txs are gone; re-mark them on
 					// futures that still require them (same invariant as `remove_subtree`).
 					if !replaced.is_empty() {
-						let provided = self.ready.provided_tags();
-						let lost_tags = replaced
-							.iter()
-							.flat_map(|tx| tx.provides.iter())
-							.filter(|tag| !provided.contains_key(*tag))
-							.cloned()
-							.collect::<Vec<_>>();
+						let lost_tags = self.lost_provides(replaced.iter().map(|tx| tx.as_ref()));
 						self.future.unsatisfy_tags(lost_tags);
 					}
 					// The transactions were removed from the ready pool. We might attempt to
@@ -575,11 +569,33 @@ impl<Hash: hash::Hash + Member + Serialize, Ex: std::fmt::Debug> BasePool<Hash, 
 		// satisfied by a ready provider which we just removed must be re-marked as
 		// missing, otherwise a later provider of the remaining tags can falsely
 		// promote an incompletely dependent future transaction into ready.
-		let tags_to_unsatisfy =
-			removed.iter().flat_map(|tx| tx.provides.iter().cloned()).collect::<Vec<_>>();
+		// Skip provides still covered by another ready tx or by recently pruned
+		// (included) tags — those remain satisfied.
+		let tags_to_unsatisfy = self.lost_provides(removed.iter().map(|tx| tx.as_ref()));
 		self.future.unsatisfy_tags(tags_to_unsatisfy);
 		removed.extend(self.future.remove(hashes));
 		removed
+	}
+
+	/// Tags provided by `removed` that are no longer satisfied by the ready pool or
+	/// by recently pruned (included) tags.
+	fn lost_provides<'a>(
+		&self,
+		removed: impl Iterator<Item = &'a Transaction<Hash, Ex>>,
+	) -> HashSet<Tag>
+	where
+		Hash: 'a,
+		Ex: 'a,
+	{
+		let provided = self.ready.provided_tags();
+		removed
+			.flat_map(|tx| tx.provides.iter())
+			.filter(|tag| {
+				!provided.contains_key(*tag) &&
+					!self.recently_pruned.iter().any(|set| set.contains(*tag))
+			})
+			.cloned()
+			.collect()
 	}
 
 	/// Removes and returns all transactions from the future queue.

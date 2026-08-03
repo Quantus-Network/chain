@@ -98,19 +98,6 @@ impl<Hash, Ex> WaitingTransaction<Hash, Ex> {
 		self.missing_tags.remove(tag);
 	}
 
-	/// Marks a previously satisfied requirement as missing again.
-	///
-	/// Used when a ready transaction that provided `tag` is removed from the pool (as opposed to
-	/// being pruned after inclusion). Returns `true` if the tag was newly inserted into
-	/// `missing_tags`.
-	pub fn unsatisfy_tag(&mut self, tag: &Tag) -> bool {
-		if self.transaction.requires.iter().any(|requires| requires == tag) {
-			self.missing_tags.insert(tag.clone())
-		} else {
-			false
-		}
-	}
-
 	/// Returns true if transaction has all requirements satisfied.
 	pub fn is_ready(&self) -> bool {
 		self.missing_tags.is_empty()
@@ -240,21 +227,27 @@ impl<Hash: hash::Hash + Eq + Clone + std::fmt::Debug, Ex: std::fmt::Debug>
 	/// import time. When a ready provider of a previously satisfied tag is removed (via
 	/// [`crate::graph::base_pool::BasePool::remove_subtree`]), those tags must be restored here
 	/// so a later `satisfy_tags` cannot promote an incompletely dependent transaction.
-	pub fn unsatisfy_tags<T: AsRef<Tag>>(&mut self, tags: impl IntoIterator<Item = T>) {
-		for tag in tags {
-			let tag = tag.as_ref();
-			let mut affected = Vec::new();
-			for (hash, waiting) in self.waiting.iter_mut() {
-				if waiting.unsatisfy_tag(tag) {
-					affected.push(hash.clone());
+	///
+	/// Complexity is `O(future_entries × requirements_per_tx)` against a hashed tag set —
+	/// not `O(lost_tags × futures × requirements)`. Large ready-subtree removals can supply
+	/// tens of thousands of provides while thousands of futures sit in the pool; the
+	/// previous per-tag full scan was a DoS vector on the pool mutation path.
+	pub fn unsatisfy_tags(&mut self, tags: impl IntoIterator<Item = Tag>) {
+		let tags: HashSet<Tag> = tags.into_iter().collect();
+		if tags.is_empty() {
+			return;
+		}
+
+		let mut newly_missing = Vec::new();
+		for (hash, waiting) in self.waiting.iter_mut() {
+			for req in waiting.transaction.requires.iter() {
+				if tags.contains(req) && waiting.missing_tags.insert(req.clone()) {
+					newly_missing.push((hash.clone(), req.clone()));
 				}
 			}
-			if !affected.is_empty() {
-				let entry = self.wanted_tags.entry(tag.clone()).or_insert_with(HashSet::new);
-				for hash in affected {
-					entry.insert(hash);
-				}
-			}
+		}
+		for (hash, tag) in newly_missing {
+			self.wanted_tags.entry(tag).or_insert_with(HashSet::new).insert(hash);
 		}
 	}
 
