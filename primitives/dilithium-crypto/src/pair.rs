@@ -69,12 +69,18 @@ impl Pair for DilithiumPair {
 
 	#[cfg(feature = "full_crypto")]
 	fn sign(&self, message: &[u8]) -> DilithiumSignatureWithPublic {
-		// `sp_core::Pair::sign` is infallible, but the Dilithium primitive is not
-		// (e.g. `MessageTooLong` above 64 MiB). Callers with untrusted / unbounded
-		// input must use [`DilithiumPair::try_sign`] instead of this trait method.
-		self.try_sign(message).expect(
-			"Dilithium signing failed; use DilithiumPair::try_sign for fallible signing of untrusted input",
-		)
+		// Create keypair struct
+
+		use crate::types::DilithiumSignature;
+		let keypair = create_keypair(&self.public, &self.secret).expect("Failed to create keypair");
+
+		// Sign the message
+		let signature = keypair.sign(message, None, None).expect("Signing should not fail");
+
+		let signature =
+			DilithiumSignature::try_from(signature.as_ref()).expect("Wrap doesn't fail");
+
+		DilithiumSignatureWithPublic::new(signature, self.public())
 	}
 
 	fn verify<M: AsRef<[u8]>>(
@@ -226,63 +232,6 @@ pub fn create_keypair(
 	Ok(keypair)
 }
 
-/// Error returned by [`DilithiumPair::try_sign`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SigningError {
-	/// Message exceeds the Dilithium max (`MAX_MESSAGE_SIZE`, 64 MiB).
-	MessageTooLong,
-	/// Context string exceeds the Dilithium max (255 bytes).
-	ContextTooLong,
-	/// Failed to reconstruct the ML-DSA keypair from stored key material.
-	KeypairReconstruction,
-	/// Signature bytes could not be wrapped in the Substrate signature type.
-	InvalidSignatureEncoding,
-}
-
-impl core::fmt::Display for SigningError {
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		match self {
-			SigningError::MessageTooLong => write!(
-				f,
-				"message exceeds Dilithium maximum length ({} bytes)",
-				qp_rusty_crystals_dilithium::ml_dsa_87::MAX_MESSAGE_SIZE
-			),
-			SigningError::ContextTooLong => write!(f, "Dilithium context exceeds 255 bytes"),
-			SigningError::KeypairReconstruction =>
-				write!(f, "failed to reconstruct Dilithium keypair"),
-			SigningError::InvalidSignatureEncoding =>
-				write!(f, "failed to encode Dilithium signature"),
-		}
-	}
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for SigningError {}
-
-impl DilithiumPair {
-	/// Fallible signing for untrusted or unbounded message input.
-	///
-	/// Prefer this over [`Pair::sign`](sp_core::crypto::Pair::sign) in CLI tools,
-	/// RPC workers, and other contexts where a recoverable error is required: the
-	/// `Pair` trait's `sign` method is infallible and will panic on the same failures
-	/// (notably oversized messages).
-	#[cfg(feature = "full_crypto")]
-	pub fn try_sign(&self, message: &[u8]) -> Result<DilithiumSignatureWithPublic, SigningError> {
-		use crate::types::DilithiumSignature;
-		use qp_rusty_crystals_dilithium::SignatureError;
-
-		let keypair = create_keypair(&self.public, &self.secret)
-			.map_err(|_| SigningError::KeypairReconstruction)?;
-		let signature = keypair.sign(message, None, None).map_err(|e| match e {
-			SignatureError::MessageTooLong => SigningError::MessageTooLong,
-			SignatureError::ContextTooLong => SigningError::ContextTooLong,
-		})?;
-		let signature = DilithiumSignature::try_from(signature.as_ref())
-			.map_err(|_| SigningError::InvalidSignatureEncoding)?;
-		Ok(DilithiumSignatureWithPublic::new(signature, self.public()))
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -308,27 +257,6 @@ mod tests {
 		let result = DilithiumPair::verify(&signature, message, &public);
 
 		assert!(result, "Signature should verify");
-	}
-
-	/// Oversized messages must yield a recoverable error from `try_sign`, not a process
-	/// abort — `Pair::sign` is infallible by trait and would panic on the same input.
-	#[test]
-	fn test_try_sign_rejects_oversized_message() {
-		use qp_rusty_crystals_dilithium::ml_dsa_87::MAX_MESSAGE_SIZE;
-
-		let pair = DilithiumPair::from_seed(&[0u8; 32]).expect("valid seed");
-		let message = vec![0u8; MAX_MESSAGE_SIZE + 1];
-		assert_eq!(pair.try_sign(&message), Err(SigningError::MessageTooLong));
-	}
-
-	#[test]
-	#[should_panic(expected = "Dilithium signing failed")]
-	fn test_pair_sign_panics_on_oversized_message() {
-		use qp_rusty_crystals_dilithium::ml_dsa_87::MAX_MESSAGE_SIZE;
-
-		let pair = DilithiumPair::from_seed(&[0u8; 32]).expect("valid seed");
-		let message = vec![0u8; MAX_MESSAGE_SIZE + 1];
-		let _ = pair.sign(&message);
 	}
 
 	#[test]
