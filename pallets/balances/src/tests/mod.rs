@@ -44,7 +44,14 @@ use sp_runtime::{
 	ArithmeticError, BuildStorage, DispatchError, DispatchResult, FixedPointNumber, RuntimeDebug,
 	TokenError,
 };
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::OnceLock};
+
+/// Genesis `dev_accounts` count used by [`ExtBuilder`].
+///
+/// Kept well below [`MAX_DEV_ACCOUNTS`]: each account pays for an sr25519 URI derivation, and
+/// [`ensure_ti_valid`] must skip them. The production cap stays high for the genesis DoS bound;
+/// tests only need to prove a non-trivial set exists in storage.
+const TEST_DEV_ACCOUNTS: u32 = 100;
 
 mod consumer_limit_tests;
 mod currency_tests;
@@ -184,7 +191,7 @@ impl ExtBuilder {
 				vec![]
 			},
 			dev_accounts: Some((
-				1000,
+				TEST_DEV_ACCOUNTS,
 				self.existential_deposit,
 				Some(DEFAULT_ADDRESS_URI.to_string()),
 			)),
@@ -307,31 +314,31 @@ pub fn info_from_weight(w: Weight) -> DispatchInfo {
 	DispatchInfo { call_weight: w, ..Default::default() }
 }
 
+/// Cached AccountIds for [`TEST_DEV_ACCOUNTS`] derived from [`DEFAULT_ADDRESS_URI`].
+///
+/// Deriving these is expensive; never rebuild them per [`ensure_ti_valid`] call.
+fn test_dev_account_ids() -> &'static BTreeSet<AccountId> {
+	static IDS: OnceLock<BTreeSet<AccountId>> = OnceLock::new();
+	IDS.get_or_init(|| {
+		(0..TEST_DEV_ACCOUNTS)
+			.map(|index| {
+				let derivation_string = DEFAULT_ADDRESS_URI.replace("{}", &index.to_string());
+				let pair: SrPair =
+					Pair::from_string(&derivation_string, None).expect("Invalid derivation string");
+				AccountId::decode(&mut &pair.public().encode()[..]).unwrap()
+			})
+			.collect()
+	})
+}
+
 /// Check that the total-issuance matches the sum of all accounts' total balances.
 pub fn ensure_ti_valid() {
 	let mut sum = 0;
-
-	// Fetch the dev accounts from Account Storage.
-	let dev_accounts = (1000, EXISTENTIAL_DEPOSIT, DEFAULT_ADDRESS_URI.to_string());
-	let (num_accounts, _balance, ref derivation) = dev_accounts;
-
-	// Generate the dev account public keys.
-	let dev_account_ids: Vec<_> = (0..num_accounts)
-		.map(|index| {
-			let derivation_string = derivation.replace("{}", &index.to_string());
-			let pair: SrPair =
-				Pair::from_string(&derivation_string, None).expect("Invalid derivation string");
-			<crate::tests::Test as frame_system::Config>::AccountId::decode(
-				&mut &pair.public().encode()[..],
-			)
-			.unwrap()
-		})
-		.collect();
+	let dev_account_ids = test_dev_account_ids();
 
 	// Iterate over all account keys (i.e., the account IDs).
 	for acc in frame_system::Account::<Test>::iter_keys() {
-		// Skip dev accounts by checking if the account is in the dev_account_ids list.
-		// This also proves dev_accounts exists in storage.
+		// Skip genesis dev accounts (also proves they landed in storage).
 		if dev_account_ids.contains(&acc) {
 			continue;
 		}
