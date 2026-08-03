@@ -34,8 +34,9 @@ mod instance_wrapper;
 mod runtime;
 mod util;
 
-// Quantus: upstream unit tests require unpublished sc-runtime-test; omit here.
-// The node exercises this crate through sc-executor.
+// Quantus: WAT-focused unit tests (no unpublished sc-runtime-test blob).
+#[cfg(test)]
+mod tests;
 
 pub use runtime::{
 	create_runtime, create_runtime_from_artifact, create_runtime_from_artifact_bytes,

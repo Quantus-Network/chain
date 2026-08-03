@@ -6,7 +6,8 @@ a full Substrate client bump.
 
 Upstream bump reference: [paritytech/polkadot-sdk#11793](https://github.com/paritytech/polkadot-sdk/pull/11793).
 
-Upstream unit tests that require `sc-runtime-test` are omitted; the node
-exercises this crate through `sc-executor`.
+WAT-focused unit tests are kept (stack limits, NaN canonicalization, memory
+growth, precompiled artifacts, instantiation strategies). Cases that needed
+the unpublished `sc-runtime-test` blob were rewritten as pure WAT fixtures.
 
 License: GPL-3.0-or-later WITH Classpath-exception-2.0
