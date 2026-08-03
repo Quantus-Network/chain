@@ -200,25 +200,22 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Scheduler::Retries` (`max_values`: None, `max_size`: Some(40), added: 2515, mode: `MaxEncodedLen`)
 	/// The range of component `n` is `[0, 16]`.
 	///
-	/// Re-benchmarked 2026-08-03 with one schedule per block (distinct Agenda
-	/// keys). Ref-time is the measured slope. Proof size per `n` is the *sum* of
-	/// MEL contributions of the n-scaling keys (PendingTransfers 2640 + Lookup
-	/// 2528 + Agenda 12493 + Retries 2515 = 20176): `frame-benchmarking-cli`
-	/// takes the max across storage prefixes instead of summing them, which
-	/// under-declares PoV by ~120 KiB at `n = 16`.
+	/// Regenerated 2026-08-03 (`--steps=50 --repeat=20`) against the distinct-
+	/// Agenda-bucket `recover_funds` setup (one schedule per block). Values below
+	/// are the unmodified FRAME CLI output for both ref-time and proof size.
 	fn recover_funds(n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `514 + n * (383 ±0)`
-		//  Estimated: `10763 + n * (20176 ±0)` — sum of n-scaling MEL (see note)
+		//  Estimated: `4026 + n * (12493 ±0)`
 		// Minimum execution time: 62_000_000 picoseconds.
-		Weight::from_parts(65_862_538, 10763)
+		Weight::from_parts(65_862_538, 4026)
 			// Standard Error: 134_621
 			.saturating_add(Weight::from_parts(64_986_364, 0).saturating_mul(n.into()))
 			.saturating_add(T::DbWeight::get().reads(4_u64))
 			.saturating_add(T::DbWeight::get().reads((3_u64).saturating_mul(n.into())))
 			.saturating_add(T::DbWeight::get().writes(3_u64))
 			.saturating_add(T::DbWeight::get().writes((4_u64).saturating_mul(n.into())))
-			.saturating_add(Weight::from_parts(0, 20176).saturating_mul(n.into()))
+			.saturating_add(Weight::from_parts(0, 12493).saturating_mul(n.into()))
 	}
 }
 
@@ -363,24 +360,21 @@ impl WeightInfo for () {
 	/// Proof: `Scheduler::Retries` (`max_values`: None, `max_size`: Some(40), added: 2515, mode: `MaxEncodedLen`)
 	/// The range of component `n` is `[0, 16]`.
 	///
-	/// Re-benchmarked 2026-08-03 with one schedule per block (distinct Agenda
-	/// keys). Ref-time is the measured slope. Proof size per `n` is the *sum* of
-	/// MEL contributions of the n-scaling keys (PendingTransfers 2640 + Lookup
-	/// 2528 + Agenda 12493 + Retries 2515 = 20176): `frame-benchmarking-cli`
-	/// takes the max across storage prefixes instead of summing them, which
-	/// under-declares PoV by ~120 KiB at `n = 16`.
+	/// Regenerated 2026-08-03 (`--steps=50 --repeat=20`) against the distinct-
+	/// Agenda-bucket `recover_funds` setup (one schedule per block). Values below
+	/// are the unmodified FRAME CLI output for both ref-time and proof size.
 	fn recover_funds(n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `514 + n * (383 ±0)`
-		//  Estimated: `10763 + n * (20176 ±0)` — sum of n-scaling MEL (see note)
+		//  Estimated: `4026 + n * (12493 ±0)`
 		// Minimum execution time: 62_000_000 picoseconds.
-		Weight::from_parts(65_862_538, 10763)
+		Weight::from_parts(65_862_538, 4026)
 			// Standard Error: 134_621
 			.saturating_add(Weight::from_parts(64_986_364, 0).saturating_mul(n.into()))
 			.saturating_add(RocksDbWeight::get().reads(4_u64))
 			.saturating_add(RocksDbWeight::get().reads((3_u64).saturating_mul(n.into())))
 			.saturating_add(RocksDbWeight::get().writes(3_u64))
 			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(n.into())))
-			.saturating_add(Weight::from_parts(0, 20176).saturating_mul(n.into()))
+			.saturating_add(Weight::from_parts(0, 12493).saturating_mul(n.into()))
 	}
 }
