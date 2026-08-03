@@ -175,7 +175,8 @@ mod tests {
 	#[test]
 	fn test_from_phrase_returned_seed_reconstructs_same_pair_with_password() {
 		let password = Some("hunter2");
-		let (pair, seed) = Dilithium87Pair::from_phrase(TEST_PHRASE, password).expect("valid phrase");
+		let (pair, seed) =
+			Dilithium87Pair::from_phrase(TEST_PHRASE, password).expect("valid phrase");
 		let restored = Dilithium87Pair::from_seed(&seed).expect("valid seed");
 		assert_eq!(
 			pair.public_bytes(),
