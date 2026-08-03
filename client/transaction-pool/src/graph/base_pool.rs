@@ -1203,19 +1203,12 @@ mod tests {
 		})
 		.unwrap();
 
-		assert!(
-			pool.ready().any(|tx| tx.hash == 3),
-			"replacement A must be ready"
-		);
+		assert!(pool.ready().any(|tx| tx.hash == 3), "replacement A must be ready");
 		assert!(
 			!pool.ready().any(|tx| tx.hash == 2),
 			"F must not be admitted to Ready without `lost`"
 		);
-		assert_eq!(
-			pool.future.len(),
-			1,
-			"F must remain in future until `lost` is provided again"
-		);
+		assert_eq!(pool.future.len(), 1, "F must remain in future until `lost` is provided again");
 		assert!(pool.futures().any(|tx| tx.hash == 2));
 	}
 
