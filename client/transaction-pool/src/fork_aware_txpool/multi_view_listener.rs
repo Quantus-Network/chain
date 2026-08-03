@@ -603,8 +603,19 @@ where
 			Default::default();
 
 		loop {
+			// `biased`: lossless lane first so a permanently-ready aggregated view
+			// stream cannot starve terminal statuses / view management. Droppable
+			// broadcasts remain last.
 			tokio::select! {
 				biased;
+				Some(cmd) = lossless_command_receiver.next() => {
+					Self::dispatch_command(
+						&mut aggregated_streams_map,
+						&external_watchers_tx_hash_map,
+						&events_metrics_collector,
+						cmd,
+					);
+				},
 				Some((view_hash, (tx_hash, status))) =  next_event(&mut aggregated_streams_map) => {
 					events_metrics_collector.report_status(tx_hash, status.clone());
 					if let Entry::Occupied(mut ctrl) = external_watchers_tx_hash_map.write().entry(tx_hash) {
@@ -623,14 +634,6 @@ where
 							ctrl.remove();
 						}
 					}
-				},
-				Some(cmd) = lossless_command_receiver.next() => {
-					Self::dispatch_command(
-						&mut aggregated_streams_map,
-						&external_watchers_tx_hash_map,
-						&events_metrics_collector,
-						cmd,
-					);
 				},
 				cmd = command_receiver.next() => {
 					if let Some(cmd) = cmd {
@@ -1392,5 +1395,76 @@ mod backlog_tests {
 
 		let _ = terminate_tx.send(());
 		listener_handle.await.unwrap();
+	}
+
+	/// A permanently-ready aggregated view stream must not starve the lossless
+	/// lane under `biased` select. Regression for finals sitting forever behind
+	/// a hot `next_event` branch, leaving external watchers open indefinitely.
+	///
+	/// Multi-thread runtime: a tight `stream::repeat` keeps the listener task
+	/// Ready on every poll; on the current-thread scheduler that would also
+	/// starve this test's timeout.
+	#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+	async fn final_status_not_starved_by_ready_view_stream() {
+		use std::{
+			sync::{
+				atomic::{AtomicBool, Ordering},
+				Arc,
+			},
+			task::Poll,
+		};
+
+		sp_tracing::try_init_simple();
+
+		let (listener, listener_task) =
+			MultiViewListener::<MockChainApi>::new_with_worker(Default::default());
+		let listener_handle = tokio::spawn(async move {
+			listener_task.await;
+		});
+
+		let tx_hash = H256::repeat_byte(0x0a);
+		let mut watcher = listener.create_external_watcher_for_tx(tx_hash).unwrap();
+
+		let block_hash = H256::repeat_byte(0x01);
+		// Permanently ready view stream for an *unrelated* hash — keeps the
+		// aggregated-view branch ready (and would starve the lossless lane if it
+		// were polled first) without filling this watcher's channel. `stop` ends
+		// the stream so the listener can park and the runtime can shut down; a
+		// pure `stream::repeat` never yields and ignores task abort.
+		let flood_tx = H256::repeat_byte(0x0b);
+		let stop = Arc::new(AtomicBool::new(false));
+		let stop_stream = stop.clone();
+		listener.add_view_aggregated_stream(
+			block_hash,
+			stream::poll_fn(move |_cx| {
+				if stop_stream.load(Ordering::Relaxed) {
+					Poll::Ready(None)
+				} else {
+					Poll::Ready(Some((flood_tx, TransactionStatus::Ready)))
+				}
+			})
+			.boxed(),
+		);
+
+		// Let the view stream start flooding before the final is queued.
+		tokio::time::sleep(Duration::from_millis(50)).await;
+		listener.transaction_finalized(tx_hash, block_hash, 0);
+
+		let finalized = tokio::time::timeout(Duration::from_secs(2), async {
+			loop {
+				match watcher.next().await {
+					Some(TransactionStatus::Finalized(v)) => return v,
+					Some(_) => continue,
+					None => panic!("watcher closed before Finalized"),
+				}
+			}
+		})
+		.await
+		.expect("Finalized must not be starved by a permanently-ready view stream");
+		assert_eq!(finalized, (block_hash, 0));
+
+		stop.store(true, Ordering::Relaxed);
+		listener_handle.abort();
+		let _ = listener_handle.await;
 	}
 }
