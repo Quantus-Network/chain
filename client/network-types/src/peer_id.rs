@@ -70,7 +70,7 @@ impl PeerId {
 	/// otherwise returns `None`.
 	pub fn try_from_multiaddr(address: &Multiaddr) -> Option<PeerId> {
 		match address.iter().last() {
-			Some(Protocol::P2p(multihash)) => Some(Self { multihash }),
+			Some(Protocol::P2p(peer_id)) => Some(peer_id),
 			_ => None,
 		}
 	}
@@ -161,9 +161,12 @@ impl PeerId {
 	}
 }
 
-impl AsRef<Multihash> for PeerId {
-	fn as_ref(&self) -> &Multihash {
-		&self.multihash
+/// Reflexive impl: [`crate::multiaddr::Protocol::P2p`] carries a `PeerId` (multiaddr 0.18
+/// semantics), and external consumers (e.g. `sc-mixnet`) build that variant via
+/// `*peer_id.as_ref()`. Keep this the only `AsRef` impl so type inference stays unambiguous.
+impl AsRef<PeerId> for PeerId {
+	fn as_ref(&self) -> &PeerId {
+		self
 	}
 }
 

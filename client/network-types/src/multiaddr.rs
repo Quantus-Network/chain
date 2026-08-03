@@ -30,7 +30,7 @@ use std::{
 };
 
 mod protocol;
-pub use protocol::{Protocol, ProtocolConversionError};
+pub use protocol::Protocol;
 
 // Re-export the macro under shorter name under `multiaddr`.
 pub use crate::build_multiaddr as multiaddr;
@@ -50,18 +50,8 @@ impl Multiaddr {
 	}
 
 	/// Adds an address component to the end of this multiaddr.
-	///
-	/// Prefer [`Multiaddr::try_push`] when the protocol may carry an arbitrary `/p2p` multihash.
 	pub fn push(&mut self, p: Protocol<'_>) {
-		self.multiaddr.push(protocol::into_litep2p_lossy(p))
-	}
-
-	/// Fallible variant of [`Multiaddr::push`].
-	///
-	/// Fails if `p` is [`Protocol::P2p`] with a multihash that is not a valid peer id.
-	pub fn try_push(&mut self, p: Protocol<'_>) -> Result<(), ProtocolConversionError> {
-		self.multiaddr.push(LiteP2pProtocol::try_from(p)?);
-		Ok(())
+		self.multiaddr.push(p.into())
 	}
 
 	/// Pops the last `Protocol` of this multiaddr, or `None` if the multiaddr is empty.
@@ -70,15 +60,8 @@ impl Multiaddr {
 	}
 
 	/// Like [`Multiaddr::push`] but consumes `self`.
-	///
-	/// Prefer [`Multiaddr::try_with`] when the protocol may carry an arbitrary `/p2p` multihash.
 	pub fn with(self, p: Protocol<'_>) -> Self {
-		self.multiaddr.with(protocol::into_litep2p_lossy(p)).into()
-	}
-
-	/// Fallible variant of [`Multiaddr::with`].
-	pub fn try_with(self, p: Protocol<'_>) -> Result<Self, ProtocolConversionError> {
-		Ok(self.multiaddr.with(LiteP2pProtocol::try_from(p)?).into())
+		self.multiaddr.with(p.into()).into()
 	}
 
 	/// Returns the components of this multiaddress.
@@ -264,13 +247,13 @@ impl<'a> FromIterator<Protocol<'a>> for Multiaddr {
 	where
 		T: IntoIterator<Item = Protocol<'a>>,
 	{
-		LiteP2pMultiaddr::from_iter(iter.into_iter().map(protocol::into_litep2p_lossy)).into()
+		LiteP2pMultiaddr::from_iter(iter.into_iter().map(LiteP2pProtocol::from)).into()
 	}
 }
 
 impl<'a> From<Protocol<'a>> for Multiaddr {
 	fn from(p: Protocol<'a>) -> Multiaddr {
-		let protocol = protocol::into_litep2p_lossy(p);
+		let protocol: LiteP2pProtocol = p.into();
 		let multiaddr: LiteP2pMultiaddr = protocol.into();
 		multiaddr.into()
 	}
@@ -308,9 +291,8 @@ macro_rules! build_multiaddr {
 
 #[cfg(test)]
 mod tests {
-	use super::{Multiaddr, Protocol, ProtocolConversionError};
-	use crate::multihash::Multihash;
-	use litep2p::types::multiaddr::Protocol as LiteP2pProtocol;
+	use super::{Multiaddr, Protocol};
+	use crate::{multihash::Multihash, PeerId};
 	use std::{net::Ipv4Addr, str::FromStr};
 
 	/// multiaddr 0.18 accepts `/webtransport`, and iteration must not panic after parse.
@@ -339,29 +321,24 @@ mod tests {
 		Multihash::wrap(SHA2_512, &[0u8; 64]).expect("64-byte digest fits Multihash<64>")
 	}
 
+	/// [`Protocol::P2p`] carries a validated [`PeerId`], so a non-peer-id multihash is
+	/// unrepresentable in a [`Multiaddr`] and must be rejected at the validation boundary.
 	#[test]
-	fn p2p_try_from_rejects_non_peer_id_multihash() {
-		let protocol = Protocol::P2p(non_peer_id_multihash());
-		assert_eq!(
-			LiteP2pProtocol::try_from(protocol),
-			Err(ProtocolConversionError::InvalidPeerId)
-		);
+	fn non_peer_id_multihash_rejected_at_boundaries() {
+		assert!(PeerId::from_multihash(non_peer_id_multihash()).is_err());
+
+		let encoded = bs58::encode(non_peer_id_multihash().to_bytes()).into_string();
+		assert!(Multiaddr::from_str(&format!("/p2p/{encoded}")).is_err());
 	}
 
 	#[test]
-	fn p2p_lossy_conversion_does_not_panic_on_non_peer_id_multihash() {
-		let protocol = Protocol::P2p(non_peer_id_multihash());
-		// Legacy infallible paths must not panic; they substitute a placeholder peer id.
-		let _ = Multiaddr::empty().with(protocol);
-	}
+	fn p2p_multiaddr_roundtrips_through_push_and_iter() {
+		let peer_id = PeerId::random();
+		let mut address = Multiaddr::from_str("/ip4/198.51.100.19/tcp/30333").unwrap();
+		address.push(Protocol::P2p(peer_id));
 
-	#[test]
-	fn try_push_rejects_non_peer_id_p2p() {
-		let mut addr = Multiaddr::empty();
-		assert_eq!(
-			addr.try_push(Protocol::P2p(non_peer_id_multihash())),
-			Err(ProtocolConversionError::InvalidPeerId)
-		);
-		assert_eq!(addr.iter().count(), 0);
+		assert_eq!(address.iter().last(), Some(Protocol::P2p(peer_id)));
+		let reparsed = Multiaddr::from_str(&address.to_string()).unwrap();
+		assert_eq!(reparsed, address);
 	}
 }
