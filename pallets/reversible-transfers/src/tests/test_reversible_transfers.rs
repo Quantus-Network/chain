@@ -671,9 +671,12 @@ fn no_volume_fee_for_regular_reversible_accounts() {
 	});
 }
 
-/// A one-time schedule freezes cancel authority in `pending.guardian` (= sender).
+/// A one-time schedule freezes *cancel* authority in `pending.guardian` (= sender).
 /// Later `set_high_security` must not rewrite that: the owner keeps full-refund cancel
-/// rights, and the new guardian must not be able to seize the held funds.
+/// rights, and the new guardian must not be able to cancel/seize via `cancel`.
+///
+/// This does **not** constrain `recover_funds`: once the account is high-security, the
+/// live guardian may still seize these holds through recovery (account-level seize).
 #[test]
 fn set_high_security_does_not_retroactively_reclassify_pending_one_time_cancel() {
 	new_test_ext().execute_with(|| {

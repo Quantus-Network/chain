@@ -533,6 +533,15 @@ pub mod pallet {
 		/// It cancels all pending transfers first (applying volume fees), then transfers
 		/// the remaining free balance to the guardian.
 		///
+		/// # Cancel vs recovery authority
+		///
+		/// Per-transfer `cancel` freezes authority in `pending.guardian` at schedule time
+		/// (so a later `set_high_security` cannot rewrite cancel rights on pre-enrollment
+		/// one-time transfers). `recover_funds` does **not** use that freeze: it authorizes
+		/// against the *live* high-security guardian and seizes every pending hold on the
+		/// account (volume fee applied). That asymmetry is intentional — recovery is
+		/// seize-the-account, not a batch of frozen cancel policies.
+		///
 		/// # Repeated Recovery
 		///
 		/// This function can be called multiple times on the same account. The high-security
