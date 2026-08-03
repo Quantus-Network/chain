@@ -690,7 +690,7 @@ version = "3.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5fd03604047cee9b6ce9de9f70c6cd540a0520c813cbd49bae61f33ab80ed1dc"
 dependencies = [
- "event-listener 5.4.1",
+ "event-listener 5.4.2",
  "event-listener-strategy",
  "pin-project-lite",
 ]
@@ -719,7 +719,7 @@ dependencies = [
  "async-task",
  "blocking",
  "cfg-if",
- "event-listener 5.4.1",
+ "event-listener 5.4.2",
  "futures-lite",
  "rustix",
 ]
@@ -1332,13 +1332,12 @@ dependencies = [
 
 [[package]]
 name = "cid"
-version = "0.11.1"
+version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3147d8272e8fa0ccd29ce51194dd98f79ddfb8191ba9e3409884e751798acf3a"
+checksum = "21a304f95f84d169a6f31c4d0a30d784643aaa0bbc9c1e449a2c23e963ec4971"
 dependencies = [
- "core2",
  "multibase",
- "multihash 0.19.3",
+ "multihash 0.19.5",
  "serde",
  "serde_bytes",
  "unsigned-varint 0.8.0",
@@ -1458,9 +1457,9 @@ dependencies = [
 
 [[package]]
 name = "codespan-reporting"
-version = "0.12.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe6d2e5af09e8c8ad56c969f2157a3d4238cebc7c55f0a517728c38f7b200f81"
+checksum = "af491d569909a7e4dee0ad7db7f5341fef5c614d5b8ec8cf765732aba3cff681"
 dependencies = [
  "serde",
  "termcolor",
@@ -2117,9 +2116,9 @@ dependencies = [
 
 [[package]]
 name = "cxx"
-version = "1.0.185"
+version = "1.0.198"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f81de88da10862f22b5b3a60f18f6f42bbe7cb8faa24845dd7b1e4e22190e77"
+checksum = "6fe442a792c7c736eea18b32a7f8a3b63cf8aafabda6760042dc2fdeda456291"
 dependencies = [
  "cc",
  "cxx-build",
@@ -2132,9 +2131,9 @@ dependencies = [
 
 [[package]]
 name = "cxx-build"
-version = "1.0.185"
+version = "1.0.198"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5edd58bf75c3fdfc80d79806403af626570662f7b6cc782a7fabe156166bd6d6"
+checksum = "e3184a94384c663718698311a78a51ac00c484c10b4eeac06fb0a068c5f64fa2"
 dependencies = [
  "cc",
  "codespan-reporting",
@@ -2142,40 +2141,39 @@ dependencies = [
  "proc-macro2",
  "quote",
  "scratch",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
 name = "cxxbridge-cmd"
-version = "1.0.185"
+version = "1.0.198"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd46bf2b541a4e0c2d5abba76607379ee05d68e714868e3cb406dc8d591ce2d2"
+checksum = "0148d8fd1199329ddf1d157a5e134e51ceff37c6a7ddd38615c399d81cb05d8d"
 dependencies = [
  "clap",
  "codespan-reporting",
  "indexmap",
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
 name = "cxxbridge-flags"
-version = "1.0.185"
+version = "1.0.198"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c79b68f6a3a8f809d39b38ae8af61305a6113819b19b262643b9c21353b92d9"
+checksum = "52850339faed2eaadd24e286dc1d8268cc6f8a7bd9524d713adc9099566b4c89"
 
 [[package]]
 name = "cxxbridge-macro"
-version = "1.0.185"
+version = "1.0.198"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "862b7fdb048ff9ef0779a0d0a03affd09746c4c875543746b640756be9cff2af"
+checksum = "2c77c856545d886c9bd5215409ebb63b925e262135248b50c79e5a5f194ee47c"
 dependencies = [
  "indexmap",
  "proc-macro2",
  "quote",
- "rustversion",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -2792,11 +2790,10 @@ checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
 
 [[package]]
 name = "event-listener"
-version = "5.4.1"
+version = "5.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13b66accf52311f30a0db42147dadea9850cb48cd070028831ae5f5d4b856ab"
+checksum = "5a23add41df1562121a9393cb065eab5146a1242410f23a644851e90cfd669d2"
 dependencies = [
- "concurrent-queue",
  "parking",
  "pin-project-lite",
 ]
@@ -2807,7 +2804,7 @@ version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
- "event-listener 5.4.1",
+ "event-listener 5.4.2",
  "pin-project-lite",
 ]
 
@@ -2849,7 +2846,7 @@ checksum = "4e7f34442dbe69c60fe8eaf58a8cafff81a1f278816d8ab4db255b3bef4ac3c4"
 dependencies = [
  "getrandom 0.3.3",
  "libm",
- "rand 0.9.2",
+ "rand 0.9.5",
  "siphasher 1.0.1",
 ]
 
@@ -4720,9 +4717,9 @@ dependencies = [
 
 [[package]]
 name = "keccak"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ecc2af9a1119c51f12a14607e783cb977bde58bc069ff0c3da1095e635d70654"
+checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
 dependencies = [
  "cpufeatures 0.2.17",
 ]
@@ -5189,9 +5186,9 @@ dependencies = [
 
 [[package]]
 name = "memmap2"
-version = "0.9.8"
+version = "0.9.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "843a98750cd611cc2965a8213b53b43e715f13c37a9e096c6408e69990961db7"
+checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
 dependencies = [
  "libc",
 ]
@@ -5394,11 +5391,10 @@ dependencies = [
 
 [[package]]
 name = "multihash"
-version = "0.19.3"
+version = "0.19.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b430e7953c29dd6a09afc29ff0bb69c6e306329ee6794700aee27b76a1aea8d"
+checksum = "577c63b00ad74d57e8c9aa870b5fccebf2fd64a308a5aee9f1bb88e4aea19447"
 dependencies = [
- "core2",
  "serde",
  "unsigned-varint 0.8.0",
 ]
@@ -5786,7 +5782,7 @@ dependencies = [
  "p3-maybe-rayon",
  "p3-util",
  "paste",
- "rand 0.9.2",
+ "rand 0.9.5",
  "serde",
  "tracing",
 ]
@@ -5805,7 +5801,7 @@ dependencies = [
  "p3-symmetric",
  "p3-util",
  "paste",
- "rand 0.9.2",
+ "rand 0.9.5",
  "serde",
 ]
 
@@ -5819,7 +5815,7 @@ dependencies = [
  "p3-field",
  "p3-maybe-rayon",
  "p3-util",
- "rand 0.9.2",
+ "rand 0.9.5",
  "serde",
  "tracing",
  "transpose",
@@ -5841,7 +5837,7 @@ dependencies = [
  "p3-field",
  "p3-symmetric",
  "p3-util",
- "rand 0.9.2",
+ "rand 0.9.5",
 ]
 
 [[package]]
@@ -5854,7 +5850,7 @@ dependencies = [
  "p3-mds",
  "p3-symmetric",
  "p3-util",
- "rand 0.9.2",
+ "rand 0.9.5",
 ]
 
 [[package]]
@@ -7273,7 +7269,7 @@ dependencies = [
  "bitflags 2.9.4",
  "lazy_static",
  "num-traits",
- "rand 0.9.2",
+ "rand 0.9.5",
  "rand_chacha 0.9.0",
  "rand_xorshift",
  "regex-syntax",
@@ -7568,7 +7564,7 @@ dependencies = [
  "p3-field",
  "p3-goldilocks",
  "p3-poseidon2",
- "rand 0.9.2",
+ "rand 0.9.5",
  "rand_chacha 0.9.0",
 ]
 
@@ -7930,7 +7926,7 @@ dependencies = [
  "fastbloom",
  "getrandom 0.3.3",
  "lru-slab",
- "rand 0.9.2",
+ "rand 0.9.5",
  "ring",
  "rustc-hash 2.1.1",
  "rustls",
@@ -7996,9 +7992,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.9.2"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6db2770f06117d490610c7488547d543617b21bfa07796d7a12f6f1bd53850d1"
+checksum = "b9ef1d0d795eb7d84685bca4f72f3649f064e6641543d3a8c415898726a57b41"
 dependencies = [
  "rand_chacha 0.9.0",
  "rand_core 0.9.3",
@@ -8633,7 +8629,7 @@ checksum = "6b52a39c5ae942a5db75eca82a7c0e50a4d469185651ef52677967860315bc63"
 dependencies = [
  "array-bytes 6.2.3",
  "docify",
- "memmap2 0.9.8",
+ "memmap2 0.9.11",
  "parity-scale-codec",
  "sc-chain-spec-derive",
  "sc-client-api",
@@ -10218,7 +10214,7 @@ dependencies = [
  "derive_more 2.0.1",
  "ed25519-zebra",
  "either",
- "event-listener 5.4.1",
+ "event-listener 5.4.2",
  "fnv",
  "futures-lite",
  "futures-util",
@@ -10267,7 +10263,7 @@ dependencies = [
  "bs58",
  "derive_more 2.0.1",
  "either",
- "event-listener 5.4.1",
+ "event-listener 5.4.2",
  "fnv",
  "futures-channel",
  "futures-lite",
@@ -11075,9 +11071,9 @@ dependencies = [
 
 [[package]]
 name = "spin"
-version = "0.9.8"
+version = "0.9.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
+checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
 
 [[package]]
 name = "spinning_top"
@@ -11537,6 +11533,17 @@ name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
+name = "syn"
+version = "3.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53e9bae58849f64dfa4f5d5ae372c8341f7305f82a3868709269343628b659a3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -12199,7 +12206,7 @@ dependencies = [
  "http",
  "httparse",
  "log",
- "rand 0.9.2",
+ "rand 0.9.5",
  "rustls",
  "rustls-pki-types",
  "sha1",
@@ -13805,7 +13812,7 @@ dependencies = [
  "nohash-hasher",
  "parking_lot 0.12.4",
  "pin-project",
- "rand 0.9.2",
+ "rand 0.9.5",
  "static_assertions",
  "web-time",
 ]

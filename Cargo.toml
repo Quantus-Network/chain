@@ -92,7 +92,7 @@ bs58 = { version = "0.5.1" }
 bytes = { version = "1.4.0", default-features = false }
 cfg-if = { version = "1.0" }
 chrono = { version = "0.4.31" }
-cid = { version = "0.11.1" }
+cid = { version = "0.11.3" }
 clap = { version = "4.5.13" }
 clatter = { version = "=1.1.0" }
 codec = { version = "3.6.12", default-features = false, package = "parity-scale-codec" }
