@@ -509,8 +509,8 @@ fn empty_return_wat() -> String {
 #[cfg_attr(build_profile = "debug", ignore)]
 #[test]
 fn test_instances_without_reuse_are_not_leaked() {
-	let mut builder = RuntimeBuilder::new(InstantiationStrategy::RecreateInstance)
-		.use_wat(empty_return_wat());
+	let mut builder =
+		RuntimeBuilder::new(InstantiationStrategy::RecreateInstance).use_wat(empty_return_wat());
 	let runtime = builder.build();
 
 	// As long as the `wasmtime`'s `Store` lives the instances spawned through it
