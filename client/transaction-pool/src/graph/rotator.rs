@@ -108,9 +108,19 @@ impl<Hash: hash::Hash + Eq + Clone> PoolRotator<Hash> {
 				None => return false,
 			}
 		}
-		// Expired entry — reclaim it so it does not linger until bulk cleanup.
-		self.banned_until.write().remove(hash);
-		false
+		// Expired under the read lock — reclaim only if still expired under the
+		// write lock. A concurrent re-ban (e.g. from `remove_invalid` after a
+		// failed revalidation) can land in the gap; an unconditional remove
+		// would drop that fresh ban and waste another revalidation cycle.
+		let mut banned = self.banned_until.write();
+		match banned.get(hash) {
+			Some(until) if *until >= Instant::now() => true,
+			Some(_) => {
+				banned.remove(hash);
+				false
+			},
+			None => false,
+		}
 	}
 
 	/// Bans given set of hashes.
