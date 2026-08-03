@@ -80,7 +80,11 @@ impl PeerId {
 	/// If the multihash does not use a valid hashing algorithm for peer IDs,
 	/// or the hash value does not satisfy the constraints for a hashed
 	/// peer ID, it is returned as an `Err`.
-	pub fn from_multihash(multihash: Multihash) -> Result<PeerId, Multihash> {
+	///
+	/// Accepts anything convertible into a `Multihash` (including a `PeerId`) so that
+	/// multiaddr-0.17-era callers that re-validate the `Protocol::P2p` payload keep compiling.
+	pub fn from_multihash(multihash: impl Into<Multihash>) -> Result<PeerId, Multihash> {
+		let multihash = multihash.into();
 		match Code::try_from(multihash.code()) {
 			Ok(Code::Sha2_256) => Ok(PeerId { multihash }),
 			Ok(Code::Identity) if multihash.digest().len() <= MAX_INLINE_KEY_LENGTH =>
