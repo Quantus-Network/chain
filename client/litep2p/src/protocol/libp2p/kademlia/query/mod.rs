@@ -874,8 +874,7 @@ impl QueryEngine {
 
 #[cfg(test)]
 mod tests {
-	use crate::peer_id::MULTIHASH_IDENTITY_CODE;
-	use crate::types::multihash::Multihash;
+	use crate::{peer_id::MULTIHASH_IDENTITY_CODE, types::multihash::Multihash};
 
 	use super::*;
 	use crate::protocol::libp2p::kademlia::types::ConnectionType;

@@ -533,9 +533,8 @@ mod tests {
 		let (handle, _rx) = make_transport_manager_handle();
 
 		// only peer id (used by Polkadot sometimes)
-		assert!(!handle.supported_transport(
-			&Multiaddr::empty().with(Protocol::P2p(PeerId::random().into()))
-		));
+		assert!(!handle
+			.supported_transport(&Multiaddr::empty().with(Protocol::P2p(PeerId::random().into()))));
 
 		// only one transport
 		assert!(!handle.supported_transport(

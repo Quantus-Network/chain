@@ -217,13 +217,13 @@ impl Litep2pNetworkBackend {
 					Protocol::Ip4(_),
 				) => match address.iter().find(|protocol| std::matches!(protocol, Protocol::P2p(_)))
 				{
-				Some(Protocol::P2p(peer_id)) => PeerId::from_bytes(&peer_id.to_bytes())
-					.ok()
-					.map(|peer| (peer, Some(address))),
-				_ => None,
-			},
-			Some(Protocol::P2p(peer_id)) =>
-				PeerId::from_bytes(&peer_id.to_bytes()).ok().map(|peer| (peer, None)),
+					Some(Protocol::P2p(peer_id)) => PeerId::from_bytes(&peer_id.to_bytes())
+						.ok()
+						.map(|peer| (peer, Some(address))),
+					_ => None,
+				},
+				Some(Protocol::P2p(peer_id)) =>
+					PeerId::from_bytes(&peer_id.to_bytes()).ok().map(|peer| (peer, None)),
 				_ => None,
 			})
 			.fold(HashMap::new(), |mut acc, (peer, maybe_address)| {

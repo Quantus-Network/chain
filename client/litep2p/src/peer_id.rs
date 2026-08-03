@@ -312,9 +312,8 @@ impl FromStr for PeerId {
 #[cfg(test)]
 mod tests {
 	use super::{ParseError, MAX_INLINE_KEY_LENGTH, MULTIHASH_IDENTITY_CODE};
-	use crate::{crypto::dilithium::Keypair, PeerId};
+	use crate::{crypto::dilithium::Keypair, types::multihash::Multihash, PeerId};
 	use multiaddr::{Multiaddr, Protocol};
-	use crate::types::multihash::Multihash;
 	use multihash_codetable::Code;
 
 	#[test]

@@ -10,22 +10,22 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
-name = "sp-wasm-interface"
-version = "24.0.0"
 authors = ["Parity Technologies <admin@parity.io>"]
-build = false
-autolib = false
+autobenches = false
 autobins = false
 autoexamples = false
+autolib = false
 autotests = false
-autobenches = false
+build = false
 description = "Types and traits for interfacing between the host and the wasm runtime."
-homepage = "https://paritytech.github.io/polkadot-sdk/"
 documentation = "https://docs.rs/sp-wasm-interface"
-readme = "README.md"
+edition = "2021"
+homepage = "https://paritytech.github.io/polkadot-sdk/"
 license = "Apache-2.0"
+name = "sp-wasm-interface"
+readme = "README.md"
 repository = "https://github.com/paritytech/polkadot-sdk.git"
+version = "24.0.0"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -33,13 +33,13 @@ targets = ["x86_64-unknown-linux-gnu"]
 [features]
 default = ["std"]
 std = [
-    "anyhow?/std",
-    "codec/std",
-    "log/std",
+	"anyhow?/std",
+	"codec/std",
+	"log/std",
 ]
 wasmtime = [
-    "anyhow",
-    "dep:wasmtime",
+	"anyhow",
+	"dep:wasmtime",
 ]
 
 [lib]
@@ -47,29 +47,29 @@ name = "sp_wasm_interface"
 path = "src/lib.rs"
 
 [dependencies.anyhow]
-version = "1.0.81"
-optional = true
 default-features = false
+optional = true
+version = "1.0.81"
 
 [dependencies.codec]
-version = "3.7.5"
-features = ["derive"]
 default-features = false
+features = ["derive"]
 package = "parity-scale-codec"
+version = "3.7.5"
 
 [dependencies.impl-trait-for-tuples]
 version = "0.2.2"
 
 [dependencies.log]
-version = "0.4.22"
-optional = true
 default-features = true
+optional = true
+version = "0.4.22"
 
 [dependencies.wasmtime]
 # Quantus: bump 35.0.0 -> 36.0.13 to unify with patched sc-executor-wasmtime.
-version = "36.0.13"
-optional = true
 default-features = false
+optional = true
+version = "36.0.13"
 
 [lints.clippy.all]
 level = "allow"
@@ -172,13 +172,13 @@ level = "allow"
 priority = 2
 
 [lints.rust.unexpected_cfgs]
+check-cfg = [
+	"cfg(enable_alloc_error_handler)",
+	"cfg(fuzzing)",
+	"cfg(ignore_flaky_test)",
+	"cfg(substrate_runtime)",
+	'cfg(build_opt_level, values("3"))',
+	'cfg(build_profile, values("debug", "release"))',
+]
 level = "warn"
 priority = 0
-check-cfg = [
-    'cfg(build_opt_level, values("3"))',
-    'cfg(build_profile, values("debug", "release"))',
-    "cfg(enable_alloc_error_handler)",
-    "cfg(fuzzing)",
-    "cfg(ignore_flaky_test)",
-    "cfg(substrate_runtime)",
-]
