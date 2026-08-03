@@ -234,7 +234,7 @@ mod tests {
 			let address = "/ip4/198.51.100.19/tcp/30333"
 				.parse::<Multiaddr>()
 				.unwrap()
-				.with(Protocol::P2p(peer.into()));
+				.with(Protocol::P2p(peer));
 
 			assert_eq!(PeerId::try_from_multiaddr(&address), Some(peer));
 		}
@@ -242,7 +242,7 @@ mod tests {
 		{
 			let peer = PeerId::random();
 			assert_eq!(
-				PeerId::try_from_multiaddr(&Multiaddr::empty().with(Protocol::P2p(peer.into()))),
+				PeerId::try_from_multiaddr(&Multiaddr::empty().with(Protocol::P2p(peer))),
 				Some(peer)
 			);
 		}
