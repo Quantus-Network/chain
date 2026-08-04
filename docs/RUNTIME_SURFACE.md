@@ -7,7 +7,7 @@ the runtime, their dispatchable calls, the runtime APIs, transaction extensions,
 genesis logic, and the workspace primitive crates pulled in.
 
 - **Crate:** `quantus-runtime` (`runtime/`), version `0.7.1-q-day-2`
-- **Spec:** `spec_name = quantus-runtime`, `spec_version = 138`, `transaction_version = 3`, `authoring_version = 1`
+- **Spec:** `spec_name = quantus-runtime`, `spec_version = 139`, `transaction_version = 3`, `authoring_version = 1`
 - **Build:** `no_std` WASM via `substrate-wasm-builder` (`runtime/build.rs`); native `std` build for the node/client
 - **Block time target:** 12s (`TARGET_BLOCK_TIME_MS = 12_000`)
 - **Consensus:** QPoW (quantum-resistant Proof of Work, Poseidon2-based)
