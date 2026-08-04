@@ -69,8 +69,8 @@ impl Keypair {
 	/// Derive the internal keypair from the seed.
 	fn derive_internal(&self) -> ml_dsa_87::Keypair {
 		let mut seed_copy = self.seed;
-		let sensitive_seed = SensitiveBytes32::from(&mut seed_copy);
-		ml_dsa_87::Keypair::generate(sensitive_seed)
+		let mut sensitive_seed = SensitiveBytes32::from(&mut seed_copy);
+		ml_dsa_87::Keypair::generate(&mut sensitive_seed)
 	}
 
 	/// Convert the keypair into a byte array.
@@ -121,7 +121,7 @@ impl Keypair {
 
 	/// Get the public key of this keypair.
 	pub fn public(&self) -> PublicKey {
-		PublicKey(self.derive_internal().public)
+		PublicKey(self.derive_internal().public().clone())
 	}
 
 	/// Get the secret key (seed) of this keypair.

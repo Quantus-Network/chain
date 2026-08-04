@@ -151,7 +151,7 @@ fn expect_public_from_phrase<Pair: sp_core::Pair>(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use qp_dilithium_crypto::DilithiumPair;
+	use qp_dilithium_crypto::Dilithium87Pair;
 	use sp_core::crypto::{ByteArray, Pair, Ss58AddressFormat};
 	use sp_runtime::traits::IdentifyAccount;
 
@@ -205,7 +205,7 @@ mod tests {
 
 			let uri = SecretUri::from_str(seed_phrase).expect("Valid URI");
 			let password: Option<&str> = uri.password.as_ref().map(|s| s.expose_secret().as_ref());
-			let pair: DilithiumPair =
+			let pair: Dilithium87Pair =
 				Pair::from_string(uri.phrase.expose_secret().as_str(), password).expect("Valid");
 			let public = pair.public();
 			let public_hex = array_bytes::bytes2hex("0x", public.as_slice());
