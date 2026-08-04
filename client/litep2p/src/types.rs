@@ -27,7 +27,9 @@ pub mod multiaddr {
 	pub use multiaddr::{Error, Iter, Multiaddr, Onion3Addr, Protocol};
 }
 pub mod multihash {
-	pub use multihash::{Code, Error, Multihash, MultihashDigest};
+	pub use ::multihash::Error;
+	pub type Multihash = ::multihash::Multihash<64>;
+	pub use multihash_codetable::{Code, MultihashDigest};
 }
 pub mod cid {
 	pub use cid::{multihash::Multihash, Cid, CidGeneric, Error, Result, Version};

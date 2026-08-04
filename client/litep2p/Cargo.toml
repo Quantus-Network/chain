@@ -24,7 +24,8 @@ ip_network = { workspace = true }
 libc = { workspace = true }
 mockall = { workspace = true }
 multiaddr = { workspace = true }
-multihash = { workspace = true, features = ["identity", "sha2", "std"] }
+multihash = { workspace = true, features = ["std"] }
+multihash-codetable = { workspace = true }
 network-interface = { workspace = true }
 parking_lot = { workspace = true }
 pin-project = { workspace = true }

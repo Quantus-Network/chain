@@ -720,7 +720,6 @@ mod tests {
 		BandwidthSink, PeerId,
 	};
 	use multiaddr::Protocol;
-	use multihash::Multihash;
 	use std::sync::Arc;
 	use tokio::sync::mpsc::channel;
 
@@ -981,7 +980,7 @@ mod tests {
 		let address = Multiaddr::empty()
 			.with(Protocol::Ip6(std::net::Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)))
 			.with(Protocol::Tcp(8888))
-			.with(Protocol::P2p(Multihash::from_bytes(&peer1.to_bytes()).unwrap()));
+			.with(Protocol::P2p(peer1.into()));
 
 		transport2.dial(ConnectionId::new(), address).unwrap();
 
@@ -1019,7 +1018,7 @@ mod tests {
 		let multiaddr = Multiaddr::empty()
 			.with(Protocol::Ip4(std::net::Ipv4Addr::new(255, 254, 253, 252)))
 			.with(Protocol::Tcp(8888))
-			.with(Protocol::P2p(Multihash::from_bytes(&peer_id.to_bytes()).unwrap()));
+			.with(Protocol::P2p(peer_id.into()));
 		manager.dial_address(multiaddr.clone()).await.unwrap();
 
 		assert!(transport.pending_dials.is_empty());

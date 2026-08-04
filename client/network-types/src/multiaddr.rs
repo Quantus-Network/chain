@@ -73,6 +73,15 @@ impl Multiaddr {
 	pub fn to_vec(&self) -> Vec<u8> {
 		self.multiaddr.to_vec()
 	}
+
+	/// Parse a litep2p multiaddr, rejecting protocols we do not model.
+	fn try_from_litep2p(multiaddr: LiteP2pMultiaddr) -> Result<Self, ParseError> {
+		for protocol in multiaddr.iter() {
+			protocol::try_from_litep2p_protocol(protocol)
+				.map_err(|tag| ParseError::UnsupportedProtocol(tag.to_string()))?;
+		}
+		Ok(Self { multiaddr })
+	}
 }
 
 impl Display for Multiaddr {
@@ -96,6 +105,8 @@ impl AsRef<[u8]> for Multiaddr {
 
 impl From<LiteP2pMultiaddr> for Multiaddr {
 	fn from(multiaddr: LiteP2pMultiaddr) -> Self {
+		// Infallible wrap for addresses already accepted by the litep2p stack. Iteration uses a
+		// non-panicking protocol conversion (see [`protocol::try_from_litep2p_protocol`]).
 		Self { multiaddr }
 	}
 }
@@ -132,7 +143,7 @@ impl TryFrom<Vec<u8>> for Multiaddr {
 
 	fn try_from(v: Vec<u8>) -> Result<Self, ParseError> {
 		let multiaddr = LiteP2pMultiaddr::try_from(v)?;
-		Ok(Self { multiaddr })
+		Self::try_from_litep2p(multiaddr)
 	}
 }
 
@@ -157,6 +168,9 @@ pub enum ParseError {
 	/// Failed to decode unsigned varint.
 	#[error("failed to decode unsigned varint: {0}")]
 	InvalidUvar(Box<dyn std::error::Error + Send + Sync>),
+	/// Protocol is valid in multiaddr but not modeled by [`Protocol`].
+	#[error("unsupported multiaddr protocol '{0}'")]
+	UnsupportedProtocol(String),
 	/// Other error emitted when parsing into the wrapped type.
 	#[error("multiaddr parsing error: {0}")]
 	ParsingError(Box<dyn std::error::Error + Send + Sync>),
@@ -182,7 +196,7 @@ impl FromStr for Multiaddr {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let multiaddr = LiteP2pMultiaddr::from_str(s)?;
-		Ok(Self { multiaddr })
+		Self::try_from_litep2p(multiaddr)
 	}
 }
 
@@ -233,7 +247,7 @@ impl<'a> FromIterator<Protocol<'a>> for Multiaddr {
 	where
 		T: IntoIterator<Item = Protocol<'a>>,
 	{
-		LiteP2pMultiaddr::from_iter(iter.into_iter().map(Into::into)).into()
+		LiteP2pMultiaddr::from_iter(iter.into_iter().map(LiteP2pProtocol::from)).into()
 	}
 }
 
@@ -273,4 +287,58 @@ macro_rules! build_multiaddr {
             elem.collect::<$crate::multiaddr::Multiaddr>()
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{Multiaddr, Protocol};
+	use crate::{multihash::Multihash, PeerId};
+	use std::{net::Ipv4Addr, str::FromStr};
+
+	/// multiaddr 0.18 accepts `/webtransport`, and iteration must not panic after parse.
+	#[test]
+	fn webtransport_multiaddr_parses_and_iterates() {
+		let s = "/ip4/127.0.0.1/udp/443/quic-v1/webtransport";
+		let address = Multiaddr::from_str(s).expect("valid multiaddr 0.18 address");
+		assert_eq!(address.to_string(), s);
+
+		let protocols: Vec<_> = address.iter().collect();
+		assert_eq!(
+			protocols,
+			vec![
+				Protocol::Ip4(Ipv4Addr::new(127, 0, 0, 1)),
+				Protocol::Udp(443),
+				Protocol::QuicV1,
+				Protocol::WebTransport,
+			]
+		);
+		assert_eq!(address.iter().count(), 4);
+	}
+
+	/// sha2-512 is a valid multihash code but not a peer-id code.
+	fn non_peer_id_multihash() -> Multihash {
+		const SHA2_512: u64 = 0x13;
+		Multihash::wrap(SHA2_512, &[0u8; 64]).expect("64-byte digest fits Multihash<64>")
+	}
+
+	/// [`Protocol::P2p`] carries a validated [`PeerId`], so a non-peer-id multihash is
+	/// unrepresentable in a [`Multiaddr`] and must be rejected at the validation boundary.
+	#[test]
+	fn non_peer_id_multihash_rejected_at_boundaries() {
+		assert!(PeerId::from_multihash(non_peer_id_multihash()).is_err());
+
+		let encoded = bs58::encode(non_peer_id_multihash().to_bytes()).into_string();
+		assert!(Multiaddr::from_str(&format!("/p2p/{encoded}")).is_err());
+	}
+
+	#[test]
+	fn p2p_multiaddr_roundtrips_through_push_and_iter() {
+		let peer_id = PeerId::random();
+		let mut address = Multiaddr::from_str("/ip4/198.51.100.19/tcp/30333").unwrap();
+		address.push(Protocol::P2p(peer_id));
+
+		assert_eq!(address.iter().last(), Some(Protocol::P2p(peer_id)));
+		let reparsed = Multiaddr::from_str(&address.to_string()).unwrap();
+		assert_eq!(reparsed, address);
+	}
 }

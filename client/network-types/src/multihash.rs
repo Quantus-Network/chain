@@ -24,6 +24,8 @@ use litep2p::types::multihash::{
 };
 use std::fmt::{self, Debug};
 
+const MULTIHASH_IDENTITY_CODE: u64 = 0x00;
+
 /// Default [`Multihash`] implementations. Only hashes used by substrate are defined.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Code {
@@ -36,7 +38,11 @@ pub enum Code {
 impl Code {
 	/// Calculate digest using this [`Code`]'s hashing algorithm.
 	pub fn digest(&self, input: &[u8]) -> Multihash {
-		LiteP2pCode::from(*self).digest(input).into()
+		match self {
+			Code::Identity => Multihash::wrap(MULTIHASH_IDENTITY_CODE, input)
+				.expect("identity digest fits in Multihash<64>"),
+			Code::Sha2_256 => LiteP2pCode::Sha2_256.digest(input).into(),
+		}
 	}
 }
 
@@ -49,27 +55,22 @@ pub enum Error {
 	/// The multihash code is not supported.
 	#[error("unsupported multihash code '{0:x}'")]
 	UnsupportedCode(u64),
-	/// Catch-all for other errors emitted when converting `u64` code to enum or parsing multihash
-	/// from bytes. Never generated as of multihash-0.17.0.
+	/// Catch-all for other errors emitted when parsing multihash from bytes.
 	#[error("other error: {0}")]
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl From<LiteP2pError> for Error {
 	fn from(error: LiteP2pError) -> Self {
-		match error {
-			LiteP2pError::InvalidSize(s) => Self::InvalidSize(s),
-			LiteP2pError::UnsupportedCode(c) => Self::UnsupportedCode(c),
-			e => Self::Other(Box::new(e)),
-		}
+		Self::Other(Box::new(error))
 	}
 }
 
 impl From<Code> for LiteP2pCode {
 	fn from(code: Code) -> Self {
 		match code {
-			Code::Identity => LiteP2pCode::Identity,
 			Code::Sha2_256 => LiteP2pCode::Sha2_256,
+			Code::Identity => panic!("identity is not a codetable code"),
 		}
 	}
 }
@@ -79,7 +80,6 @@ impl TryFrom<LiteP2pCode> for Code {
 
 	fn try_from(code: LiteP2pCode) -> Result<Self, Self::Error> {
 		match code {
-			LiteP2pCode::Identity => Ok(Code::Identity),
 			LiteP2pCode::Sha2_256 => Ok(Code::Sha2_256),
 			_ => Err(Error::UnsupportedCode(code.into())),
 		}
@@ -90,16 +90,22 @@ impl TryFrom<u64> for Code {
 	type Error = Error;
 
 	fn try_from(code: u64) -> Result<Self, Self::Error> {
-		match LiteP2pCode::try_from(code) {
-			Ok(code) => code.try_into(),
-			Err(e) => Err(e.into()),
+		if code == MULTIHASH_IDENTITY_CODE {
+			return Ok(Code::Identity);
 		}
+		if code == u64::from(LiteP2pCode::Sha2_256) {
+			return Ok(Code::Sha2_256);
+		}
+		Err(Error::UnsupportedCode(code))
 	}
 }
 
 impl From<Code> for u64 {
 	fn from(code: Code) -> Self {
-		LiteP2pCode::from(code).into()
+		match code {
+			Code::Identity => MULTIHASH_IDENTITY_CODE,
+			Code::Sha2_256 => LiteP2pCode::Sha2_256.into(),
+		}
 	}
 }
 
@@ -156,9 +162,6 @@ impl From<Multihash> for LiteP2pMultihash {
 	}
 }
 
-// Note: In multihash 0.17, LiteP2pMultihash is the same as multihash::Multihash (type alias from
-// Code derive) so these From impls are redundant as both are already handled above.
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -174,5 +177,12 @@ mod tests {
 	fn code_into_u64() {
 		assert_eq!(u64::from(Code::Identity), 0x00);
 		assert_eq!(u64::from(Code::Sha2_256), 0x12);
+	}
+
+	#[test]
+	fn identity_digest() {
+		let digest = Code::Identity.digest(b"hello");
+		assert_eq!(digest.code(), MULTIHASH_IDENTITY_CODE);
+		assert_eq!(digest.digest(), b"hello");
 	}
 }

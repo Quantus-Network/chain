@@ -70,7 +70,7 @@ impl PeerId {
 	/// otherwise returns `None`.
 	pub fn try_from_multiaddr(address: &Multiaddr) -> Option<PeerId> {
 		match address.iter().last() {
-			Some(Protocol::P2p(multihash)) => Some(Self { multihash }),
+			Some(Protocol::P2p(peer_id)) => Some(peer_id),
 			_ => None,
 		}
 	}
@@ -80,7 +80,11 @@ impl PeerId {
 	/// If the multihash does not use a valid hashing algorithm for peer IDs,
 	/// or the hash value does not satisfy the constraints for a hashed
 	/// peer ID, it is returned as an `Err`.
-	pub fn from_multihash(multihash: Multihash) -> Result<PeerId, Multihash> {
+	///
+	/// Accepts anything convertible into a `Multihash` (including a `PeerId`) so that
+	/// multiaddr-0.17-era callers that re-validate the `Protocol::P2p` payload keep compiling.
+	pub fn from_multihash(multihash: impl Into<Multihash>) -> Result<PeerId, Multihash> {
+		let multihash = multihash.into();
 		match Code::try_from(multihash.code()) {
 			Ok(Code::Sha2_256) => Ok(PeerId { multihash }),
 			Ok(Code::Identity) if multihash.digest().len() <= MAX_INLINE_KEY_LENGTH =>
@@ -161,9 +165,12 @@ impl PeerId {
 	}
 }
 
-impl AsRef<Multihash> for PeerId {
-	fn as_ref(&self) -> &Multihash {
-		&self.multihash
+/// Reflexive impl: [`crate::multiaddr::Protocol::P2p`] carries a `PeerId` (multiaddr 0.18
+/// semantics), and external consumers (e.g. `sc-mixnet`) build that variant via
+/// `*peer_id.as_ref()`. Keep this the only `AsRef` impl so type inference stays unambiguous.
+impl AsRef<PeerId> for PeerId {
+	fn as_ref(&self) -> &PeerId {
+		self
 	}
 }
 
@@ -231,7 +238,7 @@ mod tests {
 			let address = "/ip4/198.51.100.19/tcp/30333"
 				.parse::<Multiaddr>()
 				.unwrap()
-				.with(Protocol::P2p(peer.into()));
+				.with(Protocol::P2p(peer));
 
 			assert_eq!(PeerId::try_from_multiaddr(&address), Some(peer));
 		}
@@ -239,7 +246,7 @@ mod tests {
 		{
 			let peer = PeerId::random();
 			assert_eq!(
-				PeerId::try_from_multiaddr(&Multiaddr::empty().with(Protocol::P2p(peer.into()))),
+				PeerId::try_from_multiaddr(&Multiaddr::empty().with(Protocol::P2p(peer))),
 				Some(peer)
 			);
 		}

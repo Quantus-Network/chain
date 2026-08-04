@@ -27,8 +27,8 @@ use crate::{
 	Multiaddr, PeerId,
 };
 
+use crate::types::multihash::Multihash;
 use bytes::Bytes;
-use multihash::Multihash;
 
 use std::{borrow::Borrow, time::Instant};
 

@@ -9,6 +9,7 @@ repository = "https://github.com/quantus-network/chain#"
 members = [
 	"client/cli",
 	"client/consensus/qpow",
+	"client/executor-wasmtime",
 	"client/informant",
 	"client/litep2p",
 	"client/network",
@@ -17,6 +18,7 @@ members = [
 	"client/service",
 	"client/telemetry",
 	"client/transaction-pool",
+	"client/wasm-interface",
 	"frame/benchmarking",
 	"frame/executive",
 	"frame/metadata",
@@ -88,9 +90,16 @@ bs58 = { version = "0.5.1" }
 bytes = { version = "1.4.0", default-features = false }
 cfg-if = { version = "1.0" }
 chrono = { version = "0.4.31" }
-cid = { version = "0.11.1" }
+cid = { version = "0.11.3" }
 clap = { version = "4.5.13" }
-clatter = { version = "=1.1.0" }
+# rust-crypto ML-KEM only — avoid default use-pqclean-* (unmaintained pqcrypto-kyber).
+clatter = { version = "2.2.0", default-features = false, features = [
+	"getrandom",
+	"std",
+	"use-chacha20poly1305",
+	"use-rust-crypto-ml-kem",
+	"use-sha",
+] }
 codec = { version = "3.6.12", default-features = false, package = "parity-scale-codec" }
 const-hex = { version = "1.16.0", default-features = false }
 criterion = { version = "0.5.1", default-features = false }
@@ -134,8 +143,9 @@ log = { version = "0.4.22", default-features = false }
 macro_magic = { version = "0.5.1", default-features = false }
 memory-db = { version = "0.34.0", default-features = false }
 mockall = { version = "0.13.1" }
-multiaddr = { version = "0.17.0" }
-multihash = { version = "0.17.0", default-features = false, features = ["identity", "sha2"] }
+multiaddr = { version = "0.18.2" }
+multihash = { version = "0.19.5", default-features = false, features = ["std"] }
+multihash-codetable = { version = "0.2.1", default-features = false, features = ["sha2"] }
 multistream-select = { version = "0.13.0" }
 names = { version = "0.14.0", default-features = false }
 network-interface = { version = "2.0.1" }
@@ -325,7 +335,6 @@ static_init = { version = "1.0.4" }
 strum = { version = "0.26.3", default-features = false, features = ["derive"] }
 substrate-build-script-utils = { version = "11.0.0", default-features = false }
 substrate-frame-rpc-system = { version = "49.0.0", default-features = false }
-substrate-test-utils = { version = "3.0.0", default-features = false }
 substrate-wasm-builder = { version = "31.1.0", default-features = false }
 
 [patch.crates-io]
@@ -347,6 +356,7 @@ pallet-transaction-payment = { path = "./pallets/transaction-payment" }
 pallet-transaction-payment-rpc = { path = "./pallets/transaction-payment-rpc" }
 pallet-transaction-payment-rpc-runtime-api = { path = "./pallets/transaction-payment-rpc-runtime-api" }
 sc-cli = { path = "./client/cli" }
+sc-executor-wasmtime = { path = "./client/executor-wasmtime" }
 sc-informant = { path = "./client/informant" }
 sc-network = { path = "client/network" }
 sc-network-sync = { path = "client/network-sync" }
@@ -354,6 +364,7 @@ sc-network-types = { path = "client/network-types" }
 sc-service = { path = "client/service" }
 sc-telemetry = { path = "client/telemetry" }
 sc-transaction-pool = { path = "client/transaction-pool" }
+sp-wasm-interface = { path = "./client/wasm-interface" }
 
 [profile.release]
 opt-level = 3
