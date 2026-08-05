@@ -1387,10 +1387,25 @@ pub mod pallet {
 					.map_err(|_| "Failed to decode public key from pair")?;
 
 				// Set the balance for the generated account.
-				Self::mutate_account_handling_dust(&who, false, |account| {
+				let old_free = Self::mutate_account_handling_dust(&who, false, |account| {
+					let old_free = account.free;
 					account.free = balance;
+					old_free
 				})
 				.map_err(|_| "Failed to set balance for derived dev account")?;
+
+				// `mutate_account_handling_dust` explicitly leaves total-issuance maintenance
+				// to the caller: account for exactly what this write credited (or removed), so
+				// dev-account allocations are real, counted issuance.
+				if balance >= old_free {
+					TotalIssuance::<T, I>::mutate(|t| {
+						*t = t.saturating_add(balance - old_free)
+					});
+				} else {
+					TotalIssuance::<T, I>::mutate(|t| {
+						*t = t.saturating_sub(old_free - balance)
+					});
+				}
 			}
 
 			Ok(())
