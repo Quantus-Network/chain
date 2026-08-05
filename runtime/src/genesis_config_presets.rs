@@ -18,7 +18,7 @@
 // this module is used by the client, so it's ok to panic/unwrap here
 #![allow(clippy::expect_used)]
 
-use crate::{AccountId, Balance, BalancesConfig, BlockNumber, RuntimeGenesisConfig, DAYS, UNIT};
+use crate::{AccountId, Balance, BalancesConfig, RuntimeGenesisConfig, UNIT};
 use alloc::{
 	string::{String, ToString},
 	vec,
@@ -31,8 +31,18 @@ use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};
 use sp_runtime::{traits::IdentifyAccount, Permill};
 
-/// Genesis vesting: unlock starts at block 0 and completes after this many blocks (~1 year).
-const GENESIS_VESTING_LENGTH: BlockNumber = DAYS * 365;
+/// The time unit vesting schedules are denominated in: milliseconds since the unix epoch,
+/// as reported by `pallet_timestamp` (matches `pallet_vesting::Config::Moment` = u64).
+type VestingMoment = u64;
+
+/// Genesis vesting starts at this wall-clock time: 2026-08-05 00:00:00 UTC (ms since epoch).
+///
+/// Schedules vest against real time, not blocks. Set this to the intended launch time before
+/// starting a new network — a chain launched later than this date will already be partially
+/// vested, and one launched earlier stays fully locked until this time is reached.
+const GENESIS_VESTING_START_MS: VestingMoment = 1_785_888_000_000;
+/// Genesis vesting: unlock completes this many milliseconds after start (~1 year).
+const GENESIS_VESTING_LENGTH_MS: VestingMoment = 365 * 24 * 60 * 60 * 1000;
 /// Amount kept immediately spendable for fees; the rest of each vested endowment is locked.
 const GENESIS_VESTING_LIQUID: Balance = UNIT;
 
@@ -153,14 +163,17 @@ fn planck_tech_collective_seed() -> Vec<AccountId> {
 
 /// Build genesis vesting entries for the given accounts.
 ///
-/// Tuple is `(who, begin, length, liquid)` — see `pallet_vesting` genesis docs.
-/// Locked amount is derived as `free_balance - liquid` after Balances genesis runs.
+/// Tuple is `(who, begin, length, liquid)` with `begin`/`length` in milliseconds of wall-clock
+/// time — see `pallet_vesting` genesis docs. Locked amount is derived as `free_balance - liquid`
+/// after Balances genesis runs.
 fn vested_endowments(
 	accounts: impl IntoIterator<Item = AccountId>,
-) -> Vec<(AccountId, BlockNumber, BlockNumber, Balance)> {
+) -> Vec<(AccountId, VestingMoment, VestingMoment, Balance)> {
 	accounts
 		.into_iter()
-		.map(|who| (who, 0, GENESIS_VESTING_LENGTH, GENESIS_VESTING_LIQUID))
+		.map(|who| {
+			(who, GENESIS_VESTING_START_MS, GENESIS_VESTING_LENGTH_MS, GENESIS_VESTING_LIQUID)
+		})
 		.collect()
 }
 
@@ -179,7 +192,7 @@ fn genesis_template(
 	treasury: TreasuryGenesis,
 	tech_collective_members: Vec<AccountId>,
 	extra_balances: Vec<(AccountId, u128)>,
-	vesting: Vec<(AccountId, BlockNumber, BlockNumber, Balance)>,
+	vesting: Vec<(AccountId, VestingMoment, VestingMoment, Balance)>,
 ) -> Value {
 	const ENDOWED_BALANCE_UNITS: u128 = 100_000;
 	let mut balances = endowed_accounts
@@ -234,7 +247,7 @@ fn log_genesis_accounts(
 	}
 	for account in vested {
 		log::info!(
-			"[{preset}] 🔒 Vested endowment: {:?} (liquid={GENESIS_VESTING_LIQUID}, length={GENESIS_VESTING_LENGTH} blocks)",
+			"[{preset}] 🔒 Vested endowment: {:?} (liquid={GENESIS_VESTING_LIQUID}, start={GENESIS_VESTING_START_MS} ms, length={GENESIS_VESTING_LENGTH_MS} ms)",
 			account.to_ss58check_with_version(ss58)
 		);
 	}

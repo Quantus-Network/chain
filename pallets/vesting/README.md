@@ -1,7 +1,8 @@
 # Vesting Module
 
-- [`Config`](https://docs.rs/pallet-vesting/latest/pallet_vesting/pallet/trait.Config.html)
-- [`Call`](https://docs.rs/pallet-vesting/latest/pallet_vesting/pallet/enum.Call.html)
+Quantus fork of FRAME `pallet-vesting`: schedules unlock against wall-clock time
+(`Config::Moment` / `Config::TimeProvider`, milliseconds since the unix epoch from
+`pallet_timestamp`) instead of block numbers. Schedule fields are `locked`, `per_ms`, and `start`.
 
 ## Overview
 

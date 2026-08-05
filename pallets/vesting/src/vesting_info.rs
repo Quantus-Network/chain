@@ -16,6 +16,9 @@
 // limitations under the License.
 
 //! Module to enforce private fields on `VestingInfo`.
+//!
+//! Quantus fork: schedules are denominated in wall-clock time (`Moment`, milliseconds
+//! since the unix epoch as reported by `pallet_timestamp`) instead of block numbers.
 
 use super::*;
 
@@ -32,33 +35,29 @@ use super::*;
 	MaxEncodedLen,
 	TypeInfo,
 )]
-pub struct VestingInfo<Balance, BlockNumber> {
-	/// Locked amount at genesis.
+pub struct VestingInfo<Balance, Moment> {
+	/// Locked amount at schedule creation.
 	locked: Balance,
-	/// Amount that gets unlocked every block after `starting_block`.
-	per_block: Balance,
-	/// Starting block for unlocking(vesting).
-	starting_block: BlockNumber,
+	/// Amount that gets unlocked every millisecond after `start`.
+	per_ms: Balance,
+	/// Time (milliseconds since the unix epoch) at which unlocking (vesting) starts.
+	start: Moment,
 }
 
-impl<Balance, BlockNumber> VestingInfo<Balance, BlockNumber>
+impl<Balance, Moment> VestingInfo<Balance, Moment>
 where
 	Balance: AtLeast32BitUnsigned + Copy,
-	BlockNumber: AtLeast32BitUnsigned + Copy + Bounded,
+	Moment: AtLeast32BitUnsigned + Copy + Bounded,
 {
 	/// Instantiate a new `VestingInfo`.
-	pub fn new(
-		locked: Balance,
-		per_block: Balance,
-		starting_block: BlockNumber,
-	) -> VestingInfo<Balance, BlockNumber> {
-		VestingInfo { locked, per_block, starting_block }
+	pub fn new(locked: Balance, per_ms: Balance, start: Moment) -> VestingInfo<Balance, Moment> {
+		VestingInfo { locked, per_ms, start }
 	}
 
 	/// Validate parameters for `VestingInfo`. Note that this does not check
 	/// against `MinVestedTransfer`.
 	pub fn is_valid(&self) -> bool {
-		!self.locked.is_zero() && !self.raw_per_block().is_zero()
+		!self.locked.is_zero() && !self.raw_per_ms().is_zero()
 	}
 
 	/// Locked amount at schedule creation.
@@ -66,60 +65,55 @@ where
 		self.locked
 	}
 
-	/// Amount that gets unlocked every block after `starting_block`. Corrects for `per_block` of 0.
-	/// We don't let `per_block` be less than 1, or else the vesting will never end.
-	/// This should be used whenever accessing `per_block` unless explicitly checking for 0 values.
-	pub fn per_block(&self) -> Balance {
-		self.per_block.max(One::one())
+	/// Amount that gets unlocked every millisecond after `start`. Corrects for `per_ms` of 0.
+	/// We don't let `per_ms` be less than 1, or else the vesting will never end.
+	/// This should be used whenever accessing `per_ms` unless explicitly checking for 0 values.
+	pub fn per_ms(&self) -> Balance {
+		self.per_ms.max(One::one())
 	}
 
-	/// Get the unmodified `per_block`. Generally should not be used, but is useful for
-	/// validating `per_block`.
-	pub(crate) fn raw_per_block(&self) -> Balance {
-		self.per_block
+	/// Get the unmodified `per_ms`. Generally should not be used, but is useful for
+	/// validating `per_ms`.
+	pub(crate) fn raw_per_ms(&self) -> Balance {
+		self.per_ms
 	}
 
-	/// Starting block for unlocking(vesting).
-	pub fn starting_block(&self) -> BlockNumber {
-		self.starting_block
+	/// Time at which unlocking (vesting) starts.
+	pub fn start(&self) -> Moment {
+		self.start
 	}
 
-	/// Amount locked at block `n`.
-	pub fn locked_at<BlockNumberToBalance: Convert<BlockNumber, Balance>>(
-		&self,
-		n: BlockNumber,
-	) -> Balance {
-		// Number of blocks that count toward vesting;
-		// saturating to 0 when n < starting_block.
-		let vested_block_count = n.saturating_sub(self.starting_block);
-		let vested_block_count = BlockNumberToBalance::convert(vested_block_count);
+	/// Amount locked at time `now`.
+	pub fn locked_at<MomentToBalance: Convert<Moment, Balance>>(&self, now: Moment) -> Balance {
+		// Milliseconds that count toward vesting;
+		// saturating to 0 when now < start.
+		let vested_ms = now.saturating_sub(self.start);
+		let vested_ms = MomentToBalance::convert(vested_ms);
 		// Return amount that is still locked in vesting.
-		vested_block_count
-			.checked_mul(&self.per_block()) // `per_block` accessor guarantees at least 1.
+		vested_ms
+			.checked_mul(&self.per_ms()) // `per_ms` accessor guarantees at least 1.
 			.map(|to_unlock| self.locked.saturating_sub(to_unlock))
 			.unwrap_or(Zero::zero())
 	}
 
-	/// Block number at which the schedule ends (as type `Balance`).
-	pub fn ending_block_as_balance<BlockNumberToBalance: Convert<BlockNumber, Balance>>(
-		&self,
-	) -> Balance {
-		let starting_block = BlockNumberToBalance::convert(self.starting_block);
-		let duration = if self.per_block() >= self.locked {
-			// If `per_block` is bigger than `locked`, the schedule will end
-			// the block after starting.
+	/// Time at which the schedule ends (as type `Balance`).
+	pub fn ending_time_as_balance<MomentToBalance: Convert<Moment, Balance>>(&self) -> Balance {
+		let start = MomentToBalance::convert(self.start);
+		let duration = if self.per_ms() >= self.locked {
+			// If `per_ms` is bigger than `locked`, the schedule will end
+			// the millisecond after starting.
 			One::one()
 		} else {
-			self.locked / self.per_block() +
-				if (self.locked % self.per_block()).is_zero() {
+			self.locked / self.per_ms() +
+				if (self.locked % self.per_ms()).is_zero() {
 					Zero::zero()
 				} else {
-					// `per_block` does not perfectly divide `locked`, so we need an extra block to
-					// unlock some amount less than `per_block`.
+					// `per_ms` does not perfectly divide `locked`, so we need an extra tick to
+					// unlock some amount less than `per_ms`.
 					One::one()
 				}
 		};
 
-		starting_block.saturating_add(duration)
+		start.saturating_add(duration)
 	}
 }

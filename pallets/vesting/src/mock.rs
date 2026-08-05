@@ -15,7 +15,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use frame_support::{derive_impl, parameter_types, traits::WithdrawReasons};
+use frame_support::{
+	derive_impl, parameter_types,
+	traits::{ConstU64, WithdrawReasons},
+};
 use sp_runtime::{traits::Identity, BuildStorage};
 
 use super::*;
@@ -27,6 +30,7 @@ frame_support::construct_runtime!(
 	pub enum Test
 	{
 		System: frame_system,
+		Timestamp: pallet_timestamp,
 		Balances: pallet_balances,
 		Vesting: pallet_vesting,
 	}
@@ -36,6 +40,13 @@ frame_support::construct_runtime!(
 impl frame_system::Config for Test {
 	type AccountData = pallet_balances::AccountData<u64>;
 	type Block = Block;
+}
+
+impl pallet_timestamp::Config for Test {
+	type Moment = u64;
+	type OnTimestampSet = ();
+	type MinimumPeriod = ConstU64<1>;
+	type WeightInfo = ();
 }
 
 #[derive_impl(pallet_balances::config_preludes::TestDefaultConfig)]
@@ -50,14 +61,25 @@ parameter_types! {
 	pub static ExistentialDeposit: u64 = 1;
 }
 impl Config for Test {
-	type BlockNumberToBalance = Identity;
+	type Moment = u64;
+	type TimeProvider = Timestamp;
+	type MomentToBalance = Identity;
 	type Currency = Balances;
 	type RuntimeEvent = RuntimeEvent;
 	const MAX_VESTING_SCHEDULES: u32 = 3;
 	type MinVestedTransfer = MinVestedTransfer;
 	type WeightInfo = ();
 	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
-	type BlockNumberProvider = System;
+}
+
+/// Set the mock clock (milliseconds). Tests use this instead of advancing block numbers.
+pub fn set_time(now: u64) {
+	pallet_timestamp::Now::<Test>::put(now);
+}
+
+/// Read the mock clock.
+pub fn current_time() -> u64 {
+	pallet_timestamp::Now::<Test>::get()
 }
 
 pub struct ExtBuilder {
@@ -113,7 +135,11 @@ impl ExtBuilder {
 			.assimilate_storage(&mut t)
 			.unwrap();
 		let mut ext = sp_io::TestExternalities::new(t);
-		ext.execute_with(|| System::set_block_number(1));
+		ext.execute_with(|| {
+			System::set_block_number(1);
+			// Mirror the old block-based tests: the clock starts at 1.
+			set_time(1);
+		});
 		ext
 	}
 }

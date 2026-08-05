@@ -213,11 +213,14 @@ parameter_types! {
 impl pallet_vesting::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
-	type BlockNumberToBalance = ConvertInto;
+	// Vesting schedules are denominated in wall-clock time (milliseconds since the
+	// unix epoch, as reported by pallet_timestamp), not block numbers.
+	type Moment = Moment;
+	type TimeProvider = Timestamp;
+	type MomentToBalance = ConvertInto;
 	type MinVestedTransfer = MinVestedTransfer;
 	type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
 	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
-	type BlockNumberProvider = System;
 	const MAX_VESTING_SCHEDULES: u32 = 28;
 }
 

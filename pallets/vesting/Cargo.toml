@@ -1,6 +1,6 @@
 [package]
 authors.workspace = true
-description = "FRAME pallet for manage vesting"
+description = "FRAME vesting pallet (Quantus fork: unlocks against wall-clock time via TimeProvider)"
 edition.workspace = true
 homepage.workspace = true
 license = "Apache-2.0"
@@ -21,11 +21,15 @@ frame-benchmarking = { optional = true, workspace = true }
 frame-support.workspace = true
 frame-system.workspace = true
 log = { workspace = true }
+# Only used by benchmarks to move the clock forward; the pallet itself is generic
+# over `Config::TimeProvider`.
+pallet-timestamp = { optional = true, workspace = true }
 scale-info = { features = ["derive"], workspace = true }
 sp-runtime.workspace = true
 
 [dev-dependencies]
 pallet-balances = { workspace = true, default-features = true }
+pallet-timestamp = { workspace = true, default-features = true }
 sp-io = { workspace = true, default-features = true }
 
 [features]
@@ -36,13 +40,16 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"log/std",
+	"pallet-timestamp?/std",
 	"scale-info/std",
 	"sp-runtime/std",
 ]
 runtime-benchmarks = [
+	"dep:pallet-timestamp",
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-support/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
+	"pallet-timestamp/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
 try-runtime = [

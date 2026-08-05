@@ -21,7 +21,7 @@
 
 use frame_benchmarking::{v2::*, BenchmarkError};
 use frame_support::assert_ok;
-use frame_system::{pallet_prelude::BlockNumberFor, RawOrigin};
+use frame_system::RawOrigin;
 use sp_runtime::traits::{Bounded, CheckedDiv, CheckedMul};
 
 use crate::*;
@@ -30,6 +30,11 @@ const SEED: u32 = 0;
 
 type BalanceOf<T> =
 	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
+/// Set the on-chain clock (`pallet_timestamp` backs `Config::TimeProvider` in this runtime).
+fn set_time<T: Config + pallet_timestamp::Config<Moment = MomentOf<T>>>(now: MomentOf<T>) {
+	pallet_timestamp::Now::<T>::put(now);
+}
 
 fn add_locks<T: Config>(who: &T::AccountId, n: u8) {
 	for id in 0..n {
@@ -40,26 +45,26 @@ fn add_locks<T: Config>(who: &T::AccountId, n: u8) {
 	}
 }
 
-fn add_vesting_schedules<T: Config>(
+fn add_vesting_schedules<T: Config + pallet_timestamp::Config<Moment = MomentOf<T>>>(
 	target: &T::AccountId,
 	n: u32,
 ) -> Result<BalanceOf<T>, &'static str> {
 	let min_transfer = T::MinVestedTransfer::get();
 	let locked = min_transfer.checked_mul(&20_u32.into()).unwrap();
-	// Schedule has a duration of 20.
-	let per_block = min_transfer;
-	let starting_block = 1_u32;
+	// Schedule has a duration of 20 time units.
+	let per_ms = min_transfer;
+	let start = 1_u32;
 
 	let source = account("source", 0, SEED);
 	T::Currency::make_free_balance_be(&source, BalanceOf::<T>::max_value());
 
-	T::BlockNumberProvider::set_block_number(BlockNumberFor::<T>::zero());
+	set_time::<T>(Zero::zero());
 
 	let mut total_locked: BalanceOf<T> = Zero::zero();
 	for _ in 0..n {
 		total_locked += locked;
 
-		let schedule = VestingInfo::new(locked, per_block, starting_block.into());
+		let schedule = VestingInfo::new(locked, per_ms, start.into());
 		assert_ok!(Pallet::<T>::do_vested_transfer(&source, target, schedule));
 
 		// Top up to guarantee we can always transfer another schedule.
@@ -69,7 +74,9 @@ fn add_vesting_schedules<T: Config>(
 	Ok(total_locked)
 }
 
-#[benchmarks]
+#[benchmarks(
+	where T: pallet_timestamp::Config<Moment = MomentOf<T>>
+)]
 mod benchmarks {
 	use super::*;
 
@@ -84,8 +91,8 @@ mod benchmarks {
 		add_locks::<T>(&caller, l as u8);
 		let expected_balance = add_vesting_schedules::<T>(&caller, s)?;
 
-		// At block zero, everything is vested.
-		assert_eq!(frame_system::Pallet::<T>::block_number(), BlockNumberFor::<T>::zero());
+		// At time zero, everything is vested.
+		assert_eq!(T::TimeProvider::now(), MomentOf::<T>::zero());
 		assert_eq!(
 			Pallet::<T>::vesting_balance(&caller),
 			Some(expected_balance),
@@ -116,8 +123,8 @@ mod benchmarks {
 		add_locks::<T>(&caller, l as u8);
 		add_vesting_schedules::<T>(&caller, s)?;
 
-		// At block 21, everything is unlocked.
-		T::BlockNumberProvider::set_block_number(21_u32.into());
+		// At time 21, everything is unlocked.
+		set_time::<T>(21_u32.into());
 		assert_eq!(
 			Pallet::<T>::vesting_balance(&caller),
 			Some(BalanceOf::<T>::zero()),
@@ -145,8 +152,8 @@ mod benchmarks {
 		add_locks::<T>(&other, l as u8);
 		let expected_balance = add_vesting_schedules::<T>(&other, s)?;
 
-		// At block zero, everything is vested.
-		assert_eq!(frame_system::Pallet::<T>::block_number(), BlockNumberFor::<T>::zero());
+		// At time zero, everything is vested.
+		assert_eq!(T::TimeProvider::now(), MomentOf::<T>::zero());
 		assert_eq!(
 			Pallet::<T>::vesting_balance(&other),
 			Some(expected_balance),
@@ -179,8 +186,8 @@ mod benchmarks {
 		T::Currency::make_free_balance_be(&other, T::Currency::minimum_balance());
 		add_locks::<T>(&other, l as u8);
 		add_vesting_schedules::<T>(&other, s)?;
-		// At block 21 everything is unlocked.
-		T::BlockNumberProvider::set_block_number(21_u32.into());
+		// At time 21 everything is unlocked.
+		set_time::<T>(21_u32.into());
 
 		assert_eq!(
 			Pallet::<T>::vesting_balance(&other),
@@ -217,10 +224,10 @@ mod benchmarks {
 		let mut expected_balance = add_vesting_schedules::<T>(&target, s)?;
 
 		let transfer_amount = T::MinVestedTransfer::get();
-		let per_block = transfer_amount.checked_div(&20_u32.into()).unwrap();
+		let per_ms = transfer_amount.checked_div(&20_u32.into()).unwrap();
 		expected_balance += transfer_amount;
 
-		let vesting_schedule = VestingInfo::new(transfer_amount, per_block, 1_u32.into());
+		let vesting_schedule = VestingInfo::new(transfer_amount, per_ms, 1_u32.into());
 
 		#[extrinsic_call]
 		_(RawOrigin::Signed(caller.clone()), target_lookup, vesting_schedule);
@@ -258,10 +265,10 @@ mod benchmarks {
 		let mut expected_balance = add_vesting_schedules::<T>(&target, s)?;
 
 		let transfer_amount = T::MinVestedTransfer::get();
-		let per_block = transfer_amount.checked_div(&20_u32.into()).unwrap();
+		let per_ms = transfer_amount.checked_div(&20_u32.into()).unwrap();
 		expected_balance += transfer_amount;
 
-		let vesting_schedule = VestingInfo::new(transfer_amount, per_block, 1_u32.into());
+		let vesting_schedule = VestingInfo::new(transfer_amount, per_ms, 1_u32.into());
 
 		#[extrinsic_call]
 		_(RawOrigin::Root, source_lookup, target_lookup, vesting_schedule);
@@ -292,8 +299,8 @@ mod benchmarks {
 		// Add max vesting schedules.
 		let expected_balance = add_vesting_schedules::<T>(&caller, s)?;
 
-		// Schedules are not vesting at block 0.
-		assert_eq!(frame_system::Pallet::<T>::block_number(), BlockNumberFor::<T>::zero());
+		// Schedules are not vesting at time 0.
+		assert_eq!(T::TimeProvider::now(), MomentOf::<T>::zero());
 		assert_eq!(
 			Pallet::<T>::vesting_balance(&caller),
 			Some(expected_balance),
@@ -346,7 +353,7 @@ mod benchmarks {
 
 		// Go to about half way through all the schedules duration. (They all start at 1, and have a
 		// duration of 20 or 21).
-		T::BlockNumberProvider::set_block_number(11_u32.into());
+		set_time::<T>(11_u32.into());
 		// We expect half the original locked balance (+ any remainder that vests on the last
 		// block).
 		let expected_balance = total_transferred / 2_u32.into();
