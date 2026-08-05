@@ -42,6 +42,7 @@ pallet-transaction-payment.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
 pallet-treasury.workspace = true
 pallet-utility.workspace = true
+pallet-vesting.workspace = true
 pallet-wormhole.workspace = true
 pallet-zk-tree.workspace = true
 primitive-types.workspace = true
@@ -105,6 +106,7 @@ std = [
 	"pallet-transaction-payment/std",
 	"pallet-treasury/std",
 	"pallet-utility/std",
+	"pallet-vesting/std",
 	"pallet-wormhole/std",
 	"pallet-zk-tree/std",
 	"primitive-types/std",
@@ -149,6 +151,7 @@ runtime-benchmarks = [
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"pallet-treasury/runtime-benchmarks",
+	"pallet-vesting/runtime-benchmarks",
 	"pallet-wormhole/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
@@ -166,6 +169,7 @@ try-runtime = [
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
 	"pallet-treasury/try-runtime",
+	"pallet-vesting/try-runtime",
 	"pallet-wormhole/try-runtime",
 	"sp-runtime/try-runtime",
 ]

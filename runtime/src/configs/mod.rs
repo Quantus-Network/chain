@@ -33,7 +33,10 @@ use crate::{
 };
 use frame_support::{
 	derive_impl, parameter_types,
-	traits::{ConstU128, ConstU16, ConstU32, ConstU8, Contains, NeverEnsureOrigin, VariantCountOf},
+	traits::{
+		ConstU128, ConstU16, ConstU32, ConstU8, Contains, NeverEnsureOrigin, VariantCountOf,
+		WithdrawReasons,
+	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
 		IdentityFee, Weight, WeightToFeeCoefficient, WeightToFeeCoefficients,
@@ -51,7 +54,7 @@ use smallvec::smallvec;
 
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
-	traits::{AccountIdConversion, BlakeTwo256, One},
+	traits::{AccountIdConversion, BlakeTwo256, ConvertInto, One},
 	AccountId32, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
@@ -199,6 +202,23 @@ impl pallet_balances::Config for Runtime {
 	type MaxReserves = ();
 	type MaxFreezes = VariantCountOf<RuntimeFreezeReason>;
 	type DoneSlashHandler = ();
+}
+
+parameter_types! {
+	pub const MinVestedTransfer: Balance = EXISTENTIAL_DEPOSIT;
+	pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
+		WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
+}
+
+impl pallet_vesting::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type BlockNumberToBalance = ConvertInto;
+	type MinVestedTransfer = MinVestedTransfer;
+	type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
+	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
+	type BlockNumberProvider = System;
+	const MAX_VESTING_SCHEDULES: u32 = 28;
 }
 
 parameter_types! {
