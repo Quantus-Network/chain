@@ -149,10 +149,18 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 				calls.iter().map(Self::count_transfers).sum(),
 
 			RuntimeCall::Utility(pallet_utility::Call::dispatch_as { call, .. }) |
+			RuntimeCall::Utility(pallet_utility::Call::dispatch_as_fallible { call, .. }) |
 			RuntimeCall::Utility(pallet_utility::Call::with_weight { call, .. }) |
 			RuntimeCall::Utility(pallet_utility::Call::as_derivative { call, .. }) |
 			RuntimeCall::Recovery(pallet_recovery::Call::as_recovered { call, .. }) =>
 				Self::count_transfers(call),
+
+			// Exactly one branch executes: the fallback runs only if the main call failed, in
+			// which case the main call's changes (and its events) were rolled back. Charge the
+			// worst case across the two branches; overcharge is never refunded, so summing
+			// would systematically overprice the honest path.
+			RuntimeCall::Utility(pallet_utility::Call::if_else { main, fallback }) =>
+				Self::count_transfers(main).max(Self::count_transfers(fallback)),
 
 			_ => 0,
 		}
@@ -770,6 +778,54 @@ mod tests {
 					.saturating_mul(2)
 					.saturating_add(reveal_weight),
 				"as_derivative-wrapped transfers must be statically counted"
+			);
+		});
+	}
+
+	#[test]
+	fn wormhole_proof_recorder_counts_if_else_wrapped_transfers() {
+		new_test_ext().execute_with(|| {
+			// `if_else` executes exactly one branch: the fallback runs only if the main call
+			// failed, in which case the main call's changes (and events) were rolled back. The
+			// static charge must therefore cover the worst case across the two branches.
+			let call = RuntimeCall::Utility(pallet_utility::Call::if_else {
+				main: boxed(RuntimeCall::Utility(pallet_utility::Call::batch {
+					calls: vec![non_whitelisted_transfer(), non_whitelisted_transfer()],
+				})),
+				fallback: boxed(non_whitelisted_transfer()),
+			});
+			assert_eq!(
+				WormholeProofRecorderExtension::<Runtime>::count_transfers(&call),
+				2,
+				"if_else must charge for the transfer-heavier branch (main)"
+			);
+
+			// The worst case can also sit in the fallback branch.
+			let call = RuntimeCall::Utility(pallet_utility::Call::if_else {
+				main: boxed(RuntimeCall::System(frame_system::Call::remark { remark: vec![1] })),
+				fallback: boxed(non_whitelisted_transfer()),
+			});
+			assert_eq!(
+				WormholeProofRecorderExtension::<Runtime>::count_transfers(&call),
+				1,
+				"if_else must charge for the transfer-heavier branch (fallback)"
+			);
+		});
+	}
+
+	#[test]
+	fn wormhole_proof_recorder_counts_dispatch_as_fallible_wrapped_transfers() {
+		new_test_ext().execute_with(|| {
+			let call = RuntimeCall::Utility(pallet_utility::Call::dispatch_as_fallible {
+				as_origin: alloc::boxed::Box::new(OriginCaller::system(
+					frame_system::RawOrigin::Signed(alice()),
+				)),
+				call: boxed(non_whitelisted_transfer()),
+			});
+			assert_eq!(
+				WormholeProofRecorderExtension::<Runtime>::count_transfers(&call),
+				1,
+				"dispatch_as_fallible-wrapped transfers must be statically counted"
 			);
 		});
 	}
