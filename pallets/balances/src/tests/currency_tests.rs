@@ -1329,6 +1329,33 @@ fn reserve_must_succeed_if_can_reserve_does() {
 	});
 }
 
+/// `can_reserve` must exactly predict `reserve` at the existential-deposit boundary,
+/// where the outcome depends on the provider/consumer bookkeeping: reserving below
+/// the ED strips the free-balance provider ref, which only succeeds if the account
+/// survives on another provider ref.
+#[test]
+fn can_reserve_agrees_with_reserve_at_existential_deposit_boundary() {
+	ExtBuilder::default().build_and_execute_with(|| {
+		// Plain account (single, free-balance-backed provider): reserving the whole
+		// free balance would reap the provider while the reserve holds a consumer
+		// ref, so `reserve` fails and `can_reserve` must say so.
+		let _ = Balances::deposit_creating(&1, 3);
+		assert!(!Balances::can_reserve(&1, 3));
+		assert_noop!(Balances::reserve(&1, 3), DispatchError::ConsumerRemaining);
+		assert_eq!(Balances::free_balance(1), 3);
+		assert_eq!(Balances::reserved_balance(1), 0);
+
+		// With an extra provider reference (as another pallet may hold), the account
+		// survives `free < ED`, so the very same reserve succeeds and `can_reserve`
+		// must predict that too.
+		frame_system::Pallet::<Test>::inc_providers(&1);
+		assert!(Balances::can_reserve(&1, 3));
+		assert_ok!(Balances::reserve(&1, 3));
+		assert_eq!(Balances::free_balance(1), 0);
+		assert_eq!(Balances::reserved_balance(1), 3);
+	});
+}
+
 #[test]
 fn reserved_named_to_yourself_should_work() {
 	ExtBuilder::default().build_and_execute_with(|| {
