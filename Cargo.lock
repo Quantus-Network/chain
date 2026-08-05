@@ -6096,6 +6096,7 @@ dependencies = [
  "pallet-scheduler",
  "pallet-timestamp",
  "pallet-utility",
+ "pallet-zk-tree",
  "parity-scale-codec",
  "qp-scheduler",
  "qp-wormhole",

@@ -100,6 +100,9 @@ mod runtime {
 
 	#[runtime::pallet_index(6)]
 	pub type Utility = pallet_utility::Pallet<Test>;
+
+	#[runtime::pallet_index(7)]
+	pub type ZkTree = pallet_zk_tree::Pallet<Test>;
 }
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Test> {
@@ -122,6 +125,13 @@ impl frame_system::Config for Test {
 
 parameter_types! {
 	pub MintingAccount: AccountId = AccountId::new([1u8; 32]);
+}
+
+// Only used by `SubstrateWeight<Test>` in weight tests: `execute_transfer`'s weight
+// reads the live ZK-tree depth to price the depth-dependent leaf insert.
+impl pallet_zk_tree::Config for Test {
+	type AssetId = u32;
+	type Balance = Balance;
 }
 
 #[derive_impl(pallet_balances::config_preludes::TestDefaultConfig)]
