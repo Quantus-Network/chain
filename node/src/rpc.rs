@@ -20,9 +20,9 @@ use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
 
-/// Peer information for RPC response
+/// Network identity and topology of this node, as returned by `peer_getNetworkInfo`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerInfo {
+pub struct NetworkInfo {
 	/// Peer ID
 	pub peer_id: String,
 	/// Number of connected peers
@@ -38,9 +38,14 @@ pub struct PeerInfo {
 /// Peer RPC API
 #[rpc(client, server)]
 pub trait PeerApi {
-	/// Get basic peer information
-	#[method(name = "peer_getBasicInfo")]
-	async fn get_basic_info(&self) -> RpcResult<PeerInfo>;
+	/// Get this node's network identity and topology (peer ID, connected peers,
+	/// external and listen addresses).
+	///
+	/// This is an *unsafe* RPC (like upstream `system_peers`/`system_unstable_networkState`):
+	/// it discloses the node's network topology, so it is only served to local connections
+	/// or when the node runs with `--rpc-methods unsafe`.
+	#[method(name = "peer_getNetworkInfo", with_extensions)]
+	async fn get_network_info(&self) -> RpcResult<NetworkInfo>;
 }
 
 /// Peer RPC implementation
@@ -58,7 +63,11 @@ impl Peer {
 
 #[async_trait]
 impl PeerApiServer for Peer {
-	async fn get_basic_info(&self) -> RpcResult<PeerInfo> {
+	async fn get_network_info(&self, ext: &jsonrpsee::Extensions) -> RpcResult<NetworkInfo> {
+		// Peer IDs and external/listen addresses enable network mapping and targeted
+		// eclipse/partition attempts; upstream only exposes them via unsafe-gated RPCs.
+		sc_rpc_api::check_if_safe(ext)?;
+
 		if let Some(network) = &self.network {
 			let network_state = network.network_state().await.map_err(|_| {
 				jsonrpsee::types::error::ErrorObject::owned(
@@ -77,7 +86,7 @@ impl PeerApiServer for Peer {
 			let listen_addresses: Vec<String> =
 				network_state.listened_addresses.iter().map(|addr| addr.to_string()).collect();
 
-			Ok(PeerInfo {
+			Ok(NetworkInfo {
 				peer_id: network_state.peer_id,
 				peer_count: connected_peers.len(),
 				connected_peers,
@@ -136,4 +145,48 @@ where
 	module.merge(ZkTree::new(client).into_rpc())?;
 
 	Ok(module)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use jsonrpsee::MethodsError;
+	use sc_rpc_api::DenyUnsafe;
+
+	/// Call `peer_getNetworkInfo` on a `Peer` module with the given per-connection safety
+	/// policy, the way the substrate RPC server injects it for real connections.
+	async fn call_get_network_info(deny_unsafe: DenyUnsafe) -> Result<NetworkInfo, MethodsError> {
+		let mut module = Peer::new(None).into_rpc();
+		module.extensions_mut().insert(deny_unsafe);
+		module.call("peer_getNetworkInfo", jsonrpsee::rpc_params![]).await
+	}
+
+	/// `peer_getNetworkInfo` discloses the node's peer ID, connected peer IDs and
+	/// external/listen addresses -- the same network topology upstream Substrate only
+	/// serves through unsafe-gated RPCs (`system_peers`, `system_unstable_networkState`).
+	/// Untrusted callers (external connections under the default `--rpc-methods auto`)
+	/// must be rejected by the safety gate before the handler does anything.
+	#[tokio::test]
+	async fn get_network_info_is_denied_for_untrusted_callers() {
+		let err = call_get_network_info(DenyUnsafe::Yes).await.unwrap_err();
+		match err {
+			MethodsError::JsonRpc(err) => assert!(
+				err.message().contains("unsafe"),
+				"expected the unsafe-RPC denial, got: {err:?}"
+			),
+			other => panic!("expected a JSON-RPC error object, got: {other:?}"),
+		}
+	}
+
+	/// Trusted callers (local connections, or `--rpc-methods unsafe`) pass the gate and
+	/// reach the handler proper: without a network handle it reports that peer sharing
+	/// is disabled (code 5000) rather than an authorization error.
+	#[tokio::test]
+	async fn get_network_info_reaches_the_handler_for_trusted_callers() {
+		let err = call_get_network_info(DenyUnsafe::No).await.unwrap_err();
+		match err {
+			MethodsError::JsonRpc(err) => assert_eq!(err.code(), 5000),
+			other => panic!("expected a JSON-RPC error object, got: {other:?}"),
+		}
+	}
 }
