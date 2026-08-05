@@ -833,15 +833,27 @@ impl<T: Config> Pallet<T> {
 			return Err(Error::<T>::RescheduleNoChange.into());
 		}
 
-		let task = Agenda::<T>::try_mutate(when, |agenda| {
-			let task = agenda.get_mut(index as usize).ok_or(Error::<T>::NotFound)?;
-			ensure!(!matches!(task, Some(Scheduled { maybe_id: Some(_), .. })), Error::<T>::Named);
-			task.take().ok_or(Error::<T>::NotFound)
-		})?;
+		// Validate and copy the task, leaving the source slot untouched until placement at
+		// the destination has succeeded: a failed placement (e.g. an Exhausted target
+		// agenda) must be a complete no-op rather than destroy the task, its preimage
+		// reference and its retry configuration.
+		let task = {
+			let agenda = Agenda::<T>::get(when);
+			let slot = agenda.get(index as usize).ok_or(Error::<T>::NotFound)?;
+			let task = slot.as_ref().ok_or(Error::<T>::NotFound)?;
+			ensure!(task.maybe_id.is_none(), Error::<T>::Named);
+			task.clone()
+		};
+		let new_address = Self::place_task(new_time, task).map_err(|x| x.0)?;
+
+		// Placement succeeded: vacate the source slot and move the associated state.
+		Agenda::<T>::mutate(when, |agenda| {
+			if let Some(slot) = agenda.get_mut(index as usize) {
+				*slot = None;
+			}
+		});
 		Self::cleanup_agenda(when);
 		Self::deposit_event(Event::Canceled { when, index });
-
-		let new_address = Self::place_task(new_time, task).map_err(|x| x.0)?;
 		// Transfer retry configuration to the new address
 		if let Some(retry_config) = Retries::<T>::take((when, index)) {
 			Retries::<T>::insert(new_address, retry_config);
@@ -931,16 +943,27 @@ impl<T: Config> Pallet<T> {
 			return Err(Error::<T>::RescheduleNoChange.into());
 		}
 
-		let task = Agenda::<T>::try_mutate(when, |agenda| {
+		// Validate and copy the task, leaving the source slot (and the Lookup entry
+		// pointing at it) untouched until placement at the destination has succeeded:
+		// a failed placement must be a complete no-op.
+		let task = {
+			let agenda = Agenda::<T>::get(when);
 			// These defensive checks handle cases where Lookup and Agenda have fallen out of sync,
 			// which indicates an internal invariant violation rather than a user-triggerable error.
-			let task = agenda.get_mut(index as usize).defensive_ok_or(Error::<T>::NotFound)?;
-			task.take().defensive_ok_or(Error::<T>::NotFound)
-		})?;
+			let slot = agenda.get(index as usize).defensive_ok_or(Error::<T>::NotFound)?;
+			slot.as_ref().defensive_ok_or(Error::<T>::NotFound)?.clone()
+		};
+		// On success this re-points the Lookup entry to the new address.
+		let new_address = Self::place_task(new_time, task).map_err(|x| x.0)?;
+
+		// Placement succeeded: vacate the source slot and move the associated state.
+		Agenda::<T>::mutate(when, |agenda| {
+			if let Some(slot) = agenda.get_mut(index as usize) {
+				*slot = None;
+			}
+		});
 		Self::cleanup_agenda(when);
 		Self::deposit_event(Event::Canceled { when, index });
-
-		let new_address = Self::place_task(new_time, task).map_err(|x| x.0)?;
 		// Transfer retry configuration to the new address
 		if let Some(retry_config) = Retries::<T>::take((when, index)) {
 			Retries::<T>::insert(new_address, retry_config);

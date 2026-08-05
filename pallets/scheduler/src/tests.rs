@@ -752,6 +752,85 @@ fn reschedule_named_works() {
 	});
 }
 
+/// A reschedule whose destination placement fails (e.g. the target agenda is full) must
+/// be a complete no-op: the task used to be removed from the source agenda first and then
+/// silently destroyed, together with its preimage reference and retry configuration.
+#[test]
+fn failed_reschedule_is_a_noop_keeping_task_and_state() {
+	new_test_ext().execute_with(|| {
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		let addr = Scheduler::do_schedule(
+			DispatchTime::At(4),
+			127,
+			root(),
+			Preimage::bound(call.clone()).unwrap(),
+		)
+		.unwrap();
+		assert_eq!(addr, (BlockNumberOrTimestamp::BlockNumber(4), 0));
+
+		// Fill the target agenda completely.
+		let max = <Test as Config>::MaxScheduledPerBlock::get();
+		for _ in 0..max {
+			assert_ok!(Scheduler::do_schedule(
+				DispatchTime::At(6),
+				127,
+				root(),
+				Preimage::bound(call.clone()).unwrap(),
+			));
+		}
+
+		// The reschedule fails atomically: no storage change at all.
+		assert_noop!(Scheduler::do_reschedule(addr, DispatchTime::At(6)), DispatchError::Exhausted);
+
+		// The task is still in place and executes at its original time.
+		run_to_block(4);
+		assert_eq!(logger::log(), vec![(root(), 42u32)]);
+	});
+}
+
+/// Same as `failed_reschedule_is_a_noop_keeping_task_and_state`, for named tasks: a
+/// failed placement used to leave the `Lookup` entry pointing at a vacated slot, making
+/// the task unmanageable by name.
+#[test]
+fn failed_reschedule_named_is_a_noop_keeping_task_and_state() {
+	new_test_ext().execute_with(|| {
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		let addr = Scheduler::do_schedule_named(
+			[1u8; 32],
+			DispatchTime::At(4),
+			127,
+			root(),
+			Preimage::bound(call.clone()).unwrap(),
+		)
+		.unwrap();
+
+		// Fill the target agenda completely.
+		let max = <Test as Config>::MaxScheduledPerBlock::get();
+		for _ in 0..max {
+			assert_ok!(Scheduler::do_schedule(
+				DispatchTime::At(6),
+				127,
+				root(),
+				Preimage::bound(call.clone()).unwrap(),
+			));
+		}
+
+		// The reschedule fails atomically: no storage change at all.
+		assert_noop!(
+			Scheduler::do_reschedule_named([1u8; 32], DispatchTime::At(6)),
+			DispatchError::Exhausted
+		);
+
+		// The task remains manageable by name (Lookup still points at the live slot)...
+		assert_eq!(Lookup::<Test>::get([1u8; 32]), Some(addr));
+		// ...and still executes at its original time.
+		run_to_block(4);
+		assert_eq!(logger::log(), vec![(root(), 42u32)]);
+	});
+}
+
 #[test]
 fn failed_schedule_drops_noted_preimage() {
 	new_test_ext().execute_with(|| {
