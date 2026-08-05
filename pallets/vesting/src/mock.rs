@@ -84,7 +84,7 @@ pub fn current_time() -> u64 {
 
 pub struct ExtBuilder {
 	existential_deposit: u64,
-	vesting_genesis_config: Option<Vec<(u64, u64, u64, u64)>>,
+	vesting_genesis_config: Option<Vec<(u64, u64, u64, u64, Option<u64>)>>,
 }
 
 impl Default for ExtBuilder {
@@ -99,7 +99,7 @@ impl ExtBuilder {
 		self
 	}
 
-	pub fn vesting_genesis_config(mut self, config: Vec<(u64, u64, u64, u64)>) -> Self {
+	pub fn vesting_genesis_config(mut self, config: Vec<(u64, u64, u64, u64, Option<u64>)>) -> Self {
 		self.vesting_genesis_config = Some(config);
 		self
 	}
@@ -125,9 +125,9 @@ impl ExtBuilder {
 			vesting_config
 		} else {
 			vec![
-				(1, 0, 10, 5 * self.existential_deposit),
-				(2, 10, 20, 0),
-				(12, 10, 20, 5 * self.existential_deposit),
+				(1, 0, 10, 5 * self.existential_deposit, None),
+				(2, 10, 20, 0, None),
+				(12, 10, 20, 5 * self.existential_deposit, None),
 			]
 		};
 

@@ -1021,17 +1021,17 @@ fn merge_schedules_throws_proper_errors() {
 fn generates_multiple_schedules_from_genesis_config() {
 	let vesting_config = vec![
 		// 5 * existential deposit locked.
-		(1, 0, 10, 5 * ED),
+		(1, 0, 10, 5 * ED, None),
 		// 1 * existential deposit locked.
-		(2, 10, 20, 19 * ED),
+		(2, 10, 20, 19 * ED, None),
 		// 2 * existential deposit locked.
-		(2, 10, 20, 18 * ED),
+		(2, 10, 20, 18 * ED, None),
 		// 1 * existential deposit locked.
-		(12, 10, 20, 9 * ED),
+		(12, 10, 20, 9 * ED, None),
 		// 2 * existential deposit locked.
-		(12, 10, 20, 8 * ED),
+		(12, 10, 20, 8 * ED, None),
 		// 3 * existential deposit locked.
-		(12, 10, 20, 7 * ED),
+		(12, 10, 20, 7 * ED, None),
 	];
 	ExtBuilder::default()
 		.existential_deposit(ED)
@@ -1060,8 +1060,12 @@ fn generates_multiple_schedules_from_genesis_config() {
 fn multiple_schedules_from_genesis_config_errors() {
 	// MaxVestingSchedules is 3, but this config has 4 for account 12 so we panic when building
 	// from genesis.
-	let vesting_config =
-		vec![(12, 10, 20, ED), (12, 10, 20, ED), (12, 10, 20, ED), (12, 10, 20, ED)];
+	let vesting_config = vec![
+		(12, 10, 20, ED, None),
+		(12, 10, 20, ED, None),
+		(12, 10, 20, ED, None),
+		(12, 10, 20, ED, None),
+	];
 	ExtBuilder::default()
 		.existential_deposit(ED)
 		.vesting_genesis_config(vesting_config)
@@ -1099,38 +1103,38 @@ fn merge_vesting_handles_per_ms_0() {
 fn vesting_info_validate_works() {
 	let min_transfer = <Test as Config>::MinVestedTransfer::get();
 	// Does not check for min transfer.
-	assert_eq!(VestingInfo::new(min_transfer - 1, 1u64, 10u64).is_valid(), true);
+	assert_eq!(VestingInfo::<u64, u64, u64>::new(min_transfer - 1, 1u64, 10u64).is_valid(), true);
 
 	// `locked` cannot be 0.
-	assert_eq!(VestingInfo::new(0, 1u64, 10u64).is_valid(), false);
+	assert_eq!(VestingInfo::<u64, u64, u64>::new(0, 1u64, 10u64).is_valid(), false);
 
 	// `per_ms` cannot be 0.
-	assert_eq!(VestingInfo::new(min_transfer + 1, 0u64, 10u64).is_valid(), false);
+	assert_eq!(VestingInfo::<u64, u64, u64>::new(min_transfer + 1, 0u64, 10u64).is_valid(), false);
 
 	// With valid inputs it does not error.
-	assert_eq!(VestingInfo::new(min_transfer, 1u64, 10u64).is_valid(), true);
+	assert_eq!(VestingInfo::<u64, u64, u64>::new(min_transfer, 1u64, 10u64).is_valid(), true);
 }
 
 #[test]
 fn vesting_info_ending_time_as_balance_works() {
 	// Treats `per_ms` 0 as 1.
-	let per_ms_0 = VestingInfo::new(256u32, 0u32, 10u32);
+	let per_ms_0 = VestingInfo::<u32, u32, u64>::new(256u32, 0u32, 10u32);
 	assert_eq!(per_ms_0.ending_time_as_balance::<Identity>(), 256 + 10);
 
 	// `per_ms >= locked` always results in a schedule ending the block after it starts
-	let per_ms_gt_locked = VestingInfo::new(256u32, 256 * 2u32, 10u32);
+	let per_ms_gt_locked = VestingInfo::<u32, u32, u64>::new(256u32, 256 * 2u32, 10u32);
 	assert_eq!(
 		per_ms_gt_locked.ending_time_as_balance::<Identity>(),
 		1 + per_ms_gt_locked.start()
 	);
-	let per_ms_eq_locked = VestingInfo::new(256u32, 256u32, 10u32);
+	let per_ms_eq_locked = VestingInfo::<u32, u32, u64>::new(256u32, 256u32, 10u32);
 	assert_eq!(
 		per_ms_gt_locked.ending_time_as_balance::<Identity>(),
 		per_ms_eq_locked.ending_time_as_balance::<Identity>()
 	);
 
 	// Correctly calcs end if `locked % per_ms != 0`. (We need a block to unlock the remainder).
-	let imperfect_per_ms = VestingInfo::new(256u32, 250u32, 10u32);
+	let imperfect_per_ms = VestingInfo::<u32, u32, u64>::new(256u32, 250u32, 10u32);
 	assert_eq!(
 		imperfect_per_ms.ending_time_as_balance::<Identity>(),
 		imperfect_per_ms.start() + 2u32,
@@ -1144,11 +1148,11 @@ fn vesting_info_ending_time_as_balance_works() {
 
 #[test]
 fn per_ms_works() {
-	let per_ms_0 = VestingInfo::new(256u32, 0u32, 10u32);
+	let per_ms_0 = VestingInfo::<u32, u32, u64>::new(256u32, 0u32, 10u32);
 	assert_eq!(per_ms_0.per_ms(), 1u32);
 	assert_eq!(per_ms_0.raw_per_ms(), 0u32);
 
-	let per_ms_1 = VestingInfo::new(256u32, 1u32, 10u32);
+	let per_ms_1 = VestingInfo::<u32, u32, u64>::new(256u32, 1u32, 10u32);
 	assert_eq!(per_ms_1.per_ms(), 1u32);
 	assert_eq!(per_ms_1.raw_per_ms(), 1u32);
 }
@@ -1221,8 +1225,97 @@ fn remove_vesting_schedule() {
 		// Verifies that trying to remove a schedule when it doesnt exist throws error.
 		assert_noop!(
 			Vesting::force_remove_vesting_schedule(RawOrigin::Root.into(), 4, 0),
-			Error::<Test>::InvalidScheduleParams
+			Error::<Test>::NotVesting
 		);
+	});
+}
+
+#[test]
+fn canceller_can_remove_vesting_schedule() {
+	let vesting_config = vec![
+		// Account 1's schedule is cancellable by account 4.
+		(1, 0, 10, 5 * ED, Some(4)),
+		// Account 2's schedule has no canceller: only root can remove it.
+		(2, 10, 20, 0, None),
+	];
+	ExtBuilder::default()
+		.existential_deposit(ED)
+		.vesting_genesis_config(vesting_config)
+		.build()
+		.execute_with(|| {
+			// The canceller is stored with the schedule at genesis.
+			assert_eq!(VestingStorage::<Test>::get(&1).unwrap()[0].canceller(), Some(&4));
+
+			// Neither a random signed account nor the schedule owner can remove it.
+			assert_noop!(Vesting::force_remove_vesting_schedule(Some(3).into(), 1, 0), BadOrigin);
+			assert_noop!(Vesting::force_remove_vesting_schedule(Some(1).into(), 1, 0), BadOrigin);
+
+			// Account 1: locked 5 * ED vesting over 10 ms from time 0; the clock is at 1,
+			// so one tick has vested and the rest is still unvested.
+			let unvested = 5 * ED - (5 * ED / 10);
+			let target_before = Balances::free_balance(&1);
+			let canceller_before = Balances::free_balance(&4);
+
+			// The designated canceller can cancel and receives the unvested funds.
+			assert_ok!(Vesting::force_remove_vesting_schedule(Some(4).into(), 1, 0));
+			assert_eq!(VestingStorage::<Test>::get(&1), None);
+			assert_eq!(Balances::free_balance(&1), target_before - unvested);
+			assert_eq!(Balances::free_balance(&4), canceller_before + unvested);
+
+			// A schedule without a canceller stays root-only.
+			assert_noop!(Vesting::force_remove_vesting_schedule(Some(4).into(), 2, 0), BadOrigin);
+			// Root removal leaves all funds with the holder.
+			let target2_before = Balances::free_balance(&2);
+			assert_ok!(Vesting::force_remove_vesting_schedule(RawOrigin::Root.into(), 2, 0));
+			assert_eq!(VestingStorage::<Test>::get(&2), None);
+			assert_eq!(Balances::free_balance(&2), target2_before);
+		});
+}
+
+#[test]
+fn vested_transfer_preserves_canceller() {
+	ExtBuilder::default().existential_deposit(ED).build().execute_with(|| {
+		let sched = VestingInfo::new(5 * ED, (5 * ED) / 20, 10).with_canceller(13);
+		assert_ok!(Vesting::vested_transfer(Some(3).into(), 4, sched));
+		assert_eq!(VestingStorage::<Test>::get(&4).unwrap()[0].canceller(), Some(&13));
+
+		let target_before = Balances::free_balance(&4);
+		let canceller_before = Balances::free_balance(&13);
+
+		// The designated canceller can cancel the schedule. Vesting has not started yet
+		// (start is 10, the clock is at 1), so the full locked amount is reclaimed.
+		assert_ok!(Vesting::force_remove_vesting_schedule(Some(13).into(), 4, 0));
+		assert_eq!(VestingStorage::<Test>::get(&4), None);
+		assert_eq!(Balances::free_balance(&4), target_before - 5 * ED);
+		assert_eq!(Balances::free_balance(&13), canceller_before + 5 * ED);
+	});
+}
+
+#[test]
+fn merge_schedules_with_different_cancellers_fails() {
+	ExtBuilder::default().existential_deposit(ED).build().execute_with(|| {
+		// Account 2's genesis schedule has no canceller; add one cancellable by 13.
+		let sched = VestingInfo::new(5 * ED, (5 * ED) / 20, 10).with_canceller(13);
+		assert_ok!(Vesting::vested_transfer(Some(3).into(), 2, sched));
+		assert_noop!(
+			Vesting::merge_schedules(Some(2).into(), 0, 1),
+			Error::<Test>::CancellerMismatch
+		);
+	});
+}
+
+#[test]
+fn merged_schedule_keeps_canceller() {
+	ExtBuilder::default().existential_deposit(ED).build().execute_with(|| {
+		// Two schedules for account 4, both cancellable by 13.
+		let sched = VestingInfo::new(5 * ED, (5 * ED) / 20, 10).with_canceller(13);
+		assert_ok!(Vesting::vested_transfer(Some(3).into(), 4, sched));
+		assert_ok!(Vesting::vested_transfer(Some(3).into(), 4, sched));
+
+		assert_ok!(Vesting::merge_schedules(Some(4).into(), 0, 1));
+		let schedules = VestingStorage::<Test>::get(&4).unwrap();
+		assert_eq!(schedules.len(), 1);
+		assert_eq!(schedules[0].canceller(), Some(&13));
 	});
 }
 

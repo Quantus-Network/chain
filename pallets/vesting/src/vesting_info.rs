@@ -35,23 +35,45 @@ use super::*;
 	MaxEncodedLen,
 	TypeInfo,
 )]
-pub struct VestingInfo<Balance, Moment> {
+pub struct VestingInfo<Balance, Moment, AccountId> {
 	/// Locked amount at schedule creation.
 	locked: Balance,
 	/// Amount that gets unlocked every millisecond after `start`.
 	per_ms: Balance,
 	/// Time (milliseconds since the unix epoch) at which unlocking (vesting) starts.
 	start: Moment,
+	/// Account allowed to remove (cancel) this schedule via `force_remove_vesting_schedule`,
+	/// in addition to Root. `None` means only Root can remove it.
+	///
+	/// When the canceller cancels, the funds still unvested at that time are transferred to
+	/// them; the already-vested portion stays with the schedule's holder.
+	canceller: Option<AccountId>,
 }
 
-impl<Balance, Moment> VestingInfo<Balance, Moment>
+impl<Balance, Moment, AccountId> VestingInfo<Balance, Moment, AccountId>
 where
 	Balance: AtLeast32BitUnsigned + Copy,
 	Moment: AtLeast32BitUnsigned + Copy + Bounded,
+	AccountId: Clone + PartialEq,
 {
-	/// Instantiate a new `VestingInfo`.
-	pub fn new(locked: Balance, per_ms: Balance, start: Moment) -> VestingInfo<Balance, Moment> {
-		VestingInfo { locked, per_ms, start }
+	/// Instantiate a new `VestingInfo` without a canceller (only Root may force-remove it).
+	pub fn new(
+		locked: Balance,
+		per_ms: Balance,
+		start: Moment,
+	) -> VestingInfo<Balance, Moment, AccountId> {
+		VestingInfo { locked, per_ms, start, canceller: None }
+	}
+
+	/// Set the account allowed to cancel this schedule (in addition to Root).
+	pub fn with_canceller(mut self, canceller: AccountId) -> Self {
+		self.canceller = Some(canceller);
+		self
+	}
+
+	/// The account allowed to cancel this schedule, if any.
+	pub fn canceller(&self) -> Option<&AccountId> {
+		self.canceller.as_ref()
 	}
 
 	/// Validate parameters for `VestingInfo`. Note that this does not check

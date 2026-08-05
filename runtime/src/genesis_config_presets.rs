@@ -193,16 +193,27 @@ fn planck_tech_collective_seed() -> Vec<AccountId> {
 
 /// Build genesis vesting entries for the given accounts.
 ///
-/// Tuple is `(who, begin, length, liquid)` with `begin`/`length` in milliseconds of wall-clock
-/// time — see `pallet_vesting` genesis docs. Locked amount is derived as `free_balance - liquid`
-/// after Balances genesis runs.
+/// Tuple is `(who, begin, length, liquid, canceller)` with `begin`/`length` in milliseconds of
+/// wall-clock time — see `pallet_vesting` genesis docs. Locked amount is derived as
+/// `free_balance - liquid` after Balances genesis runs.
+///
+/// `canceller` is the account allowed (besides Root) to cancel the schedule early via
+/// `force_remove_vesting_schedule`, which transfers the still-unvested funds to the canceller;
+/// pass `None` for schedules nobody but Root should be able to cancel.
 fn vested_endowments(
 	accounts: impl IntoIterator<Item = AccountId>,
-) -> Vec<(AccountId, VestingMoment, VestingMoment, Balance)> {
+	canceller: Option<AccountId>,
+) -> Vec<(AccountId, VestingMoment, VestingMoment, Balance, Option<AccountId>)> {
 	accounts
 		.into_iter()
 		.map(|who| {
-			(who, GENESIS_VESTING_START_MS, GENESIS_VESTING_LENGTH_MS, GENESIS_VESTING_LIQUID)
+			(
+				who,
+				GENESIS_VESTING_START_MS,
+				GENESIS_VESTING_LENGTH_MS,
+				GENESIS_VESTING_LIQUID,
+				canceller.clone(),
+			)
 		})
 		.collect()
 }
@@ -222,7 +233,7 @@ fn genesis_template(
 	treasury: TreasuryGenesis,
 	tech_collective_members: Vec<AccountId>,
 	extra_balances: Vec<(AccountId, u128)>,
-	vesting: Vec<(AccountId, VestingMoment, VestingMoment, Balance)>,
+	vesting: Vec<(AccountId, VestingMoment, VestingMoment, Balance, Option<AccountId>)>,
 ) -> Value {
 	const ENDOWED_BALANCE_UNITS: u128 = 100_000;
 	let mut balances = endowed_accounts
@@ -308,7 +319,8 @@ pub fn development_config_genesis() -> Value {
 	);
 	log::info!("[dev] 🕳️  Test ZK: {:?}", test_account.to_ss58check_with_version(ss58_version()));
 
-	let vesting = vested_endowments(vested_accounts);
+	// The treasury (multisig) may cancel these schedules, reclaiming the unvested funds.
+	let vesting = vested_endowments(vested_accounts, Some(treasury_account.clone()));
 
 	#[cfg(feature = "runtime-benchmarks")]
 	{
@@ -368,8 +380,9 @@ pub fn heisenberg_config_genesis() -> Value {
 		&tech_collective,
 	);
 	let treasury =
-		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
-	let vesting = vested_endowments(vested_accounts);
+		TreasuryGenesis { account: treasury_account.clone(), portion: Permill::from_percent(50) };
+	// The treasury (multisig) may cancel these schedules, reclaiming the unvested funds.
+	let vesting = vested_endowments(vested_accounts, Some(treasury_account));
 	genesis_template(endowed_accounts, treasury, tech_collective, vec![], vesting)
 }
 
@@ -475,8 +488,9 @@ pub fn planck_config_genesis() -> Value {
 		&tech_collective,
 	);
 	let treasury =
-		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
-	let vesting = vested_endowments(vested_accounts);
+		TreasuryGenesis { account: treasury_account.clone(), portion: Permill::from_percent(50) };
+	// The treasury (multisig) may cancel these schedules, reclaiming the unvested funds.
+	let vesting = vested_endowments(vested_accounts, Some(treasury_account));
 	genesis_template(endowed_accounts, treasury, tech_collective, signer_fee_seed, vesting)
 }
 
