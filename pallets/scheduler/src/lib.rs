@@ -1253,6 +1253,9 @@ impl<T: Config> Pallet<T> {
 				if let Some(ref id) = task.maybe_id {
 					Lookup::<T>::remove(id);
 				}
+				// Terminal outcome: clean up the retry configuration as well, like the
+				// unavailable-call path, so no orphaned `Retries` row outlives the task.
+				Retries::<T>::remove((when, agenda_index));
 				T::Preimages::drop(&task.call);
 				Self::deposit_event(Event::PermanentlyOverweight {
 					task: (when, agenda_index),

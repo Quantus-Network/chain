@@ -1064,6 +1064,42 @@ fn scheduler_removes_permanently_overweight_call() {
 	});
 }
 
+/// The permanently-overweight terminal path must clean up the task's retry
+/// configuration like the unavailable-call path does: the task is gone for good, so a
+/// surviving `Retries` row is at best a permanent storage leak and at worst retry state
+/// a future occupant of the same address could inherit.
+#[test]
+fn scheduler_removes_retry_config_of_permanently_overweight_call() {
+	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
+	new_test_ext().execute_with(|| {
+		let call = RuntimeCall::Logger(LoggerCall::log { i: 42, weight: max_weight });
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			127,
+			root(),
+			Preimage::bound(call).unwrap(),
+		));
+		assert_ok!(Scheduler::set_retry(
+			root().into(),
+			(BlockNumberOrTimestamp::BlockNumber(4), 0),
+			10,
+			BlockNumberOrTimestamp::BlockNumber(1)
+		));
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+
+		run_to_block(4);
+		assert!(System::events().iter().any(|e| e.event ==
+			crate::Event::PermanentlyOverweight {
+				task: (BlockNumberOrTimestamp::BlockNumber(4), 0),
+				id: None
+			}
+			.into()));
+		// The task is terminally gone: no agenda entry and no orphaned retry config.
+		assert_eq!(Agenda::<Test>::iter().count(), 0);
+		assert_eq!(Retries::<Test>::iter().count(), 0);
+	});
+}
+
 #[test]
 fn scheduler_respects_priority_ordering() {
 	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
