@@ -49,7 +49,10 @@ fn minimum_balance<T: Config<I>, I: 'static>() -> T::Balance {
 /// The free balance the benchmarks expect `who` to be left with after its balance was
 /// reduced from `balance` by `spent`: accounts whose leftover dips below the configured
 /// existential deposit are reaped (the dust is removed), all others keep the leftover.
-fn expected_leftover<T: Config<I>, I: 'static>(balance: T::Balance, spent: T::Balance) -> T::Balance {
+fn expected_leftover<T: Config<I>, I: 'static>(
+	balance: T::Balance,
+	spent: T::Balance,
+) -> T::Balance {
 	let leftover = balance - spent;
 	if leftover < T::ExistentialDeposit::get() {
 		Zero::zero()

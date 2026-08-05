@@ -1454,10 +1454,7 @@ impl<T: Config> Pallet<T> {
 				// agenda key the bucket-stepping servicing loop never visits: the retry
 				// would silently never execute and its preimage would be held forever.
 				let bucket = T::TimestampBucketSize::get();
-				ensure!(
-					!p.is_zero() && (*p % bucket).is_zero(),
-					Error::<T>::InvalidRetryPeriod
-				);
+				ensure!(!p.is_zero() && (*p % bucket).is_zero(), Error::<T>::InvalidRetryPeriod);
 			},
 			_ => return Err(Error::<T>::RetryPeriodMismatch.into()),
 		}

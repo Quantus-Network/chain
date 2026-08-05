@@ -359,8 +359,7 @@ fn as_derivative_reveals_pseudonym_on_first_use_only() {
 #[test]
 fn as_derivative_refunds_reveal_overhead_on_repeat_use() {
 	new_test_ext().execute_with(|| {
-		let remark =
-			Box::new(RuntimeCall::System(frame_system::Call::remark { remark: vec![] }));
+		let remark = Box::new(RuntimeCall::System(frame_system::Call::remark { remark: vec![] }));
 		let call = RuntimeCall::Utility(UtilityCall::as_derivative { index: 0, call: remark });
 		let info = call.get_dispatch_info();
 

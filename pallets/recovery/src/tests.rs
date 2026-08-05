@@ -558,11 +558,7 @@ fn close_recovery_releases_deposit_to_rescuer_if_repatriation_fails() {
 		<ActiveRecoveries<Test>>::insert(
 			99,
 			1,
-			ActiveRecovery {
-				created: 1,
-				deposit: 10,
-				friends: bounded_vec![],
-			},
+			ActiveRecovery { created: 1, deposit: 10, friends: bounded_vec![] },
 		);
 		// Closing still succeeds, and the deposit is released back to the rescuer instead of
 		// staying reserved forever with no pallet state left to release it.

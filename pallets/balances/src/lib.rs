@@ -1409,13 +1409,9 @@ pub mod pallet {
 				// to the caller: account for exactly what this write credited (or removed), so
 				// dev-account allocations are real, counted issuance.
 				if balance >= old_free {
-					TotalIssuance::<T, I>::mutate(|t| {
-						*t = t.saturating_add(balance - old_free)
-					});
+					TotalIssuance::<T, I>::mutate(|t| *t = t.saturating_add(balance - old_free));
 				} else {
-					TotalIssuance::<T, I>::mutate(|t| {
-						*t = t.saturating_sub(old_free - balance)
-					});
+					TotalIssuance::<T, I>::mutate(|t| *t = t.saturating_sub(old_free - balance));
 				}
 			}
 

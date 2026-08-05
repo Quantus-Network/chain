@@ -85,12 +85,9 @@ fn default_genesis_configures_nothing() {
 fn half_configured_treasury_genesis_is_rejected() {
 	use sp_runtime::BuildStorage;
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-	crate::GenesisConfig::<Test> {
-		treasury_account: Some(account_id(2)),
-		treasury_portion: None,
-	}
-	.assimilate_storage(&mut t)
-	.unwrap();
+	crate::GenesisConfig::<Test> { treasury_account: Some(account_id(2)), treasury_portion: None }
+		.assimilate_storage(&mut t)
+		.unwrap();
 }
 
 #[test]
