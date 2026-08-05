@@ -609,15 +609,16 @@ pub mod pallet {
 			// Generate additional dev accounts.
 			if let Some((num_accounts, balance, ref derivation)) = self.dev_accounts {
 				// Using the provided derivation string or default to `"//Sender//{}`".
-				assert!(
-					Pallet::<T, I>::derive_dev_account(
-						num_accounts,
-						balance,
-						derivation.as_deref().unwrap_or(DEFAULT_ADDRESS_URI),
-					)
-					.is_ok(),
-					"Failed to derive dev accounts from genesis configuration."
-				);
+				// Genesis `build` cannot return errors, so an invalid configuration must
+				// panic — but with the specific underlying reason, so tooling building
+				// from the spec sees a structured configuration failure.
+				if let Err(e) = Pallet::<T, I>::derive_dev_account(
+					num_accounts,
+					balance,
+					derivation.as_deref().unwrap_or(DEFAULT_ADDRESS_URI),
+				) {
+					panic!("Failed to derive dev accounts from genesis configuration: {e}");
+				}
 			}
 			for &(ref who, free) in self.balances.iter() {
 				// The `dev_accounts` derivation above has already written its accounts to
@@ -1361,8 +1362,12 @@ pub mod pallet {
 			balance: T::Balance,
 			derivation: &str,
 		) -> Result<(), &'static str> {
-			// Ensure that the number of accounts is not zero.
-			assert!(num_accounts > 0, "num_accounts must be greater than zero");
+			// All input validation returns structured errors, honoring this function's
+			// Result contract: every input can come from an external chain specification,
+			// so the caller decides how to surface the failure.
+			if num_accounts == 0 {
+				return Err("num_accounts must be greater than zero");
+			}
 
 			// Bound the attacker-controllable work: reject before deriving anything so an
 			// oversized `dev_accounts` count cannot force unbounded key derivations.
@@ -1370,15 +1375,15 @@ pub mod pallet {
 				return Err("num_accounts exceeds the maximum allowed dev accounts");
 			}
 
-			assert!(
-				balance >= <T as Config<I>>::ExistentialDeposit::get(),
-				"the balance of any account should always be at least the existential deposit.",
-			);
+			if balance < <T as Config<I>>::ExistentialDeposit::get() {
+				return Err(
+					"the balance of any account should always be at least the existential deposit",
+				);
+			}
 
-			assert!(
-				derivation.contains("{}"),
-				"Invalid derivation, expected `{{}}` as part of the derivation"
-			);
+			if !derivation.contains("{}") {
+				return Err("invalid derivation, expected `{}` as part of the derivation");
+			}
 
 			for index in 0..num_accounts {
 				// Replace "{}" in the derivation string with the index.

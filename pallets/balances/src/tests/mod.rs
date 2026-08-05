@@ -385,6 +385,43 @@ fn derive_dev_account_rejects_counts_above_cap() {
 	});
 }
 
+/// `derive_dev_account` documents a Result-based contract: every reachable input
+/// validation must produce an `Err` for the caller to handle, not abort execution.
+/// The inputs all come from the (potentially external) chain specification.
+#[test]
+fn derive_dev_account_returns_errors_instead_of_panicking() {
+	ExtBuilder::default().build_and_execute_with(|| {
+		let ed = ExistentialDeposit::get();
+		assert_err!(
+			Balances::derive_dev_account(0, ed, DEFAULT_ADDRESS_URI),
+			"num_accounts must be greater than zero"
+		);
+		assert_err!(
+			Balances::derive_dev_account(1, ed - 1, DEFAULT_ADDRESS_URI),
+			"the balance of any account should always be at least the existential deposit"
+		);
+		assert_err!(
+			Balances::derive_dev_account(1, ed, "//Sender"),
+			"invalid derivation, expected `{}` as part of the derivation"
+		);
+	});
+}
+
+/// An invalid `dev_accounts` entry must fail the genesis build with the specific
+/// underlying reason, as a structured configuration failure rather than a bare assert.
+#[test]
+#[should_panic(expected = "Failed to derive dev accounts from genesis configuration: \
+	invalid derivation, expected `{}` as part of the derivation")]
+fn genesis_surfaces_dev_account_derivation_errors() {
+	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+	crate::GenesisConfig::<Test> {
+		balances: vec![],
+		dev_accounts: Some((1, ExistentialDeposit::get(), Some("//Sender".to_string()))),
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
+}
+
 /// Genesis `dev_accounts` allocations are real issuance: every derived account must land
 /// in storage endowed with the configured balance, and `TotalIssuance` must include the
 /// allocation. It used to be computed from the explicit `balances` list only, silently
