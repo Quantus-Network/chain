@@ -455,6 +455,55 @@ fn close_recovery_handles_basic_errors() {
 }
 
 #[test]
+fn close_recovery_is_best_effort_when_deposit_partially_missing() {
+	new_test_ext().execute_with(|| {
+		// Account 5 sets up recovery and account 1 initiates it, reserving the recovery deposit.
+		assert_ok!(Recovery::create_recovery(RuntimeOrigin::signed(5), vec![2, 3, 4], 3, 10));
+		assert_ok!(Recovery::initiate_recovery(RuntimeOrigin::signed(1), 5));
+		assert_eq!(Balances::reserved_balance(1), 10);
+		let free_before = Balances::free_balance(5);
+		// Part of the rescuer's reserve is consumed externally (an invariant violation, e.g. a
+		// buggy pallet over-slashing), so the full recovery deposit is no longer available.
+		let (_imbalance, shortfall) = Balances::slash_reserved(&1, 4);
+		assert_eq!(shortfall, 0);
+		assert_eq!(Balances::reserved_balance(1), 6);
+		// Closing the recovery must never be blockable via the rescuer's balance state: it
+		// succeeds, moving whatever portion of the deposit is still available.
+		assert_ok!(Recovery::close_recovery(RuntimeOrigin::signed(5), 1));
+		assert_eq!(Balances::free_balance(5), free_before + 6);
+		assert_eq!(Balances::reserved_balance(1), 0);
+		// The active recovery is cleaned up so `remove_recovery` is not blocked.
+		assert!(!<ActiveRecoveries<Test>>::contains_key(&5, &1));
+		assert_ok!(Recovery::remove_recovery(RuntimeOrigin::signed(5)));
+	});
+}
+
+#[test]
+fn close_recovery_releases_deposit_to_rescuer_if_repatriation_fails() {
+	new_test_ext().execute_with(|| {
+		// Construct a state where the rescued account cannot receive funds: account 99 has no
+		// balance record, so `repatriate_reserved` fails with `DeadAccount`. Reachable only if
+		// invariants broke elsewhere, so set the storage up directly.
+		assert_ok!(Balances::reserve(&1, 10));
+		<ActiveRecoveries<Test>>::insert(
+			99,
+			1,
+			ActiveRecovery {
+				created: 1,
+				deposit: 10,
+				friends: bounded_vec![],
+			},
+		);
+		// Closing still succeeds, and the deposit is released back to the rescuer instead of
+		// staying reserved forever with no pallet state left to release it.
+		assert_ok!(Recovery::close_recovery(RuntimeOrigin::signed(99), 1));
+		assert_eq!(Balances::reserved_balance(1), 0);
+		assert_eq!(Balances::free_balance(1), 100);
+		assert!(!<ActiveRecoveries<Test>>::contains_key(&99, &1));
+	});
+}
+
+#[test]
 fn remove_recovery_works() {
 	new_test_ext().execute_with(|| {
 		// Cannot remove an unrecoverable account

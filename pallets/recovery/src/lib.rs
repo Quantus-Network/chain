@@ -692,13 +692,40 @@ pub mod pallet {
 				<ActiveRecoveries<T>>::take(&who, &rescuer).ok_or(Error::<T>::NotStarted)?;
 			// Move the reserved funds from the rescuer to the rescued account.
 			// Acts like a slashing mechanism for those who try to maliciously recover accounts.
-			let res = T::Currency::repatriate_reserved(
+			//
+			// This is deliberately best-effort and infallible: closing a recovery is the
+			// defence against malicious recovery attempts, so it must never be blockable via
+			// the state of the *rescuer's* balance. Under normal invariants the full deposit
+			// is always reserved and the transfer always succeeds; anything else means an
+			// invariant was violated elsewhere, which we surface via logging.
+			match T::Currency::repatriate_reserved(
 				&rescuer,
 				&who,
 				active_recovery.deposit,
 				BalanceStatus::Free,
-			);
-			debug_assert!(res.is_ok());
+			) {
+				Ok(remainder) if remainder.is_zero() => (),
+				Ok(remainder) => {
+					frame::log::warn!(
+						target: "runtime::recovery",
+						"close_recovery: only part of the recovery deposit could be moved to \
+						the rescued account (shortfall: {:?})",
+						remainder,
+					);
+				},
+				Err(err) => {
+					// The rescued account could not receive the funds (e.g. it was reaped).
+					// Release the deposit back to the rescuer rather than leaving it reserved
+					// with no pallet state left to ever release it.
+					T::Currency::unreserve(&rescuer, active_recovery.deposit);
+					frame::log::warn!(
+						target: "runtime::recovery",
+						"close_recovery: could not move the recovery deposit to the rescued \
+						account ({:?}); released it back to the rescuer",
+						err,
+					);
+				},
+			}
 			Self::deposit_event(Event::<T>::RecoveryClosed {
 				lost_account: who,
 				rescuer_account: rescuer,
