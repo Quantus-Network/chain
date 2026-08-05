@@ -620,6 +620,14 @@ pub mod pallet {
 				);
 			}
 			for &(ref who, free) in self.balances.iter() {
+				// The `dev_accounts` derivation above has already written its accounts to
+				// storage. A configured balance targeting one of them would silently
+				// overwrite the dev account's balance and double-bump its provider
+				// reference, so any collision must fail the genesis build loudly.
+				assert!(
+					!frame_system::Pallet::<T>::account_exists(who),
+					"duplicate balances in genesis: endowed account collides with a dev account."
+				);
 				frame_system::Pallet::<T>::inc_providers(who);
 				assert!(T::AccountStore::insert(who, AccountData { free, ..Default::default() })
 					.is_ok());

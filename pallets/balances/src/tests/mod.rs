@@ -383,6 +383,27 @@ fn derive_dev_account_rejects_counts_above_cap() {
 	});
 }
 
+/// Genesis must reject a configured balance that targets an account also produced
+/// by the `dev_accounts` derivation: the two writes silently overwrite each other
+/// (last write wins) and double-bump the account's provider reference, corrupting
+/// the endowed state without any error.
+#[test]
+#[should_panic(expected = "collides with a dev account")]
+fn genesis_endowed_balances_must_not_collide_with_dev_accounts() {
+	let dev_account = *test_dev_account_ids().first().unwrap();
+	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+	crate::GenesisConfig::<Test> {
+		balances: vec![(dev_account, 100)],
+		dev_accounts: Some((
+			TEST_DEV_ACCOUNTS,
+			ExistentialDeposit::get(),
+			Some(DEFAULT_ADDRESS_URI.to_string()),
+		)),
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
+}
+
 #[test]
 fn check_whitelist() {
 	let whitelist: BTreeSet<String> = AllPalletsWithSystem::whitelisted_storage_keys()
