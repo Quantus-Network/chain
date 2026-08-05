@@ -45,7 +45,7 @@
 #![allow(missing_docs)]
 #![allow(dead_code)]
 
-use frame_support::{traits::Get, weights::{Weight, constants::RocksDbWeight}};
+use frame_support::{traits::Get, weights::{Weight, RuntimeDbWeight, constants::RocksDbWeight}};
 use core::marker::PhantomData;
 
 /// Weight functions needed for `pallet_reversible_transfers`.
@@ -57,9 +57,40 @@ pub trait WeightInfo {
 	fn recover_funds(n: u32, ) -> Weight;
 }
 
+/// Non-tree storage ops of `execute_transfer` from the benchmark: `PendingTransfers`,
+/// `Balances::Holds`, `PendingTransfersBySender`, `System::Account` and
+/// `Wormhole::TransferCount`, each r:1 w:1.
+const EXECUTE_TRANSFER_BASE_READS: u64 = 5;
+const EXECUTE_TRANSFER_BASE_WRITES: u64 = 5;
+
+/// Conservative PoV bound per ZK-tree storage key touched during a path update.
+/// Same figure as `pallet-wormhole`'s weights: tree entries are 32-byte hashes with
+/// small keys, comparable to the benchmarked `ZkTree::Leaves` `added` figure of 2543.
+const TREE_KEY_POV: u64 = 2600;
+
+/// `execute_transfer`'s weight: the benchmarked base (compute + non-tree storage)
+/// plus the depth-dependent ZK-tree leaf insert performed by the wormhole proof
+/// recorder. `insert_leaf` walks the tree leaf-to-root (`pallet_zk_tree::update_path`
+/// reads 3 sibling `Nodes` per level and writes one internal node per level), so the
+/// DB ops and PoV must scale with `tree_ops` rather than stay flat — otherwise
+/// deep-tree executions do far more storage I/O than the block weight model charges.
+/// The shallow tree component embedded in the benchmarked base is deliberately not
+/// deducted (over-charging is the safe direction).
+fn execute_transfer_weight(db: RuntimeDbWeight, (tree_reads, tree_writes): (u64, u64)) -> Weight {
+	// Minimum execution time: 105_000_000 picoseconds.
+	Weight::from_parts(110_000_000, 8619)
+		.saturating_add(Weight::from_parts(0, tree_reads.saturating_mul(TREE_KEY_POV)))
+		.saturating_add(db.reads(EXECUTE_TRANSFER_BASE_READS.saturating_add(tree_reads)))
+		.saturating_add(db.writes(EXECUTE_TRANSFER_BASE_WRITES.saturating_add(tree_writes)))
+}
+
 /// Weights for `pallet_reversible_transfers` using the Substrate node and recommended hardware.
+///
+/// Bounded on `pallet_zk_tree::Config` because `execute_transfer`'s weight reads the
+/// current tree depth: executing a transfer records a wormhole proof, which inserts a
+/// ZK-tree leaf whose storage cost grows with depth.
 pub struct SubstrateWeight<T>(PhantomData<T>);
-impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
+impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:1)
 	/// Proof: `ReversibleTransfers::HighSecurityAccounts` (`max_values`: None, `max_size`: Some(89), added: 2564, mode: `MaxEncodedLen`)
 	/// Storage: `ReversibleTransfers::GuardianIndex` (r:1 w:1)
@@ -141,14 +172,19 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `ZkTree::Leaves` (`max_values`: None, `max_size`: Some(68), added: 2543, mode: `MaxEncodedLen`)
 	/// Storage: `ZkTree::Root` (r:0 w:1)
 	/// Proof: `ZkTree::Root` (`max_values`: Some(1), `max_size`: Some(32), added: 527, mode: `MaxEncodedLen`)
+	/// Storage: `ZkTree::Nodes` (r:3·depth w:depth)
+	///
+	/// Hand-augmented: DB ops and PoV are priced from the *live* tree depth via
+	/// [`execute_transfer_weight`]. Keep this augmentation when regenerating from
+	/// benchmarks (compute base only).
 	fn execute_transfer() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `639`
-		//  Estimated: `8619`
-		// Minimum execution time: 105_000_000 picoseconds.
-		Weight::from_parts(110_000_000, 8619)
-			.saturating_add(T::DbWeight::get().reads(10_u64))
-			.saturating_add(T::DbWeight::get().writes(9_u64))
+		//  Estimated: `8619` + tree
+		execute_transfer_weight(
+			T::DbWeight::get(),
+			pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops(),
+		)
 	}
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
 	/// Proof: `ReversibleTransfers::HighSecurityAccounts` (`max_values`: None, `max_size`: Some(89), added: 2564, mode: `MaxEncodedLen`)
@@ -270,14 +306,18 @@ impl WeightInfo for () {
 	/// Proof: `ZkTree::Leaves` (`max_values`: None, `max_size`: Some(68), added: 2543, mode: `MaxEncodedLen`)
 	/// Storage: `ZkTree::Root` (r:0 w:1)
 	/// Proof: `ZkTree::Root` (`max_values`: Some(1), `max_size`: Some(32), added: 527, mode: `MaxEncodedLen`)
+	/// Storage: `ZkTree::Nodes` (r:3·depth w:depth)
+	///
+	/// Tree component priced at `MAX_TREE_DEPTH` (no runtime type to read live depth),
+	/// so this is a worst-case bound on `SubstrateWeight::execute_transfer`.
 	fn execute_transfer() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `639`
-		//  Estimated: `8619`
-		// Minimum execution time: 105_000_000 picoseconds.
-		Weight::from_parts(110_000_000, 8619)
-			.saturating_add(RocksDbWeight::get().reads(10_u64))
-			.saturating_add(RocksDbWeight::get().writes(9_u64))
+		//  Estimated: `8619` + tree
+		execute_transfer_weight(
+			RocksDbWeight::get(),
+			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
+		)
 	}
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
 	/// Proof: `ReversibleTransfers::HighSecurityAccounts` (`max_values`: None, `max_size`: Some(89), added: 2564, mode: `MaxEncodedLen`)
@@ -313,5 +353,40 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes(3_u64))
 			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(n.into())))
 			.saturating_add(Weight::from_parts(0, 12493).saturating_mul(n.into()))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::tests::mock::Test;
+
+	/// `execute_transfer` records a wormhole transfer proof, which inserts a ZK-tree
+	/// leaf; the leaf insert walks the tree leaf-to-root, so its real DB work grows
+	/// with the live tree depth. The declared weight must track that growth — a flat
+	/// weight lets deep-tree executions do far more storage I/O than the block weight
+	/// model charges (throughput DoS). The mock's `DbWeight` is zero, so depth
+	/// sensitivity is observed through the PoV component.
+	#[test]
+	fn execute_transfer_weight_scales_with_live_tree_depth() {
+		crate::tests::mock::new_test_ext().execute_with(|| {
+			type W = SubstrateWeight<Test>;
+			pallet_zk_tree::Depth::<Test>::put(1);
+			let shallow = W::execute_transfer();
+			pallet_zk_tree::Depth::<Test>::put(pallet_zk_tree::MAX_TREE_DEPTH);
+			let deep = W::execute_transfer();
+			assert!(
+				deep.proof_size() > shallow.proof_size(),
+				"execute_transfer weight must grow with ZK-tree depth (shallow: {:?}, deep: {:?})",
+				shallow,
+				deep,
+			);
+			// The depth-blind `()` impl prices at `MAX_TREE_DEPTH` and must never
+			// charge less than `SubstrateWeight` at any live depth.
+			assert!(
+				<() as WeightInfo>::execute_transfer().all_gte(deep),
+				"() impl must be a worst-case bound for SubstrateWeight",
+			);
+		});
 	}
 }

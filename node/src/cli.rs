@@ -18,7 +18,10 @@ pub struct Cli {
 	#[arg(long, value_name = "PORT")]
 	pub miner_listen_port: Option<u16>,
 
-	/// Enable peer sharing via RPC endpoint
+	/// Enable peer sharing via RPC endpoint (`peer_getNetworkInfo`).
+	///
+	/// The endpoint is an unsafe RPC: it is served only to local connections, or to
+	/// remote ones when the node also runs with `--rpc-methods unsafe`.
 	#[arg(long)]
 	pub enable_peer_sharing: bool,
 

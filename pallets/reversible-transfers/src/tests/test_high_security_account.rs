@@ -204,6 +204,79 @@ fn recover_funds_cancels_all_pending_transfers() {
 	});
 }
 
+/// A failing final sweep must not roll back the pending-transfer cancellations that
+/// `recover_funds` already performed. FRAME dispatchables are transactional, so if the
+/// closing `transfer_all` error propagated out of the extrinsic, the hold releases and
+/// scheduler cancellations would revert — re-arming the very transfers the compromised
+/// account's guardian is trying to stop, and letting them execute at their scheduled
+/// time. The sweep must be best-effort: keep the cancellations, emit
+/// `RecoverySweepFailed`, and let the guardian retry.
+#[test]
+fn recover_funds_keeps_cancellations_when_final_sweep_fails() {
+	use pallet_scheduler::Agenda;
+
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let hs_user = alice();
+		let guardian = bob();
+		let dest = charlie();
+		let amount = 10_000u128;
+
+		let initial_hs_balance = Balances::free_balance(&hs_user);
+
+		let call = transfer_call(dest.clone(), amount);
+		let tx_id = calculate_tx_id::<Test>(hs_user.clone(), &call);
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(hs_user.clone()),
+			dest.clone(),
+			amount
+		));
+
+		// Make the final sweep fail deterministically: the release below credits the
+		// guardian with `amount - 1% fee` (9_900), landing its balance exactly on
+		// `u128::MAX`, so the subsequent `transfer_all` of the remaining free balance
+		// overflows the guardian's balance.
+		let release_amount = amount - amount / 100;
+		assert_ok!(Balances::force_set_balance(
+			RuntimeOrigin::root(),
+			guardian.clone(),
+			u128::MAX - release_amount
+		));
+
+		// The recovery itself must succeed even though the sweep cannot.
+		assert_ok!(ReversibleTransfers::recover_funds(
+			RuntimeOrigin::signed(guardian.clone()),
+			hs_user.clone()
+		));
+
+		// The cancellation work is preserved: pending metadata removed, hold released to
+		// the guardian, and the scheduled task cancelled so it can never execute later.
+		assert!(crate::PendingTransfers::<Test>::get(tx_id).is_none());
+		assert!(crate::PendingTransfersBySender::<Test>::get(&hs_user).is_empty());
+		assert_eq!(Balances::free_balance(&guardian), u128::MAX);
+		assert!(
+			Agenda::<Test>::iter().all(|(_, agenda)| agenda.iter().all(|slot| slot.is_none())),
+			"the cancelled transfer must not remain scheduled"
+		);
+
+		// The failed sweep left the account's free balance untouched.
+		assert_eq!(Balances::free_balance(&hs_user), initial_hs_balance - amount);
+
+		// The outcome is reported truthfully: sweep failed, funds not (fully) recovered.
+		System::assert_has_event(
+			Event::RecoverySweepFailed { account: hs_user.clone(), guardian: guardian.clone() }
+				.into(),
+		);
+		assert!(
+			!System::events().iter().any(|e| matches!(
+				e.event,
+				RuntimeEvent::ReversibleTransfers(Event::FundsRecovered { .. })
+			)),
+			"FundsRecovered must not be emitted when the sweep failed"
+		);
+	});
+}
+
 #[test]
 fn too_many_pending_transactions_error() {
 	new_test_ext().execute_with(|| {

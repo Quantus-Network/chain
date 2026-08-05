@@ -609,17 +609,26 @@ pub mod pallet {
 			// Generate additional dev accounts.
 			if let Some((num_accounts, balance, ref derivation)) = self.dev_accounts {
 				// Using the provided derivation string or default to `"//Sender//{}`".
-				assert!(
-					Pallet::<T, I>::derive_dev_account(
-						num_accounts,
-						balance,
-						derivation.as_deref().unwrap_or(DEFAULT_ADDRESS_URI),
-					)
-					.is_ok(),
-					"Failed to derive dev accounts from genesis configuration."
-				);
+				// Genesis `build` cannot return errors, so an invalid configuration must
+				// panic — but with the specific underlying reason, so tooling building
+				// from the spec sees a structured configuration failure.
+				if let Err(e) = Pallet::<T, I>::derive_dev_account(
+					num_accounts,
+					balance,
+					derivation.as_deref().unwrap_or(DEFAULT_ADDRESS_URI),
+				) {
+					panic!("Failed to derive dev accounts from genesis configuration: {e}");
+				}
 			}
 			for &(ref who, free) in self.balances.iter() {
+				// The `dev_accounts` derivation above has already written its accounts to
+				// storage. A configured balance targeting one of them would silently
+				// overwrite the dev account's balance and double-bump its provider
+				// reference, so any collision must fail the genesis build loudly.
+				assert!(
+					!frame_system::Pallet::<T>::account_exists(who),
+					"duplicate balances in genesis: endowed account collides with a dev account."
+				);
 				frame_system::Pallet::<T>::inc_providers(who);
 				assert!(T::AccountStore::insert(who, AccountData { free, ..Default::default() })
 					.is_ok());
@@ -932,6 +941,12 @@ pub mod pallet {
 						"account with a non-zero reserve balance has no provider refs, account_id: '{:?}'.",
 						who
 					);
+					// The top-up mints new funds, so record them in `TotalIssuance`: the raw
+					// account write below leaves issuance maintenance to us.
+					let minted = Self::ed().saturating_sub(a.free);
+					if !minted.is_zero() {
+						TotalIssuance::<T, I>::mutate(|t| *t = t.saturating_add(minted));
+					}
 					a.free = a.free.max(Self::ed());
 					system::Pallet::<T>::inc_providers(who);
 				}
@@ -1347,8 +1362,12 @@ pub mod pallet {
 			balance: T::Balance,
 			derivation: &str,
 		) -> Result<(), &'static str> {
-			// Ensure that the number of accounts is not zero.
-			assert!(num_accounts > 0, "num_accounts must be greater than zero");
+			// All input validation returns structured errors, honoring this function's
+			// Result contract: every input can come from an external chain specification,
+			// so the caller decides how to surface the failure.
+			if num_accounts == 0 {
+				return Err("num_accounts must be greater than zero");
+			}
 
 			// Bound the attacker-controllable work: reject before deriving anything so an
 			// oversized `dev_accounts` count cannot force unbounded key derivations.
@@ -1356,15 +1375,15 @@ pub mod pallet {
 				return Err("num_accounts exceeds the maximum allowed dev accounts");
 			}
 
-			assert!(
-				balance >= <T as Config<I>>::ExistentialDeposit::get(),
-				"the balance of any account should always be at least the existential deposit.",
-			);
+			if balance < <T as Config<I>>::ExistentialDeposit::get() {
+				return Err(
+					"the balance of any account should always be at least the existential deposit",
+				);
+			}
 
-			assert!(
-				derivation.contains("{}"),
-				"Invalid derivation, expected `{{}}` as part of the derivation"
-			);
+			if !derivation.contains("{}") {
+				return Err("invalid derivation, expected `{}` as part of the derivation");
+			}
 
 			for index in 0..num_accounts {
 				// Replace "{}" in the derivation string with the index.
@@ -1379,10 +1398,21 @@ pub mod pallet {
 					.map_err(|_| "Failed to decode public key from pair")?;
 
 				// Set the balance for the generated account.
-				Self::mutate_account_handling_dust(&who, false, |account| {
+				let old_free = Self::mutate_account_handling_dust(&who, false, |account| {
+					let old_free = account.free;
 					account.free = balance;
+					old_free
 				})
 				.map_err(|_| "Failed to set balance for derived dev account")?;
+
+				// `mutate_account_handling_dust` explicitly leaves total-issuance maintenance
+				// to the caller: account for exactly what this write credited (or removed), so
+				// dev-account allocations are real, counted issuance.
+				if balance >= old_free {
+					TotalIssuance::<T, I>::mutate(|t| *t = t.saturating_add(balance - old_free));
+				} else {
+					TotalIssuance::<T, I>::mutate(|t| *t = t.saturating_sub(old_free - balance));
+				}
 			}
 
 			Ok(())

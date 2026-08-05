@@ -290,6 +290,10 @@ pub mod pallet {
 		/// Failed to release held funds during recovery. The transfer metadata is preserved
 		/// for manual retry via `cancel`.
 		TransferRecoveryFailed { tx_id: T::Hash },
+		/// The final free-balance sweep of `recover_funds` failed. All pending-transfer
+		/// cancellations performed by the same call remain in effect; the guardian can
+		/// retry `recover_funds` to sweep the free balance once the cause is resolved.
+		RecoverySweepFailed { account: T::AccountId, guardian: T::AccountId },
 	}
 
 	#[pallet::error]
@@ -510,6 +514,13 @@ pub mod pallet {
 		/// If releasing held funds fails for any transfer, that transfer is skipped (metadata
 		/// preserved for manual retry via `cancel`) and a `TransferRecoveryFailed` event is
 		/// emitted. Other transfers continue to be processed.
+		///
+		/// The closing free-balance sweep to the guardian is likewise best-effort: if it
+		/// fails (e.g. the guardian cannot receive the funds), the call still succeeds and
+		/// all cancellations performed above remain in effect — they must not be rolled
+		/// back, or the pending transfers would be re-armed and execute at their scheduled
+		/// time. A `RecoverySweepFailed` event is emitted instead of `FundsRecovered`, and
+		/// the guardian can call `recover_funds` again to retry the sweep.
 		#[pallet::call_index(7)]
 		#[pallet::weight(<T as Config>::WeightInfo::recover_funds(T::MaxPendingPerAccount::get()))]
 		#[allow(clippy::useless_conversion)]
@@ -597,9 +608,24 @@ pub mod pallet {
 			}
 			.into();
 
-			call.dispatch(frame_system::RawOrigin::Signed(account.clone()).into())?;
-
-			Self::deposit_event(Event::FundsRecovered { account, guardian: who });
+			// The sweep is best-effort: propagating its error would roll back the whole
+			// (transactional) extrinsic, reverting every hold release and scheduler
+			// cancellation above and re-arming the pending transfers a compromised
+			// account's guardian is trying to stop. Keep that work, report the failed
+			// sweep, and let the guardian retry once the cause is resolved.
+			match call.dispatch(frame_system::RawOrigin::Signed(account.clone()).into()) {
+				Ok(_) => {
+					Self::deposit_event(Event::FundsRecovered { account, guardian: who });
+				},
+				Err(e) => {
+					log::warn!(
+						"recover_funds: final transfer_all sweep from {:?} failed: {:?}",
+						account,
+						e.error
+					);
+					Self::deposit_event(Event::RecoverySweepFailed { account, guardian: who });
+				},
+			}
 
 			Ok(Some(<T as Config>::WeightInfo::recover_funds(num_processed)).into())
 		}

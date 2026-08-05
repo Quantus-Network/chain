@@ -86,17 +86,14 @@ pub mod pallet {
 		pub treasury_portion: Option<Permill>,
 	}
 
-	impl<T: Config> Default for GenesisConfig<T>
-	where
-		T::AccountId: From<[u8; 32]>,
-	{
-		/// Default for test runtimes and chain specs that omit treasury.
-		/// Production uses genesis_config_presets which set treasury explicitly.
+	impl<T: Config> Default for GenesisConfig<T> {
+		/// The default deliberately configures nothing: the previous default account,
+		/// `[1u8; 32]`, is the runtime's keyless minting sentinel, so a chain spec that
+		/// omitted the treasury section silently sent every treasury payout to an
+		/// address nobody can sign for. (FRAME requires the impl to exist and to build:
+		/// `RuntimeGenesisConfig` derives `Default` from it.)
 		fn default() -> Self {
-			Self {
-				treasury_account: Some([1u8; 32].into()),
-				treasury_portion: Some(Permill::from_percent(50)),
-			}
+			Self { treasury_account: None, treasury_portion: None }
 		}
 	}
 
@@ -106,6 +103,13 @@ pub mod pallet {
 		T::AccountId: From<[u8; 32]> + PartialEq,
 	{
 		fn build(&self) {
+			// The all-`None` state is the `Default`, which FRAME requires to build (see
+			// the `Default` impl above). Write nothing: `account_id()`/`portion()` panic
+			// on first use, so a spec that forgot the treasury section still fails loudly.
+			if self.treasury_account.is_none() && self.treasury_portion.is_none() {
+				return;
+			}
+			// A half-configured treasury is a plain misconfiguration; reject at build.
 			let account = self
 				.treasury_account
 				.as_ref()

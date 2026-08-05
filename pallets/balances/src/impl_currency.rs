@@ -538,21 +538,40 @@ where
 /// Validates whether an account can create a reserve without violating
 /// liquidity constraints.
 ///
-/// This method performs liquidity checks without modifying the account state.
+/// This is a pure query performing exactly the checks that `reserve` enforces —
+/// directly and via the provider/consumer bookkeeping in `try_mutate_account` —
+/// without modifying account state, so that `can_reserve` always predicts the
+/// outcome of a subsequent `reserve`. The errors mirror the ones the real path
+/// would return.
 fn ensure_can_reserve<T: Config<I>, I: 'static>(
 	who: &T::AccountId,
 	value: T::Balance,
-	check_existential_deposit: bool,
 ) -> DispatchResult {
-	let AccountData { free, .. } = Pallet::<T, I>::account(who);
+	let account = Pallet::<T, I>::account(who);
 
-	// Early validation: Check sufficient free balance
-	let new_free_balance = free.checked_sub(&value).ok_or(Error::<T, I>::InsufficientBalance)?;
+	// `reserve` fails outright without sufficient free balance.
+	let new_free_balance =
+		account.free.checked_sub(&value).ok_or(Error::<T, I>::InsufficientBalance)?;
 
-	// Conditionally validate existential deposit preservation
-	if check_existential_deposit {
-		let existential_deposit = T::ExistentialDeposit::get();
-		ensure!(new_free_balance >= existential_deposit, Error::<T, I>::Expendability);
+	// An account with nothing reserved or frozen takes a new consumer reference
+	// when the reserve is created.
+	if account.reserved.is_zero() &&
+		account.frozen.is_zero() &&
+		!frame_system::Pallet::<T>::can_inc_consumer(who)
+	{
+		return Err(DispatchError::TooManyConsumers)
+	}
+
+	// If the reserve pushes `free` below the existential deposit, the account
+	// loses the provider reference backed by its free balance. Since the reserve
+	// itself holds a consumer reference, `try_mutate_account`'s `dec_providers`
+	// only succeeds if the account survives on another provider reference.
+	let existential_deposit = T::ExistentialDeposit::get();
+	if account.free >= existential_deposit &&
+		new_free_balance < existential_deposit &&
+		frame_system::Pallet::<T>::providers(who) <= 1
+	{
+		return Err(DispatchError::ConsumerRemaining)
 	}
 
 	Ok(())
@@ -569,7 +588,7 @@ where
 		if value.is_zero() {
 			return true
 		}
-		ensure_can_reserve::<T, I>(who, value, true).is_ok()
+		ensure_can_reserve::<T, I>(who, value).is_ok()
 	}
 
 	fn reserved_balance(who: &T::AccountId) -> Self::Balance {
@@ -589,9 +608,7 @@ where
 				account.free.checked_sub(&value).ok_or(Error::<T, I>::InsufficientBalance)?;
 			account.reserved =
 				account.reserved.checked_add(&value).ok_or(ArithmeticError::Overflow)?;
-
-			// Check if it is possible to reserve before trying to mutate the account
-			ensure_can_reserve::<T, I>(who, value, false)
+			Ok(())
 		})?;
 
 		Self::deposit_event(Event::Reserved { who: who.clone(), amount: value });

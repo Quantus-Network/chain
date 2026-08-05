@@ -46,11 +46,11 @@ use sp_runtime::{
 };
 use std::{collections::BTreeSet, sync::OnceLock};
 
-/// Genesis `dev_accounts` count used by [`ExtBuilder`].
+/// Genesis `dev_accounts` count used by [`ExtBuilder`] when dev accounts are enabled.
 ///
-/// Kept well below [`MAX_DEV_ACCOUNTS`]: each account pays for an sr25519 URI derivation, and
-/// [`ensure_ti_valid`] must skip them. The production cap stays high for the genesis DoS bound;
-/// tests only need to prove a non-trivial set exists in storage.
+/// Kept well below [`MAX_DEV_ACCOUNTS`]: each account pays for an sr25519 URI derivation. The
+/// production cap stays high for the genesis DoS bound; tests only need to prove a non-trivial
+/// set exists in storage and is counted as issuance.
 const TEST_DEV_ACCOUNTS: u32 = 100;
 
 mod consumer_limit_tests;
@@ -60,6 +60,7 @@ mod fungible_and_currency;
 mod fungible_conformance_tests;
 mod fungible_tests;
 mod general_tests;
+mod migration_tests;
 mod reentrancy_tests;
 
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -144,15 +145,22 @@ pub struct ExtBuilder {
 	existential_deposit: u64,
 	monied: bool,
 	dust_trap: Option<u64>,
+	dev_accounts: bool,
 }
 impl Default for ExtBuilder {
 	fn default() -> Self {
-		Self { existential_deposit: 1, monied: false, dust_trap: None }
+		// Dev accounts are opt-in: their allocation is real, counted issuance, and most
+		// tests assume a genesis whose issuance is exactly what the test itself creates.
+		Self { existential_deposit: 1, monied: false, dust_trap: None, dev_accounts: false }
 	}
 }
 impl ExtBuilder {
 	pub fn existential_deposit(mut self, existential_deposit: u64) -> Self {
 		self.existential_deposit = existential_deposit;
+		self
+	}
+	pub fn dev_accounts(mut self, enable: bool) -> Self {
+		self.dev_accounts = enable;
 		self
 	}
 	pub fn monied(mut self, monied: bool) -> Self {
@@ -190,11 +198,9 @@ impl ExtBuilder {
 			} else {
 				vec![]
 			},
-			dev_accounts: Some((
-				TEST_DEV_ACCOUNTS,
-				self.existential_deposit,
-				Some(DEFAULT_ADDRESS_URI.to_string()),
-			)),
+			dev_accounts: self.dev_accounts.then(|| {
+				(TEST_DEV_ACCOUNTS, self.existential_deposit, Some(DEFAULT_ADDRESS_URI.to_string()))
+			}),
 		}
 		.assimilate_storage(&mut t)
 		.unwrap();
@@ -316,7 +322,7 @@ pub fn info_from_weight(w: Weight) -> DispatchInfo {
 
 /// Cached AccountIds for [`TEST_DEV_ACCOUNTS`] derived from [`DEFAULT_ADDRESS_URI`].
 ///
-/// Deriving these is expensive; never rebuild them per [`ensure_ti_valid`] call.
+/// Deriving these is expensive; derive them once and share across tests.
 fn test_dev_account_ids() -> &'static BTreeSet<AccountId> {
 	static IDS: OnceLock<BTreeSet<AccountId>> = OnceLock::new();
 	IDS.get_or_init(|| {
@@ -332,17 +338,14 @@ fn test_dev_account_ids() -> &'static BTreeSet<AccountId> {
 }
 
 /// Check that the total-issuance matches the sum of all accounts' total balances.
+///
+/// Every account is reconciled — including genesis dev accounts, whose allocation is
+/// real, counted issuance.
 pub fn ensure_ti_valid() {
 	let mut sum = 0;
-	let dev_account_ids = test_dev_account_ids();
 
 	// Iterate over all account keys (i.e., the account IDs).
 	for acc in frame_system::Account::<Test>::iter_keys() {
-		// Skip genesis dev accounts (also proves they landed in storage).
-		if dev_account_ids.contains(&acc) {
-			continue;
-		}
-
 		// Check if we are using the system pallet or some other custom storage for accounts.
 		if UseSystem::get() {
 			let data = frame_system::Pallet::<Test>::account(acc);
@@ -381,6 +384,84 @@ fn derive_dev_account_rejects_counts_above_cap() {
 			"num_accounts exceeds the maximum allowed dev accounts"
 		);
 	});
+}
+
+/// `derive_dev_account` documents a Result-based contract: every reachable input
+/// validation must produce an `Err` for the caller to handle, not abort execution.
+/// The inputs all come from the (potentially external) chain specification.
+#[test]
+fn derive_dev_account_returns_errors_instead_of_panicking() {
+	ExtBuilder::default().build_and_execute_with(|| {
+		let ed = ExistentialDeposit::get();
+		assert_err!(
+			Balances::derive_dev_account(0, ed, DEFAULT_ADDRESS_URI),
+			"num_accounts must be greater than zero"
+		);
+		assert_err!(
+			Balances::derive_dev_account(1, ed - 1, DEFAULT_ADDRESS_URI),
+			"the balance of any account should always be at least the existential deposit"
+		);
+		assert_err!(
+			Balances::derive_dev_account(1, ed, "//Sender"),
+			"invalid derivation, expected `{}` as part of the derivation"
+		);
+	});
+}
+
+/// An invalid `dev_accounts` entry must fail the genesis build with the specific
+/// underlying reason, as a structured configuration failure rather than a bare assert.
+#[test]
+#[should_panic(expected = "Failed to derive dev accounts from genesis configuration: \
+	invalid derivation, expected `{}` as part of the derivation")]
+fn genesis_surfaces_dev_account_derivation_errors() {
+	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+	crate::GenesisConfig::<Test> {
+		balances: vec![],
+		dev_accounts: Some((1, ExistentialDeposit::get(), Some("//Sender".to_string()))),
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
+}
+
+/// Genesis `dev_accounts` allocations are real issuance: every derived account must land
+/// in storage endowed with the configured balance, and `TotalIssuance` must include the
+/// allocation. It used to be computed from the explicit `balances` list only, silently
+/// understating the on-chain supply whenever `dev_accounts` was enabled.
+#[test]
+fn genesis_dev_accounts_are_counted_in_total_issuance() {
+	ExtBuilder::default().dev_accounts(true).build_and_execute_with(|| {
+		let ed = ExistentialDeposit::get();
+		for acc in test_dev_account_ids() {
+			assert_eq!(Balances::free_balance(acc), ed, "dev account must be endowed");
+		}
+		assert_eq!(
+			TotalIssuance::<Test>::get(),
+			ed * u64::from(TEST_DEV_ACCOUNTS),
+			"dev-account allocations must be counted in TotalIssuance"
+		);
+		ensure_ti_valid();
+	});
+}
+
+/// Genesis must reject a configured balance that targets an account also produced
+/// by the `dev_accounts` derivation: the two writes silently overwrite each other
+/// (last write wins) and double-bump the account's provider reference, corrupting
+/// the endowed state without any error.
+#[test]
+#[should_panic(expected = "collides with a dev account")]
+fn genesis_endowed_balances_must_not_collide_with_dev_accounts() {
+	let dev_account = *test_dev_account_ids().first().unwrap();
+	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+	crate::GenesisConfig::<Test> {
+		balances: vec![(dev_account, 100)],
+		dev_accounts: Some((
+			TEST_DEV_ACCOUNTS,
+			ExistentialDeposit::get(),
+			Some(DEFAULT_ADDRESS_URI.to_string()),
+		)),
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
 }
 
 #[test]
