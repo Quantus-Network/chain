@@ -157,9 +157,7 @@ fn check_vesting_status_for_multi_schedule_account() {
 		// At block #20 sched1 is fully unlocked while sched2 and sched0 are partially unlocked.
 		assert_eq!(
 			Vesting::vesting_balance(&2),
-			Some(
-				free_balance - sched1.locked() - sched2.per_ms() * 15 - sched0.per_ms() * 10
-			)
+			Some(free_balance - sched1.locked() - sched2.per_ms() * 15 - sched0.per_ms() * 10)
 		);
 
 		set_time(30);
@@ -393,8 +391,7 @@ fn vested_transfer_correctly_fails() {
 		);
 
 		// `per_ms` is 0, which would result in a schedule with infinite duration.
-		let schedule_per_ms_0 =
-			VestingInfo::new(<Test as Config>::MinVestedTransfer::get(), 0, 10);
+		let schedule_per_ms_0 = VestingInfo::new(<Test as Config>::MinVestedTransfer::get(), 0, 10);
 		assert_noop!(
 			Vesting::vested_transfer(Some(13).into(), 4, schedule_per_ms_0),
 			Error::<Test>::InvalidScheduleParams,
@@ -447,9 +444,7 @@ fn vested_transfer_allows_max_schedules() {
 		assert_eq!(Balances::free_balance(&4), user_4_free_balance);
 
 		// Account 4 has fully vested when all the schedules end,
-		set_time(
-			<Test as Config>::MinVestedTransfer::get() + sched.start(),
-		);
+		set_time(<Test as Config>::MinVestedTransfer::get() + sched.start());
 		assert_eq!(Vesting::vesting_balance(&4), Some(0));
 		// and after unlocking its schedules are removed from storage.
 		vest_and_assert_no_vesting::<Test>(4);
@@ -547,8 +542,7 @@ fn force_vested_transfer_correctly_fails() {
 		);
 
 		// `per_ms` is 0.
-		let schedule_per_ms_0 =
-			VestingInfo::new(<Test as Config>::MinVestedTransfer::get(), 0, 10);
+		let schedule_per_ms_0 = VestingInfo::new(<Test as Config>::MinVestedTransfer::get(), 0, 10);
 		assert_noop!(
 			Vesting::force_vested_transfer(RawOrigin::Root.into(), 13, 4, schedule_per_ms_0),
 			Error::<Test>::InvalidScheduleParams,
@@ -776,8 +770,7 @@ fn merge_ongoing_and_yet_to_be_started_schedules() {
 		assert_eq!(VestingStorage::<Test>::get(&2).unwrap(), vec![sched0]);
 
 		// Fast forward to half way through the life of sched1.
-		let mut cur_block =
-			(sched0.start() + sched0.ending_time_as_balance::<Identity>()) / 2;
+		let mut cur_block = (sched0.start() + sched0.ending_time_as_balance::<Identity>()) / 2;
 		assert_eq!(cur_block, 20);
 		set_time(cur_block);
 
@@ -1123,10 +1116,7 @@ fn vesting_info_ending_time_as_balance_works() {
 
 	// `per_ms >= locked` always results in a schedule ending the block after it starts
 	let per_ms_gt_locked = VestingInfo::<u32, u32, u64>::new(256u32, 256 * 2u32, 10u32);
-	assert_eq!(
-		per_ms_gt_locked.ending_time_as_balance::<Identity>(),
-		1 + per_ms_gt_locked.start()
-	);
+	assert_eq!(per_ms_gt_locked.ending_time_as_balance::<Identity>(), 1 + per_ms_gt_locked.start());
 	let per_ms_eq_locked = VestingInfo::<u32, u32, u64>::new(256u32, 256u32, 10u32);
 	assert_eq!(
 		per_ms_gt_locked.ending_time_as_balance::<Identity>(),

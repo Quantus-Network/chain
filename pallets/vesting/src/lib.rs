@@ -459,12 +459,10 @@ pub mod pallet {
 
 			let schedules = Vesting::<T>::get(&who).ok_or(Error::<T>::NotVesting)?;
 			{
-				let schedule1 = schedules
-					.get(schedule1_index)
-					.ok_or(Error::<T>::ScheduleIndexOutOfBounds)?;
-				let schedule2 = schedules
-					.get(schedule2_index)
-					.ok_or(Error::<T>::ScheduleIndexOutOfBounds)?;
+				let schedule1 =
+					schedules.get(schedule1_index).ok_or(Error::<T>::ScheduleIndexOutOfBounds)?;
+				let schedule2 =
+					schedules.get(schedule2_index).ok_or(Error::<T>::ScheduleIndexOutOfBounds)?;
 				ensure!(
 					schedule1.canceller() == schedule2.canceller(),
 					Error::<T>::CancellerMismatch
@@ -551,8 +549,7 @@ impl<T: Config> Pallet<T> {
 	// Public function for accessing vesting storage
 	pub fn vesting(
 		account: T::AccountId,
-	) -> Option<BoundedVec<VestingInfoOf<T>, MaxVestingSchedulesGet<T>>>
-	{
+	) -> Option<BoundedVec<VestingInfoOf<T>, MaxVestingSchedulesGet<T>>> {
 		Vesting::<T>::get(account)
 	}
 
@@ -593,9 +590,8 @@ impl<T: Config> Pallet<T> {
 		let start = now.max(schedule1.start()).max(schedule2.start());
 
 		let per_ms = {
-			let duration = ending_time
-				.saturating_sub(T::MomentToBalance::convert(start))
-				.max(One::one());
+			let duration =
+				ending_time.saturating_sub(T::MomentToBalance::convert(start)).max(One::one());
 			(locked / duration).max(One::one())
 		};
 
@@ -733,10 +729,8 @@ impl<T: Config> Pallet<T> {
 		who: &T::AccountId,
 		schedules: Vec<VestingInfoOf<T>>,
 	) -> Result<(), DispatchError> {
-		let schedules: BoundedVec<
-			VestingInfoOf<T>,
-			MaxVestingSchedulesGet<T>,
-		> = schedules.try_into().map_err(|_| Error::<T>::AtMaxVestingSchedules)?;
+		let schedules: BoundedVec<VestingInfoOf<T>, MaxVestingSchedulesGet<T>> =
+			schedules.try_into().map_err(|_| Error::<T>::AtMaxVestingSchedules)?;
 
 		if schedules.len() == 0 {
 			Vesting::<T>::remove(&who);
@@ -785,8 +779,7 @@ impl<T: Config> Pallet<T> {
 				if let Some(new_schedule) = Self::merge_vesting_info(now, schedule1, schedule2) {
 					// Merging created a new schedule so we:
 					// (we use `locked_at` in case this is a schedule that started in the past)
-					let new_schedule_locked =
-						new_schedule.locked_at::<T::MomentToBalance>(now);
+					let new_schedule_locked = new_schedule.locked_at::<T::MomentToBalance>(now);
 					// 1) need to add it to the accounts vesting schedule collection,
 					schedules.push(new_schedule);
 					// and 2) update the locked amount to reflect the schedule we just added.
