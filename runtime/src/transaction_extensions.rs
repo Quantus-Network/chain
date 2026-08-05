@@ -380,10 +380,15 @@ mod tests {
 		.assimilate_storage(&mut t)
 		.unwrap();
 
-		// Treasury account + portion are required for mining-reward distribution.
-		pallet_treasury::GenesisConfig::<Runtime>::default()
-			.assimilate_storage(&mut t)
-			.unwrap();
+		// Treasury account + portion are required for mining-reward distribution. Both
+		// must be explicit: the genesis default no longer configures anything (the old
+		// default account was the keyless `[1u8; 32]` minting sentinel).
+		pallet_treasury::GenesisConfig::<Runtime> {
+			treasury_account: Some(AccountId32::from([9u8; 32])),
+			treasury_portion: Some(sp_runtime::Permill::from_percent(50)),
+		}
+		.assimilate_storage(&mut t)
+		.unwrap();
 
 		sp_io::TestExternalities::new(t)
 	}

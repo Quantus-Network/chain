@@ -63,6 +63,36 @@ fn set_treasury_account_rejects_zero() {
 	});
 }
 
+/// The genesis default must not invent a treasury config: the old default account was
+/// the `[1u8; 32]` minting sentinel, so any chain spec that omitted the treasury section
+/// silently assigned all treasury funds to an unspendable address. The default must
+/// configure nothing, leaving `account_id()`/`portion()` to panic on first use.
+#[test]
+fn default_genesis_configures_nothing() {
+	let default = crate::GenesisConfig::<Test>::default();
+	assert!(
+		default.treasury_account.is_none(),
+		"treasury_account must have no default; chain specs must configure it explicitly"
+	);
+	assert!(default.treasury_portion.is_none(), "treasury_portion must have no default");
+}
+
+/// A spec that sets one treasury field but not the other is misconfigured and must be
+/// rejected at genesis build (unlike the fully-empty `Default`, which FRAME requires to
+/// build and which fails at first use instead).
+#[test]
+#[should_panic(expected = "Treasury portion must be set in genesis")]
+fn half_configured_treasury_genesis_is_rejected() {
+	use sp_runtime::BuildStorage;
+	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+	crate::GenesisConfig::<Test> {
+		treasury_account: Some(account_id(2)),
+		treasury_portion: None,
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
+}
+
 #[test]
 fn set_treasury_portion_works() {
 	new_test_ext().execute_with(|| {
