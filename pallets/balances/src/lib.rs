@@ -940,6 +940,12 @@ pub mod pallet {
 						"account with a non-zero reserve balance has no provider refs, account_id: '{:?}'.",
 						who
 					);
+					// The top-up mints new funds, so record them in `TotalIssuance`: the raw
+					// account write below leaves issuance maintenance to us.
+					let minted = Self::ed().saturating_sub(a.free);
+					if !minted.is_zero() {
+						TotalIssuance::<T, I>::mutate(|t| *t = t.saturating_add(minted));
+					}
 					a.free = a.free.max(Self::ed());
 					system::Pallet::<T>::inc_providers(who);
 				}

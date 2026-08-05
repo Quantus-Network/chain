@@ -195,6 +195,49 @@ fn set_balance_handles_total_issuance() {
 	});
 }
 
+/// The `ensure_upgraded` failsafe tops a reserved-but-providerless legacy account up to
+/// the existential deposit. That top-up mints new funds, so it must be counted in
+/// `TotalIssuance` — otherwise every such upgrade silently inflates effective supply.
+#[test]
+fn upgrade_accounts_failsafe_mint_is_counted_in_total_issuance() {
+	ExtBuilder::default()
+		.existential_deposit(10)
+		.monied(true)
+		.build_and_execute_with(|| {
+			// A legacy account with reserved funds but no provider refs: the pathological
+			// state the failsafe defends against. Written raw, bypassing the provider
+			// bookkeeping, since no healthy path can produce it.
+			let data = AccountData {
+				free: 0,
+				reserved: 5,
+				frozen: Zero::zero(),
+				flags: crate::types::ExtraFlags::old_logic(),
+			};
+			if UseSystem::get() {
+				frame_system::Account::<Test>::insert(
+					7,
+					frame_system::AccountInfo { data, ..Default::default() },
+				);
+			} else {
+				crate::Account::<Test>::insert(7, data);
+			}
+			assert_eq!(System::providers(&7), 0);
+
+			let ti_before = TotalIssuance::<Test>::get();
+			assert_ok!(Balances::upgrade_accounts(Some(1).into(), vec![7]));
+
+			// The failsafe minted an ED of free balance and restored the provider ref...
+			assert_eq!(get_test_account_data(7).free, 10);
+			assert_eq!(System::providers(&7), 1);
+			// ...and the minted funds are recorded as issuance.
+			assert_eq!(
+				TotalIssuance::<Test>::get(),
+				ti_before + 10,
+				"the failsafe ED top-up must increase TotalIssuance"
+			);
+		});
+}
+
 #[test]
 fn upgrade_accounts_should_work() {
 	ExtBuilder::default()
