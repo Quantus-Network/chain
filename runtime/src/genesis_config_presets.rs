@@ -18,7 +18,7 @@
 // this module is used by the client, so it's ok to panic/unwrap here
 #![allow(clippy::expect_used)]
 
-use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, UNIT};
+use crate::{AccountId, Balance, BalancesConfig, BlockNumber, RuntimeGenesisConfig, DAYS, UNIT};
 use alloc::{
 	string::{String, ToString},
 	vec,
@@ -30,6 +30,11 @@ use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};
 use sp_runtime::{traits::IdentifyAccount, Permill};
+
+/// Genesis vesting: unlock starts at block 0 and completes after this many blocks (~1 year).
+const GENESIS_VESTING_LENGTH: BlockNumber = DAYS * 365;
+/// Amount kept immediately spendable for fees; the rest of each vested endowment is locked.
+const GENESIS_VESTING_LIQUID: Balance = UNIT;
 
 /// Well-known test secret for testing ZK proof spending.
 /// This is a simple pattern (`[42u8; 32]`) for easy testing.
@@ -146,17 +151,35 @@ fn planck_tech_collective_seed() -> Vec<AccountId> {
 	planck_treasury_signers()
 }
 
+/// Build genesis vesting entries for the given accounts.
+///
+/// Tuple is `(who, begin, length, liquid)` — see `pallet_vesting` genesis docs.
+/// Locked amount is derived as `free_balance - liquid` after Balances genesis runs.
+fn vested_endowments(
+	accounts: impl IntoIterator<Item = AccountId>,
+) -> Vec<(AccountId, BlockNumber, BlockNumber, Balance)> {
+	accounts
+		.into_iter()
+		.map(|who| (who, 0, GENESIS_VESTING_LENGTH, GENESIS_VESTING_LIQUID))
+		.collect()
+}
+
 /// Returns the genesis config populated with given parameters. Treasury is per-profile.
 ///
 /// All endowed addresses automatically get transfer proofs recorded, enabling them to
 /// spend their funds via ZK proofs. The chain doesn't distinguish between "wormhole
 /// addresses" and regular addresses - any address can spend via ZK proofs if they
 /// know the corresponding secret.
+///
+/// `vesting` schedules apply only to accounts that already appear in `balances`
+/// (standard endowments and/or `extra_balances`). Leave fee seeds and the wormhole
+/// test account out of vesting so they remain fully spendable.
 fn genesis_template(
 	endowed_accounts: Vec<AccountId>,
 	treasury: TreasuryGenesis,
 	tech_collective_members: Vec<AccountId>,
 	extra_balances: Vec<(AccountId, u128)>,
+	vesting: Vec<(AccountId, BlockNumber, BlockNumber, Balance)>,
 ) -> Value {
 	const ENDOWED_BALANCE_UNITS: u128 = 100_000;
 	let mut balances = endowed_accounts
@@ -175,6 +198,7 @@ fn genesis_template(
 			treasury_account: Some(treasury.account),
 			treasury_portion: Some(treasury.portion),
 		},
+		vesting: pallet_vesting::GenesisConfig::<crate::Runtime> { vesting },
 		wormhole: pallet_wormhole::GenesisConfig::<crate::Runtime> {
 			// Record transfer proofs for ALL endowed addresses, enabling ZK spending.
 			// Events are emitted in on_initialize at block 1 for indexer compatibility.
@@ -199,6 +223,7 @@ fn genesis_template(
 fn log_genesis_accounts(
 	preset: &str,
 	endowed: &[AccountId],
+	vested: &[AccountId],
 	treasury_account: &AccountId,
 	treasury_signers: &[AccountId],
 	tech_collective: &[AccountId],
@@ -206,6 +231,12 @@ fn log_genesis_accounts(
 	let ss58 = ss58_version();
 	for account in endowed {
 		log::info!("[{preset}] 💰 Endowed: {:?}", account.to_ss58check_with_version(ss58));
+	}
+	for account in vested {
+		log::info!(
+			"[{preset}] 🔒 Vested endowment: {:?} (liquid={GENESIS_VESTING_LIQUID}, length={GENESIS_VESTING_LENGTH} blocks)",
+			account.to_ss58check_with_version(ss58)
+		);
 	}
 	log::info!("[{preset}] 🏦 Treasury: {:?}", treasury_account.to_ss58check_with_version(ss58));
 	for signer in treasury_signers {
@@ -219,6 +250,7 @@ fn log_genesis_accounts(
 /// Return the development genesis config.
 pub fn development_config_genesis() -> Value {
 	let mut endowed_accounts = dilithium_default_accounts();
+	let vested_accounts = dilithium_default_accounts();
 	let test_account = test_wormhole_account();
 	endowed_accounts.push(test_account.clone());
 	let treasury_account = development_treasury_account();
@@ -226,11 +258,14 @@ pub fn development_config_genesis() -> Value {
 	log_genesis_accounts(
 		"dev",
 		&endowed_accounts,
+		&vested_accounts,
 		&treasury_account,
 		&dilithium_default_accounts(),
 		&tech_collective,
 	);
 	log::info!("[dev] 🕳️  Test ZK: {:?}", test_account.to_ss58check_with_version(ss58_version()));
+
+	let vesting = vested_endowments(vested_accounts);
 
 	#[cfg(feature = "runtime-benchmarks")]
 	{
@@ -255,7 +290,7 @@ pub fn development_config_genesis() -> Value {
 		let treasury =
 			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
 		let mut template_value =
-			genesis_template(endowed_accounts, treasury, tech_collective, vec![]);
+			genesis_template(endowed_accounts, treasury, tech_collective, vec![], vesting);
 		// `genesis_template` adds a chain-spec-only field; strip before deserializing.
 		template_value
 			.as_object_mut()
@@ -271,25 +306,28 @@ pub fn development_config_genesis() -> Value {
 	{
 		let treasury =
 			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
-		genesis_template(endowed_accounts, treasury, tech_collective, vec![])
+		genesis_template(endowed_accounts, treasury, tech_collective, vec![], vesting)
 	}
 }
 
 pub fn heisenberg_config_genesis() -> Value {
 	let endowed_accounts = dilithium_default_accounts();
+	let vested_accounts = dilithium_default_accounts();
 	let treasury_signers = heisenberg_treasury_signers();
 	let tech_collective = heisenberg_tech_collective_seed();
 	let treasury_account = heisenberg_treasury_account();
 	log_genesis_accounts(
 		"heisenberg",
 		&endowed_accounts,
+		&vested_accounts,
 		&treasury_account,
 		&treasury_signers,
 		&tech_collective,
 	);
 	let treasury =
 		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
-	genesis_template(endowed_accounts, treasury, tech_collective, vec![])
+	let vesting = vested_endowments(vested_accounts);
+	genesis_template(endowed_accounts, treasury, tech_collective, vec![], vesting)
 }
 
 fn planck_faucet_account() -> AccountId {
@@ -383,17 +421,20 @@ pub fn planck_config_genesis() -> Value {
 	let tech_collective = planck_tech_collective_seed();
 	let treasury_account = planck_treasury_account();
 	let endowed_accounts = vec![planck_faucet_account()];
+	let vested_accounts = vec![planck_faucet_account()];
 	let signer_fee_seed: Vec<_> = treasury_signers.iter().cloned().map(|a| (a, UNIT)).collect();
 	log_genesis_accounts(
 		"planck",
 		&endowed_accounts,
+		&vested_accounts,
 		&treasury_account,
 		&treasury_signers,
 		&tech_collective,
 	);
 	let treasury =
 		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
-	genesis_template(endowed_accounts, treasury, tech_collective, signer_fee_seed)
+	let vesting = vested_endowments(vested_accounts);
+	genesis_template(endowed_accounts, treasury, tech_collective, signer_fee_seed, vesting)
 }
 
 /// Provides the JSON representation of predefined genesis config for given `id`.
