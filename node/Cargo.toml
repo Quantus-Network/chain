@@ -106,6 +106,9 @@ substrate-frame-rpc-system.workspace = true
 tokio-util.workspace = true
 zeroize = { workspace = true, default-features = true }
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
+
 [build-dependencies]
 substrate-build-script-utils.default-features = true
 substrate-build-script-utils.workspace = true

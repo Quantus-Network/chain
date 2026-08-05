@@ -259,6 +259,53 @@ async fn handle_miner_connection(connection: quinn::Connection, server: Arc<Mine
 	server.remove_miner(miner_id).await;
 }
 
+/// Maximum number of consecutive results a single connection may drop on a full result
+/// channel before it is disconnected as a flooder. A legitimate miner submits at most a
+/// couple of messages per job, so its counter is reset by the first successful forward;
+/// only a connection that keeps hammering an already-full channel reaches this bound.
+const MAX_CONSECUTIVE_RESULT_DROPS: u32 = 8;
+
+/// Forward a miner's result to the shared result channel without ever blocking.
+///
+/// The result channel is shared by every miner connection and is drained only while the
+/// mining loop is actively waiting for results (it pauses during syncing, block template
+/// builds and seal imports). A blocking `send` here would let one miner that fills the
+/// channel park every other miner's connection handler inside this call; a parked handler
+/// also stops servicing its job channel, so the other miners would silently miss new jobs
+/// and be unable to submit seals — a one-miner denial of service against the rest.
+///
+/// Instead, an overflowing result is dropped (losing a result under active flooding is
+/// strictly better than stalling every honest connection), and a connection that keeps
+/// overflowing is treated as malicious and closed.
+async fn forward_result(
+	miner_id: u64,
+	result_tx: &mpsc::Sender<MiningResult>,
+	result: MiningResult,
+	consecutive_drops: &mut u32,
+) -> Result<(), String> {
+	match result_tx.try_send(result) {
+		Ok(()) => {
+			*consecutive_drops = 0;
+			Ok(())
+		},
+		Err(mpsc::error::TrySendError::Full(result)) => {
+			*consecutive_drops += 1;
+			log::warn!(
+				"⛏️ Result channel full; dropping result from miner {} for job {} ({} consecutive)",
+				miner_id,
+				result.job_id,
+				consecutive_drops
+			);
+			if *consecutive_drops >= MAX_CONSECUTIVE_RESULT_DROPS {
+				Err(format!("Miner {} is flooding the result channel", miner_id))
+			} else {
+				Ok(())
+			}
+		},
+		Err(mpsc::error::TrySendError::Closed(_)) => Err("Result channel closed".to_string()),
+	}
+}
+
 /// Handle communication with a single miner.
 async fn connection_handler(
 	miner_id: u64,
@@ -268,6 +315,7 @@ async fn connection_handler(
 	result_tx: mpsc::Sender<MiningResult>,
 	initial_job: Option<MiningRequest>,
 ) -> Result<(), String> {
+	let mut consecutive_drops = 0u32;
 	// Wait for Ready message from miner (required to establish the stream)
 	log::debug!("Waiting for Ready message from miner {}...", miner_id);
 	match read_message(&mut recv).await {
@@ -307,11 +355,10 @@ async fn connection_handler(
 							result.job_id,
 							result.status
 						);
-						// Tag the result with the miner ID
-						result.miner_id = Some(miner_id);
-						if result_tx.send(result).await.is_err() {
-							return Err("Result channel closed".to_string());
-						}
+					// Tag the result with the miner ID
+					result.miner_id = Some(miner_id);
+					forward_result(miner_id, &result_tx, result, &mut consecutive_drops)
+						.await?;
 					}
 					Ok(MinerMessage::Ready) => {
 						log::debug!("Ignoring duplicate Ready from miner {}", miner_id);
@@ -345,5 +392,88 @@ async fn connection_handler(
 				}
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use quantus_miner_api::ApiResponseStatus;
+
+	fn dummy_result(job_id: &str) -> MiningResult {
+		MiningResult {
+			status: ApiResponseStatus::Completed,
+			job_id: job_id.to_string(),
+			nonce: None,
+			work: None,
+			hash_count: 0,
+			elapsed_time: 0.0,
+			miner_id: Some(1),
+		}
+	}
+
+	/// The result channel is shared by every miner connection and is drained only while
+	/// the mining loop is actively waiting for results. Forwarding must therefore never
+	/// block on a full channel: a handler parked inside the send also stops servicing its
+	/// job channel, so one miner flooding the shared channel would silently cut every
+	/// other miner off from new jobs and result submission.
+	#[tokio::test]
+	async fn forwarding_a_result_never_blocks_on_a_full_channel() {
+		let (tx, _rx) = mpsc::channel::<MiningResult>(64);
+		for _ in 0..64 {
+			tx.try_send(dummy_result("flood")).unwrap();
+		}
+
+		let mut drops = 0;
+		let outcome = tokio::time::timeout(
+			Duration::from_millis(200),
+			forward_result(2, &tx, dummy_result("honest"), &mut drops),
+		)
+		.await;
+
+		assert!(
+			outcome.is_ok(),
+			"forward_result must complete promptly (dropping the result) while the \
+			 shared channel is full, not park the connection handler"
+		);
+	}
+
+	/// A connection that keeps overflowing the already-full shared channel is flooding —
+	/// a legitimate miner submits at most a couple of messages per job — and must be
+	/// disconnected so the channel can drain for the honest miners.
+	#[tokio::test]
+	async fn sustained_overflow_disconnects_the_miner() {
+		let (tx, _rx) = mpsc::channel::<MiningResult>(1);
+		tx.try_send(dummy_result("flood")).unwrap();
+
+		let mut drops = 0;
+		for attempt in 1..MAX_CONSECUTIVE_RESULT_DROPS {
+			let res = forward_result(2, &tx, dummy_result("flood"), &mut drops).await;
+			assert!(res.is_ok(), "drop {attempt} is within tolerance and must not disconnect");
+		}
+		let res = forward_result(2, &tx, dummy_result("flood"), &mut drops).await;
+		assert!(res.is_err(), "sustained overflow must disconnect the flooding miner");
+	}
+
+	/// A successful forward proves the connection is not hammering a full channel, so the
+	/// drop counter must reset: an honest miner that occasionally loses a result to
+	/// someone else's flood must never accumulate its way to a disconnect.
+	#[tokio::test]
+	async fn successful_forward_resets_the_drop_counter() {
+		let (tx, mut rx) = mpsc::channel::<MiningResult>(1);
+
+		let mut drops = 0;
+		for _ in 0..2 * MAX_CONSECUTIVE_RESULT_DROPS {
+			// Fill the channel, overflow once (one drop), then drain and forward
+			// successfully (counter resets).
+			tx.try_send(dummy_result("filler")).unwrap();
+			let res = forward_result(2, &tx, dummy_result("overflow"), &mut drops).await;
+			assert!(res.is_ok(), "isolated drops must never disconnect an honest miner");
+			rx.recv().await.unwrap();
+			let res = forward_result(2, &tx, dummy_result("honest"), &mut drops).await;
+			assert!(res.is_ok());
+			rx.recv().await.unwrap();
+		}
+		assert_eq!(drops, 0, "counter must be reset by the last successful forward");
 	}
 }
