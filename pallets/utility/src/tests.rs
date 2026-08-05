@@ -151,6 +151,9 @@ impl frame_system::Config for Test {
 	type BlockWeights = BlockWeights;
 	type Block = Block;
 	type AccountData = pallet_balances::AccountData<u64>;
+	// A non-zero database weight so tests can observe the db-op components of the
+	// weights the dispatchables charge and refund (the prelude default is zero).
+	type DbWeight = frame_support::weights::constants::RocksDbWeight;
 }
 
 #[derive_impl(pallet_balances::config_preludes::TestDefaultConfig)]
@@ -349,12 +352,47 @@ fn as_derivative_reveals_pseudonym_on_first_use_only() {
 	});
 }
 
+/// The `as_derivative` annotation charges for the first-use derivative reveal (the
+/// `KnownDerivatives` insert plus the wormhole pool write). Repeat uses of an already-known
+/// pseudonym skip that work, so their returned actual weight must refund the two writes.
+/// The `KnownDerivatives` read happens on every invocation and is never refunded.
+#[test]
+fn as_derivative_refunds_reveal_overhead_on_repeat_use() {
+	new_test_ext().execute_with(|| {
+		let remark =
+			Box::new(RuntimeCall::System(frame_system::Call::remark { remark: vec![] }));
+		let call = RuntimeCall::Utility(UtilityCall::as_derivative { index: 0, call: remark });
+		let info = call.get_dispatch_info();
+
+		// First use performs the reveal: full declared weight is consumed.
+		let result = call.clone().dispatch(RuntimeOrigin::signed(1));
+		assert_ok!(result);
+		let first_weight = extract_actual_weight(&result, &info);
+		assert_eq!(first_weight, info.call_weight);
+
+		// Repeat use skips the `KnownDerivatives` insert and the wormhole pool write.
+		let result = call.dispatch(RuntimeOrigin::signed(1));
+		assert_ok!(result);
+		let repeat_weight = extract_actual_weight(&result, &info);
+		assert_eq!(
+			repeat_weight,
+			first_weight - <Test as frame_system::Config>::DbWeight::get().writes(2),
+			"repeat use must refund the two reveal writes it did not perform"
+		);
+	});
+}
+
 #[test]
 fn as_derivative_handles_weight_refund() {
 	new_test_ext().execute_with(|| {
 		let start_weight = Weight::from_parts(100, 0);
 		let end_weight = Weight::from_parts(75, 0);
 		let diff = start_weight - end_weight;
+
+		// Each dispatch uses a fresh derivative index so every call is a first use and
+		// consumes the full declared reveal overhead; this test is only about how the
+		// inner call's weight refund propagates. (Repeat-use reveal refunds are covered
+		// by `as_derivative_refunds_reveal_overhead_on_repeat_use`.)
 
 		// Full weight when ok
 		let inner_call = call_foobar(false, start_weight, None);
@@ -370,7 +408,7 @@ fn as_derivative_handles_weight_refund() {
 		// Refund weight when ok
 		let inner_call = call_foobar(false, start_weight, Some(end_weight));
 		let call = RuntimeCall::Utility(UtilityCall::as_derivative {
-			index: 0,
+			index: 1,
 			call: Box::new(inner_call),
 		});
 		let info = call.get_dispatch_info();
@@ -382,7 +420,7 @@ fn as_derivative_handles_weight_refund() {
 		// Full weight when err
 		let inner_call = call_foobar(true, start_weight, None);
 		let call = RuntimeCall::Utility(UtilityCall::as_derivative {
-			index: 0,
+			index: 2,
 			call: Box::new(inner_call),
 		});
 		let info = call.get_dispatch_info();
@@ -402,7 +440,7 @@ fn as_derivative_handles_weight_refund() {
 		// Refund weight when err
 		let inner_call = call_foobar(true, start_weight, Some(end_weight));
 		let call = RuntimeCall::Utility(UtilityCall::as_derivative {
-			index: 0,
+			index: 3,
 			call: Box::new(inner_call),
 		});
 		let info = call.get_dispatch_info();
