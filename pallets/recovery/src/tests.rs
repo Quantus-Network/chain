@@ -32,6 +32,28 @@ fn basic_setup_works() {
 	});
 }
 
+/// A Root-installed proxy must hold the same frame_system consumer reference as a
+/// `claim_recovery`-created one: the reference keeps the rescuer account alive while the
+/// proxy exists, and it backs the unconditional `dec_consumers` in `cancel_recovered`,
+/// which would otherwise underflow or release a reference owned by other state.
+#[test]
+fn set_recovered_takes_consumer_reference_like_claim_recovery() {
+	new_test_ext().execute_with(|| {
+		assert_eq!(System::consumers(&1), 0);
+		assert_ok!(Recovery::set_recovered(RuntimeOrigin::root(), 5, 1));
+		assert_eq!(System::consumers(&1), 1);
+
+		// Root may replace an existing mapping: a live proxy holds exactly one reference,
+		// so the replacement must not take a second one.
+		assert_ok!(Recovery::set_recovered(RuntimeOrigin::root(), 4, 1));
+		assert_eq!(System::consumers(&1), 1);
+
+		// Cancelling the proxy releases the reference exactly once.
+		assert_ok!(Recovery::cancel_recovered(RuntimeOrigin::signed(1), 4));
+		assert_eq!(System::consumers(&1), 0);
+	});
+}
+
 #[test]
 fn set_recovered_works() {
 	new_test_ext().execute_with(|| {

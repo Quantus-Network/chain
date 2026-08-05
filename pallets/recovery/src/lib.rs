@@ -473,6 +473,15 @@ pub mod pallet {
 			ensure_root(origin)?;
 			let lost = T::Lookup::lookup(lost)?;
 			let rescuer = T::Lookup::lookup(rescuer)?;
+			// Match the consumer-reference lifecycle of `claim_recovery`/`cancel_recovered`:
+			// every live proxy holds exactly one consumer reference on the rescuer. It keeps
+			// the rescuer account from being reaped while the proxy exists and backs the
+			// `dec_consumers` in `cancel_recovered`. When Root replaces an existing mapping,
+			// the reference the entry already holds carries over.
+			if !Proxy::<T>::contains_key(&rescuer) {
+				frame_system::Pallet::<T>::inc_consumers(&rescuer)
+					.map_err(|_| Error::<T>::BadState)?;
+			}
 			// Create the recovery storage item.
 			<Proxy<T>>::insert(&rescuer, &lost);
 			Self::deposit_event(Event::<T>::AccountRecovered {
