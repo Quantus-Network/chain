@@ -588,6 +588,58 @@ fn remove_recovery_works() {
 	});
 }
 
+/// If the reserve was drained externally (invariant violation elsewhere), lowering a
+/// deposit via `poke_deposit` can only partially unreserve the excess. The poke must
+/// fail and revert entirely rather than record a deposit larger than what is actually
+/// reserved.
+#[test]
+fn poke_deposit_fails_on_unreserve_shortfall_for_config_deposit() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Recovery::create_recovery(RuntimeOrigin::signed(5), vec![2, 3, 4], 3, 10));
+		// Base 10 + 1 per friend.
+		assert_eq!(Balances::reserved_balance(5), 13);
+		// Lower the config deposit so the poke has to unreserve the excess of 5.
+		ConfigDepositBase::set(5);
+		// Externally drain part of the reserve below the excess.
+		let (_imbalance, shortfall) = Balances::slash_reserved(&5, 10);
+		assert_eq!(shortfall, 0);
+		assert_eq!(Balances::reserved_balance(5), 3);
+		// Dispatch (transactional) must fail and leave all state untouched.
+		let call = RuntimeCall::Recovery(RecoveryCall::poke_deposit { maybe_account: None });
+		assert_err_ignore_postinfo!(
+			call.dispatch(RuntimeOrigin::signed(5)),
+			Error::<Test>::BadState
+		);
+		assert_eq!(Recovery::recovery_config(5).unwrap().deposit, 13);
+		assert_eq!(Balances::reserved_balance(5), 3);
+	});
+}
+
+/// Same as `poke_deposit_fails_on_unreserve_shortfall_for_config_deposit`, for the
+/// active-recovery deposit helper.
+#[test]
+fn poke_deposit_fails_on_unreserve_shortfall_for_active_recovery_deposit() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Recovery::create_recovery(RuntimeOrigin::signed(5), vec![2, 3, 4], 3, 10));
+		assert_ok!(Recovery::initiate_recovery(RuntimeOrigin::signed(1), 5));
+		assert_eq!(Balances::reserved_balance(1), 10);
+		// Lower the recovery deposit so the poke has to unreserve the excess of 6.
+		RecoveryDeposit::set(4);
+		// Externally drain part of the rescuer's reserve below the excess.
+		let (_imbalance, shortfall) = Balances::slash_reserved(&1, 8);
+		assert_eq!(shortfall, 0);
+		assert_eq!(Balances::reserved_balance(1), 2);
+		// Dispatch (transactional) must fail and leave all state untouched.
+		let call = RuntimeCall::Recovery(RecoveryCall::poke_deposit { maybe_account: Some(5) });
+		assert_err_ignore_postinfo!(
+			call.dispatch(RuntimeOrigin::signed(1)),
+			Error::<Test>::BadState
+		);
+		assert_eq!(Recovery::active_recovery(5, 1).unwrap().deposit, 10);
+		assert_eq!(Balances::reserved_balance(1), 2);
+	});
+}
+
 #[test]
 fn poke_deposit_handles_unsigned_origin() {
 	new_test_ext().execute_with(|| {

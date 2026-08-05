@@ -871,11 +871,19 @@ impl<T: Config> Pallet<T> {
 			} else {
 				let excess = old_deposit.saturating_sub(new_deposit);
 				let remaining_unreserved = T::Currency::unreserve(&who, excess);
+				// The reserve must always cover the recorded deposit; a shortfall means an
+				// invariant was violated elsewhere. Fail the poke (dispatch is
+				// transactional, so the partial unreserve reverts) rather than record a
+				// deposit larger than what is actually reserved.
 				if !remaining_unreserved.is_zero() {
-					defensive!(
-						"Failed to unreserve full amount. (Requested, Actual)",
-						(excess, excess.saturating_sub(remaining_unreserved))
+					frame::log::warn!(
+						target: "runtime::recovery",
+						"poke_deposit: could only unreserve {:?} of the {:?} \
+						recovery-config deposit excess",
+						excess.saturating_sub(remaining_unreserved),
+						excess,
 					);
+					return Err(Error::<T>::BadState.into());
 				}
 			}
 			config.deposit = new_deposit;
@@ -915,11 +923,19 @@ impl<T: Config> Pallet<T> {
 				} else {
 					let excess = old_deposit.saturating_sub(new_deposit);
 					let remaining_unreserved = T::Currency::unreserve(who, excess);
+					// The reserve must always cover the recorded deposit; a shortfall
+					// means an invariant was violated elsewhere. Fail the poke (dispatch
+					// is transactional, so the partial unreserve reverts) rather than
+					// record a deposit larger than what is actually reserved.
 					if !remaining_unreserved.is_zero() {
-						defensive!(
-							"Failed to unreserve full amount. (Requested, Actual)",
-							(excess, excess.saturating_sub(remaining_unreserved))
+						frame::log::warn!(
+							target: "runtime::recovery",
+							"poke_deposit: could only unreserve {:?} of the {:?} \
+							active-recovery deposit excess",
+							excess.saturating_sub(remaining_unreserved),
+							excess,
 						);
+						return Err(Error::<T>::BadState.into());
 					}
 				}
 				recovery.deposit = new_deposit;
