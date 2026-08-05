@@ -916,6 +916,12 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	/// old permissionless pre-fill.
 	const MAX_ENACTMENT_SCHEDULE_RETRIES: u32 = 16;
 
+	/// How many subsequent blocks to try if the preferred alarm block's agenda is full.
+	///
+	/// Alarms are "not earlier than", so sliding forward is semantically safe; the caller
+	/// stores the actually-scheduled block in `status.alarm`.
+	const MAX_ALARM_SCHEDULE_RETRIES: u32 = 16;
+
 	// Enqueue a proposal from a referendum which has presumably passed.
 	fn schedule_enactment(
 		index: ReferendumIndex,
@@ -961,6 +967,10 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	}
 
 	/// Set an alarm to dispatch `call` at block number `when`.
+	///
+	/// If the agenda at `when` is full, the alarm slides forward one block at a time (up to
+	/// `MAX_ALARM_SCHEDULE_RETRIES` extra attempts) instead of being dropped, and the block
+	/// that was actually scheduled is returned.
 	fn set_alarm(
 		call: BoundedCallOf<T, I>,
 		when: BlockNumberFor<T, I>,
@@ -968,29 +978,45 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		let alarm_interval = T::AlarmInterval::get().max(One::one());
 		// Alarm must go off no earlier than `when`.
 		// This rounds `when` upwards to the next multiple of `alarm_interval`.
-		let when = (when.saturating_add(alarm_interval.saturating_sub(One::one())) /
+		let initial_when = (when.saturating_add(alarm_interval.saturating_sub(One::one())) /
 			alarm_interval)
 			.saturating_mul(alarm_interval);
-		let result = T::Scheduler::schedule(
-			DispatchTime::At(when),
-			None,
-			128u8,
-			frame_system::RawOrigin::Root.into(),
-			call,
-		);
-		if let Err(e) = result.as_ref() {
-			// #91210: never fail silently. A missing alarm means the referendum will not be
-			// serviced (confirm/timeout/queue progression) until something else nudges it.
-			log::error!(
-				target: "runtime::referenda",
-				"unable to schedule referendum alarm at #{:?} (now #{:?}): {:?}",
-				when,
-				T::BlockNumberProvider::current_block_number(),
-				e,
-			);
-			debug_assert!(false, "scheduler alarm scheduling failed: {:?}", e);
+		let mut when = initial_when;
+
+		// V12 audit #161704+#162455: retry on a full agenda, sliding forward one block at a
+		// time (mirrors `schedule_enactment`). A silently dropped alarm can permanently stall
+		// the referendum — and with `max_deciding = 1`, deadlock the whole governance lane.
+		// The caller stores the returned block in `status.alarm` and compares against it, so
+		// the block that actually succeeded must be returned.
+		let mut last_err = None;
+		for _ in 0..=Self::MAX_ALARM_SCHEDULE_RETRIES {
+			match T::Scheduler::schedule(
+				DispatchTime::At(when),
+				None,
+				128u8,
+				frame_system::RawOrigin::Root.into(),
+				call.clone(),
+			) {
+				Ok(address) => return Some((when, address)),
+				Err(e) => {
+					last_err = Some(e);
+					when = when.saturating_add(One::one());
+				},
+			}
 		}
-		result.ok().map(|x| (when, x))
+
+		// #91210: never fail silently. A missing alarm means the referendum will not be
+		// serviced (confirm/timeout/queue progression) until something else nudges it.
+		log::error!(
+			target: "runtime::referenda",
+			"unable to schedule referendum alarm at #{:?} after {} retries (now #{:?}): {:?}",
+			initial_when,
+			Self::MAX_ALARM_SCHEDULE_RETRIES,
+			T::BlockNumberProvider::current_block_number(),
+			last_err,
+		);
+		debug_assert!(false, "scheduler alarm scheduling failed after retries: {:?}", last_err);
+		None
 	}
 
 	/// Mutate a referendum's `status` into the correct deciding state.
@@ -1182,6 +1208,14 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 						queue.slide(old_pos, new_pos);
 						ServiceBranch::RequeuedSlide
 					} else {
+						// V12 audit #161743: `in_queue` is set but the referendum is absent from
+						// `TrackQueue` — it was evicted from a full queue by
+						// `force_insert_keep_right`. Clear the flag and mark dirty so the next
+						// service re-routes it through `ready_for_deciding` (or the undeciding
+						// timeout below, which is gated on `!in_queue`) instead of stranding it
+						// forever with no alarm.
+						status.in_queue = false;
+						dirty = true;
 						ServiceBranch::NotQueued
 					};
 					TrackQueue::<T, I>::insert(status.track, queue);

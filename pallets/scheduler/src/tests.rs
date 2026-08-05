@@ -3960,3 +3960,216 @@ fn timestamp_retry_scheduling_and_cancellation() {
 		assert_eq!(Retries::<Test>::iter().count(), 0, "Retry config should be cleaned up");
 	});
 }
+
+/// V12 audit #162526: a timestamp retry whose period is not a multiple of the bucket size must
+/// still be serviced - the wake moment is rounded up to the next bucket boundary.
+#[test]
+fn timestamp_retry_unaligned_period_is_serviced() {
+	new_test_ext().execute_with(|| {
+		// Task fails until block 50 is reached.
+		Threshold::<Test>::put((50, 100)); // Use block threshold as proxy
+
+		MockTimestamp::set_timestamp(10000);
+		run_to_block(1);
+
+		// Schedule a timestamp task; resolves to bucket 30000.
+		assert_ok!(Scheduler::schedule_after(
+			RuntimeOrigin::root(),
+			BlockNumberOrTimestamp::Timestamp(15000),
+			127,
+			Box::new(RuntimeCall::Logger(LoggerCall::timed_log {
+				i: 42,
+				weight: Weight::from_parts(10, 0),
+			})),
+		));
+		let when = BlockNumberOrTimestamp::Timestamp(30000u64);
+		assert!(Agenda::<Test>::get(when)[0].is_some());
+
+		// Retry once, 5000ms later - NOT a multiple of the 10000ms bucket size.
+		assert_ok!(Scheduler::set_retry(
+			root().into(),
+			(when, 0),
+			1,
+			BlockNumberOrTimestamp::Timestamp(5000)
+		));
+
+		// Trigger the task; it fails and the retry must be placed at the bucket-aligned key
+		// 40000 (the unaligned wake moment 35000 rounded up to the next bucket boundary).
+		MockTimestamp::set_timestamp(25000);
+		run_to_block(2);
+		assert!(logger::log().is_empty(), "task should have failed");
+		assert!(Agenda::<Test>::get(when).is_empty(), "original task should be done");
+		let retry_when = BlockNumberOrTimestamp::Timestamp(40000u64);
+		assert_eq!(
+			Agenda::<Test>::get(retry_when).len(),
+			1,
+			"retry should be scheduled at the next bucket boundary"
+		);
+
+		// Advance past the retry bucket: the retry must actually be serviced (it fails again
+		// and, with no retries left, is removed for good).
+		MockTimestamp::set_timestamp(35000);
+		run_to_block(3);
+		assert!(
+			Agenda::<Test>::get(retry_when).is_empty(),
+			"retry task should have been serviced and removed"
+		);
+		assert_eq!(Retries::<Test>::iter().count(), 0, "retry config should be cleaned up");
+	});
+}
+
+/// V12 audit #162523: a reschedule that fails because the destination agenda is full must not
+/// destroy the task.
+#[test]
+fn reschedule_into_full_agenda_preserves_task() {
+	use frame_support::traits::schedule::{v3::Anon, DispatchTime};
+
+	new_test_ext().execute_with(|| {
+		let max: u32 = <Test as Config>::MaxScheduledPerBlock::get();
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		let bound = Preimage::bound(call).unwrap();
+
+		// Fill the block 5 agenda to capacity.
+		for _ in 0..max {
+			<Scheduler as Anon<_, _, _>>::schedule(
+				DispatchTime::At(5),
+				None,
+				127,
+				root(),
+				bound.clone(),
+			)
+			.unwrap();
+		}
+
+		// Schedule the task to be rescheduled at block 4 and give it a retry config.
+		let address = <Scheduler as Anon<_, _, _>>::schedule(
+			DispatchTime::At(4),
+			None,
+			127,
+			root(),
+			bound.clone(),
+		)
+		.unwrap();
+		assert_eq!(address, (BlockNumberOrTimestamp::BlockNumber(4), 0));
+		assert_ok!(Scheduler::set_retry(
+			root().into(),
+			address,
+			3,
+			BlockNumberOrTimestamp::BlockNumber(2)
+		));
+
+		// Rescheduling into the full agenda fails ...
+		assert_err!(
+			<Scheduler as Anon<_, _, _>>::reschedule(address, DispatchTime::At(5)),
+			DispatchError::Exhausted
+		);
+
+		// ... and the task remains intact at its original address, along with its retry
+		// configuration and the full destination agenda.
+		let agenda = Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4));
+		assert_eq!(agenda.len(), 1);
+		assert!(agenda[0].is_some());
+		assert_eq!(
+			Retries::<Test>::get(address),
+			Some(RetryConfig {
+				total_retries: 3,
+				remaining: 3,
+				period: BlockNumberOrTimestamp::BlockNumber(2)
+			}),
+			"retry config should be untouched by the failed reschedule"
+		);
+		assert_eq!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(5)).len(), max as usize);
+
+		// The task still executes at its original block.
+		run_to_block(4);
+		assert_eq!(logger::log(), vec![(root(), 42u32)]);
+	});
+}
+
+/// V12 audit #162523: a failed named reschedule must keep the `Lookup` entry pointing at the
+/// original address, so the name stays usable.
+#[test]
+fn reschedule_named_into_full_agenda_preserves_lookup() {
+	use frame_support::traits::schedule::{
+		v3::{Anon, Named},
+		DispatchTime,
+	};
+
+	new_test_ext().execute_with(|| {
+		let max: u32 = <Test as Config>::MaxScheduledPerBlock::get();
+		let id = [1u8; 32];
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		let bound = Preimage::bound(call).unwrap();
+
+		// Fill the block 5 agenda to capacity.
+		for _ in 0..max {
+			<Scheduler as Anon<_, _, _>>::schedule(
+				DispatchTime::At(5),
+				None,
+				127,
+				root(),
+				bound.clone(),
+			)
+			.unwrap();
+		}
+
+		// Schedule the named task at block 4 (distinct payload to tell it apart from fillers).
+		let named_call =
+			RuntimeCall::Logger(LoggerCall::log { i: 43, weight: Weight::from_parts(10, 0) });
+		let address = <Scheduler as Named<_, _, _>>::schedule_named(
+			id,
+			DispatchTime::At(4),
+			None,
+			127,
+			root(),
+			Preimage::bound(named_call).unwrap(),
+		)
+		.unwrap();
+		assert_eq!(Lookup::<Test>::get(id), Some(address));
+
+		// Rescheduling into the full agenda fails ...
+		assert_err!(
+			<Scheduler as Named<_, _, _>>::reschedule_named(id, DispatchTime::At(5)),
+			DispatchError::Exhausted
+		);
+
+		// ... and both the task and its name lookup remain intact at the original address.
+		assert_eq!(Lookup::<Test>::get(id), Some(address));
+		let agenda = Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4));
+		assert_eq!(agenda.len(), 1);
+		assert!(agenda[0].is_some());
+
+		// The name is not bricked: rescheduling into a non-full agenda still works.
+		assert_ok!(<Scheduler as Named<_, _, _>>::reschedule_named(id, DispatchTime::At(6)));
+		assert_eq!(Lookup::<Test>::get(id), Some((BlockNumberOrTimestamp::BlockNumber(6), 0)));
+
+		// The block 5 fillers execute first, then the named task at block 6.
+		run_to_block(6);
+		let mut expected = vec![(root(), 42u32); max as usize];
+		expected.push((root(), 43u32));
+		assert_eq!(logger::log(), expected);
+	});
+}
+
+/// V12 audit #162453: scheduling an oversized call through a dispatchable must not orphan the
+/// preimage request count - `StorePreimage::bound` already noted it as requested, so the
+/// scheduler must not request it again.
+#[test]
+fn schedule_oversized_call_does_not_leak_preimage_request() {
+	new_test_ext().execute_with(|| {
+		let call = RuntimeCall::System(system::Call::remark { remark: vec![0u8; 200] });
+		let hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		// The encoded call exceeds the inline bound, so `bound` stores it as a lookup.
+		assert!(call.using_encoded(|c| c.len()) > BoundedInline::bound());
+
+		assert_ok!(Scheduler::schedule(RuntimeOrigin::root(), 4, 127, Box::new(call)));
+		assert!(Preimage::is_requested(&hash));
+
+		run_to_block(4);
+		// The single request reference is dropped on execution, fully cleaning up the preimage.
+		assert!(!Preimage::is_requested(&hash));
+		assert!(Preimage::len(&hash).is_none());
+	});
+}

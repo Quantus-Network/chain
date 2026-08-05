@@ -223,8 +223,11 @@ parameter_types! {
 	pub const ReferendumMaxProposals: u32 = 100;
 	// Submission deposit for referenda
 	pub const ReferendumSubmissionDeposit: Balance = 100 * UNIT;
-	// Undeciding timeout (45 days): a submitted referendum that never receives a decision deposit
-	// (or never gets a free deciding slot) is rejected as TimedOut after this long.
+	// Undeciding timeout (45 days): a submitted referendum that is NOT in the track queue —
+	// e.g. one that never received a decision deposit — is rejected as TimedOut after this
+	// long. Referenda that ARE queued for deciding are exempt: the timeout check
+	// (pallets/referenda/src/lib.rs, `service_referendum`) is gated on `!status.in_queue`,
+	// so a queued referendum that simply never gets a free deciding slot is NOT timed out.
 	pub const UndecidingTimeout: BlockNumber = 45 * DAYS;
 	pub const AlarmInterval: BlockNumber = 1;
 }

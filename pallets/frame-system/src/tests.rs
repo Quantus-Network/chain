@@ -691,6 +691,70 @@ fn set_code_drains_remaining_block_weight() {
 	});
 }
 
+#[test]
+fn validate_unsigned_apply_authorized_upgrade_honors_check_version() {
+	struct ReadRuntimeVersion(Vec<u8>);
+
+	impl sp_core::traits::ReadRuntimeVersion for ReadRuntimeVersion {
+		fn read_runtime_version(
+			&self,
+			_wasm_code: &[u8],
+			_ext: &mut dyn sp_externalities::Externalities,
+		) -> Result<Vec<u8>, String> {
+			Ok(self.0.clone())
+		}
+	}
+
+	let code = vec![1, 2, 3, 4];
+	let code_hash = BlakeTwo256::hash(&code);
+	let call = Call::<Test>::apply_authorized_upgrade { code };
+
+	// The mock runtime runs `spec_name: "test"` at `spec_version: 1`, so a candidate that
+	// does not increase the spec version fails the version check.
+	let bad_version =
+		RuntimeVersion { spec_name: "test".into(), spec_version: 1, ..Default::default() };
+	let good_version =
+		RuntimeVersion { spec_name: "test".into(), spec_version: 2, ..Default::default() };
+
+	let test_data = vec![
+		// The authorization requires the version check and it fails -> invalid.
+		(bad_version.clone(), true, false),
+		// Same failing version, but the authorization skips the check -> valid.
+		(bad_version, false, true),
+		// The authorization requires the version check and it passes -> valid.
+		(good_version, true, true),
+	];
+
+	for (version, check_version, expect_valid) in test_data.into_iter() {
+		let read_runtime_version = ReadRuntimeVersion(version.encode());
+
+		let mut ext = new_test_ext();
+		ext.register_extension(sp_core::traits::ReadRuntimeVersionExt::new(read_runtime_version));
+		ext.execute_with(|| {
+			if check_version {
+				assert_ok!(System::authorize_upgrade(RawOrigin::Root.into(), code_hash));
+			} else {
+				assert_ok!(System::authorize_upgrade_without_checks(
+					RawOrigin::Root.into(),
+					code_hash
+				));
+			}
+
+			let res = <System as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+				TransactionSource::External,
+				&call,
+			);
+
+			if expect_valid {
+				let valid = res.expect("transaction should be valid");
+				assert_eq!(valid.provides, vec![code_hash.encode()]);
+			} else {
+				assert_eq!(res, Err(InvalidTransaction::Call.into()));
+			}
+		});
+	}
+}
+
 fn assert_runtime_updated_digest(num: usize) {
 	assert_eq!(
 		System::digest()
@@ -750,8 +814,30 @@ fn runtime_updated_digest_emitted_when_heap_pages_changed() {
 	new_test_ext().execute_with(|| {
 		System::reset_events();
 		System::initialize(&1, &[0u8; 32].into(), &Default::default());
-		System::set_heap_pages(RawOrigin::Root.into(), 5).unwrap();
+		System::set_heap_pages(RawOrigin::Root.into(), 64).unwrap();
 		assert_runtime_updated_digest(1);
+	});
+}
+
+#[test]
+fn set_heap_pages_validates_range() {
+	new_test_ext().execute_with(|| {
+		System::reset_events();
+		System::initialize(&1, &[0u8; 32].into(), &Default::default());
+
+		// V12 audit #162546: values below the 4 MiB executor minimum and above the 4 GiB
+		// wasm32 linear-memory maximum are rejected.
+		for pages in [0u64, 63, 65537] {
+			assert_noop!(
+				System::set_heap_pages(RawOrigin::Root.into(), pages),
+				Error::<Test>::InvalidHeapPages
+			);
+		}
+
+		// Both bounds of the allowed range are accepted and still emit the digest item.
+		assert_ok!(System::set_heap_pages(RawOrigin::Root.into(), 64));
+		assert_ok!(System::set_heap_pages(RawOrigin::Root.into(), 65536));
+		assert_runtime_updated_digest(2);
 	});
 }
 

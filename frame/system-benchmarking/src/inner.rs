@@ -83,8 +83,10 @@ mod benchmarks {
 
 	#[benchmark]
 	fn set_heap_pages() -> Result<(), BenchmarkError> {
+		// V12 audit #162546: `set_heap_pages` now enforces a `64..=65536` range, so the
+		// benchmark must use a value within it.
 		#[extrinsic_call]
-		set_heap_pages(RawOrigin::Root, Default::default());
+		set_heap_pages(RawOrigin::Root, 64);
 
 		Ok(())
 	}
