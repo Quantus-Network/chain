@@ -479,8 +479,10 @@ pub mod pallet {
 			// `dec_consumers` in `cancel_recovered`. When Root replaces an existing mapping,
 			// the reference the entry already holds carries over.
 			if !Proxy::<T>::contains_key(&rescuer) {
-				frame_system::Pallet::<T>::inc_consumers(&rescuer)
-					.map_err(|_| Error::<T>::BadState)?;
+				// Propagate the frame_system error as-is: the reachable failure is
+				// `NoProviders` (the rescuer account does not exist), a caller-input
+				// problem, not corrupted pallet state.
+				frame_system::Pallet::<T>::inc_consumers(&rescuer)?;
 			}
 			// Create the recovery storage item.
 			<Proxy<T>>::insert(&rescuer, &lost);

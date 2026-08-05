@@ -54,6 +54,21 @@ fn set_recovered_takes_consumer_reference_like_claim_recovery() {
 	});
 }
 
+/// A rescuer that does not exist (no provider references) cannot take a consumer
+/// reference. That is a caller-input problem, so Root must see the precise
+/// `NoProviders` error from frame_system, not a misleading `BadState` that suggests
+/// corrupted pallet storage.
+#[test]
+fn set_recovered_reports_no_providers_for_nonexistent_rescuer() {
+	new_test_ext().execute_with(|| {
+		assert_eq!(System::providers(&99), 0);
+		assert_noop!(
+			Recovery::set_recovered(RuntimeOrigin::root(), 5, 99),
+			DispatchError::NoProviders
+		);
+	});
+}
+
 #[test]
 fn set_recovered_works() {
 	new_test_ext().execute_with(|| {
