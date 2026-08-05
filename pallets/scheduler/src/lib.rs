@@ -362,6 +362,14 @@ pub mod pallet {
 		/// Block-scheduled tasks require a block-number retry period,
 		/// and timestamp-scheduled tasks require a timestamp retry period.
 		RetryPeriodMismatch,
+		/// Retry period value is invalid.
+		///
+		/// A retry period must be non-zero, and a timestamp retry period must additionally
+		/// be a whole multiple of [`Config::TimestampBucketSize`]. A zero period would
+		/// re-target the agenda currently being serviced (losing the retry to the stale
+		/// agenda write-back), and a non-bucket-aligned timestamp period would place the
+		/// retry in an agenda key the servicing loop never visits.
+		InvalidRetryPeriod,
 	}
 
 	#[pallet::hooks]
@@ -1421,21 +1429,38 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	/// Ensure the retry period type matches the task's scheduling type.
+	/// Ensure the retry period type matches the task's scheduling type and its value is usable.
 	///
 	/// Block-scheduled tasks (with a `BlockNumber` address) require a block-number retry period,
-	/// and timestamp-scheduled tasks require a timestamp retry period. This validation prevents
-	/// retry configuration that would fail at retry time due to type mismatch.
+	/// and timestamp-scheduled tasks require a timestamp retry period. The period must also be
+	/// non-zero — and, for timestamps, a whole multiple of [`Config::TimestampBucketSize`] —
+	/// otherwise the retry would be placed in an agenda that is never serviced (or is clobbered
+	/// by the write-back of the agenda currently being serviced) and silently lost.
 	fn ensure_period_matches_task_type(
 		task_when: &BlockNumberOrTimestampOf<T>,
 		period: &BlockNumberOrTimestampOf<T>,
 	) -> Result<(), DispatchError> {
-		let types_match = matches!(
-			(task_when, period),
-			(BlockNumberOrTimestamp::BlockNumber(_), BlockNumberOrTimestamp::BlockNumber(_)) |
-				(BlockNumberOrTimestamp::Timestamp(_), BlockNumberOrTimestamp::Timestamp(_))
-		);
-		ensure!(types_match, Error::<T>::RetryPeriodMismatch);
+		match (task_when, period) {
+			(BlockNumberOrTimestamp::BlockNumber(_), BlockNumberOrTimestamp::BlockNumber(p)) => {
+				// A zero period makes `schedule_retry` place the retry clone into the
+				// agenda currently being serviced; `service_agenda`'s stale write-back
+				// then discards the clone while its `Retries` row survives, orphaned.
+				ensure!(!p.is_zero(), Error::<T>::InvalidRetryPeriod);
+			},
+			(BlockNumberOrTimestamp::Timestamp(_), BlockNumberOrTimestamp::Timestamp(p)) => {
+				// Beyond the zero-period hazard above, `schedule_retry` computes
+				// `wake = now + period` without re-normalizing to a bucket boundary, so
+				// a period that is not a whole number of buckets lands the retry in an
+				// agenda key the bucket-stepping servicing loop never visits: the retry
+				// would silently never execute and its preimage would be held forever.
+				let bucket = T::TimestampBucketSize::get();
+				ensure!(
+					!p.is_zero() && (*p % bucket).is_zero(),
+					Error::<T>::InvalidRetryPeriod
+				);
+			},
+			_ => return Err(Error::<T>::RetryPeriodMismatch.into()),
+		}
 		Ok(())
 	}
 }
