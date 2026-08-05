@@ -752,6 +752,85 @@ fn reschedule_named_works() {
 	});
 }
 
+/// A reschedule whose destination placement fails (e.g. the target agenda is full) must
+/// be a complete no-op: the task used to be removed from the source agenda first and then
+/// silently destroyed, together with its preimage reference and retry configuration.
+#[test]
+fn failed_reschedule_is_a_noop_keeping_task_and_state() {
+	new_test_ext().execute_with(|| {
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		let addr = Scheduler::do_schedule(
+			DispatchTime::At(4),
+			127,
+			root(),
+			Preimage::bound(call.clone()).unwrap(),
+		)
+		.unwrap();
+		assert_eq!(addr, (BlockNumberOrTimestamp::BlockNumber(4), 0));
+
+		// Fill the target agenda completely.
+		let max = <Test as Config>::MaxScheduledPerBlock::get();
+		for _ in 0..max {
+			assert_ok!(Scheduler::do_schedule(
+				DispatchTime::At(6),
+				127,
+				root(),
+				Preimage::bound(call.clone()).unwrap(),
+			));
+		}
+
+		// The reschedule fails atomically: no storage change at all.
+		assert_noop!(Scheduler::do_reschedule(addr, DispatchTime::At(6)), DispatchError::Exhausted);
+
+		// The task is still in place and executes at its original time.
+		run_to_block(4);
+		assert_eq!(logger::log(), vec![(root(), 42u32)]);
+	});
+}
+
+/// Same as `failed_reschedule_is_a_noop_keeping_task_and_state`, for named tasks: a
+/// failed placement used to leave the `Lookup` entry pointing at a vacated slot, making
+/// the task unmanageable by name.
+#[test]
+fn failed_reschedule_named_is_a_noop_keeping_task_and_state() {
+	new_test_ext().execute_with(|| {
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		let addr = Scheduler::do_schedule_named(
+			[1u8; 32],
+			DispatchTime::At(4),
+			127,
+			root(),
+			Preimage::bound(call.clone()).unwrap(),
+		)
+		.unwrap();
+
+		// Fill the target agenda completely.
+		let max = <Test as Config>::MaxScheduledPerBlock::get();
+		for _ in 0..max {
+			assert_ok!(Scheduler::do_schedule(
+				DispatchTime::At(6),
+				127,
+				root(),
+				Preimage::bound(call.clone()).unwrap(),
+			));
+		}
+
+		// The reschedule fails atomically: no storage change at all.
+		assert_noop!(
+			Scheduler::do_reschedule_named([1u8; 32], DispatchTime::At(6)),
+			DispatchError::Exhausted
+		);
+
+		// The task remains manageable by name (Lookup still points at the live slot)...
+		assert_eq!(Lookup::<Test>::get([1u8; 32]), Some(addr));
+		// ...and still executes at its original time.
+		run_to_block(4);
+		assert_eq!(logger::log(), vec![(root(), 42u32)]);
+	});
+}
+
 #[test]
 fn failed_schedule_drops_noted_preimage() {
 	new_test_ext().execute_with(|| {
@@ -982,6 +1061,42 @@ fn scheduler_removes_permanently_overweight_call() {
 			}
 			.into()));
 		assert_eq!(Agenda::<Test>::iter().count(), 0);
+	});
+}
+
+/// The permanently-overweight terminal path must clean up the task's retry
+/// configuration like the unavailable-call path does: the task is gone for good, so a
+/// surviving `Retries` row is at best a permanent storage leak and at worst retry state
+/// a future occupant of the same address could inherit.
+#[test]
+fn scheduler_removes_retry_config_of_permanently_overweight_call() {
+	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
+	new_test_ext().execute_with(|| {
+		let call = RuntimeCall::Logger(LoggerCall::log { i: 42, weight: max_weight });
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			127,
+			root(),
+			Preimage::bound(call).unwrap(),
+		));
+		assert_ok!(Scheduler::set_retry(
+			root().into(),
+			(BlockNumberOrTimestamp::BlockNumber(4), 0),
+			10,
+			BlockNumberOrTimestamp::BlockNumber(1)
+		));
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+
+		run_to_block(4);
+		assert!(System::events().iter().any(|e| e.event ==
+			crate::Event::PermanentlyOverweight {
+				task: (BlockNumberOrTimestamp::BlockNumber(4), 0),
+				id: None
+			}
+			.into()));
+		// The task is terminally gone: no agenda entry and no orphaned retry config.
+		assert_eq!(Agenda::<Test>::iter().count(), 0);
+		assert_eq!(Retries::<Test>::iter().count(), 0);
 	});
 }
 
@@ -3145,6 +3260,94 @@ fn cancel_named_without_origin_cleans_up_retries() {
 	});
 }
 
+/// A zero retry period must be rejected upfront: `schedule_retry` would compute
+/// `wake = now`, inserting the retry clone into the very agenda being serviced, whose
+/// stale in-memory copy is written back afterwards — silently losing the retry while its
+/// `Retries` row survives, orphaned.
+#[test]
+fn zero_retry_period_rejected_at_set_retry() {
+	new_test_ext().execute_with(|| {
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			127,
+			root(),
+			Preimage::bound(call.clone()).unwrap(),
+		));
+		assert_noop!(
+			Scheduler::set_retry(
+				root().into(),
+				(BlockNumberOrTimestamp::BlockNumber(4), 0),
+				10,
+				BlockNumberOrTimestamp::BlockNumber(0)
+			),
+			Error::<Test>::InvalidRetryPeriod
+		);
+
+		assert_ok!(Scheduler::do_schedule_named(
+			[1u8; 32],
+			DispatchTime::At(4),
+			127,
+			root(),
+			Preimage::bound(call).unwrap(),
+		));
+		assert_noop!(
+			Scheduler::set_retry_named(
+				root().into(),
+				[1u8; 32],
+				10,
+				BlockNumberOrTimestamp::BlockNumber(0)
+			),
+			Error::<Test>::InvalidRetryPeriod
+		);
+		assert_eq!(Retries::<Test>::iter().count(), 0, "No retry config should be stored");
+	});
+}
+
+/// A timestamp retry period must be a non-zero whole number of timestamp buckets:
+/// `schedule_retry` computes `wake = now + period` without re-normalizing, so a
+/// non-bucket-aligned wake lands in an agenda key the bucket-stepping servicing loop
+/// never visits — the retry would silently never execute, holding its preimage forever.
+#[test]
+fn non_bucket_multiple_timestamp_retry_period_rejected() {
+	new_test_ext().execute_with(|| {
+		MockTimestamp::set_timestamp(10000);
+		assert_ok!(Scheduler::schedule_after(
+			RuntimeOrigin::root(),
+			BlockNumberOrTimestamp::Timestamp(15000),
+			127,
+			Box::new(RuntimeCall::Logger(LoggerCall::timed_log {
+				i: 42,
+				weight: Weight::from_parts(10, 0),
+			})),
+		));
+		let (when, _) = Agenda::<Test>::iter().next().unwrap();
+
+		// Zero and non-multiples of the bucket size (10_000 in the mock) are rejected.
+		for bad_period in [0u64, 5000, 15000] {
+			assert_noop!(
+				Scheduler::set_retry(
+					root().into(),
+					(when, 0),
+					3,
+					BlockNumberOrTimestamp::Timestamp(bad_period)
+				),
+				Error::<Test>::InvalidRetryPeriod
+			);
+		}
+
+		// A whole number of buckets is accepted.
+		assert_ok!(Scheduler::set_retry(
+			root().into(),
+			(when, 0),
+			3,
+			BlockNumberOrTimestamp::Timestamp(20000)
+		));
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+	});
+}
+
 /// Setting a retry whose period type mismatches the task domain (e.g. Timestamp retry period on a
 /// BlockNumber task) is rejected upfront with RetryPeriodMismatch error.
 #[test]
@@ -3217,12 +3420,13 @@ fn mismatched_retry_period_rejected_for_timestamp_task() {
 		);
 		assert_eq!(Retries::<Test>::iter().count(), 0, "No retry config should be stored");
 
-		// Setting a Timestamp-based retry period on the same task should succeed.
+		// Setting a Timestamp-based retry period (a whole number of the mock's 10_000ms
+		// buckets) on the same task should succeed.
 		assert_ok!(Scheduler::set_retry(
 			root().into(),
 			(when.clone(), 0),
 			10,
-			BlockNumberOrTimestamp::Timestamp(5000u64)
+			BlockNumberOrTimestamp::Timestamp(10000u64)
 		));
 		assert_eq!(Retries::<Test>::iter().count(), 1);
 	});
@@ -3931,12 +4135,14 @@ fn timestamp_retry_scheduling_and_cancellation() {
 		assert_eq!(agenda_entries.len(), 1);
 		let (when, _) = &agenda_entries[0];
 
-		// Set timestamp-based retry config
+		// Set timestamp-based retry config. The period must be a whole number of
+		// timestamp buckets (10_000ms in the mock), or the retry would land in an
+		// agenda key the bucket-stepping servicing loop never visits.
 		assert_ok!(Scheduler::set_retry(
 			root().into(),
 			(when.clone(), 0),
 			3,
-			BlockNumberOrTimestamp::Timestamp(5000) // Retry every 5000ms
+			BlockNumberOrTimestamp::Timestamp(10000) // Retry every bucket (10000ms)
 		));
 
 		// Move time to trigger the task
@@ -3958,63 +4164,6 @@ fn timestamp_retry_scheduling_and_cancellation() {
 		// Verify cancellation
 		assert!(Agenda::<Test>::iter().count() == 0, "All tasks should be cancelled");
 		assert_eq!(Retries::<Test>::iter().count(), 0, "Retry config should be cleaned up");
-	});
-}
-
-/// V12 audit #162526: a timestamp retry whose period is not a multiple of the bucket size must
-/// still be serviced - the wake moment is rounded up to the next bucket boundary.
-#[test]
-fn timestamp_retry_unaligned_period_is_serviced() {
-	new_test_ext().execute_with(|| {
-		// Task fails until block 50 is reached.
-		Threshold::<Test>::put((50, 100)); // Use block threshold as proxy
-
-		MockTimestamp::set_timestamp(10000);
-		run_to_block(1);
-
-		// Schedule a timestamp task; resolves to bucket 30000.
-		assert_ok!(Scheduler::schedule_after(
-			RuntimeOrigin::root(),
-			BlockNumberOrTimestamp::Timestamp(15000),
-			127,
-			Box::new(RuntimeCall::Logger(LoggerCall::timed_log {
-				i: 42,
-				weight: Weight::from_parts(10, 0),
-			})),
-		));
-		let when = BlockNumberOrTimestamp::Timestamp(30000u64);
-		assert!(Agenda::<Test>::get(when)[0].is_some());
-
-		// Retry once, 5000ms later - NOT a multiple of the 10000ms bucket size.
-		assert_ok!(Scheduler::set_retry(
-			root().into(),
-			(when, 0),
-			1,
-			BlockNumberOrTimestamp::Timestamp(5000)
-		));
-
-		// Trigger the task; it fails and the retry must be placed at the bucket-aligned key
-		// 40000 (the unaligned wake moment 35000 rounded up to the next bucket boundary).
-		MockTimestamp::set_timestamp(25000);
-		run_to_block(2);
-		assert!(logger::log().is_empty(), "task should have failed");
-		assert!(Agenda::<Test>::get(when).is_empty(), "original task should be done");
-		let retry_when = BlockNumberOrTimestamp::Timestamp(40000u64);
-		assert_eq!(
-			Agenda::<Test>::get(retry_when).len(),
-			1,
-			"retry should be scheduled at the next bucket boundary"
-		);
-
-		// Advance past the retry bucket: the retry must actually be serviced (it fails again
-		// and, with no retries left, is removed for good).
-		MockTimestamp::set_timestamp(35000);
-		run_to_block(3);
-		assert!(
-			Agenda::<Test>::get(retry_when).is_empty(),
-			"retry task should have been serviced and removed"
-		);
-		assert_eq!(Retries::<Test>::iter().count(), 0, "retry config should be cleaned up");
 	});
 }
 

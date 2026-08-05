@@ -70,8 +70,11 @@
 //! 9. Using `as_recovered`, the account owner is able to call any other pallets to clean up their
 //!    state and reclaim any reserved or locked funds. They can then transfer all funds from the
 //!    recovered account to the new account.
-//! 10. When the recovered account becomes reaped (i.e. its free and reserved balance drops to
-//!     zero), the final recovery link is removed.
+//! 10. Finally, the account owner should call `cancel_recovered` from the rescuer account to remove
+//!     the recovery link. The link is never removed automatically — not even when the recovered
+//!     account is reaped (i.e. its free and reserved balance drops to zero) — so until it is
+//!     cancelled the rescuer keeps `as_recovered` authority over the recovered address, including
+//!     over any funds credited to it later.
 //!
 //! ### Malicious Recovery Attempts
 //!
@@ -470,6 +473,17 @@ pub mod pallet {
 			ensure_root(origin)?;
 			let lost = T::Lookup::lookup(lost)?;
 			let rescuer = T::Lookup::lookup(rescuer)?;
+			// Match the consumer-reference lifecycle of `claim_recovery`/`cancel_recovered`:
+			// every live proxy holds exactly one consumer reference on the rescuer. It keeps
+			// the rescuer account from being reaped while the proxy exists and backs the
+			// `dec_consumers` in `cancel_recovered`. When Root replaces an existing mapping,
+			// the reference the entry already holds carries over.
+			if !Proxy::<T>::contains_key(&rescuer) {
+				// Propagate the frame_system error as-is: the reachable failure is
+				// `NoProviders` (the rescuer account does not exist), a caller-input
+				// problem, not corrupted pallet state.
+				frame_system::Pallet::<T>::inc_consumers(&rescuer)?;
+			}
 			// Create the recovery storage item.
 			<Proxy<T>>::insert(&rescuer, &lost);
 			Self::deposit_event(Event::<T>::AccountRecovered {
@@ -692,13 +706,40 @@ pub mod pallet {
 				<ActiveRecoveries<T>>::take(&who, &rescuer).ok_or(Error::<T>::NotStarted)?;
 			// Move the reserved funds from the rescuer to the rescued account.
 			// Acts like a slashing mechanism for those who try to maliciously recover accounts.
-			let res = T::Currency::repatriate_reserved(
+			//
+			// This is deliberately best-effort and infallible: closing a recovery is the
+			// defence against malicious recovery attempts, so it must never be blockable via
+			// the state of the *rescuer's* balance. Under normal invariants the full deposit
+			// is always reserved and the transfer always succeeds; anything else means an
+			// invariant was violated elsewhere, which we surface via logging.
+			match T::Currency::repatriate_reserved(
 				&rescuer,
 				&who,
 				active_recovery.deposit,
 				BalanceStatus::Free,
-			);
-			debug_assert!(res.is_ok());
+			) {
+				Ok(remainder) if remainder.is_zero() => (),
+				Ok(remainder) => {
+					frame::log::warn!(
+						target: "runtime::recovery",
+						"close_recovery: only part of the recovery deposit could be moved to \
+						the rescued account (shortfall: {:?})",
+						remainder,
+					);
+				},
+				Err(err) => {
+					// The rescued account could not receive the funds (e.g. it was reaped).
+					// Release the deposit back to the rescuer rather than leaving it reserved
+					// with no pallet state left to ever release it.
+					T::Currency::unreserve(&rescuer, active_recovery.deposit);
+					frame::log::warn!(
+						target: "runtime::recovery",
+						"close_recovery: could not move the recovery deposit to the rescued \
+						account ({:?}); released it back to the rescuer",
+						err,
+					);
+				},
+			}
 			Self::deposit_event(Event::<T>::RecoveryClosed {
 				lost_account: who,
 				rescuer_account: rescuer,
@@ -841,11 +882,19 @@ impl<T: Config> Pallet<T> {
 			} else {
 				let excess = old_deposit.saturating_sub(new_deposit);
 				let remaining_unreserved = T::Currency::unreserve(&who, excess);
+				// The reserve must always cover the recorded deposit; a shortfall means an
+				// invariant was violated elsewhere. Fail the poke (dispatch is
+				// transactional, so the partial unreserve reverts) rather than record a
+				// deposit larger than what is actually reserved.
 				if !remaining_unreserved.is_zero() {
-					defensive!(
-						"Failed to unreserve full amount. (Requested, Actual)",
-						(excess, excess.saturating_sub(remaining_unreserved))
+					frame::log::warn!(
+						target: "runtime::recovery",
+						"poke_deposit: could only unreserve {:?} of the {:?} \
+						recovery-config deposit excess",
+						excess.saturating_sub(remaining_unreserved),
+						excess,
 					);
+					return Err(Error::<T>::BadState.into());
 				}
 			}
 			config.deposit = new_deposit;
@@ -885,11 +934,19 @@ impl<T: Config> Pallet<T> {
 				} else {
 					let excess = old_deposit.saturating_sub(new_deposit);
 					let remaining_unreserved = T::Currency::unreserve(who, excess);
+					// The reserve must always cover the recorded deposit; a shortfall
+					// means an invariant was violated elsewhere. Fail the poke (dispatch
+					// is transactional, so the partial unreserve reverts) rather than
+					// record a deposit larger than what is actually reserved.
 					if !remaining_unreserved.is_zero() {
-						defensive!(
-							"Failed to unreserve full amount. (Requested, Actual)",
-							(excess, excess.saturating_sub(remaining_unreserved))
+						frame::log::warn!(
+							target: "runtime::recovery",
+							"poke_deposit: could only unreserve {:?} of the {:?} \
+							active-recovery deposit excess",
+							excess.saturating_sub(remaining_unreserved),
+							excess,
 						);
+						return Err(Error::<T>::BadState.into());
 					}
 				}
 				recovery.deposit = new_deposit;

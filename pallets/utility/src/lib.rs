@@ -306,19 +306,28 @@ pub mod pallet {
 			// wormhole pool) and remember it so the runtime can exclude it from the ambiguous set
 			// afterwards; otherwise funds bounced between derivative pseudonyms would inflate the
 			// pool without bound.
-			if !KnownDerivatives::<T>::contains_key(&pseudonym) {
+			let revealed = if !KnownDerivatives::<T>::contains_key(&pseudonym) {
 				KnownDerivatives::<T>::insert(&pseudonym, ());
 				<T::AddressRevealer as qp_wormhole::AddressRevealer<_>>::reveal_address(
 					pseudonym.clone(),
 				);
-			}
+				true
+			} else {
+				false
+			};
 			origin.set_caller_from(frame_system::RawOrigin::Signed(pseudonym));
 			let info = call.get_dispatch_info();
 			let result = call.dispatch(origin);
-			// Always take into account the base weight of this call.
+			// Always take into account the base weight of this call, plus the
+			// `KnownDerivatives` membership read performed on every invocation.
 			let mut weight = T::WeightInfo::as_derivative()
 				.saturating_add(T::DbWeight::get().reads_writes(1, 1))
-				.saturating_add(T::DbWeight::get().reads_writes(1, 2));
+				.saturating_add(T::DbWeight::get().reads(1));
+			// The `KnownDerivatives` insert and the wormhole pool write only happen on a
+			// pseudonym's first use; refund them to repeat users via the actual weight.
+			if revealed {
+				weight = weight.saturating_add(T::DbWeight::get().writes(2));
+			}
 			// Add the real weight of the dispatch.
 			weight = weight.saturating_add(extract_actual_weight(&result, &info));
 			result

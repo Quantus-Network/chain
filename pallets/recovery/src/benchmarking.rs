@@ -148,6 +148,9 @@ mod benchmarks {
 		let lost_lookup = T::Lookup::unlookup(lost.clone());
 		let rescuer: T::AccountId = whitelisted_caller();
 		let rescuer_lookup = T::Lookup::unlookup(rescuer.clone());
+		// The rescuer must exist (hold a provider reference): the call takes a consumer
+		// reference on it, exactly like `claim_recovery`.
+		T::Currency::make_free_balance_be(&rescuer, BalanceOf::<T>::max_value());
 
 		#[extrinsic_call]
 		_(RawOrigin::Root, lost_lookup, rescuer_lookup);

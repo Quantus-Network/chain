@@ -229,6 +229,10 @@ where
 
 		// block number as u64 (compact encoded, but we only need the value)
 		// constrain the block number to be with u32 range for simplicity
+		// NOTE: only the low 32 bits are committed (the wormhole circuit hashes the same
+		// single-felt layout). Lossless for the runtime's `BlockNumber = u32`; do NOT
+		// instantiate this header with a wider `Number` type, or headers whose heights
+		// agree in the low 32 bits would share a block-number hash input.
 		let number = self.number.into();
 		felts.push(Goldilocks::new(number.as_u32() as u64));
 

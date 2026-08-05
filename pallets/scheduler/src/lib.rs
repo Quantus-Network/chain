@@ -362,6 +362,14 @@ pub mod pallet {
 		/// Block-scheduled tasks require a block-number retry period,
 		/// and timestamp-scheduled tasks require a timestamp retry period.
 		RetryPeriodMismatch,
+		/// Retry period value is invalid.
+		///
+		/// A retry period must be non-zero, and a timestamp retry period must additionally
+		/// be a whole multiple of [`Config::TimestampBucketSize`]. A zero period would
+		/// re-target the agenda currently being serviced (losing the retry to the stale
+		/// agenda write-back), and a non-bucket-aligned timestamp period would place the
+		/// retry in an agenda key the servicing loop never visits.
+		InvalidRetryPeriod,
 	}
 
 	#[pallet::hooks]
@@ -774,20 +782,6 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
-	/// V12 audit #162523: put `task` back into the agenda at its original `(when, index)` slot
-	/// after a failed reschedule, regrowing the agenda with empty slots if `cleanup_agenda`
-	/// truncated or removed it in between. This restores the exact pre-reschedule agenda state.
-	fn restore_task(when: BlockNumberOrTimestampOf<T>, index: u32, task: ScheduledOf<T>) {
-		Agenda::<T>::mutate(when, |agenda| {
-			while (agenda.len() as u32) <= index {
-				// Cannot fail: the task previously occupied slot `index`, which is therefore
-				// within `MaxScheduledPerBlock`.
-				let _ = agenda.try_push(None);
-			}
-			agenda[index as usize] = Some(task);
-		});
-	}
-
 	fn do_schedule(
 		when: DispatchTime<BlockNumberFor<T>, T::Moment>,
 		priority: schedule::Priority,
@@ -892,25 +886,27 @@ impl<T: Config> Pallet<T> {
 			return Err(Error::<T>::RescheduleNoChange.into());
 		}
 
-		let task = Agenda::<T>::try_mutate(when, |agenda| {
-			let task = agenda.get_mut(index as usize).ok_or(Error::<T>::NotFound)?;
-			ensure!(!matches!(task, Some(Scheduled { maybe_id: Some(_), .. })), Error::<T>::Named);
-			task.take().ok_or(Error::<T>::NotFound)
-		})?;
+		// Validate and copy the task, leaving the source slot untouched until placement at
+		// the destination has succeeded: a failed placement (e.g. an Exhausted target
+		// agenda) must be a complete no-op rather than destroy the task, its preimage
+		// reference and its retry configuration.
+		let task = {
+			let agenda = Agenda::<T>::get(when);
+			let slot = agenda.get(index as usize).ok_or(Error::<T>::NotFound)?;
+			let task = slot.as_ref().ok_or(Error::<T>::NotFound)?;
+			ensure!(task.maybe_id.is_none(), Error::<T>::Named);
+			task.clone()
+		};
+		let new_address = Self::place_task(new_time, task).map_err(|x| x.0)?;
+
+		// Placement succeeded: vacate the source slot and move the associated state.
+		Agenda::<T>::mutate(when, |agenda| {
+			if let Some(slot) = agenda.get_mut(index as usize) {
+				*slot = None;
+			}
+		});
 		Self::cleanup_agenda(when);
 		Self::deposit_event(Event::Canceled { when, index });
-
-		// V12 audit #162523: if the destination agenda is exhausted, restore the task at its
-		// original address instead of dropping it (which would also leak its preimage
-		// reference). `Retries` is only taken on the success path below, so it is left
-		// untouched here.
-		let new_address = match Self::place_task(new_time, task) {
-			Ok(new_address) => new_address,
-			Err((e, task)) => {
-				Self::restore_task(when, index, task);
-				return Err(e);
-			},
-		};
 		// Transfer retry configuration to the new address
 		if let Some(retry_config) = Retries::<T>::take((when, index)) {
 			Retries::<T>::insert(new_address, retry_config);
@@ -1014,28 +1010,27 @@ impl<T: Config> Pallet<T> {
 			return Err(Error::<T>::RescheduleNoChange.into());
 		}
 
-		let task = Agenda::<T>::try_mutate(when, |agenda| {
+		// Validate and copy the task, leaving the source slot (and the Lookup entry
+		// pointing at it) untouched until placement at the destination has succeeded:
+		// a failed placement must be a complete no-op.
+		let task = {
+			let agenda = Agenda::<T>::get(when);
 			// These defensive checks handle cases where Lookup and Agenda have fallen out of sync,
 			// which indicates an internal invariant violation rather than a user-triggerable error.
-			let task = agenda.get_mut(index as usize).defensive_ok_or(Error::<T>::NotFound)?;
-			task.take().defensive_ok_or(Error::<T>::NotFound)
-		})?;
+			let slot = agenda.get(index as usize).defensive_ok_or(Error::<T>::NotFound)?;
+			slot.as_ref().defensive_ok_or(Error::<T>::NotFound)?.clone()
+		};
+		// On success this re-points the Lookup entry to the new address.
+		let new_address = Self::place_task(new_time, task).map_err(|x| x.0)?;
+
+		// Placement succeeded: vacate the source slot and move the associated state.
+		Agenda::<T>::mutate(when, |agenda| {
+			if let Some(slot) = agenda.get_mut(index as usize) {
+				*slot = None;
+			}
+		});
 		Self::cleanup_agenda(when);
 		Self::deposit_event(Event::Canceled { when, index });
-
-		// V12 audit #162523: if the destination agenda is exhausted, restore the task at its
-		// original address instead of dropping it (which would also leak its preimage
-		// reference). `place_task` only writes `Lookup` after a successful placement, so the
-		// name's `Lookup` entry still points at this original address and stays valid once the
-		// task is restored. `Retries` is only taken on the success path below, so it is left
-		// untouched here.
-		let new_address = match Self::place_task(new_time, task) {
-			Ok(new_address) => new_address,
-			Err((e, task)) => {
-				Self::restore_task(when, index, task);
-				return Err(e);
-			},
-		};
 		// Transfer retry configuration to the new address
 		if let Some(retry_config) = Retries::<T>::take((when, index)) {
 			Retries::<T>::insert(new_address, retry_config);
@@ -1447,15 +1442,7 @@ impl<T: Config> Pallet<T> {
 			Some(n) => n,
 			None => return false,
 		};
-		// V12 audit #162526: `service_timestamp_agendas` only ever visits bucket-aligned agenda
-		// keys (multiples of `TimestampBucketSize`), so a timestamp retry whose wake moment is
-		// not bucket-aligned would never be serviced. Round the wake moment up to the next
-		// bucket boundary, using the same `normalize` semantics as `resolve_time`. Block
-		// numbers are returned unchanged by `normalize`.
-		let wake = now
-			.saturating_add(&period)
-			.map(|wake| wake.normalize(T::TimestampBucketSize::get()));
-		match wake {
+		match now.saturating_add(&period) {
 			Ok(wake) => match Self::place_task(wake, task.as_retry()) {
 				Ok(address) => {
 					// Retry successfully placed. The retry clone now "owns" the preimage
@@ -1501,21 +1488,35 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	/// Ensure the retry period type matches the task's scheduling type.
+	/// Ensure the retry period type matches the task's scheduling type and its value is usable.
 	///
 	/// Block-scheduled tasks (with a `BlockNumber` address) require a block-number retry period,
-	/// and timestamp-scheduled tasks require a timestamp retry period. This validation prevents
-	/// retry configuration that would fail at retry time due to type mismatch.
+	/// and timestamp-scheduled tasks require a timestamp retry period. The period must also be
+	/// non-zero — and, for timestamps, a whole multiple of [`Config::TimestampBucketSize`] —
+	/// otherwise the retry would be placed in an agenda that is never serviced (or is clobbered
+	/// by the write-back of the agenda currently being serviced) and silently lost.
 	fn ensure_period_matches_task_type(
 		task_when: &BlockNumberOrTimestampOf<T>,
 		period: &BlockNumberOrTimestampOf<T>,
 	) -> Result<(), DispatchError> {
-		let types_match = matches!(
-			(task_when, period),
-			(BlockNumberOrTimestamp::BlockNumber(_), BlockNumberOrTimestamp::BlockNumber(_)) |
-				(BlockNumberOrTimestamp::Timestamp(_), BlockNumberOrTimestamp::Timestamp(_))
-		);
-		ensure!(types_match, Error::<T>::RetryPeriodMismatch);
+		match (task_when, period) {
+			(BlockNumberOrTimestamp::BlockNumber(_), BlockNumberOrTimestamp::BlockNumber(p)) => {
+				// A zero period makes `schedule_retry` place the retry clone into the
+				// agenda currently being serviced; `service_agenda`'s stale write-back
+				// then discards the clone while its `Retries` row survives, orphaned.
+				ensure!(!p.is_zero(), Error::<T>::InvalidRetryPeriod);
+			},
+			(BlockNumberOrTimestamp::Timestamp(_), BlockNumberOrTimestamp::Timestamp(p)) => {
+				// Beyond the zero-period hazard above, `schedule_retry` computes
+				// `wake = now + period` without re-normalizing to a bucket boundary, so
+				// a period that is not a whole number of buckets lands the retry in an
+				// agenda key the bucket-stepping servicing loop never visits: the retry
+				// would silently never execute and its preimage would be held forever.
+				let bucket = T::TimestampBucketSize::get();
+				ensure!(!p.is_zero() && (*p % bucket).is_zero(), Error::<T>::InvalidRetryPeriod);
+			},
+			_ => return Err(Error::<T>::RetryPeriodMismatch.into()),
+		}
 		Ok(())
 	}
 }

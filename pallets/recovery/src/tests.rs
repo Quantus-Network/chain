@@ -32,6 +32,43 @@ fn basic_setup_works() {
 	});
 }
 
+/// A Root-installed proxy must hold the same frame_system consumer reference as a
+/// `claim_recovery`-created one: the reference keeps the rescuer account alive while the
+/// proxy exists, and it backs the unconditional `dec_consumers` in `cancel_recovered`,
+/// which would otherwise underflow or release a reference owned by other state.
+#[test]
+fn set_recovered_takes_consumer_reference_like_claim_recovery() {
+	new_test_ext().execute_with(|| {
+		assert_eq!(System::consumers(&1), 0);
+		assert_ok!(Recovery::set_recovered(RuntimeOrigin::root(), 5, 1));
+		assert_eq!(System::consumers(&1), 1);
+
+		// Root may replace an existing mapping: a live proxy holds exactly one reference,
+		// so the replacement must not take a second one.
+		assert_ok!(Recovery::set_recovered(RuntimeOrigin::root(), 4, 1));
+		assert_eq!(System::consumers(&1), 1);
+
+		// Cancelling the proxy releases the reference exactly once.
+		assert_ok!(Recovery::cancel_recovered(RuntimeOrigin::signed(1), 4));
+		assert_eq!(System::consumers(&1), 0);
+	});
+}
+
+/// A rescuer that does not exist (no provider references) cannot take a consumer
+/// reference. That is a caller-input problem, so Root must see the precise
+/// `NoProviders` error from frame_system, not a misleading `BadState` that suggests
+/// corrupted pallet storage.
+#[test]
+fn set_recovered_reports_no_providers_for_nonexistent_rescuer() {
+	new_test_ext().execute_with(|| {
+		assert_eq!(System::providers(&99), 0);
+		assert_noop!(
+			Recovery::set_recovered(RuntimeOrigin::root(), 5, 99),
+			DispatchError::NoProviders
+		);
+	});
+}
+
 #[test]
 fn set_recovered_works() {
 	new_test_ext().execute_with(|| {
@@ -454,6 +491,99 @@ fn close_recovery_handles_basic_errors() {
 	});
 }
 
+/// Characterization test: the `Proxy` recovery link is only ever removed by
+/// `cancel_recovered`. In particular it survives the recovered account being reaped,
+/// so the rescuer keeps `as_recovered` authority over the address — including over
+/// funds credited to it after the reap. Users must call `cancel_recovered` to sever
+/// the link; the docs (lifecycle step 10) describe exactly this.
+#[test]
+fn recovery_link_survives_reaping_until_cancelled() {
+	new_test_ext().execute_with(|| {
+		// Account 1 fully recovers account 5.
+		assert_ok!(Recovery::create_recovery(RuntimeOrigin::signed(5), vec![2, 3, 4], 3, 10));
+		assert_ok!(Recovery::initiate_recovery(RuntimeOrigin::signed(1), 5));
+		assert_ok!(Recovery::vouch_recovery(RuntimeOrigin::signed(2), 5, 1));
+		assert_ok!(Recovery::vouch_recovery(RuntimeOrigin::signed(3), 5, 1));
+		assert_ok!(Recovery::vouch_recovery(RuntimeOrigin::signed(4), 5, 1));
+		System::run_to_block::<AllPalletsWithSystem>(11);
+		assert_ok!(Recovery::claim_recovery(RuntimeOrigin::signed(1), 5));
+		// Clean up recovery state and drain account 5 completely so it is reaped.
+		let call = Box::new(RuntimeCall::Recovery(RecoveryCall::close_recovery { rescuer: 1 }));
+		assert_ok!(Recovery::as_recovered(RuntimeOrigin::signed(1), 5, call));
+		let call = Box::new(RuntimeCall::Recovery(RecoveryCall::remove_recovery {}));
+		assert_ok!(Recovery::as_recovered(RuntimeOrigin::signed(1), 5, call));
+		let call = Box::new(RuntimeCall::Balances(BalancesCall::transfer_allow_death {
+			dest: 1,
+			value: 110,
+		}));
+		assert_ok!(Recovery::as_recovered(RuntimeOrigin::signed(1), 5, call));
+		assert_eq!(Balances::total_balance(&5), 0);
+		// The recovery link is NOT removed by the reap.
+		assert_eq!(Recovery::proxy(&1), Some(5));
+		// The address gets re-funded later...
+		assert_ok!(Balances::transfer_allow_death(RuntimeOrigin::signed(2), 5, 50));
+		// ...and the rescuer still holds `as_recovered` authority over the new funds.
+		let call = Box::new(RuntimeCall::Balances(BalancesCall::transfer_allow_death {
+			dest: 1,
+			value: 50,
+		}));
+		assert_ok!(Recovery::as_recovered(RuntimeOrigin::signed(1), 5, call));
+		// Only `cancel_recovered` severs the link.
+		assert_ok!(Recovery::cancel_recovered(RuntimeOrigin::signed(1), 5));
+		assert_eq!(Recovery::proxy(&1), None);
+		let call = Box::new(RuntimeCall::System(frame_system::Call::remark { remark: vec![] }));
+		assert_noop!(
+			Recovery::as_recovered(RuntimeOrigin::signed(1), 5, call),
+			Error::<Test>::NotAllowed
+		);
+	});
+}
+
+#[test]
+fn close_recovery_is_best_effort_when_deposit_partially_missing() {
+	new_test_ext().execute_with(|| {
+		// Account 5 sets up recovery and account 1 initiates it, reserving the recovery deposit.
+		assert_ok!(Recovery::create_recovery(RuntimeOrigin::signed(5), vec![2, 3, 4], 3, 10));
+		assert_ok!(Recovery::initiate_recovery(RuntimeOrigin::signed(1), 5));
+		assert_eq!(Balances::reserved_balance(1), 10);
+		let free_before = Balances::free_balance(5);
+		// Part of the rescuer's reserve is consumed externally (an invariant violation, e.g. a
+		// buggy pallet over-slashing), so the full recovery deposit is no longer available.
+		let (_imbalance, shortfall) = Balances::slash_reserved(&1, 4);
+		assert_eq!(shortfall, 0);
+		assert_eq!(Balances::reserved_balance(1), 6);
+		// Closing the recovery must never be blockable via the rescuer's balance state: it
+		// succeeds, moving whatever portion of the deposit is still available.
+		assert_ok!(Recovery::close_recovery(RuntimeOrigin::signed(5), 1));
+		assert_eq!(Balances::free_balance(5), free_before + 6);
+		assert_eq!(Balances::reserved_balance(1), 0);
+		// The active recovery is cleaned up so `remove_recovery` is not blocked.
+		assert!(!<ActiveRecoveries<Test>>::contains_key(&5, &1));
+		assert_ok!(Recovery::remove_recovery(RuntimeOrigin::signed(5)));
+	});
+}
+
+#[test]
+fn close_recovery_releases_deposit_to_rescuer_if_repatriation_fails() {
+	new_test_ext().execute_with(|| {
+		// Construct a state where the rescued account cannot receive funds: account 99 has no
+		// balance record, so `repatriate_reserved` fails with `DeadAccount`. Reachable only if
+		// invariants broke elsewhere, so set the storage up directly.
+		assert_ok!(Balances::reserve(&1, 10));
+		<ActiveRecoveries<Test>>::insert(
+			99,
+			1,
+			ActiveRecovery { created: 1, deposit: 10, friends: bounded_vec![] },
+		);
+		// Closing still succeeds, and the deposit is released back to the rescuer instead of
+		// staying reserved forever with no pallet state left to release it.
+		assert_ok!(Recovery::close_recovery(RuntimeOrigin::signed(99), 1));
+		assert_eq!(Balances::reserved_balance(1), 0);
+		assert_eq!(Balances::free_balance(1), 100);
+		assert!(!<ActiveRecoveries<Test>>::contains_key(&99, &1));
+	});
+}
+
 #[test]
 fn remove_recovery_works() {
 	new_test_ext().execute_with(|| {
@@ -488,6 +618,58 @@ fn remove_recovery_works() {
 		assert_ok!(Recovery::close_recovery(RuntimeOrigin::signed(5), 2));
 		// Finally removed
 		assert_ok!(Recovery::remove_recovery(RuntimeOrigin::signed(5)));
+	});
+}
+
+/// If the reserve was drained externally (invariant violation elsewhere), lowering a
+/// deposit via `poke_deposit` can only partially unreserve the excess. The poke must
+/// fail and revert entirely rather than record a deposit larger than what is actually
+/// reserved.
+#[test]
+fn poke_deposit_fails_on_unreserve_shortfall_for_config_deposit() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Recovery::create_recovery(RuntimeOrigin::signed(5), vec![2, 3, 4], 3, 10));
+		// Base 10 + 1 per friend.
+		assert_eq!(Balances::reserved_balance(5), 13);
+		// Lower the config deposit so the poke has to unreserve the excess of 5.
+		ConfigDepositBase::set(5);
+		// Externally drain part of the reserve below the excess.
+		let (_imbalance, shortfall) = Balances::slash_reserved(&5, 10);
+		assert_eq!(shortfall, 0);
+		assert_eq!(Balances::reserved_balance(5), 3);
+		// Dispatch (transactional) must fail and leave all state untouched.
+		let call = RuntimeCall::Recovery(RecoveryCall::poke_deposit { maybe_account: None });
+		assert_err_ignore_postinfo!(
+			call.dispatch(RuntimeOrigin::signed(5)),
+			Error::<Test>::BadState
+		);
+		assert_eq!(Recovery::recovery_config(5).unwrap().deposit, 13);
+		assert_eq!(Balances::reserved_balance(5), 3);
+	});
+}
+
+/// Same as `poke_deposit_fails_on_unreserve_shortfall_for_config_deposit`, for the
+/// active-recovery deposit helper.
+#[test]
+fn poke_deposit_fails_on_unreserve_shortfall_for_active_recovery_deposit() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Recovery::create_recovery(RuntimeOrigin::signed(5), vec![2, 3, 4], 3, 10));
+		assert_ok!(Recovery::initiate_recovery(RuntimeOrigin::signed(1), 5));
+		assert_eq!(Balances::reserved_balance(1), 10);
+		// Lower the recovery deposit so the poke has to unreserve the excess of 6.
+		RecoveryDeposit::set(4);
+		// Externally drain part of the rescuer's reserve below the excess.
+		let (_imbalance, shortfall) = Balances::slash_reserved(&1, 8);
+		assert_eq!(shortfall, 0);
+		assert_eq!(Balances::reserved_balance(1), 2);
+		// Dispatch (transactional) must fail and leave all state untouched.
+		let call = RuntimeCall::Recovery(RecoveryCall::poke_deposit { maybe_account: Some(5) });
+		assert_err_ignore_postinfo!(
+			call.dispatch(RuntimeOrigin::signed(1)),
+			Error::<Test>::BadState
+		);
+		assert_eq!(Recovery::active_recovery(5, 1).unwrap().deposit, 10);
+		assert_eq!(Balances::reserved_balance(1), 2);
 	});
 }
 

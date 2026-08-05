@@ -6096,6 +6096,7 @@ dependencies = [
  "pallet-scheduler",
  "pallet-timestamp",
  "pallet-utility",
+ "pallet-zk-tree",
  "parity-scale-codec",
  "qp-scheduler",
  "qp-wormhole",
@@ -7755,6 +7756,7 @@ dependencies = [
  "sc-network",
  "sc-network-sync",
  "sc-offchain",
+ "sc-rpc-api",
  "sc-service",
  "sc-telemetry",
  "sc-transaction-pool",
@@ -7775,6 +7777,7 @@ dependencies = [
  "sp-timestamp",
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
+ "tokio",
  "tokio-util",
  "zeroize",
 ]

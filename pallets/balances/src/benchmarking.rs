@@ -31,11 +31,33 @@ const SEED: u32 = 0;
 // existential deposit multiplier
 const ED_MULTIPLIER: u32 = 10;
 
+/// The unit the benchmarks scale their balances by.
+///
+/// This must be derived from the configured `T::ExistentialDeposit` — the
+/// `insecure_zero_ed` feature only *permits* a zero ED, it does not guarantee one. A
+/// stand-in is used only when the ED is actually zero, where a non-zero unit is still
+/// needed to produce meaningful transfer amounts.
 fn minimum_balance<T: Config<I>, I: 'static>() -> T::Balance {
-	if cfg!(feature = "insecure_zero_ed") {
+	let ed = T::ExistentialDeposit::get();
+	if ed.is_zero() {
 		100u32.into()
 	} else {
-		T::ExistentialDeposit::get()
+		ed
+	}
+}
+
+/// The free balance the benchmarks expect `who` to be left with after its balance was
+/// reduced from `balance` by `spent`: accounts whose leftover dips below the configured
+/// existential deposit are reaped (the dust is removed), all others keep the leftover.
+fn expected_leftover<T: Config<I>, I: 'static>(
+	balance: T::Balance,
+	spent: T::Balance,
+) -> T::Balance {
+	let leftover = balance - spent;
+	if leftover < T::ExistentialDeposit::get() {
+		Zero::zero()
+	} else {
+		leftover
 	}
 }
 
@@ -65,12 +87,10 @@ mod benchmarks {
 		#[extrinsic_call]
 		_(RawOrigin::Signed(caller.clone()), recipient_lookup, transfer_amount);
 
-		if cfg!(feature = "insecure_zero_ed") {
-			assert_eq!(Balances::<T, I>::free_balance(&caller), balance - transfer_amount);
-		} else {
-			assert_eq!(Balances::<T, I>::free_balance(&caller), Zero::zero());
-		}
-
+		assert_eq!(
+			Balances::<T, I>::free_balance(&caller),
+			expected_leftover::<T, I>(balance, transfer_amount)
+		);
 		assert_eq!(Balances::<T, I>::free_balance(&recipient), transfer_amount);
 	}
 
@@ -176,11 +196,10 @@ mod benchmarks {
 		#[extrinsic_call]
 		_(RawOrigin::Root, source_lookup, recipient_lookup, transfer_amount);
 
-		if cfg!(feature = "insecure_zero_ed") {
-			assert_eq!(Balances::<T, I>::free_balance(&source), balance - transfer_amount);
-		} else {
-			assert_eq!(Balances::<T, I>::free_balance(&source), Zero::zero());
-		}
+		assert_eq!(
+			Balances::<T, I>::free_balance(&source),
+			expected_leftover::<T, I>(balance, transfer_amount)
+		);
 
 		assert_eq!(Balances::<T, I>::free_balance(&recipient), transfer_amount);
 	}
@@ -216,12 +235,10 @@ mod benchmarks {
 		#[extrinsic_call]
 		transfer_allow_death(RawOrigin::Signed(caller.clone()), recipient_lookup, transfer_amount);
 
-		if cfg!(feature = "insecure_zero_ed") {
-			assert_eq!(Balances::<T, I>::free_balance(&caller), balance - transfer_amount);
-		} else {
-			assert_eq!(Balances::<T, I>::free_balance(&caller), Zero::zero());
-		}
-
+		assert_eq!(
+			Balances::<T, I>::free_balance(&caller),
+			expected_leftover::<T, I>(balance, transfer_amount)
+		);
 		assert_eq!(Balances::<T, I>::free_balance(&recipient), transfer_amount);
 	}
 
@@ -334,11 +351,10 @@ mod benchmarks {
 		#[extrinsic_call]
 		burn(RawOrigin::Signed(caller.clone()), burn_amount, false);
 
-		if cfg!(feature = "insecure_zero_ed") {
-			assert_eq!(Balances::<T, I>::free_balance(&caller), balance - burn_amount);
-		} else {
-			assert_eq!(Balances::<T, I>::free_balance(&caller), Zero::zero());
-		}
+		assert_eq!(
+			Balances::<T, I>::free_balance(&caller),
+			expected_leftover::<T, I>(balance, burn_amount)
+		);
 	}
 
 	// Benchmark `burn` extrinsic with the case where account is kept alive.
@@ -364,5 +380,27 @@ mod benchmarks {
 		Balances,
 		crate::tests::ExtBuilder::default().build(),
 		crate::tests::Test,
+	}
+
+	/// The benchmarks must derive their setup and post-conditions from the configured
+	/// `T::ExistentialDeposit`, not from the `insecure_zero_ed` feature flag: that
+	/// feature only *permits* a zero ED, it does not guarantee one. Run the
+	/// reaping-sensitive benchmarks under an ED that is neither the mock default (1)
+	/// nor covered by the old hardcoded feature stand-in (100), so a feature-based
+	/// expectation cannot pass by luck.
+	#[cfg(test)]
+	#[test]
+	fn benchmarks_hold_under_non_default_existential_deposit() {
+		use crate::tests::{ExtBuilder, Test};
+		use frame_support::assert_ok;
+		type Bench = Balances<Test, ()>;
+		ExtBuilder::default().existential_deposit(150).build().execute_with(|| {
+			assert_ok!(Bench::test_benchmark_transfer_allow_death());
+			assert_ok!(Bench::test_benchmark_force_transfer());
+			assert_ok!(Bench::test_benchmark_transfer_all());
+			assert_ok!(Bench::test_benchmark_burn_allow_death());
+			assert_ok!(Bench::test_benchmark_transfer_keep_alive());
+			assert_ok!(Bench::test_benchmark_force_unreserve());
+		});
 	}
 }

@@ -19,6 +19,7 @@ frame-system.workspace = true
 log.workspace = true
 pallet-balances.workspace = true
 pallet-recovery.workspace = true
+pallet-zk-tree.workspace = true
 qp-scheduler.workspace = true
 qp-wormhole.workspace = true
 scale-info = { features = ["derive"], workspace = true }
@@ -50,6 +51,7 @@ std = [
 	"pallet-scheduler/std",
 	"pallet-timestamp/std",
 	"pallet-utility/std",
+	"pallet-zk-tree/std",
 	"qp-scheduler/std",
 	"qp-wormhole/std",
 	"scale-info/std",
@@ -69,5 +71,6 @@ runtime-benchmarks = [
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
+	"pallet-zk-tree/try-runtime",
 	"sp-runtime/try-runtime",
 ]

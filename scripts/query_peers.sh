@@ -67,7 +67,8 @@ EXAMPLES:
 
 NOTES:
     - Nodes must be started with --enable-peer-sharing flag
-    - RPC must be accessible (use --rpc-external for remote access)
+    - peer_getNetworkInfo is an unsafe RPC: remote queries additionally require the node
+      to run with --rpc-external and --rpc-methods unsafe (local queries always work)
     - Default RPC endpoint: http://localhost:9933
 EOF
 }
@@ -126,7 +127,7 @@ query_node() {
     # Create JSON-RPC request
     local request='{
         "jsonrpc": "2.0",
-        "method": "peer_getBasicInfo",
+        "method": "peer_getNetworkInfo",
         "params": [],
         "id": 1
     }'
@@ -269,7 +270,7 @@ main() {
                 local temp_response
                 temp_response=$(curl -s -H "Content-Type: application/json" -d '{
                     "jsonrpc": "2.0",
-                    "method": "peer_getBasicInfo",
+                    "method": "peer_getNetworkInfo",
                     "params": [],
                     "id": 1
                 }' "http://${host}:${PORT}" 2>/dev/null)

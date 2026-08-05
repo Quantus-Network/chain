@@ -48,11 +48,23 @@ mod benchmark {
 
 	#[benchmark]
 	fn as_derivative() {
-		let caller = account("caller", SEED, SEED);
+		let caller: T::AccountId = account("caller", SEED, SEED);
 		let call = Box::new(frame_system::Call::remark { remark: vec![] }.into());
 		// Whitelist caller account from further DB operations.
 		let caller_key = frame_system::Account::<T>::hashed_key_for(&caller);
 		add_to_whitelist(caller_key.into());
+
+		// Measure the repeat-use path: pre-seed the pseudonym as already known so the
+		// first-use reveal (`KnownDerivatives` insert + wormhole pool write) is not baked
+		// into the generated base weight. The dispatch annotation adds the reveal storage
+		// cost explicitly as a first-use surcharge which repeat use refunds post-dispatch;
+		// a base weight that also contained the reveal would double-charge first use and
+		// overcharge every repeat use with no way to distinguish the two.
+		let pseudonym = derivative_account_id(caller.clone(), SEED as u16);
+		KnownDerivatives::<T>::insert(&pseudonym, ());
+		// The membership read is likewise charged through the annotation's explicit
+		// `DbWeight` terms, not the generated base.
+		add_to_whitelist(KnownDerivatives::<T>::hashed_key_for(&pseudonym).into());
 
 		#[extrinsic_call]
 		_(RawOrigin::Signed(caller), SEED as u16, call);
