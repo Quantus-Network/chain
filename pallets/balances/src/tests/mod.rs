@@ -60,6 +60,7 @@ mod fungible_and_currency;
 mod fungible_conformance_tests;
 mod fungible_tests;
 mod general_tests;
+mod migration_tests;
 mod reentrancy_tests;
 
 type Block = frame_system::mocking::MockBlock<Test>;

@@ -25,7 +25,12 @@ fn migrate_v0_to_v1<T: Config<I>, I: 'static>(accounts: &[T::AccountId]) -> Weig
 	let on_chain_version = Pallet::<T, I>::on_chain_storage_version();
 
 	if on_chain_version == 0 {
-		let total = accounts
+		// Deduplicate before summing: a runtime-configured list may repeat an account ID,
+		// and counting it more than once permanently overstates `InactiveIssuance`
+		// (capped only by `TotalIssuance`), deflating `active_issuance()` after the
+		// one-shot version bump.
+		let unique: alloc::collections::btree_set::BTreeSet<_> = accounts.iter().collect();
+		let total = unique
 			.iter()
 			.map(|a| Pallet::<T, I>::total_balance(a))
 			.fold(T::Balance::zero(), |a, e| a.saturating_add(e));
@@ -41,7 +46,7 @@ fn migrate_v0_to_v1<T: Config<I>, I: 'static>(accounts: &[T::AccountId]) -> Weig
 		StorageVersion::new(1).put::<Pallet<T, I>>();
 
 		log::info!(target: LOG_TARGET, "Storage to version 1");
-		T::DbWeight::get().reads_writes(2 + accounts.len() as u64, 3)
+		T::DbWeight::get().reads_writes(2 + unique.len() as u64, 3)
 	} else {
 		log::info!(
 			target: LOG_TARGET,
