@@ -454,6 +454,54 @@ fn close_recovery_handles_basic_errors() {
 	});
 }
 
+/// Characterization test: the `Proxy` recovery link is only ever removed by
+/// `cancel_recovered`. In particular it survives the recovered account being reaped,
+/// so the rescuer keeps `as_recovered` authority over the address — including over
+/// funds credited to it after the reap. Users must call `cancel_recovered` to sever
+/// the link; the docs (lifecycle step 10) describe exactly this.
+#[test]
+fn recovery_link_survives_reaping_until_cancelled() {
+	new_test_ext().execute_with(|| {
+		// Account 1 fully recovers account 5.
+		assert_ok!(Recovery::create_recovery(RuntimeOrigin::signed(5), vec![2, 3, 4], 3, 10));
+		assert_ok!(Recovery::initiate_recovery(RuntimeOrigin::signed(1), 5));
+		assert_ok!(Recovery::vouch_recovery(RuntimeOrigin::signed(2), 5, 1));
+		assert_ok!(Recovery::vouch_recovery(RuntimeOrigin::signed(3), 5, 1));
+		assert_ok!(Recovery::vouch_recovery(RuntimeOrigin::signed(4), 5, 1));
+		System::run_to_block::<AllPalletsWithSystem>(11);
+		assert_ok!(Recovery::claim_recovery(RuntimeOrigin::signed(1), 5));
+		// Clean up recovery state and drain account 5 completely so it is reaped.
+		let call = Box::new(RuntimeCall::Recovery(RecoveryCall::close_recovery { rescuer: 1 }));
+		assert_ok!(Recovery::as_recovered(RuntimeOrigin::signed(1), 5, call));
+		let call = Box::new(RuntimeCall::Recovery(RecoveryCall::remove_recovery {}));
+		assert_ok!(Recovery::as_recovered(RuntimeOrigin::signed(1), 5, call));
+		let call = Box::new(RuntimeCall::Balances(BalancesCall::transfer_allow_death {
+			dest: 1,
+			value: 110,
+		}));
+		assert_ok!(Recovery::as_recovered(RuntimeOrigin::signed(1), 5, call));
+		assert_eq!(Balances::total_balance(&5), 0);
+		// The recovery link is NOT removed by the reap.
+		assert_eq!(Recovery::proxy(&1), Some(5));
+		// The address gets re-funded later...
+		assert_ok!(Balances::transfer_allow_death(RuntimeOrigin::signed(2), 5, 50));
+		// ...and the rescuer still holds `as_recovered` authority over the new funds.
+		let call = Box::new(RuntimeCall::Balances(BalancesCall::transfer_allow_death {
+			dest: 1,
+			value: 50,
+		}));
+		assert_ok!(Recovery::as_recovered(RuntimeOrigin::signed(1), 5, call));
+		// Only `cancel_recovered` severs the link.
+		assert_ok!(Recovery::cancel_recovered(RuntimeOrigin::signed(1), 5));
+		assert_eq!(Recovery::proxy(&1), None);
+		let call = Box::new(RuntimeCall::System(frame_system::Call::remark { remark: vec![] }));
+		assert_noop!(
+			Recovery::as_recovered(RuntimeOrigin::signed(1), 5, call),
+			Error::<Test>::NotAllowed
+		);
+	});
+}
+
 #[test]
 fn close_recovery_is_best_effort_when_deposit_partially_missing() {
 	new_test_ext().execute_with(|| {

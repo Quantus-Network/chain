@@ -70,8 +70,11 @@
 //! 9. Using `as_recovered`, the account owner is able to call any other pallets to clean up their
 //!    state and reclaim any reserved or locked funds. They can then transfer all funds from the
 //!    recovered account to the new account.
-//! 10. When the recovered account becomes reaped (i.e. its free and reserved balance drops to
-//!     zero), the final recovery link is removed.
+//! 10. Finally, the account owner should call `cancel_recovered` from the rescuer account to
+//!     remove the recovery link. The link is never removed automatically — not even when the
+//!     recovered account is reaped (i.e. its free and reserved balance drops to zero) — so
+//!     until it is cancelled the rescuer keeps `as_recovered` authority over the recovered
+//!     address, including over any funds credited to it later.
 //!
 //! ### Malicious Recovery Attempts
 //!
