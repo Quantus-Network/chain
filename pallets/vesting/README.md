@@ -3,14 +3,14 @@
 Quantus fork of FRAME `pallet-vesting`: schedules unlock against wall-clock time
 (`Config::Moment` / `Config::TimeProvider`, milliseconds since the unix epoch from
 `pallet_timestamp`) instead of block numbers. Schedule fields are `locked`, `per_ms`, `start`,
-and an optional `canceller`.
+and an optional `repurchaser`.
 
-Each schedule may carry an optional `canceller` account (set at genesis or on `vested_transfer`).
-The canceller — in addition to Root — may call `force_remove_vesting_schedule` to cancel that
-schedule: the funds still unvested at that time are transferred to the canceller, while the
+Each schedule may carry an optional `repurchaser` account (set at genesis or on `vested_transfer`).
+The repurchaser — in addition to Root — may call `force_remove_vesting_schedule` to repurchase
+that schedule: the funds still unvested at that time are transferred to the repurchaser, while the
 already-vested portion stays with the holder. Root removal instead leaves all funds with the
-holder (unlocked). Schedules without a canceller can only be removed by Root. Two schedules can
-only be merged if their cancellers match, and the merged schedule keeps that canceller.
+holder (unlocked). Schedules without a repurchaser can only be removed by Root. Two schedules can
+only be merged if their repurchasers match, and the merged schedule keeps that repurchaser.
 
 ## Overview
 

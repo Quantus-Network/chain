@@ -262,8 +262,8 @@ pub mod pallet {
 			// * begin - Time (ms since the unix epoch) when the account will start to vest
 			// * length - Number of milliseconds from `begin` until fully vested
 			// * liquid - Number of units which can be spent before vesting begins
-			// * canceller - Optional account allowed to remove the schedule (besides Root)
-			for &(ref who, begin, length, liquid, ref canceller) in self.vesting.iter() {
+			// * repurchaser - Optional account allowed to remove the schedule (besides Root)
+			for &(ref who, begin, length, liquid, ref repurchaser) in self.vesting.iter() {
 				let balance = T::Currency::free_balance(who);
 				assert!(!balance.is_zero(), "Currencies must be init'd before vesting");
 				// Total genesis `balance` minus `liquid` equals funds locked for vesting
@@ -271,8 +271,8 @@ pub mod pallet {
 				let length_as_balance = T::MomentToBalance::convert(length);
 				let per_ms = locked / length_as_balance.max(sp_runtime::traits::One::one());
 				let mut vesting_info = VestingInfo::new(locked, per_ms, begin);
-				if let Some(canceller) = canceller {
-					vesting_info = vesting_info.with_canceller(canceller.clone());
+				if let Some(repurchaser) = repurchaser {
+					vesting_info = vesting_info.with_repurchaser(repurchaser.clone());
 				}
 				if !vesting_info.is_valid() {
 					panic!("Invalid VestingInfo params at genesis")
@@ -315,8 +315,8 @@ pub mod pallet {
 		ScheduleIndexOutOfBounds,
 		/// Failed to create a new schedule because some parameter was invalid.
 		InvalidScheduleParams,
-		/// The two schedules cannot be merged because their cancellers differ.
-		CancellerMismatch,
+		/// The two schedules cannot be merged because their repurchasers differ.
+		RepurchaserMismatch,
 	}
 
 	#[pallet::call]
@@ -433,8 +433,8 @@ pub mod pallet {
 		/// - `ending_time`: `MAX(schedule1.ending_time, schedule2.ending_time)`.
 		/// - `locked`: `schedule1.locked_at(now) + schedule2.locked_at(now)`.
 		///
-		/// Both schedules must have the same canceller (or both none), otherwise the merge
-		/// fails with `CancellerMismatch`; the merged schedule keeps that canceller.
+		/// Both schedules must have the same repurchaser (or both none), otherwise the merge
+		/// fails with `RepurchaserMismatch`; the merged schedule keeps that repurchaser.
 		///
 		/// The dispatch origin for this call must be _Signed_.
 		///
@@ -464,8 +464,8 @@ pub mod pallet {
 				let schedule2 =
 					schedules.get(schedule2_index).ok_or(Error::<T>::ScheduleIndexOutOfBounds)?;
 				ensure!(
-					schedule1.canceller() == schedule2.canceller(),
-					Error::<T>::CancellerMismatch
+					schedule1.repurchaser() == schedule2.repurchaser(),
+					Error::<T>::RepurchaserMismatch
 				);
 			}
 			let merge_action =
@@ -482,10 +482,10 @@ pub mod pallet {
 		/// Force remove a vesting schedule.
 		///
 		/// The dispatch origin for this call must be _Root_, or _Signed_ by the schedule's
-		/// designated canceller (if it has one).
+		/// designated repurchaser (if it has one).
 		///
-		/// When called by the canceller, the funds still unvested at the current time are
-		/// transferred to the canceller; only the already-vested portion stays with `target`.
+		/// When called by the repurchaser, the funds still unvested at the current time are
+		/// transferred to the repurchaser; only the already-vested portion stays with `target`.
 		/// When called by Root, the schedule is simply removed and all funds stay with
 		/// `target` (unlocked).
 		///
@@ -509,15 +509,15 @@ pub mod pallet {
 				.get(schedule_index as usize)
 				.ok_or(Error::<T>::InvalidScheduleParams)?;
 
-			// Root may remove any schedule; a signed origin only the ones naming it as canceller.
-			let canceller = if let Some(signer) = maybe_signer {
-				ensure!(schedule.canceller() == Some(&signer), DispatchError::BadOrigin);
+			// Root may remove any schedule; a signed origin only the ones naming it as repurchaser.
+			let repurchaser = if let Some(signer) = maybe_signer {
+				ensure!(schedule.repurchaser() == Some(&signer), DispatchError::BadOrigin);
 				Some(signer)
 			} else {
 				None
 			};
 
-			// Amount still unvested right now; this is what the canceller reclaims.
+			// Amount still unvested right now; this is what the repurchaser receives.
 			let now = T::TimeProvider::now();
 			let unvested = schedule.locked_at::<T::MomentToBalance>(now);
 
@@ -525,11 +525,11 @@ pub mod pallet {
 			// reclaim transfer below cannot be blocked by the remaining lock.
 			Self::remove_vesting_schedule(&who, schedule_index)?;
 
-			if let Some(canceller) = canceller {
+			if let Some(repurchaser) = repurchaser {
 				if !unvested.is_zero() {
 					T::Currency::transfer(
 						&who,
-						&canceller,
+						&repurchaser,
 						unvested,
 						ExistenceRequirement::AllowDeath,
 					)?;
@@ -595,11 +595,11 @@ impl<T: Config> Pallet<T> {
 			(locked / duration).max(One::one())
 		};
 
-		// Both schedules are required to share the same canceller before merging,
+		// Both schedules are required to share the same repurchaser before merging,
 		// so the merged schedule inherits it from either one.
 		let mut schedule = VestingInfo::new(locked, per_ms, start);
-		if let Some(canceller) = schedule1.canceller() {
-			schedule = schedule.with_canceller(canceller.clone());
+		if let Some(repurchaser) = schedule1.repurchaser() {
+			schedule = schedule.with_repurchaser(repurchaser.clone());
 		}
 		debug_assert!(schedule.is_valid(), "merge_vesting_info schedule validation check failed");
 
@@ -631,7 +631,7 @@ impl<T: Config> Pallet<T> {
 		// We can't let this fail because the currency transfer has already happened.
 		// Must be successful as it has been checked before.
 		// Better to return error on failure anyway.
-		// Note: we pass the full schedule so a designated canceller is preserved.
+		// Note: we pass the full schedule so a designated repurchaser is preserved.
 		let res = Self::do_add_vesting_schedule(target, schedule);
 		debug_assert!(res.is_ok(), "Failed to add a schedule when we had to succeed.");
 
@@ -639,7 +639,7 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// Adds a vesting schedule to a given account, keeping all schedule attributes
-	/// (including any designated canceller).
+	/// (including any designated repurchaser).
 	///
 	/// See [`VestingSchedule::add_vesting_schedule`] for details.
 	fn do_add_vesting_schedule(
@@ -838,7 +838,7 @@ where
 		per_ms: BalanceOf<T>,
 		start: MomentOf<T>,
 	) -> DispatchResult {
-		// Schedules created through this trait interface have no canceller.
+		// Schedules created through this trait interface have no repurchaser.
 		Self::do_add_vesting_schedule(who, VestingInfo::new(locked, per_ms, start))
 	}
 

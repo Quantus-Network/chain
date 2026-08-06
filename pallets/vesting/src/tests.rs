@@ -1221,11 +1221,11 @@ fn remove_vesting_schedule() {
 }
 
 #[test]
-fn canceller_can_remove_vesting_schedule() {
+fn repurchaser_can_remove_vesting_schedule() {
 	let vesting_config = vec![
-		// Account 1's schedule is cancellable by account 4.
+		// Account 1's schedule is repurchasable by account 4.
 		(1, 0, 10, 5 * ED, Some(4)),
-		// Account 2's schedule has no canceller: only root can remove it.
+		// Account 2's schedule has no repurchaser: only root can remove it.
 		(2, 10, 20, 0, None),
 	];
 	ExtBuilder::default()
@@ -1233,8 +1233,8 @@ fn canceller_can_remove_vesting_schedule() {
 		.vesting_genesis_config(vesting_config)
 		.build()
 		.execute_with(|| {
-			// The canceller is stored with the schedule at genesis.
-			assert_eq!(VestingStorage::<Test>::get(&1).unwrap()[0].canceller(), Some(&4));
+			// The repurchaser is stored with the schedule at genesis.
+			assert_eq!(VestingStorage::<Test>::get(&1).unwrap()[0].repurchaser(), Some(&4));
 
 			// Neither a random signed account nor the schedule owner can remove it.
 			assert_noop!(Vesting::force_remove_vesting_schedule(Some(3).into(), 1, 0), BadOrigin);
@@ -1244,15 +1244,15 @@ fn canceller_can_remove_vesting_schedule() {
 			// so one tick has vested and the rest is still unvested.
 			let unvested = 5 * ED - (5 * ED / 10);
 			let target_before = Balances::free_balance(&1);
-			let canceller_before = Balances::free_balance(&4);
+			let repurchaser_before = Balances::free_balance(&4);
 
-			// The designated canceller can cancel and receives the unvested funds.
+			// The designated repurchaser can repurchase and receives the unvested funds.
 			assert_ok!(Vesting::force_remove_vesting_schedule(Some(4).into(), 1, 0));
 			assert_eq!(VestingStorage::<Test>::get(&1), None);
 			assert_eq!(Balances::free_balance(&1), target_before - unvested);
-			assert_eq!(Balances::free_balance(&4), canceller_before + unvested);
+			assert_eq!(Balances::free_balance(&4), repurchaser_before + unvested);
 
-			// A schedule without a canceller stays root-only.
+			// A schedule without a repurchaser stays root-only.
 			assert_noop!(Vesting::force_remove_vesting_schedule(Some(4).into(), 2, 0), BadOrigin);
 			// Root removal leaves all funds with the holder.
 			let target2_before = Balances::free_balance(&2);
@@ -1263,49 +1263,49 @@ fn canceller_can_remove_vesting_schedule() {
 }
 
 #[test]
-fn vested_transfer_preserves_canceller() {
+fn vested_transfer_preserves_repurchaser() {
 	ExtBuilder::default().existential_deposit(ED).build().execute_with(|| {
-		let sched = VestingInfo::new(5 * ED, (5 * ED) / 20, 10).with_canceller(13);
+		let sched = VestingInfo::new(5 * ED, (5 * ED) / 20, 10).with_repurchaser(13);
 		assert_ok!(Vesting::vested_transfer(Some(3).into(), 4, sched));
-		assert_eq!(VestingStorage::<Test>::get(&4).unwrap()[0].canceller(), Some(&13));
+		assert_eq!(VestingStorage::<Test>::get(&4).unwrap()[0].repurchaser(), Some(&13));
 
 		let target_before = Balances::free_balance(&4);
-		let canceller_before = Balances::free_balance(&13);
+		let repurchaser_before = Balances::free_balance(&13);
 
-		// The designated canceller can cancel the schedule. Vesting has not started yet
+		// The designated repurchaser can repurchase the schedule. Vesting has not started yet
 		// (start is 10, the clock is at 1), so the full locked amount is reclaimed.
 		assert_ok!(Vesting::force_remove_vesting_schedule(Some(13).into(), 4, 0));
 		assert_eq!(VestingStorage::<Test>::get(&4), None);
 		assert_eq!(Balances::free_balance(&4), target_before - 5 * ED);
-		assert_eq!(Balances::free_balance(&13), canceller_before + 5 * ED);
+		assert_eq!(Balances::free_balance(&13), repurchaser_before + 5 * ED);
 	});
 }
 
 #[test]
-fn merge_schedules_with_different_cancellers_fails() {
+fn merge_schedules_with_different_repurchasers_fails() {
 	ExtBuilder::default().existential_deposit(ED).build().execute_with(|| {
-		// Account 2's genesis schedule has no canceller; add one cancellable by 13.
-		let sched = VestingInfo::new(5 * ED, (5 * ED) / 20, 10).with_canceller(13);
+		// Account 2's genesis schedule has no repurchaser; add one repurchasable by 13.
+		let sched = VestingInfo::new(5 * ED, (5 * ED) / 20, 10).with_repurchaser(13);
 		assert_ok!(Vesting::vested_transfer(Some(3).into(), 2, sched));
 		assert_noop!(
 			Vesting::merge_schedules(Some(2).into(), 0, 1),
-			Error::<Test>::CancellerMismatch
+			Error::<Test>::RepurchaserMismatch
 		);
 	});
 }
 
 #[test]
-fn merged_schedule_keeps_canceller() {
+fn merged_schedule_keeps_repurchaser() {
 	ExtBuilder::default().existential_deposit(ED).build().execute_with(|| {
-		// Two schedules for account 4, both cancellable by 13.
-		let sched = VestingInfo::new(5 * ED, (5 * ED) / 20, 10).with_canceller(13);
+		// Two schedules for account 4, both repurchasable by 13.
+		let sched = VestingInfo::new(5 * ED, (5 * ED) / 20, 10).with_repurchaser(13);
 		assert_ok!(Vesting::vested_transfer(Some(3).into(), 4, sched));
 		assert_ok!(Vesting::vested_transfer(Some(3).into(), 4, sched));
 
 		assert_ok!(Vesting::merge_schedules(Some(4).into(), 0, 1));
 		let schedules = VestingStorage::<Test>::get(&4).unwrap();
 		assert_eq!(schedules.len(), 1);
-		assert_eq!(schedules[0].canceller(), Some(&13));
+		assert_eq!(schedules[0].repurchaser(), Some(&13));
 	});
 }
 
