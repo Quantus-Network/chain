@@ -89,13 +89,22 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// leaves), so the start-of-block depth — even plus one — is not a bound on the
 	/// depth the hook will walk. Mandatory finalization cannot correct its consumed
 	/// weight afterwards, so the leaf inserts are priced at `MAX_TREE_DEPTH`, the
-	/// only provable upper bound. The compute time and proof size stay at the
-	/// benchmarked values; the depth-sensitive cost is the tree reads/writes.
+	/// only provable upper bound.
+	///
+	/// Depth-sensitive costs are BOTH the tree reads/writes and the compute:
+	/// `update_path` performs one Poseidon hash per tree level, so each insert's
+	/// `ref_time` grows with depth too. The benchmark ran against a fresh tree and
+	/// its measured base cannot bound deep-tree hashing, so the per-level hash
+	/// cost is added on top, also at `MAX_TREE_DEPTH`. The proof size stays at the
+	/// benchmarked value.
 	fn on_finalize_rewarded_miner() -> Weight {
 		// Minimum execution time: 161_000_000 picoseconds.
 		let (tree_reads, tree_writes) =
 			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
-		Weight::from_parts(163_000_000, 8619)
+		let hash_time = MAX_LEAF_INSERTS.saturating_mul(
+			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
+		);
+		Weight::from_parts(163_000_000_u64.saturating_add(hash_time), 8619)
 			.saturating_add(T::DbWeight::get().reads(
 				BASE_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_reads)),
 			))
@@ -113,7 +122,10 @@ impl WeightInfo for () {
 		// Minimum execution time: 161_000_000 picoseconds.
 		let (tree_reads, tree_writes) =
 			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
-		Weight::from_parts(163_000_000, 8619)
+		let hash_time = MAX_LEAF_INSERTS.saturating_mul(
+			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
+		);
+		Weight::from_parts(163_000_000_u64.saturating_add(hash_time), 8619)
 			.saturating_add(RocksDbWeight::get().reads(
 				BASE_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_reads)),
 			))
@@ -128,10 +140,15 @@ mod tests {
 	use super::*;
 
 	/// The finalize cost the hook actually incurs when the tree sits at `depth`
-	/// while it runs: the benchmarked base plus three leaf inserts at that depth.
+	/// while it runs: the benchmarked base plus three leaf inserts at that depth —
+	/// both their database operations AND their per-level Poseidon hashing, which
+	/// `update_path` performs once per tree level and therefore also grows with
+	/// depth.
 	fn finalize_cost_at_depth(depth: u8) -> Weight {
 		let (tree_reads, tree_writes) = pallet_zk_tree::insert_leaf_db_ops_at_depth(depth);
-		Weight::from_parts(163_000_000, 8619)
+		let hash_time = MAX_LEAF_INSERTS
+			.saturating_mul(pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(depth));
+		Weight::from_parts(163_000_000_u64.saturating_add(hash_time), 8619)
 			.saturating_add(RocksDbWeight::get().reads(
 				BASE_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_reads)),
 			))
