@@ -115,8 +115,26 @@ ls ./my-chain-state
 ls ./my-chain-state/chains/
 # dev
 ls ./my-chain-state/chains/dev
-# db keystore network
+# db keystore network disallowed-runtimes.json
 ```
+
+#### Refusing a runtime upgrade
+
+Nodes accept forkless runtime upgrades by default. To refuse a specific upgrade on **this** node, add its Blake2-256 wasm hash to the disallow-list (created empty on first start):
+
+```text
+{base-path}/chains/<chain>/disallowed-runtimes.json
+```
+
+```json
+{
+  "disallowed_code_hashes": [
+    "0x…"
+  ]
+}
+```
+
+The file is re-read on every `:code` change (no restart required). Override the path with `--disallowed-runtimes-file`. See [docs/RUNTIME_UPGRADE_VIA_GOVERNANCE.md](docs/RUNTIME_UPGRADE_VIA_GOVERNANCE.md).
 
 ### Multi-Node Local Testnet
 

@@ -11,7 +11,7 @@ use sc_client_api::BlockBackend;
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_qpow::{QPoWApi, Seal as RawSeal};
 use sp_runtime::traits::Block as BlockT;
-use std::{marker::PhantomData, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use codec::Encode;
 use qp_header::DIGEST_LOGS_SIZE;
@@ -21,16 +21,18 @@ pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata, RebuildTrigge
 use futures::{Future, Stream, StreamExt};
 use log::*;
 use prometheus_endpoint::Registry;
-use sc_client_api::{self, backend::AuxStore, BlockOf, BlockchainEvents};
+use sc_client_api::{self, backend::AuxStore, BlockOf, BlockchainEvents, TrieCacheContext};
 use sc_consensus::{
 	BasicQueue, BlockCheckParams, BlockImport, BlockImportParams, BoxBlockImport,
-	BoxJustificationImport, ForkChoiceStrategy, ImportResult, JustificationSyncLink, Verifier,
+	BoxJustificationImport, ForkChoiceStrategy, ImportResult, JustificationSyncLink, StateAction,
+	StorageChanges, Verifier,
 };
+use sp_api::{ApiExt, CallContext, Core as CoreApi};
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
 use sp_consensus::{Environment, Error as ConsensusError, Proposer, SyncOracle};
 use sp_consensus_qpow::POW_ENGINE_ID;
-
+use sp_core::storage::well_known_keys;
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
 use sp_runtime::{
 	generic::{Digest, DigestItem},
@@ -82,6 +84,17 @@ pub enum Error<B: BlockT> {
 	Runtime(String),
 	#[error("{0}")]
 	Other(String),
+	#[error("Runtime code hash is disallowed by local node policy: {0}")]
+	DisallowedRuntimeCode(String),
+}
+
+/// Local policy that may reject a newly enacted runtime wasm blob.
+///
+/// Called only when a block changes `:code`. Implementations should re-read any
+/// backing policy file on each call so operators can update it without restarting.
+pub trait RuntimeCodeGate: Send + Sync {
+	/// Return `Ok(())` to accept the new code, or `Err(reason)` to reject the block.
+	fn allow_new_code(&self, code: &[u8]) -> Result<(), String>;
 }
 
 impl<B: BlockT> From<Error<B>> for String {
@@ -100,9 +113,11 @@ impl<B: BlockT> From<Error<B>> for ConsensusError {
 pub struct PowBlockImport<B: BlockT<Hash = H256>, I, C, CIDP, BE, const LOGGING_FREQUENCY: u64> {
 	inner: I,
 	client: Arc<C>,
+	backend: Arc<BE>,
 	create_inherent_data_providers: Arc<CIDP>,
 	check_inherents_after: <<B as BlockT>::Header as HeaderT>::Number,
-	_backend: PhantomData<BE>,
+	/// Optional local gate that can refuse blocks which change `:code`.
+	code_gate: Option<Arc<dyn RuntimeCodeGate>>,
 }
 
 impl<
@@ -118,9 +133,10 @@ impl<
 		Self {
 			inner: self.inner.clone(),
 			client: self.client.clone(),
+			backend: self.backend.clone(),
 			create_inherent_data_providers: self.create_inherent_data_providers.clone(),
 			check_inherents_after: self.check_inherents_after,
-			_backend: PhantomData,
+			code_gate: self.code_gate.clone(),
 		}
 	}
 }
@@ -141,6 +157,7 @@ where
 		+ 'static,
 	C::Api: QPoWApi<B>,
 	C::Api: BlockBuilderApi<B>,
+	C::Api: CoreApi<B> + ApiExt<B>,
 	CIDP: CreateInherentDataProviders<B, ()>,
 	BE: sc_client_api::Backend<B>,
 {
@@ -148,16 +165,84 @@ where
 	pub fn new(
 		inner: I,
 		client: Arc<C>,
+		backend: Arc<BE>,
 		check_inherents_after: <<B as BlockT>::Header as HeaderT>::Number,
 		create_inherent_data_providers: CIDP,
+		code_gate: Option<Arc<dyn RuntimeCodeGate>>,
 	) -> Self {
 		Self {
 			inner,
 			client,
+			backend,
 			check_inherents_after,
 			create_inherent_data_providers: Arc::new(create_inherent_data_providers),
-			_backend: PhantomData,
+			code_gate,
 		}
+	}
+
+	/// If this block changes `:code`, consult [`RuntimeCodeGate`].
+	///
+	/// When `state_action` is `Execute`, the block is executed once here and the
+	/// resulting storage changes are installed as `ApplyChanges` so the client
+	/// does not re-execute.
+	fn enforce_runtime_code_policy(
+		&self,
+		block_import_params: &mut BlockImportParams<B>,
+	) -> Result<(), Error<B>> {
+		let Some(gate) = self.code_gate.as_ref() else {
+			return Ok(());
+		};
+
+		let parent_hash = *block_import_params.header.parent_hash();
+		let maybe_new_code = match &mut block_import_params.state_action {
+			StateAction::ApplyChanges(StorageChanges::Changes(changes)) => {
+				extract_code_change(changes)
+			},
+			StateAction::ApplyChanges(StorageChanges::Import(_)) => {
+				log::warn!(
+					target: LOG_TARGET,
+					"Skipping runtime disallow-list check for full-state import"
+				);
+				None
+			},
+			StateAction::Skip => None,
+			StateAction::Execute | StateAction::ExecuteIfPossible => {
+				let Some(body) = block_import_params.body.clone() else {
+					return Ok(());
+				};
+
+				let mut runtime_api = self.client.runtime_api();
+				runtime_api.set_call_context(CallContext::Onchain);
+				runtime_api
+					.execute_block(
+						parent_hash,
+						B::new(block_import_params.header.clone(), body).into(),
+					)
+					.map_err(|e| Error::Client(e.into()))?;
+
+				let state = self
+					.backend
+					.state_at(parent_hash, TrieCacheContext::Untrusted)
+					.map_err(Error::Client)?;
+				let changes = runtime_api
+					.into_storage_changes(&state, parent_hash)
+					.map_err(|e| Error::Other(format!("storage changes: {e}")))?;
+
+				if block_import_params.header.state_root() != &changes.transaction_storage_root {
+					return Err(Error::Other("Invalid state root after pre-execution".into()));
+				}
+
+				let new_code = extract_code_change(&changes);
+				block_import_params.state_action =
+					StateAction::ApplyChanges(StorageChanges::Changes(changes));
+				new_code
+			},
+		};
+
+		if let Some(code) = maybe_new_code {
+			gate.allow_new_code(&code).map_err(Error::DisallowedRuntimeCode)?;
+		}
+		Ok(())
 	}
 
 	async fn check_inherents(
@@ -194,6 +279,19 @@ where
 	}
 }
 
+/// Returns the new `:code` value if this block's storage changes update it.
+fn extract_code_change<H: sp_core::Hasher>(
+	changes: &sp_state_machine::StorageChanges<H>,
+) -> Option<Vec<u8>> {
+	changes.main_storage_changes.iter().find_map(|(key, value)| {
+		if key.as_slice() == well_known_keys::CODE {
+			value.clone()
+		} else {
+			None
+		}
+	})
+}
+
 #[async_trait::async_trait]
 impl<B, I, C, CIDP, BE, const LOGGING_FREQUENCY: u64> BlockImport<B>
 	for PowBlockImport<B, I, C, CIDP, BE, LOGGING_FREQUENCY>
@@ -210,7 +308,7 @@ where
 		+ BlockOf
 		+ sc_client_api::Finalizer<B, BE>
 		+ 'static,
-	C::Api: BlockBuilderApi<B> + QPoWApi<B>,
+	C::Api: BlockBuilderApi<B> + QPoWApi<B> + CoreApi<B> + ApiExt<B>,
 	CIDP: CreateInherentDataProviders<B, ()> + Send + Sync,
 	BE: sc_client_api::Backend<B> + 'static,
 {
@@ -289,6 +387,13 @@ where
 			log::error!("Invalid Seal {:?} for parent hash {:?}", inner_seal, parent_hash);
 			return Err(Error::<B>::InvalidSeal.into());
 		}
+
+		// Enforce the local runtime disallow-list. This may fully execute the
+		// block (to learn whether it changes `:code`), so it must only run
+		// after the seal has been verified — otherwise peers could feed us
+		// invalidly-sealed blocks with heavy bodies and make us execute each
+		// one for free.
+		self.enforce_runtime_code_policy(&mut block_import_params)?;
 
 		// Get parent's cumulative achieved work from aux storage
 		let parent_work = get_chain_work::<B, C>(&*self.client, parent_hash).unwrap_or_else(|e| {
@@ -414,12 +519,13 @@ where
 	let header = &mut block.header;
 	let block_hash = hash;
 	let seal_item = match header.digest_mut().pop() {
-		Some(DigestItem::Seal(id, seal)) =>
+		Some(DigestItem::Seal(id, seal)) => {
 			if id == POW_ENGINE_ID {
 				DigestItem::Seal(id, seal)
 			} else {
 				return Err(Error::<B>::WrongEngine(id).into());
-			},
+			}
+		},
 		_ => return Err(Error::<B>::HeaderUnsealed(block_hash).into()),
 	};
 
@@ -776,5 +882,26 @@ mod tests {
 			!result.header.digest().logs.iter().any(|l| matches!(l, DigestItem::Seal(..))),
 			"seal must be removed from the pre-seal header"
 		);
+	}
+
+	#[test]
+	fn extract_code_change_finds_new_code() {
+		let mut changes = sp_state_machine::StorageChanges::<sp_core::Blake2Hasher>::default();
+		changes.main_storage_changes = vec![
+			(b"unrelated".to_vec(), Some(vec![9])),
+			(well_known_keys::CODE.to_vec(), Some(vec![1, 2, 3])),
+		];
+		assert_eq!(extract_code_change(&changes), Some(vec![1, 2, 3]));
+	}
+
+	#[test]
+	fn extract_code_change_ignores_other_keys_and_deletions() {
+		let mut changes = sp_state_machine::StorageChanges::<sp_core::Blake2Hasher>::default();
+		changes.main_storage_changes = vec![(b"unrelated".to_vec(), Some(vec![9]))];
+		assert_eq!(extract_code_change(&changes), None);
+
+		// A deletion of `:code` (`None`) carries no new code to vet.
+		changes.main_storage_changes = vec![(well_known_keys::CODE.to_vec(), None)];
+		assert_eq!(extract_code_change(&changes), None);
 	}
 }

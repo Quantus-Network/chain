@@ -6,6 +6,7 @@ mod benchmarking;
 mod chain_spec;
 mod cli;
 mod command;
+mod disallowed_runtimes;
 mod miner_server;
 mod prometheus;
 mod rpc;

@@ -36,6 +36,14 @@ pub struct Cli {
 	/// Sync: block request timeout in seconds (default: 30).
 	#[arg(long, default_value_t = 30)]
 	pub sync_block_request_timeout: u64,
+
+	/// Path to the runtime disallow-list JSON file.
+	///
+	/// Defaults to `{base-path}/chains/<chain>/disallowed-runtimes.json`.
+	/// The file is created empty on first start. Add Blake2-256 hashes
+	/// (`0x…`) of runtime wasm blobs this node should refuse to import.
+	#[arg(long, value_name = "PATH")]
+	pub disallowed_runtimes_file: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, clap::Subcommand)]

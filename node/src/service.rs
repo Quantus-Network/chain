@@ -20,16 +20,21 @@ use sc_transaction_pool_api::{OffchainTransactionPoolFactory, TransactionPool};
 use sp_inherents::CreateInherentDataProviders;
 use tokio_util::sync::CancellationToken;
 
-use crate::{miner_server::MinerServer, prometheus::BusinessMetrics};
+use crate::{
+	disallowed_runtimes::{self, DisallowedRuntimesGate},
+	miner_server::MinerServer,
+	prometheus::BusinessMetrics,
+};
 use codec::Encode;
 use jsonrpsee::tokio;
 use quantus_miner_api::{ApiResponseStatus, MiningRequest, MiningResult};
 use sc_basic_authorship::ProposerFactory;
+use sc_consensus_qpow::RuntimeCodeGate;
 use sp_api::ProvideRuntimeApi;
 use sp_consensus::SyncOracle;
 use sp_consensus_qpow::QPoWApi;
 use sp_core::{crypto::AccountId32, U512};
-use std::{sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 /// Frequency of block import logging. Every 1000 blocks.
 const LOG_FREQUENCY: u64 = 1000;
@@ -185,8 +190,8 @@ async fn handle_external_mining(
 	loop {
 		let (miner_id, seal) = match wait_for_mining_result(server, &job_id, || {
 			// Interrupt if cancelled, parent block changed, OR block template was rebuilt
-			cancellation_token.is_cancelled() ||
-				worker_handle
+			cancellation_token.is_cancelled()
+				|| worker_handle
 					.metadata()
 					.map(|m| m.best_hash != best_hash || m.pre_hash != original_pre_hash)
 					.unwrap_or(true)
@@ -578,7 +583,10 @@ pub type Service = sc_service::PartialComponents<
 >;
 
 #[allow(clippy::result_large_err)]
-pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
+pub fn new_partial(
+	config: &Configuration,
+	disallowed_runtimes_file: Option<PathBuf>,
+) -> Result<Service, ServiceError> {
 	let telemetry = config
 		.telemetry_endpoints
 		.clone()
@@ -604,6 +612,23 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 	if let Err(e) = sc_consensus_qpow::initialize_genesis_achieved_work::<Block, _>(&*client) {
 		log::warn!(target: "qpow", "Failed to initialize genesis achieved work: {:?}", e);
 	}
+
+	let disallowed_path =
+		disallowed_runtimes::resolve_path(&config.data_path, disallowed_runtimes_file);
+	if let Err(e) = disallowed_runtimes::ensure_default_file(&disallowed_path) {
+		log::warn!(
+			target: "disallowed-runtimes",
+			"Failed to create {}: {e}",
+			disallowed_path.display()
+		);
+	}
+	let code_gate: Arc<dyn RuntimeCodeGate> =
+		Arc::new(DisallowedRuntimesGate::new(disallowed_path.clone()));
+	log::info!(
+		target: "disallowed-runtimes",
+		"Runtime disallow-list: {}",
+		disallowed_path.display()
+	);
 
 	let telemetry = telemetry.map(|(worker, telemetry)| {
 		task_manager.spawn_handle().spawn("telemetry", None, worker.run());
@@ -638,8 +663,10 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 	let pow_block_import = sc_consensus_qpow::PowBlockImport::new(
 		Arc::clone(&client),
 		Arc::clone(&client),
+		Arc::clone(&backend),
 		0, // check inherents starting at block 0
 		inherent_data_providers,
+		Some(code_gate),
 	);
 
 	let import_queue = sc_consensus_qpow::import_queue::<Block, FullClient>(
@@ -674,6 +701,7 @@ pub fn new_full<
 	sync_disable_major_sync_gating: bool,
 	sync_block_request_timeout: u64,
 	allow_mining_without_peers: bool,
+	disallowed_runtimes_file: Option<PathBuf>,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -684,7 +712,7 @@ pub fn new_full<
 		select_chain: _,
 		transaction_pool,
 		other: (pow_block_import, mut telemetry),
-	} = new_partial(&config)?;
+	} = new_partial(&config, disallowed_runtimes_file)?;
 
 	let tx_stream_for_worker = transaction_pool.clone().import_notification_stream();
 	#[cfg(feature = "tx-logging")]

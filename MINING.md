@@ -352,8 +352,9 @@ service and must never be reachable from the open internet.
 | `--prometheus-port` | Metrics endpoint port | `9616` |
 | `--name` | Node display name | Auto-generated |
 | `--base-path` | Data directory | `~/.local/share/quantus-node` |
+| `--disallowed-runtimes-file` | JSON list of runtime wasm hashes this node will refuse to import | `{base-path}/chains/<chain>/disallowed-runtimes.json` (created empty on first start) |
 
-
+To opt out of a contested runtime upgrade on this node only, add the Blake2-256 `0x…` hash of the proposed wasm to that file before the upgrade enacts. See [docs/RUNTIME_UPGRADE_VIA_GOVERNANCE.md](docs/RUNTIME_UPGRADE_VIA_GOVERNANCE.md).
 
 ## Monitoring Your Node
 

@@ -26,6 +26,7 @@ sp-consensus-qpow = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = true }
 sp-inherents = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = false }
+sp-state-machine = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 
 [features]
@@ -38,4 +39,5 @@ std = [
 	"sp-api/std",
 	"sp-consensus-qpow/std",
 	"sp-runtime/std",
+	"sp-state-machine/std",
 ]

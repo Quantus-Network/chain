@@ -304,21 +304,25 @@ impl SubstrateCli for Cli {
 
 	fn load_spec(&self, id: &str) -> Result<Box<dyn sc_service::ChainSpec>, String> {
 		Ok(match id {
-			"dev" =>
-				Box::new(chain_spec::development_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
-			"heisenberg_live_spec" =>
-				Box::new(chain_spec::heisenberg_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
+			"dev" => {
+				Box::new(chain_spec::development_chain_spec()?) as Box<dyn sc_service::ChainSpec>
+			},
+			"heisenberg_live_spec" => {
+				Box::new(chain_spec::heisenberg_chain_spec()?) as Box<dyn sc_service::ChainSpec>
+			},
 			"" | "heisenberg" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
 				"chain-specs/heisenberg.json"
 			))?) as Box<dyn sc_service::ChainSpec>,
-			"planck_live_spec" =>
-				Box::new(chain_spec::planck_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
+			"planck_live_spec" => {
+				Box::new(chain_spec::planck_chain_spec()?) as Box<dyn sc_service::ChainSpec>
+			},
 			"planck" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
 				"chain-specs/planck.json"
 			))?) as Box<dyn sc_service::ChainSpec>,
-			path =>
+			path => {
 				Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?)
-					as Box<dyn sc_service::ChainSpec>,
+					as Box<dyn sc_service::ChainSpec>
+			},
 		})
 	}
 }
@@ -455,21 +459,23 @@ pub fn run() -> sc_cli::Result<()> {
 			let runner = cli.create_runner(cmd)?;
 			runner.async_run(|config| {
 				let PartialComponents { client, task_manager, import_queue, .. } =
-					service::new_partial(&config)?;
+					service::new_partial(&config, cli.disallowed_runtimes_file.clone())?;
 				Ok((cmd.run(client, import_queue), task_manager))
 			})
 		},
 		Some(Subcommand::ExportBlocks(cmd)) => {
 			let runner = cli.create_runner(cmd)?;
 			runner.async_run(|config| {
-				let PartialComponents { client, task_manager, .. } = service::new_partial(&config)?;
+				let PartialComponents { client, task_manager, .. } =
+					service::new_partial(&config, cli.disallowed_runtimes_file.clone())?;
 				Ok((cmd.run(client, config.database), task_manager))
 			})
 		},
 		Some(Subcommand::ExportState(cmd)) => {
 			let runner = cli.create_runner(cmd)?;
 			runner.async_run(|config| {
-				let PartialComponents { client, task_manager, .. } = service::new_partial(&config)?;
+				let PartialComponents { client, task_manager, .. } =
+					service::new_partial(&config, cli.disallowed_runtimes_file.clone())?;
 				Ok((cmd.run(client, config.chain_spec), task_manager))
 			})
 		},
@@ -477,7 +483,7 @@ pub fn run() -> sc_cli::Result<()> {
 			let runner = cli.create_runner(cmd)?;
 			runner.async_run(|config| {
 				let PartialComponents { client, task_manager, import_queue, .. } =
-					service::new_partial(&config)?;
+					service::new_partial(&config, cli.disallowed_runtimes_file.clone())?;
 				Ok((cmd.run(client, import_queue), task_manager))
 			})
 		},
@@ -489,7 +495,7 @@ pub fn run() -> sc_cli::Result<()> {
 			let runner = cli.create_runner(cmd)?;
 			runner.async_run(|config| {
 				let PartialComponents { client, task_manager, backend, .. } =
-					service::new_partial(&config)?;
+					service::new_partial(&config, cli.disallowed_runtimes_file.clone())?;
 				let aux_revert = Box::new(|_client, _, _blocks| {
 					unimplemented!("TODO - g*randpa was removed.");
 				});
@@ -509,19 +515,21 @@ pub fn run() -> sc_cli::Result<()> {
 							config.chain_spec,
 						)),
 					BenchmarkCmd::Block(cmd) => {
-						let PartialComponents { client, .. } = service::new_partial(&config)?;
+						let PartialComponents { client, .. } =
+							service::new_partial(&config, cli.disallowed_runtimes_file.clone())?;
 						cmd.run(client)
 					},
 					BenchmarkCmd::Storage(cmd) => {
 						let PartialComponents { client, backend, .. } =
-							service::new_partial(&config)?;
+							service::new_partial(&config, cli.disallowed_runtimes_file.clone())?;
 						let db = backend.expose_db();
 						let storage = backend.expose_storage();
 
 						cmd.run(config, client, db, storage, None)
 					},
 					BenchmarkCmd::Overhead(cmd) => {
-						let PartialComponents { client, .. } = service::new_partial(&config)?;
+						let PartialComponents { client, .. } =
+							service::new_partial(&config, cli.disallowed_runtimes_file.clone())?;
 						let ext_builder = RemarkBuilder::new(client.clone());
 
 						cmd.run(
@@ -534,7 +542,8 @@ pub fn run() -> sc_cli::Result<()> {
 						)
 					},
 					BenchmarkCmd::Extrinsic(cmd) => {
-						let PartialComponents { client, .. } = service::new_partial(&config)?;
+						let PartialComponents { client, .. } =
+							service::new_partial(&config, cli.disallowed_runtimes_file.clone())?;
 						// Register the *Remark* and *TKA* builders.
 						let ext_factory = ExtrinsicFactory(vec![
 							Box::new(RemarkBuilder::new(client.clone())),
@@ -547,8 +556,9 @@ pub fn run() -> sc_cli::Result<()> {
 
 						cmd.run(client, inherent_benchmark_data()?, Vec::new(), &ext_factory)
 					},
-					BenchmarkCmd::Machine(cmd) =>
-						cmd.run(&config, SUBSTRATE_REFERENCE_HARDWARE.clone()),
+					BenchmarkCmd::Machine(cmd) => {
+						cmd.run(&config, SUBSTRATE_REFERENCE_HARDWARE.clone())
+					},
 				}
 			})
 		},
@@ -643,7 +653,7 @@ pub fn run() -> sc_cli::Result<()> {
 						);
 						AccountId32::new(inner_bytes)
 					},
-					None =>
+					None => {
 						if cli.run.shared_params.is_dev() {
 							let treasury_account =
 								quantus_runtime::configs::TreasuryPalletId::get()
@@ -660,11 +670,14 @@ pub fn run() -> sc_cli::Result<()> {
 							eprintln!("To generate an inner hash, run:");
 							eprintln!("  quantus-node key quantus --scheme wormhole\n");
 							eprintln!("Then pass the 'Inner Hash' value as --rewards-inner-hash.");
-							return Err(sc_cli::Error::Input("Missing --rewards-inner-hash".into()));
+							return Err(sc_cli::Error::Input(
+								"Missing --rewards-inner-hash".into(),
+							));
 						} else {
 							// unused for non-validator nodes, use zero placeholder.
 							AccountId32::new([0u8; 32])
-						},
+						}
+					},
 				};
 
 				// Allow mining without peers if --dev or --force-authoring is set
@@ -680,6 +693,7 @@ pub fn run() -> sc_cli::Result<()> {
 					cli.sync_disable_major_sync_gating,
 					cli.sync_block_request_timeout,
 					allow_mining_without_peers,
+					cli.disallowed_runtimes_file.clone(),
 				)
 				.map_err(sc_cli::Error::Service)
 			})

@@ -58,6 +58,36 @@ Polkadot JS Apps and the standard `@polkadot/api` **do not support** this chain'
 
 When the referendum passes, confirms, and enacts, `system.set_code` executes with Root origin and the new runtime is live immediately. No node restart is required.
 
+## Opting out of a specific upgrade (node disallow-list)
+
+Each node keeps a local JSON file of runtime wasm hashes it will **refuse to import**:
+
+```text
+{base-path}/chains/<chain>/disallowed-runtimes.json
+```
+
+Default contents (created automatically on first start):
+
+```json
+{
+  "disallowed_code_hashes": []
+}
+```
+
+To reject a proposed upgrade, add its Blake2-256 code hash (`0x` + 64 hex chars — the same hash used by `system.authorize_upgrade` / printed by runtime compare tools) before the upgrade block is imported:
+
+```json
+{
+  "disallowed_code_hashes": [
+    "0x0123abcd..."
+  ]
+}
+```
+
+The file is re-read whenever a block changes `:code`, so you do not need to restart the node after editing it. Override the path with `--disallowed-runtimes-file <path>` if needed.
+
+This only affects **your** node (and any others that list the same hash). An empty list preserves normal forkless upgrades with no coordination.
+
 ## Gotchas
 
 - Only Tech Collective members can submit or vote on the Tech track.
