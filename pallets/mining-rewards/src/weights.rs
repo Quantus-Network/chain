@@ -83,6 +83,18 @@ const MAX_LEAF_INSERTS: u64 = 3;
 const BASE_READS: u64 = 15;
 const BASE_WRITES: u64 = 10;
 
+/// Conservative PoV bound per ZK-tree storage key touched during a leaf insert's
+/// path walk (same figure and justification as `pallet-wormhole`'s `TREE_KEY_POV`:
+/// tree entries are 32-byte hashes with small keys, and the comparable benchmarked
+/// `UsedNullifiers` map with 49-byte entries has an `added` figure of 2524 per key).
+const TREE_KEY_POV: u64 = 2600;
+
+/// Conservative PoV bound per non-tree key in the fixed base. The largest key in
+/// the base is `System::Account`, whose benchmarked `added` figure is 2603;
+/// rounded up to cover the smaller `TransferCount` / `CollectedFees` /
+/// `PotentialWormholeBalance` / treasury keys uniformly.
+const BASE_KEY_POV: u64 = 2700;
+
 /// Weights for `pallet_mining_rewards` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
@@ -96,12 +108,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// weight afterwards, so the leaf inserts are priced at `MAX_TREE_DEPTH`, the
 	/// only provable upper bound.
 	///
-	/// Depth-sensitive costs are BOTH the tree reads/writes and the compute:
-	/// `update_path` performs one Poseidon hash per tree level, so each insert's
-	/// `ref_time` grows with depth too. The benchmark ran against a fresh tree and
-	/// its measured base cannot bound deep-tree hashing, so the per-level hash
-	/// cost is added on top, also at `MAX_TREE_DEPTH`. The proof size stays at the
-	/// benchmarked value.
+	/// Depth-sensitive costs are the tree reads/writes, the compute, AND the proof
+	/// size: `update_path` performs one Poseidon hash per tree level (so each
+	/// insert's `ref_time` grows with depth), and every sibling/path key it reads
+	/// must appear in the state proof (so PoV grows with depth too). The benchmark
+	/// ran against a fresh tree and cannot bound either, so the per-level hash cost
+	/// and a per-key PoV bound are charged on top, all at `MAX_TREE_DEPTH`. The
+	/// base PoV likewise prices every fixed-base key (`BASE_READS ×
+	/// BASE_KEY_POV`) rather than the shallow benchmark's two-transfer snapshot.
 	fn on_finalize_rewarded_miner() -> Weight {
 		// Minimum execution time: 161_000_000 picoseconds.
 		let (tree_reads, tree_writes) =
@@ -109,7 +123,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		let hash_time = MAX_LEAF_INSERTS.saturating_mul(
 			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
 		);
-		Weight::from_parts(163_000_000_u64.saturating_add(hash_time), 8619)
+		let proof_size = BASE_READS.saturating_mul(BASE_KEY_POV).saturating_add(
+			MAX_LEAF_INSERTS.saturating_mul(tree_reads).saturating_mul(TREE_KEY_POV),
+		);
+		Weight::from_parts(163_000_000_u64.saturating_add(hash_time), proof_size)
 			.saturating_add(T::DbWeight::get().reads(
 				BASE_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_reads)),
 			))
@@ -130,7 +147,10 @@ impl WeightInfo for () {
 		let hash_time = MAX_LEAF_INSERTS.saturating_mul(
 			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
 		);
-		Weight::from_parts(163_000_000_u64.saturating_add(hash_time), 8619)
+		let proof_size = BASE_READS.saturating_mul(BASE_KEY_POV).saturating_add(
+			MAX_LEAF_INSERTS.saturating_mul(tree_reads).saturating_mul(TREE_KEY_POV),
+		);
+		Weight::from_parts(163_000_000_u64.saturating_add(hash_time), proof_size)
 			.saturating_add(RocksDbWeight::get().reads(
 				BASE_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_reads)),
 			))
@@ -146,14 +166,18 @@ mod tests {
 
 	/// The finalize cost the hook actually incurs when the tree sits at `depth`
 	/// while it runs: the benchmarked base plus three leaf inserts at that depth —
-	/// both their database operations AND their per-level Poseidon hashing, which
-	/// `update_path` performs once per tree level and therefore also grows with
-	/// depth.
+	/// their database operations, their per-level Poseidon hashing (`update_path`
+	/// hashes once per tree level), AND their proof size: every key the path walk
+	/// reads must appear in the state proof, so PoV grows with depth exactly like
+	/// the read count does.
 	fn finalize_cost_at_depth(depth: u8) -> Weight {
 		let (tree_reads, tree_writes) = pallet_zk_tree::insert_leaf_db_ops_at_depth(depth);
 		let hash_time = MAX_LEAF_INSERTS
 			.saturating_mul(pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(depth));
-		Weight::from_parts(163_000_000_u64.saturating_add(hash_time), 8619)
+		let proof_size = BASE_READS.saturating_mul(BASE_KEY_POV).saturating_add(
+			MAX_LEAF_INSERTS.saturating_mul(tree_reads).saturating_mul(TREE_KEY_POV),
+		);
+		Weight::from_parts(163_000_000_u64.saturating_add(hash_time), proof_size)
 			.saturating_add(RocksDbWeight::get().reads(
 				BASE_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_reads)),
 			))
@@ -202,6 +226,32 @@ mod tests {
 	/// must price those non-tree ops independently for all three transfers — the
 	/// same no-dedup stance as `MAX_LEAF_INSERTS` — not the two-account snapshot
 	/// the shallow benchmark happened to observe.
+	/// Regression for the stale PoV bound: reads and compute were repriced at
+	/// `MAX_TREE_DEPTH`, but the proof-size component stayed at the shallow
+	/// benchmark's constant. Every sibling/path key the three inserts read at
+	/// depth must appear in the state proof, and the expanded fixed base (third
+	/// account/transfer pair, `PotentialWormholeBalance`) needs proof bytes too —
+	/// so the declared PoV must scale with tree reads and cover every base key.
+	#[test]
+	fn proof_size_scales_with_depth_and_covers_base_keys() {
+		let shallow = finalize_cost_at_depth(1);
+		let deep = finalize_cost_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
+		assert!(
+			deep.proof_size() > shallow.proof_size(),
+			"finalize PoV must grow with tree depth"
+		);
+
+		let reserved = <() as WeightInfo>::on_finalize_rewarded_miner();
+		let (tree_reads, _) =
+			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
+		assert!(
+			reserved.proof_size() >=
+				BASE_READS * BASE_KEY_POV +
+					MAX_LEAF_INSERTS * tree_reads * TREE_KEY_POV,
+			"reserved PoV must cover every base key plus all tree path keys at MAX_TREE_DEPTH"
+		);
+	}
+
 	#[test]
 	fn base_covers_three_reward_transfers_including_potential_balance() {
 		// Once per finalize (outside the per-transfer mint/record path).
