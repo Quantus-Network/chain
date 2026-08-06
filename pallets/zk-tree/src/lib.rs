@@ -60,35 +60,20 @@ pub fn insert_leaf_db_ops_at_depth(depth: u8) -> (u64, u64) {
 	(3 * d + 4, d + 5)
 }
 
-/// Conservative worst-case execution time (`ref_time`, picoseconds) of one Poseidon
-/// evaluation as performed by [`tree::hash_node`] / [`tree::hash_leaf`].
-///
-/// Measured at ~3.3µs per `hash_node` call in a native release build (see the
-/// `measure_hash_node_time` ignored test in `tree.rs`); padded ~15x for wasm
-/// execution overhead and slower reference hardware. Over-charging is the safe
-/// direction for a mandatory hook's reserved weight.
+/// Worst-case `ref_time` (picoseconds) of one Poseidon evaluation
+/// ([`tree::hash_node`] / [`tree::hash_leaf`]). Padded for wasm / slower hardware.
 pub const POSEIDON_EVAL_REF_TIME_PS: u64 = 50_000_000;
 
-/// Number of Poseidon evaluations one [`Pallet::insert_leaf`] performs when the tree
-/// is currently at `depth`.
-///
-/// Like [`insert_leaf_db_ops_at_depth`], costing is done at `depth + 1` (capped at
-/// [`MAX_TREE_DEPTH`]) so an insert that triggers tree growth is covered. At
-/// effective depth `d`: `hash_leaf` (1) + `update_path`'s per-level `hash_node` (d)
-/// + `grow_tree`'s `hash_node` (1).
+/// Poseidon evaluations for one [`Pallet::insert_leaf`] at `depth`
+/// (`hash_leaf` + per-level `hash_node` + grow). Costed at `depth + 1` like
+/// [`insert_leaf_db_ops_at_depth`].
 pub fn insert_leaf_poseidon_evals_at_depth(depth: u8) -> u64 {
 	let d = depth.saturating_add(1).min(MAX_TREE_DEPTH) as u64;
 	d + 2
 }
 
-/// Depth-dependent compute cost (`ref_time`, picoseconds) of one
-/// [`Pallet::insert_leaf`] at the given current `depth`.
-///
-/// `update_path` walks the tree leaf-to-root invoking a Poseidon hash at every
-/// level, so the insert's CPU work — not just its database work — grows with tree
-/// depth. Weight metering that scales [`insert_leaf_db_ops_at_depth`] with depth
-/// must scale this compute component the same way, otherwise the declared
-/// `ref_time` silently falls behind the real hashing work as the tree deepens.
+/// Depth-dependent insert compute (`ref_time`); scales with tree depth the same
+/// way as [`insert_leaf_db_ops_at_depth`].
 pub fn insert_leaf_hash_ref_time_at_depth(depth: u8) -> u64 {
 	insert_leaf_poseidon_evals_at_depth(depth).saturating_mul(POSEIDON_EVAL_REF_TIME_PS)
 }

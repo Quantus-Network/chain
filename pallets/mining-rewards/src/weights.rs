@@ -62,60 +62,29 @@ pub trait WeightInfo {
 /// worst case.
 const MAX_LEAF_INSERTS: u64 = 3;
 
-/// Non-Zk-tree storage for the worst-case finalize path, split out from the
-/// leaf-insert cost so the latter can be priced at `MAX_TREE_DEPTH`.
+/// Non-tree storage for the worst-case finalize path.
 ///
-/// Once per finalize: `MiningRewards::CollectedFees` (r1 w1),
-/// `TreasuryPallet::TreasuryPortion` (r1), `TreasuryPallet::TreasuryAccount` (r1).
+/// Once per finalize: `CollectedFees` (r1 w1), `TreasuryPortion` (r1),
+/// `TreasuryAccount` (r1).
 ///
-/// Per reward transfer × [`MAX_LEAF_INSERTS`], priced independently with no
-/// cross-transfer storage dedup (same stance as the leaf inserts), at the
-/// worst-case redirect path — a failed miner mint (`System::Account` r1)
-/// falling back to a successful treasury mint (`System::Account` r1 w1),
-/// `Wormhole::TransferCount` (r1 w1), and the conditional
-/// `Wormhole::PotentialWormholeBalance` deposit add when the recipient is
-/// ambiguous (r1 w1): 4 reads, 3 writes. The all-mints-fail path (rolling the
-/// amount back into `CollectedFees` instead) costs strictly less and stays
-/// within this envelope. The shallow benchmark only observed two unique
-/// Account/TransferCount keys and predated both the potential-balance write
-/// and the failed-mint retention, so its measured base is not a complete
-/// bound.
+/// Per reward transfer × [`MAX_LEAF_INSERTS`], priced independently: failed miner
+/// mint (Account r1) → successful treasury mint (Account r1 w1) + `TransferCount`
+/// (r1 w1) + conditional `PotentialWormholeBalance` (r1 w1) = 4 reads, 3 writes.
 const BASE_READS: u64 = 15;
 const BASE_WRITES: u64 = 10;
 
-/// Conservative PoV bound per ZK-tree storage key touched during a leaf insert's
-/// path walk (same figure and justification as `pallet-wormhole`'s `TREE_KEY_POV`:
-/// tree entries are 32-byte hashes with small keys, and the comparable benchmarked
-/// `UsedNullifiers` map with 49-byte entries has an `added` figure of 2524 per key).
+/// PoV per ZK-tree path key (matches `pallet-wormhole`'s `TREE_KEY_POV`).
 const TREE_KEY_POV: u64 = 2600;
 
-/// Conservative PoV bound per non-tree key in the fixed base. The largest key in
-/// the base is `System::Account`, whose benchmarked `added` figure is 2603;
-/// rounded up to cover the smaller `TransferCount` / `CollectedFees` /
-/// `PotentialWormholeBalance` / treasury keys uniformly.
+/// PoV per fixed-base key (rounded up from `System::Account` MaxEncodedLen).
 const BASE_KEY_POV: u64 = 2700;
 
 /// Weights for `pallet_mining_rewards` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
-	/// `on_finalize` mints up to three rewards, each recording a wormhole transfer
-	/// proof whose ZK-tree leaf insert walks the tree leaf-to-root, so its cost
-	/// grows with the tree depth *at finalize*. This weight is reserved in
-	/// `on_initialize`, before any extrinsics run, and the tree can grow by several
-	/// depths in between (a single public-batch exit bundle inserts hundreds of
-	/// leaves), so the start-of-block depth — even plus one — is not a bound on the
-	/// depth the hook will walk. Mandatory finalization cannot correct its consumed
-	/// weight afterwards, so the leaf inserts are priced at `MAX_TREE_DEPTH`, the
-	/// only provable upper bound.
-	///
-	/// Depth-sensitive costs are the tree reads/writes, the compute, AND the proof
-	/// size: `update_path` performs one Poseidon hash per tree level (so each
-	/// insert's `ref_time` grows with depth), and every sibling/path key it reads
-	/// must appear in the state proof (so PoV grows with depth too). The benchmark
-	/// ran against a fresh tree and cannot bound either, so the per-level hash cost
-	/// and a per-key PoV bound are charged on top, all at `MAX_TREE_DEPTH`. The
-	/// base PoV likewise prices every fixed-base key (`BASE_READS ×
-	/// BASE_KEY_POV`) rather than the shallow benchmark's two-transfer snapshot.
+	/// Reserved in `on_initialize` before extrinsics can grow the tree, so leaf
+	/// inserts are priced at `MAX_TREE_DEPTH`: DB ops, Poseidon hashing, and PoV
+	/// all scale with depth (`update_path` hashes and reads siblings per level).
 	fn on_finalize_rewarded_miner() -> Weight {
 		// Minimum execution time: 161_000_000 picoseconds.
 		let (tree_reads, tree_writes) =
@@ -164,12 +133,7 @@ impl WeightInfo for () {
 mod tests {
 	use super::*;
 
-	/// The finalize cost the hook actually incurs when the tree sits at `depth`
-	/// while it runs: the benchmarked base plus three leaf inserts at that depth —
-	/// their database operations, their per-level Poseidon hashing (`update_path`
-	/// hashes once per tree level), AND their proof size: every key the path walk
-	/// reads must appear in the state proof, so PoV grows with depth exactly like
-	/// the read count does.
+	/// Finalize cost at a given tree depth (DB ops + hashing + PoV).
 	fn finalize_cost_at_depth(depth: u8) -> Weight {
 		let (tree_reads, tree_writes) = pallet_zk_tree::insert_leaf_db_ops_at_depth(depth);
 		let hash_time = MAX_LEAF_INSERTS
@@ -186,17 +150,9 @@ mod tests {
 			))
 	}
 
-	/// Regression test for the stale-depth hole: the weight is reserved in
-	/// `on_initialize` (shallow tree), but intervening extrinsics can grow the tree
-	/// by any number of depths before `on_finalize` walks it — a single public-batch
-	/// exit bundle alone inserts hundreds of leaves. The reserved weight must
-	/// therefore cover the finalize cost at *every* depth the tree can reach by
-	/// end of block, up to the hard `MAX_TREE_DEPTH` cap, not just the
-	/// start-of-block depth plus one.
+	/// Reserved weight must cover finalize at every reachable end-of-block depth.
 	#[test]
 	fn reserved_weight_covers_any_end_of_block_depth() {
-		// The reservation is depth-independent (it never reads the live tree), so
-		// what it returns at the shallow start-of-block state is what the block got.
 		let reserved = <() as WeightInfo>::on_finalize_rewarded_miner();
 
 		for end_depth in 0..=pallet_zk_tree::MAX_TREE_DEPTH {
@@ -208,30 +164,13 @@ mod tests {
 		}
 	}
 
-	/// The weight must price its leaf inserts at `MAX_TREE_DEPTH`: it is the only
-	/// upper bound on the tree depth at finalize that holds regardless of what runs
-	/// earlier in the block. (`SubstrateWeight` is the identical formula with the
-	/// runtime's configured `DbWeight`; the mock's zero `DbWeight` makes asserting
-	/// on it vacuous, so only the RocksDb fallback is pinned here.)
 	#[test]
 	fn weight_is_priced_at_max_tree_depth() {
 		let expected = finalize_cost_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
 		assert_eq!(<() as WeightInfo>::on_finalize_rewarded_miner(), expected);
 	}
 
-	/// Regression for the incomplete fixed base: `on_finalize` can successfully
-	/// `mint_into` + `record_transfer_proof` three times (fees, miner reward,
-	/// treasury), and each native `record_transfer` may also mutate
-	/// `PotentialWormholeBalance` for an ambiguous recipient. The reserved base
-	/// must price those non-tree ops independently for all three transfers — the
-	/// same no-dedup stance as `MAX_LEAF_INSERTS` — not the two-account snapshot
-	/// the shallow benchmark happened to observe.
-	/// Regression for the stale PoV bound: reads and compute were repriced at
-	/// `MAX_TREE_DEPTH`, but the proof-size component stayed at the shallow
-	/// benchmark's constant. Every sibling/path key the three inserts read at
-	/// depth must appear in the state proof, and the expanded fixed base (third
-	/// account/transfer pair, `PotentialWormholeBalance`) needs proof bytes too —
-	/// so the declared PoV must scale with tree reads and cover every base key.
+	/// PoV must grow with tree depth and cover every base + path key at max depth.
 	#[test]
 	fn proof_size_scales_with_depth_and_covers_base_keys() {
 		let shallow = finalize_cost_at_depth(1);

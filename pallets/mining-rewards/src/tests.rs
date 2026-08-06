@@ -352,12 +352,7 @@ fn fees_go_to_treasury_when_no_miner() {
 	});
 }
 
-/// A treasury that temporarily cannot receive mints must not permanently lose
-/// that block's rewards. Transaction fees were already burned from fee payers
-/// during execution — on_finalize re-mints them — so a failed treasury mint
-/// that just emits TreasuryMintFailed and drops the amount destroys value that
-/// demonstrably existed. The failed amount must be retained in recoverable
-/// state and minted once the treasury can receive again.
+/// Failed treasury mints are retained in CollectedFees and recovered later.
 #[test]
 fn failed_treasury_mint_is_retained_and_recovered() {
 	new_test_ext().execute_with(|| {
@@ -407,8 +402,6 @@ fn failed_treasury_mint_is_retained_and_recovered() {
 	});
 }
 
-/// While the treasury outage persists, repeated finalizations must keep
-/// accumulating the failed amounts instead of overwriting or dropping them.
 #[test]
 fn unminted_rewards_accumulate_across_consecutive_outage_blocks() {
 	new_test_ext().execute_with(|| {
@@ -439,9 +432,6 @@ fn unminted_rewards_accumulate_across_consecutive_outage_blocks() {
 	});
 }
 
-/// A retried amount follows the normal fee destination: when the next block
-/// has a miner, the previously failed treasury-directed rewards are paid to
-/// that miner as fees rather than lingering or being force-directed anywhere.
 #[test]
 fn retried_rewards_follow_fee_destination_to_next_miner() {
 	new_test_ext().execute_with(|| {

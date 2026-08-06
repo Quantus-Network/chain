@@ -883,24 +883,11 @@ pub mod pallet {
 				Self::deposit_event(Event::SegmentsDenied { indices: denied_segments });
 			}
 
-			// Mint the exits BEFORE settling fees or emitting ProofVerified: a slot
-			// whose credit fails is skipped (see the loop comment below), so its value
-			// is never minted and never committed. Settling a fee share or reporting an
-			// exit amount for that slot would burn / pay out value for an exit that
-			// never happened, and hand event consumers an exit_amount larger than what
-			// TotalWormholeExits records. Everything downstream is therefore derived
-			// from `minted_exit_amount` — the finalized total of successful credits.
+			// Mint exits first; fees and ProofVerified use only successfully minted amounts.
 			let mut minted_exit_amount: BalanceOf<T> = Zero::zero();
 			for (exit_account, exit_balance) in &processed_accounts {
-				// Native token transfer - mint tokens to the exit account.
-				//
-				// A single exit that can't be minted (e.g. a below-existential-deposit
-				// credit to a fresh account) must not revert the whole bundle and deny
-				// every co-bundled user's exit — that is the per-segment isolation
-				// documented on `ExitSegment`. Skip just this slot; its nullifier is
-				// already marked so the deposit cannot be re-exited, and the skipped
-				// value is left out of the fee settlement, the ProofVerified event and
-				// the committed exit total below.
+				// Skip failed credits (e.g. below ED); nullifier already marked, value
+				// excluded from fee settlement / event / TotalWormholeExits.
 				match <T::Currency as Unbalanced<_>>::increase_balance(
 					exit_account,
 					*exit_balance,
@@ -935,16 +922,12 @@ pub mod pallet {
 				);
 			}
 
-			// Emit the finalized exit amount — what actually minted, and what is
-			// committed to TotalWormholeExits below — not the attempted total.
 			Self::deposit_event(Event::ProofVerified {
 				exit_amount: minted_exit_amount,
 				nullifiers: nullifier_list,
 			});
 
-			// Compute the total fee from the minted outputs
-			// fee = minted_output_amount * volume_fee_bps / (10000 - volume_fee_bps)
-			// This is the fee that was deducted from input to get output.
+			// fee = minted_output * volume_fee_bps / (10000 - volume_fee_bps)
 			let fee_bps = T::VolumeFeeRateBps::get() as u128;
 			let total_exit_u128: u128 = minted_exit_amount.try_into().map_err(|_| {
 				log::error!("Failed to convert minted_exit_amount to u128");

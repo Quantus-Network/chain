@@ -61,45 +61,23 @@ pub trait WeightInfo {
 	fn verify_public_batch() -> Weight;
 }
 
-/// Measured compute base for the production `pre_validate_private_batch_proof`
-/// path (proof deserialization + public-input parsing + `ExitBundle` construction +
-/// `validate_exit_bundle_common` segment validation), priced at the all-valid
-/// worst case (all `NUM_LEAF_PROOFS` nullifier slots real and unused — the
-/// fixture's dummy padding is compensated with a synthetic worst-case bundle,
-/// see `benchmarking::worst_case_bundle`).
-///
-/// Calibration 2026-08-06: worst-case path measured 181 µs native-release against
-/// 167 µs for deserialization alone; scaled by this path's observed wasm-compiled
-/// factor (550 µs / 167 µs ≈ 3.3× from the 2026-07-30 benchmark run) that is
-/// ~600 µs, padded to 700 µs. Re-run the `pre_validate_proof` benchmark to
+/// Compute for production private-batch pre-validation at the all-valid worst
+/// case (see `benchmarking::worst_case_bundle`). Re-run `pre_validate_proof` to
 /// regenerate.
 const PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS: u64 = 700_000_000;
 
-/// Measured compute base for the production `pre_validate_public_batch_proof` path
-/// (deserialization + parsing + `ExitBundle::from_public_batch` across all
-/// `NUM_PRIVATE_BATCH_PROOFS` segments + full segment validation), priced at the
-/// all-valid worst case: every segment non-inert, so all
-/// `NUM_PRIVATE_BATCH_PROOFS × NUM_LEAF_PROOFS` nullifier normalizations,
-/// dedup/claimed-set operations and `UsedNullifiers` reads execute (the fixture's
-/// 52 dummy segments are skipped as inert by `segment_validity`, so a synthetic
-/// worst-case bundle is measured on top — see `benchmarking::worst_case_bundle`).
-///
-/// Calibration 2026-08-06 at NUM_PRIVATE_BATCH_PROOFS=53: worst-case path 597 µs
-/// native-release (vs 257 µs with the fixture's padding skips and 240 µs
-/// deserialize-only); scaled by this path's wasm-compiled factor
-/// (1578 µs / 240 µs ≈ 6.6–7.1×) that is ~4.2 ms, padded to 4.5 ms. Re-run the
-/// `pre_validate_public_batch_proof` benchmark to regenerate.
+/// Compute for production public-batch pre-validation at the all-valid worst
+/// case (every segment non-inert; see `benchmarking::worst_case_bundle`).
+/// Re-run `pre_validate_public_batch_proof` to regenerate.
 const PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS: u64 = 4_500_000_000;
 
-/// Measured ZK verification time for a private-batch proof (2026-07-30).
+/// ZK verification time for a private-batch proof.
 const PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS: u64 = 14_965_000_000;
 
-/// Measured ZK verification time for a public-batch proof (2026-07-30,
-/// NUM_PRIVATE_BATCH_PROOFS=53).
+/// ZK verification time for a public-batch proof.
 const PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS: u64 = 20_686_000_000;
 
-/// Historical hand-augmentation calibrated for a private-batch of 16 leaves
-/// (2 exit slots/leaf → 32 exit mints). See `verify_private_batch` docs.
+/// Storage-tail calibration basis: 32 exit mints (16 leaves × 2 slots).
 const STORAGE_CALIBRATION_EXITS: u64 = 32;
 const STORAGE_CALIBRATION_READS: u64 = 200;
 const STORAGE_CALIBRATION_WRITES: u64 = 170;
@@ -124,18 +102,8 @@ fn public_batch_max_exits() -> u64 {
 /// `UsedNullifiers` map (49-byte entries) has an `added` figure of 2524 per key.
 const TREE_KEY_POV: u64 = 2600;
 
-/// Scale the calibrated storage tail to `exits` exit mints, adding the
-/// depth-dependent ZK-tree update cost per exit.
-///
-/// `process_exit_bundle` calls `record_transfer` once per exit mint, and each call
-/// walks the ZK tree leaf-to-root (`tree_ops_per_exit` reads/writes, growing with
-/// tree depth). The historical calibration was measured against a near-empty tree,
-/// so the depth-dependent walk is charged explicitly on top; the small tree
-/// component already embedded in the calibration is deliberately not deducted
-/// (over-charging is the safe direction).
-///
-/// Adds one extra account read/write for the public-batch aggregator rebate when
-/// `include_aggregator` is set.
+/// Scale the storage tail to `exits` mints, plus depth-dependent ZK-tree ops per
+/// exit. When `include_aggregator` is set, adds one account r/w for the rebate.
 fn storage_tail(
 	exits: u64,
 	include_aggregator: bool,
@@ -176,13 +144,8 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 	/// Storage: `Wormhole::UsedNullifiers` (r:NUM_LEAF_PROOFS w:0)
 	/// Proof: `Wormhole::UsedNullifiers` (`max_values`: None, `max_size`: Some(49), added: 2524, mode: `MaxEncodedLen`)
 	///
-	/// The nullifier existence scan reads one `UsedNullifiers` key per leaf proof, so
-	/// reads and PoV are derived from `circuit_config::NUM_LEAF_PROOFS` (a build-time
-	/// knob) rather than baked in from the benchmark's aggregation size.
-	///
-	/// The compute base prices the *full* production pre-validation (deserialize,
-	/// parse public inputs, build the `ExitBundle`, run segment validation) — the
-	/// same path the `pre_validate_proof` benchmark now executes.
+	/// One `UsedNullifiers` read per leaf proof; compute covers full production
+	/// pre-validation (deserialize, parse, bundle build, segment validation).
 	fn pre_validate_proof() -> Weight {
 		let nullifier_reads = circuit_config::NUM_LEAF_PROOFS as u64;
 		// PoV: 2519 per benchmarked `BlockHash` key + 2524 per `UsedNullifiers` key.
@@ -190,10 +153,8 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 		Weight::from_parts(PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS, proof_size)
 			.saturating_add(T::DbWeight::get().reads(1_u64.saturating_add(nullifier_reads)))
 	}
-	/// Public-batch pre-validation (`System::BlockHash` r:1 + `UsedNullifiers` r:
-	/// NUM_PRIVATE_BATCH_PROOFS * NUM_LEAF_PROOFS). The compute base prices the full
-	/// production path: deserialize, parse, `ExitBundle::from_public_batch` across
-	/// all inner segments, and segment validation.
+	/// Public-batch pre-validation: `BlockHash` + all inner-segment nullifier reads,
+	/// with full production-path compute.
 	fn pre_validate_public_batch_proof() -> Weight {
 		let nullifier_reads = (circuit_config::NUM_PRIVATE_BATCH_PROOFS *
 			circuit_config::NUM_LEAF_PROOFS) as u64;
@@ -202,15 +163,8 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 		Weight::from_parts(PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS, proof_size)
 			.saturating_add(T::DbWeight::get().reads(1_u64.saturating_add(nullifier_reads)))
 	}
-	/// Full private-batch proof verification on the inclusion path:
-	/// - `pre_dispatch`: cheap prevalidation + ZK verify
-	/// - dispatch body: cheap prevalidation again (to recover the bundle) + state updates
-	///
-	/// Base = measured ZK verify. Both prevalidations perform the block-hash read and
-	/// the per-leaf `UsedNullifiers` scan, so [`Self::pre_validate_proof`] is charged
-	/// twice *in full* (compute + DB reads + PoV each). Storage is scaled from a
-	/// calibration of 32 exit mints to `2 · NUM_LEAF_PROOFS`. Keep this augmentation
-	/// when regenerating.
+	/// Inclusion path: ZK verify + pre-validation twice (`pre_dispatch` and dispatch
+	/// body), each charged in full (compute + DB + PoV), plus exit-processing storage.
 	fn verify_private_batch() -> Weight {
 		let tree_ops = pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops();
 		let (reads, writes, proof_size) =
@@ -221,13 +175,8 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 			.saturating_add(Self::pre_validate_proof())
 			.saturating_add(Self::pre_validate_proof())
 	}
-	/// Public-batch inclusion path: same double-prevalidation shape as
-	/// [`Self::verify_private_batch`], with heavier ZK time and storage scaled across
-	/// all inner segments plus the aggregator rebate.
-	/// [`Self::pre_validate_public_batch_proof`] is charged twice in full: once for
-	/// `pre_dispatch` and once for the dispatch-body re-scan.
-	///
-	/// Re-measure the ZK / pre-validate bases whenever `NUM_PRIVATE_BATCH_PROOFS` changes.
+	/// Same double-prevalidation shape as [`Self::verify_private_batch`], scaled
+	/// across all inner segments plus the aggregator rebate.
 	fn verify_public_batch() -> Weight {
 		let tree_ops = pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops();
 		let (reads, writes, proof_size) = storage_tail(public_batch_max_exits(), true, tree_ops);
@@ -304,9 +253,6 @@ mod tests {
 		}
 	}
 
-	/// The exit-verification storage tail must grow with ZK-tree depth: every
-	/// processed exit walks the tree leaf-to-root, so a deeper tree means more real
-	/// database work per exit and the declared weight has to track it.
 	#[test]
 	fn exit_storage_tail_scales_with_tree_depth() {
 		let exits = private_batch_max_exits();
@@ -318,10 +264,7 @@ mod tests {
 		assert!(deep.2 > shallow.2, "proof size must grow with tree depth");
 	}
 
-	/// `SubstrateWeight` must price the tree component from the *live* depth, and the
-	/// depth-blind `()` impl (which prices at `MAX_TREE_DEPTH`) must never charge less
-	/// than `SubstrateWeight` at any live depth. The mock's `DbWeight` is zero, so the
-	/// depth sensitivity is observed through the PoV component.
+	/// Live-depth pricing in `SubstrateWeight`; `()` impl is a worst-case floor.
 	#[test]
 	fn substrate_weight_reads_live_depth_and_unit_impl_is_worst_case() {
 		crate::mock::new_test_ext().execute_with(|| {
@@ -341,12 +284,7 @@ mod tests {
 		});
 	}
 
-	/// Inclusion runs cheap prevalidation twice: once in `pre_dispatch` (via the full
-	/// validate, together with the ZK verify) and once in the dispatch body to recover
-	/// the bundle. Both executions perform the block-hash read and the per-leaf
-	/// `UsedNullifiers` scan, so the declared verify weight must cover TWO complete
-	/// pre-validations — compute, database reads, and proof size — on top of the
-	/// ZK-verify + exit-processing storage tail.
+	/// Verify weights must cover both pre-validations (compute + PoV).
 	#[test]
 	fn verify_weights_cover_both_prevalidations() {
 		crate::mock::new_test_ext().execute_with(|| {
@@ -355,8 +293,6 @@ mod tests {
 			let tree_ops =
 				pallet_zk_tree::Pallet::<crate::mock::Test>::insert_leaf_db_ops();
 
-			// The mock's DbWeight is zero, so ref_time only observes compute here;
-			// the DB-read component is asserted through the `()` impl below.
 			let pre_private = W::pre_validate_proof();
 			let verify_private = W::verify_private_batch();
 			let (_, _, private_tail_pov) =
@@ -388,9 +324,7 @@ mod tests {
 		});
 	}
 
-	/// Same double-prevalidation bound for the `()` impl, where `RocksDbWeight` is
-	/// nonzero: the ref_time assertion here catches a missing pre-dispatch DB-read
-	/// charge that the zero-DbWeight mock cannot observe.
+	/// Same bound on the `()` impl (nonzero `RocksDbWeight` catches missing DB reads).
 	#[test]
 	fn unit_impl_verify_weights_cover_both_prevalidations() {
 		let tree_ops =
@@ -435,22 +369,10 @@ mod tests {
 		);
 	}
 
-	/// The pre-validation compute base must price the *production* path at the
-	/// all-valid worst case, which does strictly more work than the two
-	/// calibrations it replaced: the deserialize-only micro-benchmark (550 µs
-	/// private / 1578 µs public, 2026-07-30) and the fixture-only production run
-	/// whose dummy-padded segments were skipped as inert by `segment_validity`
-	/// (~1.9 ms public, 2026-08-06). Guard both floors so a regenerated weights
-	/// file can't silently regress to either under-measurement.
+	/// Floor so regenerated weights can't under-price the all-valid worst case.
 	#[test]
 	fn pre_validation_compute_covers_production_path() {
-		assert!(
-			PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS > 550_000_000,
-			"private pre-validate compute must exceed the deserialize-only measurement"
-		);
-		assert!(
-			PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS > 1_900_000_000,
-			"public pre-validate compute must exceed the inert-skip fixture measurement"
-		);
+		assert!(PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS > 550_000_000);
+		assert!(PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS > 1_900_000_000);
 	}
 }

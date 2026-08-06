@@ -1781,25 +1781,14 @@ mod exit_bundle_tests {
 			);
 			assert_ok!(Wormhole::process_exit_bundle(b));
 
-			// The skipped exit's value was never minted and never committed, so no
-			// fee attributable to it may be settled: the fee (fully burned here — no
-			// aggregator, no block author in tests) must be computed from the minted
-			// total only, not the attempted total.
 			let fee_bps = VolumeFeeRateBps::get() as u128;
 			let fee_minted = scaled(AMOUNT_B) * fee_bps / (10_000 - fee_bps);
 			let fee_attempted =
 				(scaled(AMOUNT_A) + scaled(AMOUNT_B)) * fee_bps / (10_000 - fee_bps);
-			assert_ne!(fee_minted, fee_attempted, "test must distinguish the two totals");
+			assert_ne!(fee_minted, fee_attempted);
 
 			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();
-			assert_eq!(
-				issuance_before - issuance_after,
-				fee_minted,
-				"fee settlement must be based on successfully minted exits only"
-			);
-
-			// ProofVerified must report the finalized (minted) exit amount, matching
-			// what was committed to TotalWormholeExits — not the attempted total.
+			assert_eq!(issuance_before - issuance_after, fee_minted);
 			assert_eq!(TotalWormholeExits::<Test>::get(), scaled(AMOUNT_B));
 			System::assert_has_event(
 				crate::Event::<Test>::ProofVerified {
@@ -2128,8 +2117,7 @@ mod public_batch_proof_tests {
 	}
 }
 
-/// Manual timing harness used to calibrate the hand-maintained pre-validation
-/// compute constants in `weights.rs`. Run with:
+/// Timing harness for `weights.rs` pre-validation constants.
 /// `cargo test -p pallet-wormhole --release measure_pre_validation_time -- --ignored --nocapture`
 #[cfg(test)]
 mod pre_validation_timing {
@@ -2154,8 +2142,6 @@ mod pre_validation_timing {
 		}
 	}
 
-	/// All-real, all-valid bundle: every segment non-inert with distinct unused
-	/// nullifiers (mirrors `benchmarking::worst_case_bundle`).
 	fn worst_case_bundle(
 		block_data: qp_wormhole_verifier::BlockData,
 		num_segments: usize,
