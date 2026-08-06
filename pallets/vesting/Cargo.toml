@@ -34,6 +34,14 @@ sp-io = { workspace = true, default-features = true }
 
 [features]
 default = ["std"]
+runtime-benchmarks = [
+	"dep:pallet-timestamp",
+	"frame-benchmarking/runtime-benchmarks",
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+	"pallet-timestamp/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
+]
 std = [
 	"codec/std",
 	"frame-benchmarking?/std",
@@ -43,14 +51,6 @@ std = [
 	"pallet-timestamp?/std",
 	"scale-info/std",
 	"sp-runtime/std",
-]
-runtime-benchmarks = [
-	"dep:pallet-timestamp",
-	"frame-benchmarking/runtime-benchmarks",
-	"frame-support/runtime-benchmarks",
-	"frame-system/runtime-benchmarks",
-	"pallet-timestamp/runtime-benchmarks",
-	"sp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
