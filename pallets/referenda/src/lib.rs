@@ -93,7 +93,9 @@ pub mod migration;
 mod types;
 pub mod weights;
 
-use self::branch::{BeginDecidingBranch, OneFewerDecidingBranch, ServiceBranch};
+use self::branch::{
+	alarm_retry_weight, BeginDecidingBranch, OneFewerDecidingBranch, ServiceBranch,
+};
 pub use self::{
 	pallet::*,
 	types::{
@@ -470,7 +472,9 @@ pub mod pallet {
 		///
 		/// Emits `Submitted`.
 		#[pallet::call_index(0)]
-		#[pallet::weight(T::WeightInfo::submit())]
+		// `submit` schedules the undeciding-timeout alarm, bearing the worst-case
+		// `set_alarm` retry overhead.
+		#[pallet::weight(T::WeightInfo::submit().saturating_add(alarm_retry_weight::<T, I>()))]
 		pub fn submit(
 			origin: OriginFor<T>,
 			proposal_origin: Box<PalletsOriginOf<T>>,
@@ -587,7 +591,9 @@ pub mod pallet {
 		///
 		/// Emits `Cancelled`.
 		#[pallet::call_index(3)]
-		#[pallet::weight(T::WeightInfo::cancel())]
+		// May defer `one_fewer_deciding` via `set_alarm`, bearing its worst-case retry
+		// overhead.
+		#[pallet::weight(T::WeightInfo::cancel().saturating_add(alarm_retry_weight::<T, I>()))]
 		pub fn cancel(origin: OriginFor<T>, index: ReferendumIndex) -> DispatchResult {
 			T::CancelOrigin::ensure_origin(origin)?;
 			let status = Self::ensure_ongoing(index)?;
@@ -618,7 +624,9 @@ pub mod pallet {
 		///
 		/// Emits `Killed` and `DepositSlashed`.
 		#[pallet::call_index(4)]
-		#[pallet::weight(T::WeightInfo::kill())]
+		// May defer `one_fewer_deciding` via `set_alarm`, bearing its worst-case retry
+		// overhead.
+		#[pallet::weight(T::WeightInfo::kill().saturating_add(alarm_retry_weight::<T, I>()))]
 		pub fn kill(origin: OriginFor<T>, index: ReferendumIndex) -> DispatchResult {
 			T::KillOrigin::ensure_origin(origin)?;
 			let status = Self::ensure_ongoing(index)?;
