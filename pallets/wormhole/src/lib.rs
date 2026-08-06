@@ -138,6 +138,8 @@ fn load_batch_verifier_from_bytes(
 	Some(WormholeVerifier { circuit_data: VerifierCircuitData { verifier_only, common } })
 }
 
+#[cfg(any(test, feature = "runtime-benchmarks"))]
+mod bench_fixtures;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 pub mod migrations;

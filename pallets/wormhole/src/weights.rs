@@ -62,12 +62,12 @@ pub trait WeightInfo {
 }
 
 /// Compute for production private-batch pre-validation at the all-valid worst
-/// case (see `benchmarking::worst_case_bundle`). Re-run `pre_validate_proof` to
+/// case (see `bench_fixtures::worst_case_bundle`). Re-run `pre_validate_proof` to
 /// regenerate.
 const PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS: u64 = 700_000_000;
 
 /// Compute for production public-batch pre-validation at the all-valid worst
-/// case (every segment non-inert; see `benchmarking::worst_case_bundle`).
+/// case (every segment non-inert; see `bench_fixtures::worst_case_bundle`).
 /// Re-run `pre_validate_public_batch_proof` to regenerate.
 const PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS: u64 = 4_500_000_000;
 
@@ -97,11 +97,6 @@ fn public_batch_max_exits() -> u64 {
 		.saturating_mul(circuit_config::NUM_PRIVATE_BATCH_PROOFS as u64)
 }
 
-/// Conservative PoV bound per ZK-tree storage key touched during a path update.
-/// Tree entries are 32-byte hashes with small keys; the comparable benchmarked
-/// `UsedNullifiers` map (49-byte entries) has an `added` figure of 2524 per key.
-const TREE_KEY_POV: u64 = 2600;
-
 /// Scale the storage tail to `exits` mints, plus depth-dependent ZK-tree ops per
 /// exit. When `include_aggregator` is set, adds one account r/w for the rebate.
 fn storage_tail(
@@ -124,7 +119,11 @@ fn storage_tail(
 		.saturating_mul(exits)
 		.saturating_div(STORAGE_CALIBRATION_EXITS)
 		.max(1)
-		.saturating_add(exits.saturating_mul(tree_reads).saturating_mul(TREE_KEY_POV));
+		.saturating_add(
+			exits
+				.saturating_mul(tree_reads)
+				.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
+		);
 	if include_aggregator {
 		(reads.saturating_add(1), writes.saturating_add(1), proof_size)
 	} else {
