@@ -174,9 +174,13 @@ benchmarks! {
 	service_task_base {
 		let now = BLOCK_NUMBER.into();
 		let task = make_task::<T>(false, false, None, 0);
-		let mut counter = WeightMeter::with_limit(Weight::zero());
+		// V12 audit #162534: use an uncapped meter (like the other service benchmarks) so the
+		// dispatch actually executes; a zero limit forced every measurement into the
+		// permanently-overweight branch and never measured the success path.
+		let mut counter = WeightMeter::new();
 	}: {
 		let result = Scheduler::<T>::service_task(&mut counter, BlockNumberOrTimestamp::BlockNumber(now), BlockNumberOrTimestamp::BlockNumber(now), 0, true, task);
+		assert!(result.is_ok());
 	} verify {
 	}
 
@@ -187,18 +191,22 @@ benchmarks! {
 		let s in (BoundedInline::bound() as u32) .. (T::Preimages::MAX_LENGTH as u32);
 		let now = BLOCK_NUMBER.into();
 		let task = make_task::<T>(false, false, Some(s), 0);
-		let mut counter = WeightMeter::with_limit(Weight::zero());
+		// V12 audit #162534: see `service_task_base` - the dispatch must actually execute.
+		let mut counter = WeightMeter::new();
 	}: {
 		let result = Scheduler::<T>::service_task(&mut counter, BlockNumberOrTimestamp::BlockNumber(now), BlockNumberOrTimestamp::BlockNumber(now), 0, true, task);
+		assert!(result.is_ok());
 	} verify {
 	}
 
 	service_task_named {
 		let now = BLOCK_NUMBER.into();
 		let task = make_task::<T>(true, false, None, 0);
-		let mut counter = WeightMeter::with_limit(Weight::zero());
+		// V12 audit #162534: see `service_task_base` - the dispatch must actually execute.
+		let mut counter = WeightMeter::new();
 	}: {
 		let result = Scheduler::<T>::service_task(&mut counter, BlockNumberOrTimestamp::BlockNumber(now), BlockNumberOrTimestamp::BlockNumber(now), 0, true, task);
+		assert!(result.is_ok());
 	} verify {
 	}
 

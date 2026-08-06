@@ -120,6 +120,169 @@ fn full_enactment_block_agenda_retries_on_next_block() {
 	});
 }
 
+/// V12 audit #161704+#162455: if the agenda at the alarm's target block is full,
+/// `set_alarm` must slide forward to a later block instead of dropping the alarm, and
+/// `status.alarm` must reflect the block that was actually scheduled.
+///
+/// A referendum submitted at block 1 gets its (no-deposit) timeout alarm at
+/// `1 + UndecidingTimeout (20)` = block 21. With block 21's agenda completely full, the
+/// alarm must land at block 22 and the referendum must time out there, not at 21.
+#[test]
+fn full_alarm_block_agenda_retries_on_next_block() {
+	ExtBuilder::default().build_and_execute(|| {
+		let target = 21u64;
+		let max = <<Test as pallet_scheduler::Config>::MaxScheduledPerBlock as frame_support::traits::Get<
+			u32,
+		>>::get();
+		let filler = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+		// Priority 100 != LOWEST_PRIORITY (255), so these fillers are not subject to
+		// the reservation cap and can occupy the whole agenda including reserved slots.
+		for _ in 0..max {
+			assert_ok!(Scheduler::schedule(
+				RuntimeOrigin::root(),
+				target,
+				100,
+				Box::new(filler.clone()),
+			));
+		}
+
+		// Submit: the alarm cannot go into the full block 21 and must land at 22.
+		assert_ok!(propose_set_balance(1, 1, 1));
+		let status = Referenda::ensure_ongoing(0).unwrap();
+		assert_eq!(status.alarm.map(|(when, _)| when), Some(22));
+
+		// Not timed out at the (full) block 21, since no alarm fired there ...
+		run_to(21);
+		assert_matches!(ReferendumInfoFor::<Test>::get(0), Some(ReferendumInfo::Ongoing(..)));
+		// ... but the alarm fires at block 22 and the referendum times out there.
+		run_to(22);
+		assert_eq!(timed_out_since(0), 22);
+	});
+}
+
+/// V12 audit #161743: a referendum evicted from a full `TrackQueue` keeps `in_queue =
+/// true` in storage while being absent from the queue (ghost-queued). Servicing it must
+/// clear the flag and mark the status dirty so it can be re-routed through
+/// `ready_for_deciding` or the undeciding timeout instead of stranding it forever.
+///
+/// Track 0 has `max_deciding = 1` and `MaxQueued = 3`. Once the queue is full, ref4 with
+/// more ayes than the queue's tail squeezes in via `force_insert_keep_right`, which evicts
+/// the lowest-ayes entry (ref1). Servicing ref1 must then hit the `NotQueued` arm (its
+/// ayes sort to position 0) and clear `in_queue`.
+#[test]
+fn evicted_from_full_queue_clears_in_queue_on_service() {
+	ExtBuilder::default().build_and_execute(|| {
+		// Block 1: ref0 occupies the single deciding slot of track 0 from block 5 on.
+		assert_ok!(propose_set_balance(1, 0, 0));
+		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(1), 0));
+		run_to(5);
+		assert_eq!(deciding_and_failing_since(0), 5);
+
+		// Refs 1-4 (accounts 2-5), with ayes pre-set so the queue fills as
+		// [(1, 1), (2, 2), (3, 3)] and ref4 (2 ayes) then evicts ref1.
+		for (who, ayes) in [(2u64, 1u32), (3, 2), (4, 3), (5, 2)] {
+			let index = who as u32 - 1;
+			assert_ok!(propose_set_balance(who, who, 0));
+			assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(who), index));
+			set_tally(index, ayes, 0);
+		}
+		run_to(9);
+		// ref0 is rejected; refs 1, 2, 3 entered the queue and ref4 evicted ref1.
+		assert_eq!(rejected_since(0), 9);
+		assert_eq!(
+			Vec::<_>::from(TrackQueue::<Test>::get(0)),
+			vec![(4u32, 2u32), (2u32, 2u32), (3u32, 3u32)]
+		);
+		// Pre-fix ghost state: ref1 believes it is queued but is absent from `TrackQueue`.
+		assert!(Referenda::ensure_ongoing(1).unwrap().in_queue);
+
+		// Service ref1: it is not found in the queue and its single aye sorts to position
+		// 0, so the `NotQueued` arm must clear the flag and store the referendum.
+		assert_ok!(Referenda::nudge_referendum(RuntimeOrigin::root(), 1));
+		assert!(!Referenda::ensure_ongoing(1).unwrap().in_queue);
+
+		// The same service must also restore the undeciding-timeout alarm (submitted at
+		// block 5 + UndecidingTimeout 20 = block 25): `nudge_referendum` is Root-only on
+		// this chain, so without an alarm the referendum would stay stranded until a
+		// second governance intervention.
+		assert_eq!(Referenda::ensure_ongoing(1).unwrap().alarm.map(|(when, _)| when), Some(25));
+
+		// When that alarm fires, the referendum (deposit placed, prepare period elapsed)
+		// re-routes through `ready_for_deciding` or times out. Whatever the exact outcome,
+		// it must no longer sit stranded with no alarm, no queue entry and no deciding
+		// status.
+		run_to(25);
+		let stranded = matches!(
+			ReferendumInfoFor::<Test>::get(1),
+			Some(ReferendumInfo::Ongoing(ReferendumStatus {
+				in_queue: false,
+				deciding: None,
+				alarm: None,
+				..
+			}))
+		);
+		assert!(!stranded, "evicted referendum must make progress after its timeout alarm");
+	});
+}
+
+/// V12 audit #162455: releasing a deciding slot must not depend on the deferred
+/// `one_fewer_deciding` alarm being schedulable. When a deciding referendum ends while
+/// the agendas of the alarm's target block and of all 16 retry blocks are full, the
+/// track's deciding slot must still be released inline instead of leaving
+/// `DecidingCount` stuck at capacity forever (with `max_deciding = 1` this would
+/// deadlock the whole governance lane).
+///
+/// The referendum is ended through the rejection path (its own decision-period alarm at
+/// block 9), because that alarm has already been consumed by the scheduler when it
+/// fires and so - unlike `cancel`/`kill`, which free the referendum's alarm slot first -
+/// leaves no hole in any agenda for the `one_fewer_deciding` alarm to slip into.
+#[test]
+fn unschedulable_one_fewer_deciding_releases_deciding_slot_inline() {
+	ExtBuilder::default().build_and_execute(|| {
+		// ref0 occupies track 0's single deciding slot from block 5 on; with a failing
+		// tally its decision period (4 blocks) ends with rejection at block 9.
+		assert_ok!(propose_set_balance(1, 1, 0));
+		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(1), 0));
+		run_to(5);
+		assert_eq!(deciding_and_failing_since(0), 5);
+		assert_eq!(DecidingCount::<Test>::get(0), 1);
+
+		// Fill the agendas of the deferred `one_fewer_deciding` alarm's target block
+		// (rejection block 9 + 1 = 10) and of all 16 retry blocks after it.
+		let max = <<Test as pallet_scheduler::Config>::MaxScheduledPerBlock as frame_support::traits::Get<
+			u32,
+		>>::get();
+		let filler = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+		for when in 10..=26 {
+			for _ in 0..max {
+				assert_ok!(Scheduler::schedule(
+					RuntimeOrigin::root(),
+					when,
+					100,
+					Box::new(filler.clone()),
+				));
+			}
+		}
+
+		// The rejection at block 9 cannot schedule `one_fewer_deciding` anywhere, so the
+		// slot must be released inline, immediately. (This also proves the agendas really
+		// were full - had the alarm been scheduled, the count could only drop once it
+		// fired at block 10 or later.)
+		run_to(9);
+		assert_eq!(rejected_since(0), 9);
+		assert_eq!(DecidingCount::<Test>::get(0), 0);
+
+		// The freed slot is genuinely usable: once past the filled agendas, a fresh
+		// referendum begins deciding after its prepare period instead of queueing behind
+		// a phantom occupant.
+		run_to(27);
+		assert_ok!(propose_set_balance(2, 2, 0));
+		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(2), 1));
+		run_to(31);
+		assert_eq!(deciding_since(1), 31);
+	});
+}
+
 #[test]
 fn insta_confirm_then_kill_works() {
 	ExtBuilder::default().build_and_execute(|| {

@@ -18,8 +18,24 @@
 //! Helpers for managing the different weights in various algorithmic branches.
 
 use super::Config;
-use crate::weights::WeightInfo;
-use frame_support::weights::Weight;
+use crate::{weights::WeightInfo, Pallet};
+use frame_support::{traits::Get, weights::Weight};
+
+/// Worst-case overhead of the `set_alarm` full-agenda retry loop (V12 audit #161704 /
+/// #162455): every failed `T::Scheduler::schedule` attempt reads the candidate block's
+/// `Scheduler::Agenda` before sliding forward one block. Nothing is written until an
+/// attempt succeeds (and `Preimages::drop` of the inline nudge call is storage-free), and
+/// the succeeding attempt's cost is already part of the benchmarked base weight, so only
+/// the extra attempts are charged here.
+///
+/// This is added to every branch that can (re)schedule a referendum alarm or defer
+/// `one_fewer_deciding` through `set_alarm`. Kept in this hand-written module so it
+/// survives regeneration of the benchmarked `weights.rs`.
+pub fn alarm_retry_weight<T: Config<I>, I: 'static>() -> Weight {
+	T::DbWeight::get()
+		.reads(1)
+		.saturating_mul(Pallet::<T, I>::MAX_ALARM_SCHEDULE_RETRIES as u64)
+}
 
 /// Branches within the `begin_deciding` function.
 pub enum BeginDecidingBranch {
@@ -62,7 +78,7 @@ impl ServiceBranch {
 	/// Return the weight of the `nudge` function when it takes the branch denoted by `self`.
 	pub fn weight_of_nudge<T: Config<I>, I: 'static>(self) -> frame_support::weights::Weight {
 		use ServiceBranch::*;
-		match self {
+		let base = match self {
 			NoDeposit => T::WeightInfo::nudge_referendum_no_deposit(),
 			Preparing => T::WeightInfo::nudge_referendum_preparing(),
 			Queued => T::WeightInfo::nudge_referendum_queued(),
@@ -78,6 +94,24 @@ impl ServiceBranch {
 			Approved => T::WeightInfo::nudge_referendum_approved(),
 			Rejected => T::WeightInfo::nudge_referendum_rejected(),
 			TimedOut | Fail => T::WeightInfo::nudge_referendum_timed_out(),
+		};
+		match self {
+			// Branches that (re)schedule the referendum's alarm, or defer
+			// `one_fewer_deciding` via `set_alarm` (`Approved`/`Rejected`), bear the
+			// worst-case retry overhead.
+			NoDeposit |
+			Preparing |
+			NotQueued |
+			BeginDecidingPassing |
+			BeginDecidingFailing |
+			BeginConfirming |
+			ContinueConfirming |
+			EndConfirming |
+			ContinueNotConfirming |
+			Approved |
+			Rejected => base.saturating_add(alarm_retry_weight::<T, I>()),
+			// These branches leave the referendum without an alarm (or only cancel one).
+			Queued | RequeuedInsertion | RequeuedSlide | TimedOut | Fail => base,
 		}
 	}
 
@@ -99,6 +133,7 @@ impl ServiceBranch {
 			.max(T::WeightInfo::nudge_referendum_approved())
 			.max(T::WeightInfo::nudge_referendum_rejected())
 			.max(T::WeightInfo::nudge_referendum_timed_out())
+			.saturating_add(alarm_retry_weight::<T, I>())
 	}
 
 	/// Return the weight of the `place_decision_deposit` function when it takes the branch denoted
@@ -108,11 +143,18 @@ impl ServiceBranch {
 	) -> Option<frame_support::weights::Weight> {
 		use ServiceBranch::*;
 		let ref_time_weight = match self {
-			Preparing => T::WeightInfo::place_decision_deposit_preparing(),
+			// `Preparing`, `NotQueued` and `BeginDeciding*` (re)schedule the referendum's
+			// alarm and so bear the worst-case `set_alarm` retry overhead; `Queued` leaves
+			// the referendum alarm-less.
+			Preparing => T::WeightInfo::place_decision_deposit_preparing()
+				.saturating_add(alarm_retry_weight::<T, I>()),
 			Queued => T::WeightInfo::place_decision_deposit_queued(),
-			NotQueued => T::WeightInfo::place_decision_deposit_not_queued(),
-			BeginDecidingPassing => T::WeightInfo::place_decision_deposit_passing(),
-			BeginDecidingFailing => T::WeightInfo::place_decision_deposit_failing(),
+			NotQueued => T::WeightInfo::place_decision_deposit_not_queued()
+				.saturating_add(alarm_retry_weight::<T, I>()),
+			BeginDecidingPassing => T::WeightInfo::place_decision_deposit_passing()
+				.saturating_add(alarm_retry_weight::<T, I>()),
+			BeginDecidingFailing => T::WeightInfo::place_decision_deposit_failing()
+				.saturating_add(alarm_retry_weight::<T, I>()),
 			BeginConfirming |
 			ContinueConfirming |
 			EndConfirming |
@@ -137,6 +179,7 @@ impl ServiceBranch {
 			.max(T::WeightInfo::place_decision_deposit_not_queued())
 			.max(T::WeightInfo::place_decision_deposit_passing())
 			.max(T::WeightInfo::place_decision_deposit_failing())
+			.saturating_add(alarm_retry_weight::<T, I>())
 	}
 }
 
@@ -165,8 +208,12 @@ impl OneFewerDecidingBranch {
 		use OneFewerDecidingBranch::*;
 		match self {
 			QueueEmpty => T::WeightInfo::one_fewer_deciding_queue_empty(),
-			BeginDecidingPassing => T::WeightInfo::one_fewer_deciding_passing(),
-			BeginDecidingFailing => T::WeightInfo::one_fewer_deciding_failing(),
+			// `begin_deciding` schedules the promoted referendum's alarm, bearing the
+			// worst-case `set_alarm` retry overhead.
+			BeginDecidingPassing => T::WeightInfo::one_fewer_deciding_passing()
+				.saturating_add(alarm_retry_weight::<T, I>()),
+			BeginDecidingFailing => T::WeightInfo::one_fewer_deciding_failing()
+				.saturating_add(alarm_retry_weight::<T, I>()),
 		}
 	}
 
@@ -176,5 +223,6 @@ impl OneFewerDecidingBranch {
 			.max(T::WeightInfo::one_fewer_deciding_queue_empty())
 			.max(T::WeightInfo::one_fewer_deciding_passing())
 			.max(T::WeightInfo::one_fewer_deciding_failing())
+			.saturating_add(alarm_retry_weight::<T, I>())
 	}
 }

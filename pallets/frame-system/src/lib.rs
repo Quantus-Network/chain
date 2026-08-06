@@ -730,6 +730,10 @@ pub mod pallet {
 		#[pallet::weight((T::SystemWeightInfo::set_heap_pages(), DispatchClass::Operational))]
 		pub fn set_heap_pages(origin: OriginFor<T>, pages: u64) -> DispatchResultWithPostInfo {
 			ensure_root(origin)?;
+			// V12 audit #162546: reject values that would prevent the executor from
+			// instantiating the runtime. 64 pages (4 MiB) is the practical executor minimum,
+			// 65536 pages (4 GiB) is the wasm32 linear-memory hard maximum.
+			ensure!((64..=65536).contains(&pages), Error::<T>::InvalidHeapPages);
 			storage::unhashed::put_raw(well_known_keys::HEAP_PAGES, &pages.encode());
 			Self::deposit_log(generic::DigestItem::RuntimeEnvironmentUpdated);
 			Ok(().into())
@@ -988,6 +992,8 @@ pub mod pallet {
 		NothingAuthorized,
 		/// The submitted code is not authorized.
 		Unauthorized,
+		/// The provided number of heap pages is outside the supported range of `64..=65536`.
+		InvalidHeapPages,
 	}
 
 	/// Exposed trait-generic origin type.
@@ -1165,7 +1171,10 @@ pub mod pallet {
 		fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			if let Call::apply_authorized_upgrade { ref code } = call {
 				if let Ok(res) = Self::validate_code_is_authorized(&code[..]) {
-					if Self::can_set_code(&code, false).is_ok() {
+					// V12 audit #162411: honor the authorization's `check_version` flag so pool
+					// validation rejects code that dispatch would reject (upstream hardcodes
+					// `false` here).
+					if Self::can_set_code(&code, res.check_version).is_ok() {
 						return Ok(ValidTransaction {
 							priority: u64::max_value(),
 							requires: Vec::new(),

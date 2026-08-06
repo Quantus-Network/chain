@@ -541,6 +541,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(33_048_000, 219984)
 			.saturating_add(T::DbWeight::get().reads(5_u64))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
+			// V12 audit #162501: the local fork's `schedule_enactment` retries `schedule_named`
+			// at consecutive blocks up to `MAX_ENACTMENT_SCHEDULE_RETRIES` (16) extra times on a
+			// full agenda. Each failed attempt costs roughly a `Scheduler::Lookup` read, a
+			// `Scheduler::Agenda` read and a `Preimages::drop` (`RequestStatusFor` read + write);
+			// add a conservative 16 x (4 reads, 2 writes) for the retry loop.
+			.saturating_add(T::DbWeight::get().reads_writes(4_u64, 2_u64).saturating_mul(16_u64))
 	}
 	/// Storage: `Referenda::ReferendumInfoFor` (r:1 w:1)
 	/// Proof: `Referenda::ReferendumInfoFor` (`max_values`: None, `max_size`: Some(366), added: 2841, mode: `MaxEncodedLen`)
@@ -1025,6 +1031,12 @@ impl WeightInfo for () {
 		Weight::from_parts(33_048_000, 219984)
 			.saturating_add(RocksDbWeight::get().reads(5_u64))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
+			// V12 audit #162501: the local fork's `schedule_enactment` retries `schedule_named`
+			// at consecutive blocks up to `MAX_ENACTMENT_SCHEDULE_RETRIES` (16) extra times on a
+			// full agenda. Each failed attempt costs roughly a `Scheduler::Lookup` read, a
+			// `Scheduler::Agenda` read and a `Preimages::drop` (`RequestStatusFor` read + write);
+			// add a conservative 16 x (4 reads, 2 writes) for the retry loop.
+			.saturating_add(RocksDbWeight::get().reads_writes(4_u64, 2_u64).saturating_mul(16_u64))
 	}
 	/// Storage: `Referenda::ReferendumInfoFor` (r:1 w:1)
 	/// Proof: `Referenda::ReferendumInfoFor` (`max_values`: None, `max_size`: Some(366), added: 2841, mode: `MaxEncodedLen`)

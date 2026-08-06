@@ -54,7 +54,7 @@ Referenda's `Tally = pallet_ranked_collective::TallyOf<Runtime>` and
 | `submit` | Root or member | Create a referendum |
 | `place_decision_deposit` / `refund_decision_deposit` | signed | 1000 UNIT decision bond |
 | `refund_submission_deposit` | signed | 100 UNIT submission bond |
-| `nudge_referendum` | **permissionless** | Force the state machine to re-evaluate now (the "fast resolution" lever, §6) |
+| `nudge_referendum` | **Root** (dispatched via governance) | Force the state machine to re-evaluate now (§6) |
 | `cancel` | Root | Stop; refunds deposits |
 | `kill` | Root | Stop; slashes deposits (`Slash = ()` → burned) |
 | `one_fewer_deciding` | signed | Free a deciding slot |
@@ -157,7 +157,8 @@ Phases: `prepare_period` → **deciding** (≤ `decision_period`) → **confirmi
 (`confirm_period`) → enactment (`min_enactment_period`).
 
 There is no dedicated fast-resolve call. Early resolution comes from the
-**confirming** mechanism plus the permissionless **`nudge_referendum`** poke.
+**confirming** mechanism; the Root-only **`nudge_referendum`** (dispatched via
+governance) can additionally force a re-evaluation.
 Once both curves are satisfied the referendum enters confirming; if it stays
 passing for `confirm_period` it is approved **without waiting out the full
 decision period**:
@@ -181,8 +182,9 @@ support_needed.passing(x, tally.support(id)) && approval_needed.passing(x, tally
 
 If support drops below threshold during confirming, confirmation aborts
 (`ConfirmAborted`) and must restart — so it is not a one-way ratchet, which is
-what makes `confirm_period` a defense window. `nudge_referendum` lets anyone
-force a re-evaluation immediately instead of waiting for the scheduled alarm.
+what makes `confirm_period` a defense window. `nudge_referendum` (Root only, so
+in practice dispatched via governance) forces a re-evaluation immediately
+instead of waiting for the scheduled alarm.
 
 ---
 

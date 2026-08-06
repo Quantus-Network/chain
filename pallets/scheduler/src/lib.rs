@@ -78,8 +78,8 @@ use frame_support::{
 	ensure,
 	traits::{
 		schedule::{self, DispatchTime as DispatchBlock},
-		Bounded, CallerTrait, DefensiveOption, EnsureOrigin, Get, IsType, OriginTrait,
-		PrivilegeCmp, QueryPreimage, StorageVersion, StorePreimage, Time,
+		Bounded, BoundedInline, CallerTrait, DefensiveOption, EnsureOrigin, Get, IsType,
+		OriginTrait, PrivilegeCmp, QueryPreimage, StorageVersion, StorePreimage, Time,
 	},
 	weights::{Weight, WeightMeter},
 };
@@ -90,7 +90,7 @@ use frame_system::{
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
 use scale_info::TypeInfo;
 use sp_runtime::{
-	traits::{BadOrigin, Dispatchable, One, Saturating, Zero},
+	traits::{BadOrigin, Dispatchable, Hash, One, Saturating, Zero},
 	BoundedVec, DispatchError, RuntimeDebug,
 };
 
@@ -433,11 +433,14 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::ScheduleOrigin::ensure_origin(origin.clone())?;
 			let origin = <T as Config>::RuntimeOrigin::from(origin);
-			Self::do_schedule(
+			// Must be checked before `bound`; see `lookup_already_requested` (V12 audit #162453).
+			let already_requested = Self::lookup_already_requested(&call);
+			Self::do_schedule_inner(
 				DispatchTime::At(when),
 				priority,
 				origin.caller().clone(),
 				T::Preimages::bound(*call)?,
+				already_requested,
 			)?;
 			Ok(())
 		}
@@ -467,12 +470,15 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::ScheduleOrigin::ensure_origin(origin.clone())?;
 			let origin = <T as Config>::RuntimeOrigin::from(origin);
-			Self::do_schedule_named(
+			// Must be checked before `bound`; see `lookup_already_requested` (V12 audit #162453).
+			let already_requested = Self::lookup_already_requested(&call);
+			Self::do_schedule_named_inner(
 				id,
 				DispatchTime::At(when),
 				priority,
 				origin.caller().clone(),
 				T::Preimages::bound(*call)?,
+				already_requested,
 			)?;
 			Ok(())
 		}
@@ -497,11 +503,14 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::ScheduleOrigin::ensure_origin(origin.clone())?;
 			let origin = <T as Config>::RuntimeOrigin::from(origin);
-			Self::do_schedule(
+			// Must be checked before `bound`; see `lookup_already_requested` (V12 audit #162453).
+			let already_requested = Self::lookup_already_requested(&call);
+			Self::do_schedule_inner(
 				DispatchTime::After(after),
 				priority,
 				origin.caller().clone(),
 				T::Preimages::bound(*call)?,
+				already_requested,
 			)?;
 			Ok(())
 		}
@@ -517,12 +526,15 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::ScheduleOrigin::ensure_origin(origin.clone())?;
 			let origin = <T as Config>::RuntimeOrigin::from(origin);
-			Self::do_schedule_named(
+			// Must be checked before `bound`; see `lookup_already_requested` (V12 audit #162453).
+			let already_requested = Self::lookup_already_requested(&call);
+			Self::do_schedule_named_inner(
 				id,
 				DispatchTime::After(after),
 				priority,
 				origin.caller().clone(),
 				T::Preimages::bound(*call)?,
+				already_requested,
 			)?;
 			Ok(())
 		}
@@ -776,6 +788,34 @@ impl<T: Config> Pallet<T> {
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<TaskAddressOf<T>, DispatchError> {
+		// V12 audit #162453: callers that hand over an already-`Bounded` call (the v3 trait
+		// shims, benchmarks and tests) cannot tell whether they own a preimage request for the
+		// lookup hash, so keep the historical behavior and unconditionally request one. The
+		// `schedule*` dispatchables use `do_schedule_inner` with a precise flag instead.
+		Self::do_schedule_inner(when, priority, origin, call, true)
+	}
+
+	/// V12 audit #162453: returns `true` if `call` is large enough that `StorePreimage::bound`
+	/// will store it as a preimage lookup AND its hash carries a live request already (i.e.
+	/// `bound` will not register a fresh request count for it). Only then must the scheduling
+	/// task add its own request reference; otherwise the note made by `bound` is exactly the
+	/// reference the task owns. Must be called on the raw call, before `bound`.
+	fn lookup_already_requested(call: &<T as Config>::RuntimeCall) -> bool {
+		call.using_encoded(|encoded| {
+			// `StorePreimage::bound` only falls back to a preimage lookup when the encoded call
+			// exceeds the inline bound.
+			encoded.len() > BoundedInline::bound() &&
+				T::Preimages::is_requested(&T::Hashing::hash(encoded))
+		})
+	}
+
+	fn do_schedule_inner(
+		when: DispatchTime<BlockNumberFor<T>, T::Moment>,
+		priority: schedule::Priority,
+		origin: T::PalletsOrigin,
+		call: BoundedCallOf<T>,
+		request_preimage: bool,
+	) -> Result<TaskAddressOf<T>, DispatchError> {
 		// `call` may already carry a preimage noted by `StorePreimage::bound` (called by the
 		// scheduler entrypoints before this). If any later fallible step fails, drop that
 		// preimage so a failed schedule cannot leave an unowned, system-requested preimage
@@ -796,7 +836,12 @@ impl<T: Config> Pallet<T> {
 				return Err(e)
 			},
 		};
-		if let Some(hash) = lookup_hash {
+		// V12 audit #162453: only request the preimage if it was already requested before the
+		// caller's `StorePreimage::bound` (in which case `bound` did not bump the request count
+		// and the task needs its own reference). Otherwise `bound` itself noted the hash as
+		// `Requested { count: 1, .. }`, which is exactly the reference this task owns, and
+		// requesting again would orphan the count since every terminal path drops only once.
+		if let Some(hash) = lookup_hash.filter(|_| request_preimage) {
 			T::Preimages::request(&hash);
 		}
 		Ok(res)
@@ -876,6 +921,19 @@ impl<T: Config> Pallet<T> {
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<TaskAddressOf<T>, DispatchError> {
+		// See `do_schedule`: keep unconditionally requesting the preimage for callers that hand
+		// over an already-`Bounded` call; the dispatchables use `do_schedule_named_inner`.
+		Self::do_schedule_named_inner(id, when, priority, origin, call, true)
+	}
+
+	fn do_schedule_named_inner(
+		id: TaskName,
+		when: DispatchTime<BlockNumberFor<T>, T::Moment>,
+		priority: schedule::Priority,
+		origin: T::PalletsOrigin,
+		call: BoundedCallOf<T>,
+		request_preimage: bool,
+	) -> Result<TaskAddressOf<T>, DispatchError> {
 		// See `do_schedule`: drop any preimage noted by `StorePreimage::bound` on every fallible
 		// path so a failed schedule cannot leave an unowned, system-requested preimage behind.
 		if Lookup::<T>::contains_key(id) {
@@ -899,7 +957,8 @@ impl<T: Config> Pallet<T> {
 				return Err(e)
 			},
 		};
-		if let Some(hash) = lookup_hash {
+		// See `do_schedule_inner` (V12 audit #162453).
+		if let Some(hash) = lookup_hash.filter(|_| request_preimage) {
 			T::Preimages::request(&hash);
 		}
 		Ok(res)
@@ -1261,8 +1320,8 @@ impl<T: Config> Pallet<T> {
 				if let Some(ref id) = task.maybe_id {
 					Lookup::<T>::remove(id);
 				}
-				// Terminal outcome: clean up the retry configuration as well, like the
-				// unavailable-call path, so no orphaned `Retries` row outlives the task.
+				// V12 audit #162524: also drop the retry configuration, mirroring the
+				// `CallUnavailable` arm above - a permanently removed task must not retain one.
 				Retries::<T>::remove((when, agenda_index));
 				T::Preimages::drop(&task.call);
 				Self::deposit_event(Event::PermanentlyOverweight {
