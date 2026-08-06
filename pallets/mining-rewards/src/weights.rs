@@ -62,32 +62,39 @@ pub trait WeightInfo {
 /// worst case.
 const MAX_LEAF_INSERTS: u64 = 3;
 
-/// Non-Zk-tree storage measured by the benchmark, split out from the leaf-insert
-/// cost so the latter can be priced at the live tree depth. Covers
-/// `MiningRewards::CollectedFees` (r1 w1), `TreasuryPallet::TreasuryPortion`
-/// (r1), `TreasuryPallet::TreasuryAccount` (r1), `System::Account` (r2 w2) and
-/// `Wormhole::TransferCount` (r2 w2).
-const BASE_READS: u64 = 7;
-const BASE_WRITES: u64 = 5;
+/// Non-tree storage for the worst-case finalize path.
+///
+/// Once per finalize: `CollectedFees` (r1 w1), `TreasuryPortion` (r1),
+/// `TreasuryAccount` (r1).
+///
+/// Per reward transfer × [`MAX_LEAF_INSERTS`], priced independently: failed miner
+/// mint (Account r1) → successful treasury mint (Account r1 w1) + `TransferCount`
+/// (r1 w1) + conditional `PotentialWormholeBalance` (r1 w1) = 4 reads, 3 writes.
+const BASE_READS: u64 = 15;
+const BASE_WRITES: u64 = 10;
+
+/// PoV per fixed-base key (rounded up from `System::Account` MaxEncodedLen).
+const BASE_KEY_POV: u64 = 2700;
 
 /// Weights for `pallet_mining_rewards` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
-	/// `on_finalize` mints up to three rewards, each recording a wormhole transfer
-	/// proof whose ZK-tree leaf insert walks the tree leaf-to-root, so its cost
-	/// grows with the tree depth *at finalize*. This weight is reserved in
-	/// `on_initialize`, before any extrinsics run, and the tree can grow by several
-	/// depths in between (a single public-batch exit bundle inserts hundreds of
-	/// leaves), so the start-of-block depth — even plus one — is not a bound on the
-	/// depth the hook will walk. Mandatory finalization cannot correct its consumed
-	/// weight afterwards, so the leaf inserts are priced at `MAX_TREE_DEPTH`, the
-	/// only provable upper bound. The compute time and proof size stay at the
-	/// benchmarked values; the depth-sensitive cost is the tree reads/writes.
+	/// Reserved in `on_initialize` before extrinsics can grow the tree, so leaf
+	/// inserts are priced at `MAX_TREE_DEPTH`: DB ops, Poseidon hashing, and PoV
+	/// all scale with depth (`update_path` hashes and reads siblings per level).
 	fn on_finalize_rewarded_miner() -> Weight {
 		// Minimum execution time: 161_000_000 picoseconds.
 		let (tree_reads, tree_writes) =
 			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
-		Weight::from_parts(163_000_000, 8619)
+		let hash_time = MAX_LEAF_INSERTS.saturating_mul(
+			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
+		);
+		let proof_size = BASE_READS.saturating_mul(BASE_KEY_POV).saturating_add(
+			MAX_LEAF_INSERTS
+				.saturating_mul(tree_reads)
+				.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
+		);
+		Weight::from_parts(163_000_000_u64.saturating_add(hash_time), proof_size)
 			.saturating_add(T::DbWeight::get().reads(
 				BASE_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_reads)),
 			))
@@ -105,7 +112,15 @@ impl WeightInfo for () {
 		// Minimum execution time: 161_000_000 picoseconds.
 		let (tree_reads, tree_writes) =
 			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
-		Weight::from_parts(163_000_000, 8619)
+		let hash_time = MAX_LEAF_INSERTS.saturating_mul(
+			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
+		);
+		let proof_size = BASE_READS.saturating_mul(BASE_KEY_POV).saturating_add(
+			MAX_LEAF_INSERTS
+				.saturating_mul(tree_reads)
+				.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
+		);
+		Weight::from_parts(163_000_000_u64.saturating_add(hash_time), proof_size)
 			.saturating_add(RocksDbWeight::get().reads(
 				BASE_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_reads)),
 			))
@@ -119,11 +134,17 @@ impl WeightInfo for () {
 mod tests {
 	use super::*;
 
-	/// The finalize cost the hook actually incurs when the tree sits at `depth`
-	/// while it runs: the benchmarked base plus three leaf inserts at that depth.
+	/// Finalize cost at a given tree depth (DB ops + hashing + PoV).
 	fn finalize_cost_at_depth(depth: u8) -> Weight {
 		let (tree_reads, tree_writes) = pallet_zk_tree::insert_leaf_db_ops_at_depth(depth);
-		Weight::from_parts(163_000_000, 8619)
+		let hash_time = MAX_LEAF_INSERTS
+			.saturating_mul(pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(depth));
+		let proof_size = BASE_READS.saturating_mul(BASE_KEY_POV).saturating_add(
+			MAX_LEAF_INSERTS
+				.saturating_mul(tree_reads)
+				.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
+		);
+		Weight::from_parts(163_000_000_u64.saturating_add(hash_time), proof_size)
 			.saturating_add(RocksDbWeight::get().reads(
 				BASE_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_reads)),
 			))
@@ -132,17 +153,9 @@ mod tests {
 			))
 	}
 
-	/// Regression test for the stale-depth hole: the weight is reserved in
-	/// `on_initialize` (shallow tree), but intervening extrinsics can grow the tree
-	/// by any number of depths before `on_finalize` walks it — a single public-batch
-	/// exit bundle alone inserts hundreds of leaves. The reserved weight must
-	/// therefore cover the finalize cost at *every* depth the tree can reach by
-	/// end of block, up to the hard `MAX_TREE_DEPTH` cap, not just the
-	/// start-of-block depth plus one.
+	/// Reserved weight must cover finalize at every reachable end-of-block depth.
 	#[test]
 	fn reserved_weight_covers_any_end_of_block_depth() {
-		// The reservation is depth-independent (it never reads the live tree), so
-		// what it returns at the shallow start-of-block state is what the block got.
 		let reserved = <() as WeightInfo>::on_finalize_rewarded_miner();
 
 		for end_depth in 0..=pallet_zk_tree::MAX_TREE_DEPTH {
@@ -154,14 +167,59 @@ mod tests {
 		}
 	}
 
-	/// The weight must price its leaf inserts at `MAX_TREE_DEPTH`: it is the only
-	/// upper bound on the tree depth at finalize that holds regardless of what runs
-	/// earlier in the block. (`SubstrateWeight` is the identical formula with the
-	/// runtime's configured `DbWeight`; the mock's zero `DbWeight` makes asserting
-	/// on it vacuous, so only the RocksDb fallback is pinned here.)
 	#[test]
 	fn weight_is_priced_at_max_tree_depth() {
 		let expected = finalize_cost_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
 		assert_eq!(<() as WeightInfo>::on_finalize_rewarded_miner(), expected);
+	}
+
+	/// PoV must grow with tree depth and cover every base + path key at max depth.
+	#[test]
+	fn proof_size_scales_with_depth_and_covers_base_keys() {
+		let shallow = finalize_cost_at_depth(1);
+		let deep = finalize_cost_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
+		assert!(
+			deep.proof_size() > shallow.proof_size(),
+			"finalize PoV must grow with tree depth"
+		);
+
+		let reserved = <() as WeightInfo>::on_finalize_rewarded_miner();
+		let (tree_reads, _) =
+			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
+		assert!(
+			reserved.proof_size() >=
+				BASE_READS * BASE_KEY_POV +
+					MAX_LEAF_INSERTS * tree_reads * pallet_zk_tree::TREE_KEY_POV,
+			"reserved PoV must cover every base key plus all tree path keys at MAX_TREE_DEPTH"
+		);
+	}
+
+	#[test]
+	fn base_covers_three_reward_transfers_including_potential_balance() {
+		// Once per finalize (outside the per-transfer mint/record path).
+		// CollectedFees (r1 w1) + TreasuryPortion (r1) + TreasuryAccount (r1).
+		const FIXED_READS: u64 = 3;
+		const FIXED_WRITES: u64 = 1;
+
+		// Per reward transfer, priced independently at the worst-case redirect
+		// path: failed miner Account mint (r1) + successful treasury Account
+		// mint (r1 w1) + TransferCount (r1 w1) + conditional
+		// PotentialWormholeBalance deposit add (r1 w1).
+		const PER_TRANSFER_READS: u64 = 4;
+		const PER_TRANSFER_WRITES: u64 = 3;
+
+		let expected_reads =
+			FIXED_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(PER_TRANSFER_READS));
+		let expected_writes =
+			FIXED_WRITES.saturating_add(MAX_LEAF_INSERTS.saturating_mul(PER_TRANSFER_WRITES));
+
+		assert_eq!(
+			BASE_READS, expected_reads,
+			"BASE_READS must cover fixed overhead plus three mint/TransferCount/PotentialWormholeBalance reads"
+		);
+		assert_eq!(
+			BASE_WRITES, expected_writes,
+			"BASE_WRITES must cover fixed overhead plus three mint/TransferCount/PotentialWormholeBalance writes"
+		);
 	}
 }

@@ -37,7 +37,9 @@ parameter_types! {
 	pub const SS58Prefix: u8 = 189;
 	pub const MaxSupply: u128 = 21_000_000 * UNIT;
 	pub const EmissionDivisor: u128 = 15_163_560;
-	pub const ExistentialDeposit: Balance = 1;
+	/// `static` so individual tests can raise it (e.g. to make a treasury mint
+	/// fail below the ED) via `ExistentialDeposit::set`.
+	pub static ExistentialDeposit: Balance = 1;
 }
 
 impl frame_system::Config for Test {

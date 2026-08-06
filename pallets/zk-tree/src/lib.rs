@@ -60,6 +60,31 @@ pub fn insert_leaf_db_ops_at_depth(depth: u8) -> (u64, u64) {
 	(3 * d + 4, d + 5)
 }
 
+/// Worst-case `ref_time` (picoseconds) of one Poseidon evaluation
+/// ([`tree::hash_node`] / [`tree::hash_leaf`]). Padded for wasm / slower hardware.
+pub const POSEIDON_EVAL_REF_TIME_PS: u64 = 50_000_000;
+
+/// Poseidon evaluations for one [`Pallet::insert_leaf`] at `depth`
+/// (`hash_leaf` + per-level `hash_node` + grow). Costed at `depth + 1` like
+/// [`insert_leaf_db_ops_at_depth`].
+pub fn insert_leaf_poseidon_evals_at_depth(depth: u8) -> u64 {
+	let d = depth.saturating_add(1).min(MAX_TREE_DEPTH) as u64;
+	d + 2
+}
+
+/// Depth-dependent insert compute (`ref_time`); scales with tree depth the same
+/// way as [`insert_leaf_db_ops_at_depth`].
+pub fn insert_leaf_hash_ref_time_at_depth(depth: u8) -> u64 {
+	insert_leaf_poseidon_evals_at_depth(depth).saturating_mul(POSEIDON_EVAL_REF_TIME_PS)
+}
+
+/// Conservative PoV bound (bytes) per ZK-tree storage key touched during a path
+/// update. Tree entries are 32-byte hashes with small keys; comparable to the
+/// benchmarked `ZkTree::Leaves` / `UsedNullifiers` `added` figures (~2524–2543).
+/// Callers that scale insert weight with [`insert_leaf_db_ops_at_depth`] should
+/// use this for the proof-size term so all pallets share one assumption.
+pub const TREE_KEY_POV: u64 = 2600;
+
 /// Branching factor of the tree.
 pub const ARITY: usize = 4;
 

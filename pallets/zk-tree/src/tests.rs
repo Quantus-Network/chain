@@ -525,6 +525,36 @@ fn integration_root_changes_only_on_insert() {
 }
 
 #[test]
+fn insert_leaf_hash_compute_scales_with_depth_and_is_capped() {
+	// `update_path` performs one Poseidon hash per tree level (plus `hash_leaf`
+	// and `grow_tree`'s extra `hash_node`), so the compute cost of an insert must
+	// grow with depth exactly like its db ops — weight metering that scales only
+	// the reads/writes silently under-reserves CPU as the tree deepens.
+	//
+	// Priced at `depth + 1` (growth-covering), capped at MAX_TREE_DEPTH, with
+	// `hash_leaf` + `grow_tree` on top: effective_d + 2 evaluations.
+	assert_eq!(insert_leaf_poseidon_evals_at_depth(0), 3);
+	assert_eq!(insert_leaf_poseidon_evals_at_depth(1), 4);
+	assert_eq!(
+		insert_leaf_poseidon_evals_at_depth(MAX_TREE_DEPTH),
+		MAX_TREE_DEPTH as u64 + 2,
+		"cost at MAX_TREE_DEPTH must stay capped at the max effective depth"
+	);
+
+	for depth in 0..MAX_TREE_DEPTH {
+		assert!(
+			insert_leaf_hash_ref_time_at_depth(depth + 1) >=
+				insert_leaf_hash_ref_time_at_depth(depth),
+			"hash compute must be monotone in depth"
+		);
+	}
+	assert_eq!(
+		insert_leaf_hash_ref_time_at_depth(5),
+		insert_leaf_poseidon_evals_at_depth(5) * POSEIDON_EVAL_REF_TIME_PS
+	);
+}
+
+#[test]
 fn integration_proof_siblings_at_correct_depth() {
 	new_test_ext().execute_with(|| {
 		// Insert 5 leaves to force depth 2

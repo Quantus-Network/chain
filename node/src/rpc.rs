@@ -38,12 +38,7 @@ pub struct NetworkInfo {
 /// Peer RPC API
 #[rpc(client, server)]
 pub trait PeerApi {
-	/// Get this node's network identity and topology (peer ID, connected peers,
-	/// external and listen addresses).
-	///
-	/// This is an *unsafe* RPC (like upstream `system_peers`/`system_unstable_networkState`):
-	/// it discloses the node's network topology, so it is only served to local connections
-	/// or when the node runs with `--rpc-methods unsafe`.
+	/// Network identity and topology. Unsafe: gated by `DenyUnsafe`.
 	#[method(name = "peer_getNetworkInfo", with_extensions)]
 	async fn get_network_info(&self) -> RpcResult<NetworkInfo>;
 }
@@ -64,8 +59,6 @@ impl Peer {
 #[async_trait]
 impl PeerApiServer for Peer {
 	async fn get_network_info(&self, ext: &jsonrpsee::Extensions) -> RpcResult<NetworkInfo> {
-		// Peer IDs and external/listen addresses enable network mapping and targeted
-		// eclipse/partition attempts; upstream only exposes them via unsafe-gated RPCs.
 		sc_rpc_api::check_if_safe(ext)?;
 
 		if let Some(network) = &self.network {
@@ -114,6 +107,13 @@ pub struct FullDeps<C, P> {
 }
 
 /// Instantiate all full RPC extensions.
+///
+/// Admission is per method against the per-connection [`sc_rpc_api::DenyUnsafe`]
+/// policy (not a module-level gate). Classify each merged method as:
+/// - **Unsafe**: call `sc_rpc_api::check_if_safe(ext)` first (e.g. [`Peer::get_network_info`],
+///   `system_dryRun`).
+/// - **Safe**: public data with bounded per-request work (e.g. zkTree proof-window guard, TxWatch's
+///   fixed broadcast capacity).
 pub fn create_full<C, P>(
 	deps: FullDeps<C, P>,
 ) -> Result<RpcModule<()>, Box<dyn std::error::Error + Send + Sync>>
@@ -153,19 +153,12 @@ mod tests {
 	use jsonrpsee::MethodsError;
 	use sc_rpc_api::DenyUnsafe;
 
-	/// Call `peer_getNetworkInfo` on a `Peer` module with the given per-connection safety
-	/// policy, the way the substrate RPC server injects it for real connections.
 	async fn call_get_network_info(deny_unsafe: DenyUnsafe) -> Result<NetworkInfo, MethodsError> {
 		let mut module = Peer::new(None).into_rpc();
 		module.extensions_mut().insert(deny_unsafe);
 		module.call("peer_getNetworkInfo", jsonrpsee::rpc_params![]).await
 	}
 
-	/// `peer_getNetworkInfo` discloses the node's peer ID, connected peer IDs and
-	/// external/listen addresses -- the same network topology upstream Substrate only
-	/// serves through unsafe-gated RPCs (`system_peers`, `system_unstable_networkState`).
-	/// Untrusted callers (external connections under the default `--rpc-methods auto`)
-	/// must be rejected by the safety gate before the handler does anything.
 	#[tokio::test]
 	async fn get_network_info_is_denied_for_untrusted_callers() {
 		let err = call_get_network_info(DenyUnsafe::Yes).await.unwrap_err();
@@ -178,9 +171,6 @@ mod tests {
 		}
 	}
 
-	/// Trusted callers (local connections, or `--rpc-methods unsafe`) pass the gate and
-	/// reach the handler proper: without a network handle it reports that peer sharing
-	/// is disabled (code 5000) rather than an authorization error.
 	#[tokio::test]
 	async fn get_network_info_reaches_the_handler_for_trusted_callers() {
 		let err = call_get_network_info(DenyUnsafe::No).await.unwrap_err();

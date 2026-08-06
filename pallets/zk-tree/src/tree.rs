@@ -382,6 +382,29 @@ mod tests {
 	}
 
 	#[test]
+	#[ignore]
+	fn measure_hash_node_time() {
+		let mut acc = [7u8; 32];
+		let siblings = [[1u8; 32], [2u8; 32], [3u8; 32]];
+		// Warm up
+		for _ in 0..1000 {
+			acc = hash_node(&[acc, siblings[0], siblings[1], siblings[2]]);
+		}
+		let n = 100_000u32;
+		let start = std::time::Instant::now();
+		for _ in 0..n {
+			acc = hash_node(&[acc, siblings[0], siblings[1], siblings[2]]);
+		}
+		let elapsed = start.elapsed();
+		println!(
+			"hash_node: {} ns/call over {} calls (sink {:?})",
+			elapsed.as_nanos() / n as u128,
+			n,
+			acc[0]
+		);
+	}
+
+	#[test]
 	fn canonicalize_is_identity_on_canonical_accounts() {
 		// All limbs < p (largest canonical limb is p - 1).
 		let mut bytes = [0x11u8; 32];
