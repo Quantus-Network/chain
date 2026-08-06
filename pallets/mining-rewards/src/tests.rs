@@ -352,6 +352,120 @@ fn fees_go_to_treasury_when_no_miner() {
 	});
 }
 
+/// A treasury that temporarily cannot receive mints must not permanently lose
+/// that block's rewards. Transaction fees were already burned from fee payers
+/// during execution — on_finalize re-mints them — so a failed treasury mint
+/// that just emits TreasuryMintFailed and drops the amount destroys value that
+/// demonstrably existed. The failed amount must be retained in recoverable
+/// state and minted once the treasury can receive again.
+#[test]
+fn failed_treasury_mint_is_retained_and_recovered() {
+	new_test_ext().execute_with(|| {
+		let treasury_account = Treasury::account_id();
+		let balance_before = Balances::free_balance(&treasury_account);
+		let issuance_before = Balances::total_issuance();
+
+		// Fees burned from payers during block 1's execution, awaiting re-mint.
+		let tx_fees: Balance = 1_000 * Unit::get();
+		MiningRewards::collect_transaction_fees(tx_fees);
+
+		// No miner digest: fees, miner portion and treasury portion are all
+		// treasury-directed. Raise the ED so every one of those mints fails.
+		let total_reward_1 =
+			(MaxSupply::get() - (issuance_before + tx_fees)) / EmissionDivisor::get();
+		let lost = tx_fees + total_reward_1;
+		ExistentialDeposit::set(MaxSupply::get());
+		MiningRewards::on_finalize(1);
+
+		// The outage block minted nothing; the full amount was rolled back into
+		// CollectedFees, awaiting redistribution by the next finalize.
+		assert_eq!(Balances::free_balance(&treasury_account), balance_before);
+		assert_eq!(Balances::total_issuance(), issuance_before);
+		System::assert_has_event(Event::TreasuryMintFailed { reward: tx_fees }.into());
+		assert_eq!(
+			MiningRewards::collected_fees(),
+			lost,
+			"every failed mint must be retained for retry"
+		);
+
+		// The treasury becomes receivable again; the next finalize must recover
+		// the retained block-1 amounts (block 2's own emission comes on top).
+		ExistentialDeposit::set(1);
+		MiningRewards::on_finalize(2);
+
+		let gained = Balances::free_balance(&treasury_account) - balance_before;
+		assert!(
+			gained >= lost,
+			"a recoverable treasury outage must not lose that block's rewards: \
+			 gained {gained}, needed at least {lost}"
+		);
+		assert_eq!(
+			MiningRewards::collected_fees(),
+			0,
+			"recovered rewards must leave the retry bucket"
+		);
+	});
+}
+
+/// While the treasury outage persists, repeated finalizations must keep
+/// accumulating the failed amounts instead of overwriting or dropping them.
+#[test]
+fn unminted_rewards_accumulate_across_consecutive_outage_blocks() {
+	new_test_ext().execute_with(|| {
+		let treasury_account = Treasury::account_id();
+		let balance_before = Balances::free_balance(&treasury_account);
+
+		ExistentialDeposit::set(MaxSupply::get());
+
+		MiningRewards::on_finalize(1);
+		let retained_after_1 = MiningRewards::collected_fees();
+		assert!(retained_after_1 > 0, "outage block must retain its rewards");
+
+		MiningRewards::on_finalize(2);
+		let retained_after_2 = MiningRewards::collected_fees();
+		assert!(
+			retained_after_2 > retained_after_1,
+			"a second outage block must add its own rewards to the retained pool"
+		);
+
+		// Once the treasury recovers, the whole accumulated pool is minted.
+		ExistentialDeposit::set(1);
+		MiningRewards::on_finalize(3);
+		assert_eq!(MiningRewards::collected_fees(), 0);
+		assert!(
+			Balances::free_balance(&treasury_account) - balance_before >= retained_after_2,
+			"recovery must mint the entire accumulated pool"
+		);
+	});
+}
+
+/// A retried amount follows the normal fee destination: when the next block
+/// has a miner, the previously failed treasury-directed rewards are paid to
+/// that miner as fees rather than lingering or being force-directed anywhere.
+#[test]
+fn retried_rewards_follow_fee_destination_to_next_miner() {
+	new_test_ext().execute_with(|| {
+		// Block 1: no miner, treasury unreachable — everything is retained.
+		ExistentialDeposit::set(MaxSupply::get());
+		MiningRewards::on_finalize(1);
+		let retained = MiningRewards::collected_fees();
+		assert!(retained > 0);
+
+		// Block 2 has a miner and mints work again: the retained amount is
+		// distributed as that block's fees, i.e. to the miner.
+		ExistentialDeposit::set(1);
+		let miner_before = Balances::free_balance(MINER_1.account_id());
+		set_miner_preimage_digest(MINER_1.preimage());
+		MiningRewards::on_finalize(2);
+
+		assert_eq!(MiningRewards::collected_fees(), 0);
+		assert!(
+			Balances::free_balance(MINER_1.account_id()) >= miner_before + retained,
+			"retried rewards must reach the next block's miner via the fee path"
+		);
+	});
+}
+
 // =========================================================================
 // EQ-QNT-WORMHOLE-F-03: Tests for extract_author_from_digest edge cases
 // =========================================================================

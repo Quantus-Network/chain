@@ -35,6 +35,10 @@ pub mod pallet {
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
+	/// Value awaiting distribution by `on_finalize`: transaction fees collected
+	/// during block execution, plus any reward whose mint failed on an earlier
+	/// finalize (see [`Pallet::mint_reward`]) and is being retried through the
+	/// normal fee-distribution path.
 	#[pallet::storage]
 	#[pallet::getter(fn collected_fees)]
 	pub(super) type CollectedFees<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
@@ -106,11 +110,13 @@ pub mod pallet {
 			/// The reward amount redirected to treasury
 			reward: BalanceOf<T>,
 		},
-		/// Treasury mint failed - reward was not issued.
+		/// Treasury mint failed - reward was not issued this block.
 		///
 		/// This is a critical operational signal. If this event is observed, it indicates
 		/// either a misconfigured treasury account or a currency invariant violation.
-		/// The reward amount was permanently lost (not minted).
+		/// The amount is rolled back into [`CollectedFees`] and redistributed by a
+		/// subsequent finalize (to that block's miner, or its treasury fallback), so it
+		/// is recovered once either can receive mints again.
 		TreasuryMintFailed {
 			/// The reward amount that failed to mint
 			reward: BalanceOf<T>,
@@ -131,6 +137,10 @@ pub mod pallet {
 
 		fn on_finalize(_block_number: BlockNumberFor<T>) {
 			// Take collected fees first - needed for accurate supply calculation below.
+			// This also picks up any reward whose mint failed on an earlier finalize:
+			// `mint_reward`'s failure path rolls the amount back into `CollectedFees`,
+			// so it is retried here through the normal fee distribution instead of
+			// being dropped.
 			let tx_fees = <CollectedFees<T>>::take();
 
 			// Calculate dynamic block reward based on remaining supply.
@@ -138,6 +148,9 @@ pub mod pallet {
 			// (during transaction execution), so we add them back to get the true
 			// current supply before re-minting them to the miner. This prevents the
 			// block reward calculation from being slightly inflated by the burned fees.
+			// Retried unminted rewards inside `tx_fees` are likewise already-scheduled
+			// supply (they were budgeted from the remaining supply of their own block),
+			// so this line covers them too.
 			let max_supply = T::MaxSupply::get();
 			let current_supply = T::Currency::total_issuance().saturating_add(tx_fees);
 			let emission_divisor = T::EmissionDivisor::get();
@@ -262,9 +275,10 @@ pub mod pallet {
 								Err(e2) => {
 									log::error!(
 										target: "mining-rewards",
-										"Failed to redirect {:?} to treasury: {:?}",
+										"Failed to redirect {:?} to treasury: {:?}, retaining for retry",
 										reward, e2
 									);
+									Self::retain_unminted(reward);
 									Self::deposit_event(Event::TreasuryMintFailed { reward });
 								},
 							}
@@ -285,14 +299,26 @@ pub mod pallet {
 						Err(e) => {
 							log::error!(
 								target: "mining-rewards",
-								"Failed to mint {:?} to treasury: {:?}",
+								"Failed to mint {:?} to treasury: {:?}, retaining for retry",
 								reward, e
 							);
+							Self::retain_unminted(reward);
 							Self::deposit_event(Event::TreasuryMintFailed { reward });
 						},
 					}
 				},
 			};
+		}
+
+		/// Retain a reward whose mint failed so a later `on_finalize` retries it,
+		/// instead of dropping it: roll it back into [`CollectedFees`], the bucket the
+		/// next finalize takes and redistributes (to that block's miner, falling back
+		/// to the treasury). No separate storage is needed; the amount simply rejoins
+		/// the value awaiting distribution, and consecutive failures accumulate.
+		fn retain_unminted(reward: BalanceOf<T>) {
+			<CollectedFees<T>>::mutate(|pending| {
+				*pending = pending.saturating_add(reward);
+			});
 		}
 	}
 

@@ -68,14 +68,19 @@ const MAX_LEAF_INSERTS: u64 = 3;
 /// Once per finalize: `MiningRewards::CollectedFees` (r1 w1),
 /// `TreasuryPallet::TreasuryPortion` (r1), `TreasuryPallet::TreasuryAccount` (r1).
 ///
-/// Per successful reward transfer × [`MAX_LEAF_INSERTS`], priced independently
-/// with no cross-transfer storage dedup (same stance as the leaf inserts):
-/// `System::Account` mint (r1 w1), `Wormhole::TransferCount` (r1 w1), and the
-/// conditional `Wormhole::PotentialWormholeBalance` deposit add when the
-/// recipient is ambiguous (r1 w1). The shallow benchmark only observed two
-/// unique Account/TransferCount keys and predated the potential-balance write,
-/// so its measured base is not a complete bound.
-const BASE_READS: u64 = 12;
+/// Per reward transfer × [`MAX_LEAF_INSERTS`], priced independently with no
+/// cross-transfer storage dedup (same stance as the leaf inserts), at the
+/// worst-case redirect path — a failed miner mint (`System::Account` r1)
+/// falling back to a successful treasury mint (`System::Account` r1 w1),
+/// `Wormhole::TransferCount` (r1 w1), and the conditional
+/// `Wormhole::PotentialWormholeBalance` deposit add when the recipient is
+/// ambiguous (r1 w1): 4 reads, 3 writes. The all-mints-fail path (rolling the
+/// amount back into `CollectedFees` instead) costs strictly less and stays
+/// within this envelope. The shallow benchmark only observed two unique
+/// Account/TransferCount keys and predated both the potential-balance write
+/// and the failed-mint retention, so its measured base is not a complete
+/// bound.
+const BASE_READS: u64 = 15;
 const BASE_WRITES: u64 = 10;
 
 /// Weights for `pallet_mining_rewards` using the Substrate node and recommended hardware.
@@ -200,13 +205,15 @@ mod tests {
 	#[test]
 	fn base_covers_three_reward_transfers_including_potential_balance() {
 		// Once per finalize (outside the per-transfer mint/record path).
-		const FIXED_READS: u64 = 3; // CollectedFees + TreasuryPortion + TreasuryAccount
-		const FIXED_WRITES: u64 = 1; // CollectedFees
+		// CollectedFees (r1 w1) + TreasuryPortion (r1) + TreasuryAccount (r1).
+		const FIXED_READS: u64 = 3;
+		const FIXED_WRITES: u64 = 1;
 
-		// Per successful reward transfer, priced independently:
-		// System::Account mint (r1 w1) + TransferCount (r1 w1) +
-		// conditional PotentialWormholeBalance deposit add (r1 w1).
-		const PER_TRANSFER_READS: u64 = 3;
+		// Per reward transfer, priced independently at the worst-case redirect
+		// path: failed miner Account mint (r1) + successful treasury Account
+		// mint (r1 w1) + TransferCount (r1 w1) + conditional
+		// PotentialWormholeBalance deposit add (r1 w1).
+		const PER_TRANSFER_READS: u64 = 4;
 		const PER_TRANSFER_WRITES: u64 = 3;
 
 		let expected_reads =
