@@ -73,9 +73,6 @@ const MAX_LEAF_INSERTS: u64 = 3;
 const BASE_READS: u64 = 15;
 const BASE_WRITES: u64 = 10;
 
-/// PoV per ZK-tree path key (matches `pallet-wormhole`'s `TREE_KEY_POV`).
-const TREE_KEY_POV: u64 = 2600;
-
 /// PoV per fixed-base key (rounded up from `System::Account` MaxEncodedLen).
 const BASE_KEY_POV: u64 = 2700;
 
@@ -93,7 +90,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
 		);
 		let proof_size = BASE_READS.saturating_mul(BASE_KEY_POV).saturating_add(
-			MAX_LEAF_INSERTS.saturating_mul(tree_reads).saturating_mul(TREE_KEY_POV),
+			MAX_LEAF_INSERTS
+				.saturating_mul(tree_reads)
+				.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
 		);
 		Weight::from_parts(163_000_000_u64.saturating_add(hash_time), proof_size)
 			.saturating_add(T::DbWeight::get().reads(
@@ -117,7 +116,9 @@ impl WeightInfo for () {
 			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
 		);
 		let proof_size = BASE_READS.saturating_mul(BASE_KEY_POV).saturating_add(
-			MAX_LEAF_INSERTS.saturating_mul(tree_reads).saturating_mul(TREE_KEY_POV),
+			MAX_LEAF_INSERTS
+				.saturating_mul(tree_reads)
+				.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
 		);
 		Weight::from_parts(163_000_000_u64.saturating_add(hash_time), proof_size)
 			.saturating_add(RocksDbWeight::get().reads(
@@ -139,7 +140,9 @@ mod tests {
 		let hash_time = MAX_LEAF_INSERTS
 			.saturating_mul(pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(depth));
 		let proof_size = BASE_READS.saturating_mul(BASE_KEY_POV).saturating_add(
-			MAX_LEAF_INSERTS.saturating_mul(tree_reads).saturating_mul(TREE_KEY_POV),
+			MAX_LEAF_INSERTS
+				.saturating_mul(tree_reads)
+				.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
 		);
 		Weight::from_parts(163_000_000_u64.saturating_add(hash_time), proof_size)
 			.saturating_add(RocksDbWeight::get().reads(
@@ -186,7 +189,7 @@ mod tests {
 		assert!(
 			reserved.proof_size() >=
 				BASE_READS * BASE_KEY_POV +
-					MAX_LEAF_INSERTS * tree_reads * TREE_KEY_POV,
+					MAX_LEAF_INSERTS * tree_reads * pallet_zk_tree::TREE_KEY_POV,
 			"reserved PoV must cover every base key plus all tree path keys at MAX_TREE_DEPTH"
 		);
 	}

@@ -78,6 +78,13 @@ pub fn insert_leaf_hash_ref_time_at_depth(depth: u8) -> u64 {
 	insert_leaf_poseidon_evals_at_depth(depth).saturating_mul(POSEIDON_EVAL_REF_TIME_PS)
 }
 
+/// Conservative PoV bound (bytes) per ZK-tree storage key touched during a path
+/// update. Tree entries are 32-byte hashes with small keys; comparable to the
+/// benchmarked `ZkTree::Leaves` / `UsedNullifiers` `added` figures (~2524–2543).
+/// Callers that scale insert weight with [`insert_leaf_db_ops_at_depth`] should
+/// use this for the proof-size term so all pallets share one assumption.
+pub const TREE_KEY_POV: u64 = 2600;
+
 /// Branching factor of the tree.
 pub const ARITY: usize = 4;
 

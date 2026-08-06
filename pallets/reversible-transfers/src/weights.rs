@@ -63,23 +63,17 @@ pub trait WeightInfo {
 const EXECUTE_TRANSFER_BASE_READS: u64 = 5;
 const EXECUTE_TRANSFER_BASE_WRITES: u64 = 5;
 
-/// Conservative PoV bound per ZK-tree storage key touched during a path update.
-/// Same figure as `pallet-wormhole`'s weights: tree entries are 32-byte hashes with
-/// small keys, comparable to the benchmarked `ZkTree::Leaves` `added` figure of 2543.
-const TREE_KEY_POV: u64 = 2600;
-
 /// `execute_transfer`'s weight: the benchmarked base (compute + non-tree storage)
 /// plus the depth-dependent ZK-tree leaf insert performed by the wormhole proof
-/// recorder. `insert_leaf` walks the tree leaf-to-root (`pallet_zk_tree::update_path`
-/// reads 3 sibling `Nodes` per level and writes one internal node per level), so the
-/// DB ops and PoV must scale with `tree_ops` rather than stay flat — otherwise
-/// deep-tree executions do far more storage I/O than the block weight model charges.
-/// The shallow tree component embedded in the benchmarked base is deliberately not
-/// deducted (over-charging is the safe direction).
+/// recorder. `insert_leaf` walks the tree leaf-to-root, so DB ops and PoV scale
+/// with `tree_ops` via [`pallet_zk_tree::TREE_KEY_POV`].
 fn execute_transfer_weight(db: RuntimeDbWeight, (tree_reads, tree_writes): (u64, u64)) -> Weight {
 	// Minimum execution time: 105_000_000 picoseconds.
 	Weight::from_parts(110_000_000, 8619)
-		.saturating_add(Weight::from_parts(0, tree_reads.saturating_mul(TREE_KEY_POV)))
+		.saturating_add(Weight::from_parts(
+			0,
+			tree_reads.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
+		))
 		.saturating_add(db.reads(EXECUTE_TRANSFER_BASE_READS.saturating_add(tree_reads)))
 		.saturating_add(db.writes(EXECUTE_TRANSFER_BASE_WRITES.saturating_add(tree_writes)))
 }
