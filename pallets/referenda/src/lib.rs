@@ -505,6 +505,11 @@ pub mod pallet {
 			let now = T::BlockNumberProvider::current_block_number();
 			let nudge_call =
 				T::Preimages::bound(CallOf::<T, I>::from(Call::nudge_referendum { index }))?;
+			let alarm =
+				Self::set_alarm(nudge_call, now.saturating_add(T::UndecidingTimeout::get()));
+			// A referendum without its undeciding-timeout alarm is not serviced (#91210)
+			// and nothing here can recover from that, so flag it loudly under debug.
+			debug_assert!(alarm.is_some(), "unable to schedule the undeciding-timeout alarm");
 			let status = ReferendumStatus {
 				track,
 				origin: proposal_origin,
@@ -516,7 +521,7 @@ pub mod pallet {
 				deciding: None,
 				tally: TallyOf::<T, I>::new(track),
 				in_queue: false,
-				alarm: Self::set_alarm(nudge_call, now.saturating_add(T::UndecidingTimeout::get())),
+				alarm,
 			};
 			ReferendumInfoFor::<T, I>::insert(index, ReferendumInfo::Ongoing(status));
 
@@ -979,6 +984,9 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	/// If the agenda at `when` is full, the alarm slides forward one block at a time (up to
 	/// `MAX_ALARM_SCHEDULE_RETRIES` extra attempts) instead of being dropped, and the block
 	/// that was actually scheduled is returned.
+	///
+	/// Returns `None` if every attempt failed; it is the caller's responsibility to recover
+	/// (or to `debug_assert` if it cannot - see V12 audit #162455).
 	fn set_alarm(
 		call: BoundedCallOf<T, I>,
 		when: BlockNumberFor<T, I>,
@@ -1023,7 +1031,6 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 			T::BlockNumberProvider::current_block_number(),
 			last_err,
 		);
-		debug_assert!(false, "scheduler alarm scheduling failed after retries: {:?}", last_err);
 		None
 	}
 
@@ -1127,7 +1134,16 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 				return
 			},
 		};
-		Self::set_alarm(call, next_block);
+		if Self::set_alarm(call, next_block).is_none() {
+			// V12 audit #162455: the deferred `one_fewer_deciding` could not be scheduled
+			// even after sliding forward. Never lose the accounting: release the deciding
+			// slot inline so the track is not recorded as full forever (with
+			// `max_deciding = 1` that would deadlock the whole lane). Queued referenda are
+			// not promoted here; they are pulled as usual by the `one_fewer_deciding` of
+			// the next referendum to finish deciding on this track, or by a direct
+			// (Root-dispatched) `one_fewer_deciding` call.
+			DecidingCount::<T, I>::mutate(track, |x| x.saturating_dec());
+		}
 	}
 
 	/// Ensure that a `service_referendum` alarm happens for the referendum `index` at `alarm`.
@@ -1155,6 +1171,12 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 					},
 				};
 			status.alarm = Self::set_alarm(call, alarm);
+			// A referendum with no alarm is not serviced (#91210) and nothing here can
+			// recover from that, so flag it loudly under debug.
+			debug_assert!(
+				status.alarm.is_some(),
+				"unable to schedule the referendum's service alarm",
+			);
 			true
 		} else {
 			false

@@ -225,6 +225,64 @@ fn evicted_from_full_queue_clears_in_queue_on_service() {
 	});
 }
 
+/// V12 audit #162455: releasing a deciding slot must not depend on the deferred
+/// `one_fewer_deciding` alarm being schedulable. When a deciding referendum ends while
+/// the agendas of the alarm's target block and of all 16 retry blocks are full, the
+/// track's deciding slot must still be released inline instead of leaving
+/// `DecidingCount` stuck at capacity forever (with `max_deciding = 1` this would
+/// deadlock the whole governance lane).
+///
+/// The referendum is ended through the rejection path (its own decision-period alarm at
+/// block 9), because that alarm has already been consumed by the scheduler when it
+/// fires and so - unlike `cancel`/`kill`, which free the referendum's alarm slot first -
+/// leaves no hole in any agenda for the `one_fewer_deciding` alarm to slip into.
+#[test]
+fn unschedulable_one_fewer_deciding_releases_deciding_slot_inline() {
+	ExtBuilder::default().build_and_execute(|| {
+		// ref0 occupies track 0's single deciding slot from block 5 on; with a failing
+		// tally its decision period (4 blocks) ends with rejection at block 9.
+		assert_ok!(propose_set_balance(1, 1, 0));
+		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(1), 0));
+		run_to(5);
+		assert_eq!(deciding_and_failing_since(0), 5);
+		assert_eq!(DecidingCount::<Test>::get(0), 1);
+
+		// Fill the agendas of the deferred `one_fewer_deciding` alarm's target block
+		// (rejection block 9 + 1 = 10) and of all 16 retry blocks after it.
+		let max = <<Test as pallet_scheduler::Config>::MaxScheduledPerBlock as frame_support::traits::Get<
+			u32,
+		>>::get();
+		let filler = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+		for when in 10..=26 {
+			for _ in 0..max {
+				assert_ok!(Scheduler::schedule(
+					RuntimeOrigin::root(),
+					when,
+					100,
+					Box::new(filler.clone()),
+				));
+			}
+		}
+
+		// The rejection at block 9 cannot schedule `one_fewer_deciding` anywhere, so the
+		// slot must be released inline, immediately. (This also proves the agendas really
+		// were full - had the alarm been scheduled, the count could only drop once it
+		// fired at block 10 or later.)
+		run_to(9);
+		assert_eq!(rejected_since(0), 9);
+		assert_eq!(DecidingCount::<Test>::get(0), 0);
+
+		// The freed slot is genuinely usable: once past the filled agendas, a fresh
+		// referendum begins deciding after its prepare period instead of queueing behind
+		// a phantom occupant.
+		run_to(27);
+		assert_ok!(propose_set_balance(2, 2, 0));
+		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(2), 1));
+		run_to(31);
+		assert_eq!(deciding_since(1), 31);
+	});
+}
+
 #[test]
 fn insta_confirm_then_kill_works() {
 	ExtBuilder::default().build_and_execute(|| {
