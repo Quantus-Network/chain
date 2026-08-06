@@ -883,18 +883,71 @@ pub mod pallet {
 				Self::deposit_event(Event::SegmentsDenied { indices: denied_segments });
 			}
 
-			// Emit event for each exit account
+			// Mint the exits BEFORE settling fees or emitting ProofVerified: a slot
+			// whose credit fails is skipped (see the loop comment below), so its value
+			// is never minted and never committed. Settling a fee share or reporting an
+			// exit amount for that slot would burn / pay out value for an exit that
+			// never happened, and hand event consumers an exit_amount larger than what
+			// TotalWormholeExits records. Everything downstream is therefore derived
+			// from `minted_exit_amount` — the finalized total of successful credits.
+			let mut minted_exit_amount: BalanceOf<T> = Zero::zero();
+			for (exit_account, exit_balance) in &processed_accounts {
+				// Native token transfer - mint tokens to the exit account.
+				//
+				// A single exit that can't be minted (e.g. a below-existential-deposit
+				// credit to a fresh account) must not revert the whole bundle and deny
+				// every co-bundled user's exit — that is the per-segment isolation
+				// documented on `ExitSegment`. Skip just this slot; its nullifier is
+				// already marked so the deposit cannot be re-exited, and the skipped
+				// value is left out of the fee settlement, the ProofVerified event and
+				// the committed exit total below.
+				match <T::Currency as Unbalanced<_>>::increase_balance(
+					exit_account,
+					*exit_balance,
+					frame_support::traits::tokens::Precision::Exact,
+				) {
+					Ok(_) => {},
+					Err(e) => {
+						log::warn!(
+							"Exit mint of {:?} to {:?} failed ({:?}); skipping this exit",
+							*exit_balance,
+							exit_account,
+							e
+						);
+						Self::deposit_event(Event::ExitMintFailed {
+							account: exit_account.clone(),
+							amount: *exit_balance,
+						});
+						continue;
+					},
+				}
+
+				minted_exit_amount = minted_exit_amount.saturating_add(*exit_balance);
+
+				// Record transfer proof for the minted tokens
+				let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
+				let to_account: <T as Config>::WormholeAccountId = exit_account.clone().into();
+				Self::record_transfer(
+					T::AssetId::default(),
+					&from_account,
+					&to_account,
+					*exit_balance,
+				);
+			}
+
+			// Emit the finalized exit amount — what actually minted, and what is
+			// committed to TotalWormholeExits below — not the attempted total.
 			Self::deposit_event(Event::ProofVerified {
-				exit_amount: total_exit_amount,
+				exit_amount: minted_exit_amount,
 				nullifiers: nullifier_list,
 			});
 
-			// Compute the total fee from the input amounts
-			// fee = total_output_amount * volume_fee_bps / (10000 - volume_fee_bps)
+			// Compute the total fee from the minted outputs
+			// fee = minted_output_amount * volume_fee_bps / (10000 - volume_fee_bps)
 			// This is the fee that was deducted from input to get output.
 			let fee_bps = T::VolumeFeeRateBps::get() as u128;
-			let total_exit_u128: u128 = total_exit_amount.try_into().map_err(|_| {
-				log::error!("Failed to convert total_exit_amount to u128");
+			let total_exit_u128: u128 = minted_exit_amount.try_into().map_err(|_| {
+				log::error!("Failed to convert minted_exit_amount to u128");
 				Error::<T>::InvalidProofPublicInputs
 			})?;
 			let total_fee_u128 = total_exit_u128
@@ -1022,51 +1075,6 @@ pub mod pallet {
 				let current = <T::Currency as FungibleInspect<_>>::total_issuance();
 				<T::Currency as Unbalanced<_>>::set_total_issuance(
 					current.saturating_sub(burn_amount),
-				);
-			}
-
-			// Process transfers and record proofs
-			let mut minted_exit_amount: BalanceOf<T> = Zero::zero();
-			for (exit_account, exit_balance) in &processed_accounts {
-				// Native token transfer - mint tokens to the exit account.
-				//
-				// A single exit that can't be minted (e.g. a below-existential-deposit
-				// credit to a fresh account) must not revert the whole bundle and deny
-				// every co-bundled user's exit — that is the per-segment isolation
-				// documented on `ExitSegment`. Skip just this slot; its nullifier is
-				// already marked so the deposit cannot be re-exited, and the skipped
-				// value is left out of the committed exit total below.
-				match <T::Currency as Unbalanced<_>>::increase_balance(
-					exit_account,
-					*exit_balance,
-					frame_support::traits::tokens::Precision::Exact,
-				) {
-					Ok(_) => {},
-					Err(e) => {
-						log::warn!(
-							"Exit mint of {:?} to {:?} failed ({:?}); skipping this exit",
-							*exit_balance,
-							exit_account,
-							e
-						);
-						Self::deposit_event(Event::ExitMintFailed {
-							account: exit_account.clone(),
-							amount: *exit_balance,
-						});
-						continue;
-					},
-				}
-
-				minted_exit_amount = minted_exit_amount.saturating_add(*exit_balance);
-
-				// Record transfer proof for the minted tokens
-				let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
-				let to_account: <T as Config>::WormholeAccountId = exit_account.clone().into();
-				Self::record_transfer(
-					T::AssetId::default(),
-					&from_account,
-					&to_account,
-					*exit_balance,
 				);
 			}
 

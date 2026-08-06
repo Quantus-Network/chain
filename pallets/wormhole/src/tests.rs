@@ -1761,6 +1761,57 @@ mod exit_bundle_tests {
 	}
 
 	#[test]
+	fn process_exit_bundle_settles_fee_and_event_from_minted_exits_only() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+
+			// Seed issuance so the burn is observable.
+			assert_ok!(Balances::mint_into(&account_id(999), 1_000 * UNIT));
+			let issuance_before = <Balances as Inspect<AccountId>>::total_issuance();
+
+			// Raise the ED so the AMOUNT_A exit to a fresh account fails and is
+			// skipped, while the AMOUNT_B exit clears it (same setup as the
+			// skip-below-ED test).
+			ExistentialDeposit::set(scaled(2500));
+
+			let b = bundle(
+				vec![segment(&[1], &[(10, AMOUNT_A)]), segment(&[2], &[(11, AMOUNT_B)])],
+				None,
+			);
+			assert_ok!(Wormhole::process_exit_bundle(b));
+
+			// The skipped exit's value was never minted and never committed, so no
+			// fee attributable to it may be settled: the fee (fully burned here — no
+			// aggregator, no block author in tests) must be computed from the minted
+			// total only, not the attempted total.
+			let fee_bps = VolumeFeeRateBps::get() as u128;
+			let fee_minted = scaled(AMOUNT_B) * fee_bps / (10_000 - fee_bps);
+			let fee_attempted =
+				(scaled(AMOUNT_A) + scaled(AMOUNT_B)) * fee_bps / (10_000 - fee_bps);
+			assert_ne!(fee_minted, fee_attempted, "test must distinguish the two totals");
+
+			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();
+			assert_eq!(
+				issuance_before - issuance_after,
+				fee_minted,
+				"fee settlement must be based on successfully minted exits only"
+			);
+
+			// ProofVerified must report the finalized (minted) exit amount, matching
+			// what was committed to TotalWormholeExits — not the attempted total.
+			assert_eq!(TotalWormholeExits::<Test>::get(), scaled(AMOUNT_B));
+			System::assert_has_event(
+				crate::Event::<Test>::ProofVerified {
+					exit_amount: scaled(AMOUNT_B),
+					nullifiers: vec![nullifier_bytes(1), nullifier_bytes(2)],
+				}
+				.into(),
+			);
+		});
+	}
+
+	#[test]
 	fn process_exit_bundle_burns_rebate_when_aggregator_mint_fails() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
