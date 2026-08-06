@@ -198,8 +198,9 @@ fn planck_tech_collective_seed() -> Vec<AccountId> {
 /// `free_balance - liquid` after Balances genesis runs.
 ///
 /// `repurchaser` is the account allowed (besides Root) to repurchase the schedule early via
-/// `force_remove_vesting_schedule`, which transfers the still-unvested funds to the repurchaser;
-/// pass `None` for schedules nobody but Root should be able to remove.
+/// `force_remove_vesting_schedule` (receiving the still-unvested funds) or to move it intact
+/// to another account via `transfer_vesting_schedule`; pass `None` for schedules nobody but
+/// Root should be able to remove or transfer.
 fn vested_endowments(
 	accounts: impl IntoIterator<Item = AccountId>,
 	repurchaser: Option<AccountId>,

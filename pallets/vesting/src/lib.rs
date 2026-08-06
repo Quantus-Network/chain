@@ -321,6 +321,8 @@ pub mod pallet {
 		RepurchaserMismatch,
 		/// Source and destination accounts for a schedule transfer must differ.
 		SameAccount,
+		/// The schedule has already fully vested; there is nothing left to transfer.
+		ScheduleFullyVested,
 	}
 
 	#[pallet::call]
@@ -549,6 +551,14 @@ pub mod pallet {
 			ensure!(source != dest, Error::<T>::SameAccount);
 
 			let (schedule, _) = Self::ensure_can_manage_schedule(origin, &source, schedule_index)?;
+
+			// A fully-vested schedule has nothing left to move; reject rather than let it
+			// silently vanish on arrival (zero-locked schedules are filtered out on write).
+			let now = T::TimeProvider::now();
+			ensure!(
+				!schedule.locked_at::<T::MomentToBalance>(now).is_zero(),
+				Error::<T>::ScheduleFullyVested
+			);
 
 			// Ensure the destination can accept another schedule before mutating storage.
 			Self::can_add_vesting_schedule(

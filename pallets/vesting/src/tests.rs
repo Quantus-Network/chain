@@ -1362,6 +1362,29 @@ fn repurchaser_can_transfer_vesting_schedule() {
 }
 
 #[test]
+fn cannot_transfer_fully_vested_schedule() {
+	let vesting_config = vec![(1, 0, 10, 5 * ED, Some(4))];
+	ExtBuilder::default()
+		.existential_deposit(ED)
+		.vesting_genesis_config(vesting_config)
+		.build()
+		.execute_with(|| {
+			// Move the clock past the end of the schedule (start 0, fully vested by 10).
+			set_time(100);
+			assert_noop!(
+				Vesting::transfer_vesting_schedule(Some(4).into(), 1, 3, 0),
+				Error::<Test>::ScheduleFullyVested
+			);
+			// Repurchase-removal still works as cleanup; nothing is unvested, so the
+			// holder keeps everything.
+			let balance_before = Balances::free_balance(&1);
+			assert_ok!(Vesting::force_remove_vesting_schedule(Some(4).into(), 1, 0));
+			assert_eq!(VestingStorage::<Test>::get(&1), None);
+			assert_eq!(Balances::free_balance(&1), balance_before);
+		});
+}
+
+#[test]
 fn vested_transfer_impl_works() {
 	ExtBuilder::default().existential_deposit(ED).build().execute_with(|| {
 		assert_eq!(Balances::free_balance(&3), 256 * 30);
