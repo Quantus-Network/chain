@@ -2127,3 +2127,106 @@ mod public_batch_proof_tests {
 		let _ = std::fs::remove_dir_all(&tmp_dir);
 	}
 }
+
+/// Manual timing harness used to calibrate the hand-maintained pre-validation
+/// compute constants in `weights.rs`. Run with:
+/// `cargo test -p pallet-wormhole --release measure_pre_validation_time -- --ignored --nocapture`
+#[cfg(test)]
+mod pre_validation_timing {
+	use crate::mock::*;
+	use qp_wormhole_verifier::{
+		parse_private_batch_public_inputs, ProofWithPublicInputs, C, D, F,
+	};
+	use sp_core::H256;
+	use std::time::Instant;
+
+	const PRIVATE_BATCH_PROOF_HEX: &str = include_str!("../test-data/private_batch.hex");
+	const PUBLIC_BATCH_PROOF_HEX: &str = include_str!("../test-data/public_batch.hex");
+
+	fn insert_block_hash(block_number: u32, block_hash: &[u8]) {
+		let bytes: [u8; 32] = block_hash.try_into().unwrap();
+		frame_system::BlockHash::<Test>::insert(block_number as u64, H256::from(bytes));
+	}
+
+	fn insert_decoy_nullifiers(count: u32) {
+		for i in 0..count {
+			let mut nullifier = [0xFFu8; 32];
+			nullifier[0..4].copy_from_slice(&i.to_le_bytes());
+			crate::UsedNullifiers::<Test>::insert(nullifier, true);
+		}
+	}
+
+	#[test]
+	#[ignore] // manual calibration harness, not a correctness test
+	fn measure_pre_validation_time() {
+		new_test_ext().execute_with(|| {
+			let iters: u32 = 50;
+
+			// --- Private batch ---
+			let proof_bytes =
+				hex::decode(PRIVATE_BATCH_PROOF_HEX.trim()).expect("Invalid private hex");
+			let verifier = crate::get_private_batch_verifier().unwrap();
+			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
+				proof_bytes.clone(),
+				&verifier.circuit_data.common,
+			)
+			.unwrap();
+			let inputs = parse_private_batch_public_inputs(&proof).unwrap();
+			insert_block_hash(inputs.block_data.block_number, inputs.block_data.block_hash.as_ref());
+			insert_decoy_nullifiers(crate::circuit_config::NUM_LEAF_PROOFS as u32);
+
+			let t = Instant::now();
+			for _ in 0..iters {
+				let _ = ProofWithPublicInputs::<F, C, D>::from_bytes(
+					proof_bytes.clone(),
+					&verifier.circuit_data.common,
+				)
+				.unwrap();
+			}
+			println!("private deserialize-only: {:?}/iter", t.elapsed() / iters);
+
+			let t = Instant::now();
+			for _ in 0..iters {
+				assert!(Wormhole::pre_validate_private_batch_proof(&proof_bytes).is_ok());
+			}
+			println!("private full pre-validate: {:?}/iter", t.elapsed() / iters);
+
+			// --- Public batch ---
+			let proof_bytes =
+				hex::decode(PUBLIC_BATCH_PROOF_HEX.trim()).expect("Invalid public hex");
+			let verifier = crate::get_public_batch_verifier().unwrap();
+			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
+				proof_bytes.clone(),
+				&verifier.circuit_data.common,
+			)
+			.unwrap();
+			let inputs = qp_wormhole_verifier::parse_public_batch_public_inputs(
+				&proof,
+				crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
+				crate::circuit_config::NUM_LEAF_PROOFS,
+			)
+			.unwrap();
+			insert_block_hash(inputs.block_data.block_number, inputs.block_data.block_hash.as_ref());
+			insert_decoy_nullifiers(
+				(crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS *
+					crate::circuit_config::NUM_LEAF_PROOFS) as u32,
+			);
+
+			let t = Instant::now();
+			for _ in 0..iters {
+				let _ = ProofWithPublicInputs::<F, C, D>::from_bytes(
+					proof_bytes.clone(),
+					&verifier.circuit_data.common,
+				)
+				.unwrap();
+			}
+			println!("public deserialize-only: {:?}/iter", t.elapsed() / iters);
+
+			let t = Instant::now();
+			for _ in 0..iters {
+				assert!(Wormhole::pre_validate_public_batch_proof(&proof_bytes).is_ok());
+			}
+			println!("public full pre-validate: {:?}/iter", t.elapsed() / iters);
+		});
+	}
+}

@@ -61,6 +61,34 @@ pub trait WeightInfo {
 	fn verify_public_batch() -> Weight;
 }
 
+/// Measured compute base for the production `pre_validate_private_batch_proof`
+/// path (proof deserialization + public-input parsing + `ExitBundle` construction +
+/// `validate_exit_bundle_common` segment validation).
+///
+/// Calibration 2026-08-06: the full production path measured 176 µs native-release
+/// against 163 µs for deserialization alone; scaled by this path's observed
+/// wasm-compiled factor (550 µs / 163 µs ≈ 3.4× from the 2026-07-30 benchmark run)
+/// that is ~597 µs, padded to 700 µs. Re-run the `pre_validate_proof` benchmark
+/// (which now executes the production path) to regenerate.
+const PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS: u64 = 700_000_000;
+
+/// Measured compute base for the production `pre_validate_public_batch_proof` path
+/// (deserialization + parsing + `ExitBundle::from_public_batch` across all
+/// `NUM_PRIVATE_BATCH_PROOFS` segments + full segment validation).
+///
+/// Calibration 2026-08-06 at NUM_PRIVATE_BATCH_PROOFS=53: full production path
+/// 237 µs native-release vs 223 µs deserialize-only; scaled by this path's
+/// wasm-compiled factor (1578 µs / 223 µs ≈ 7.1×) that is ~1.68 ms, padded to
+/// 1.9 ms. Re-run the `pre_validate_public_batch_proof` benchmark to regenerate.
+const PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS: u64 = 1_900_000_000;
+
+/// Measured ZK verification time for a private-batch proof (2026-07-30).
+const PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS: u64 = 14_965_000_000;
+
+/// Measured ZK verification time for a public-batch proof (2026-07-30,
+/// NUM_PRIVATE_BATCH_PROOFS=53).
+const PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS: u64 = 20_686_000_000;
+
 /// Historical hand-augmentation calibrated for a private-batch of 16 leaves
 /// (2 exit slots/leaf → 32 exit mints). See `verify_private_batch` docs.
 const STORAGE_CALIBRATION_EXITS: u64 = 32;
@@ -142,25 +170,27 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 	/// The nullifier existence scan reads one `UsedNullifiers` key per leaf proof, so
 	/// reads and PoV are derived from `circuit_config::NUM_LEAF_PROOFS` (a build-time
 	/// knob) rather than baked in from the benchmark's aggregation size.
+	///
+	/// The compute base prices the *full* production pre-validation (deserialize,
+	/// parse public inputs, build the `ExitBundle`, run segment validation) — the
+	/// same path the `pre_validate_proof` benchmark now executes.
 	fn pre_validate_proof() -> Weight {
 		let nullifier_reads = circuit_config::NUM_LEAF_PROOFS as u64;
 		// PoV: 2519 per benchmarked `BlockHash` key + 2524 per `UsedNullifiers` key.
 		let proof_size = 2519_u64.saturating_add(nullifier_reads.saturating_mul(2524));
-		// Measured 2026-07-30: 550_000_000 picoseconds (7 nullifier reads).
-		Weight::from_parts(550_000_000, proof_size)
+		Weight::from_parts(PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS, proof_size)
 			.saturating_add(T::DbWeight::get().reads(1_u64.saturating_add(nullifier_reads)))
 	}
-	/// Public-batch pre-validation: deserialize + nullifier scan across all inner
-	/// segments (`System::BlockHash` r:1 + `UsedNullifiers` r:
-	/// NUM_PRIVATE_BATCH_PROOFS * NUM_LEAF_PROOFS).
+	/// Public-batch pre-validation (`System::BlockHash` r:1 + `UsedNullifiers` r:
+	/// NUM_PRIVATE_BATCH_PROOFS * NUM_LEAF_PROOFS). The compute base prices the full
+	/// production path: deserialize, parse, `ExitBundle::from_public_batch` across
+	/// all inner segments, and segment validation.
 	fn pre_validate_public_batch_proof() -> Weight {
 		let nullifier_reads = (circuit_config::NUM_PRIVATE_BATCH_PROOFS *
 			circuit_config::NUM_LEAF_PROOFS) as u64;
 		// PoV: 2519 per benchmarked `BlockHash` key + 2524 per `UsedNullifiers` key.
 		let proof_size = 2519_u64.saturating_add(nullifier_reads.saturating_mul(2524));
-		// Measured 2026-07-30 at NUM_PRIVATE_BATCH_PROOFS=53 (371 nullifier reads):
-		// 1_578_000_000 picoseconds.
-		Weight::from_parts(1_578_000_000, proof_size)
+		Weight::from_parts(PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS, proof_size)
 			.saturating_add(T::DbWeight::get().reads(1_u64.saturating_add(nullifier_reads)))
 	}
 	/// Full private-batch proof verification on the inclusion path:
@@ -175,8 +205,9 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 		let tree_ops = pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops();
 		let (reads, writes, proof_size) =
 			storage_tail(private_batch_max_exits(), false, tree_ops);
-		// Measured 2026-07-30: ZK verify 14_965_000_000 + pre_validate 550_000_000.
-		Weight::from_parts(15_515_000_000, proof_size)
+		let base_ref_time = PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS
+			.saturating_add(PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS);
+		Weight::from_parts(base_ref_time, proof_size)
 			.saturating_add(T::DbWeight::get().reads(reads))
 			.saturating_add(T::DbWeight::get().writes(writes))
 			.saturating_add(Self::pre_validate_proof())
@@ -190,9 +221,9 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 	fn verify_public_batch() -> Weight {
 		let tree_ops = pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops();
 		let (reads, writes, proof_size) = storage_tail(public_batch_max_exits(), true, tree_ops);
-		// Measured 2026-07-30 at NUM_PRIVATE_BATCH_PROOFS=53:
-		// ZK verify 20_686_000_000 + pre_validate_public 1_578_000_000.
-		Weight::from_parts(22_264_000_000, proof_size)
+		let base_ref_time = PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS
+			.saturating_add(PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS);
+		Weight::from_parts(base_ref_time, proof_size)
 			.saturating_add(T::DbWeight::get().reads(reads))
 			.saturating_add(T::DbWeight::get().writes(writes))
 			.saturating_add(Self::pre_validate_public_batch_proof())
@@ -205,7 +236,7 @@ impl WeightInfo for () {
 	fn pre_validate_proof() -> Weight {
 		let nullifier_reads = circuit_config::NUM_LEAF_PROOFS as u64;
 		let proof_size = 2519_u64.saturating_add(nullifier_reads.saturating_mul(2524));
-		Weight::from_parts(550_000_000, proof_size)
+		Weight::from_parts(PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS, proof_size)
 			.saturating_add(RocksDbWeight::get().reads(1_u64.saturating_add(nullifier_reads)))
 	}
 	/// See `SubstrateWeight::pre_validate_public_batch_proof`.
@@ -213,7 +244,7 @@ impl WeightInfo for () {
 		let nullifier_reads = (circuit_config::NUM_PRIVATE_BATCH_PROOFS *
 			circuit_config::NUM_LEAF_PROOFS) as u64;
 		let proof_size = 2519_u64.saturating_add(nullifier_reads.saturating_mul(2524));
-		Weight::from_parts(1_578_000_000, proof_size)
+		Weight::from_parts(PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS, proof_size)
 			.saturating_add(RocksDbWeight::get().reads(1_u64.saturating_add(nullifier_reads)))
 	}
 	/// See `SubstrateWeight::verify_private_batch`. Tree component priced at
@@ -222,7 +253,9 @@ impl WeightInfo for () {
 		let tree_ops = pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
 		let (reads, writes, proof_size) =
 			storage_tail(private_batch_max_exits(), false, tree_ops);
-		Weight::from_parts(15_515_000_000, proof_size)
+		let base_ref_time = PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS
+			.saturating_add(PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS);
+		Weight::from_parts(base_ref_time, proof_size)
 			.saturating_add(RocksDbWeight::get().reads(reads))
 			.saturating_add(RocksDbWeight::get().writes(writes))
 			.saturating_add(Self::pre_validate_proof())
@@ -231,7 +264,9 @@ impl WeightInfo for () {
 	fn verify_public_batch() -> Weight {
 		let tree_ops = pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
 		let (reads, writes, proof_size) = storage_tail(public_batch_max_exits(), true, tree_ops);
-		Weight::from_parts(22_264_000_000, proof_size)
+		let base_ref_time = PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS
+			.saturating_add(PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS);
+		Weight::from_parts(base_ref_time, proof_size)
 			.saturating_add(RocksDbWeight::get().reads(reads))
 			.saturating_add(RocksDbWeight::get().writes(writes))
 			.saturating_add(Self::pre_validate_public_batch_proof())
@@ -311,7 +346,10 @@ mod tests {
 			let pre_private = W::pre_validate_proof();
 			let verify_private = W::verify_private_batch();
 			assert!(
-				verify_private.ref_time() >= 15_515_000_000 + pre_private.ref_time(),
+				verify_private.ref_time() >=
+					PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS +
+						PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS +
+						pre_private.ref_time(),
 				"private verify must include a second pre_validate_proof compute cost"
 			);
 			assert!(
@@ -322,7 +360,10 @@ mod tests {
 			let pre_public = W::pre_validate_public_batch_proof();
 			let verify_public = W::verify_public_batch();
 			assert!(
-				verify_public.ref_time() >= 22_264_000_000 + pre_public.ref_time(),
+				verify_public.ref_time() >=
+					PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS +
+						PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS +
+						pre_public.ref_time(),
 				"public verify must include a second pre_validate_public_batch_proof compute cost"
 			);
 			assert!(
@@ -330,5 +371,22 @@ mod tests {
 				"public verify must include public pre_validate PoV"
 			);
 		});
+	}
+
+	/// The pre-validation compute base must price the *production* path, which does
+	/// strictly more work than the deserialize-only micro-benchmark it replaced
+	/// (public-input parsing, bundle construction, segment validation). Guard the
+	/// calibrated floor so a regenerated weights file can't silently regress to the
+	/// old deserialize-only figures (550 µs private / 1578 µs public, 2026-07-30).
+	#[test]
+	fn pre_validation_compute_covers_production_path() {
+		assert!(
+			PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS > 550_000_000,
+			"private pre-validate compute must exceed the deserialize-only measurement"
+		);
+		assert!(
+			PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS > 1_578_000_000,
+			"public pre-validate compute must exceed the deserialize-only measurement"
+		);
 	}
 }

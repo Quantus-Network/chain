@@ -1185,7 +1185,7 @@ pub mod pallet {
 		/// (`validate_unsigned`), where running the full ZK verify would let unsigned,
 		/// fee-free traffic force unbounded verification work per gossiped proof. The
 		/// full verification is deferred to the block-inclusion gate (`pre_dispatch`).
-		fn pre_validate_private_batch_proof(
+		pub(crate) fn pre_validate_private_batch_proof(
 			proof_bytes: &[u8],
 		) -> Result<
 			(
@@ -1229,7 +1229,7 @@ pub mod pallet {
 
 		/// Cheap pre-validation of a public-batch proof (no ZK verify). See
 		/// [`Self::pre_validate_private_batch_proof`].
-		fn pre_validate_public_batch_proof(
+		pub(crate) fn pre_validate_public_batch_proof(
 			proof_bytes: &[u8],
 		) -> Result<
 			(
