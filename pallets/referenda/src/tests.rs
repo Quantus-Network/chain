@@ -200,6 +200,28 @@ fn evicted_from_full_queue_clears_in_queue_on_service() {
 		// 0, so the `NotQueued` arm must clear the flag and store the referendum.
 		assert_ok!(Referenda::nudge_referendum(RuntimeOrigin::root(), 1));
 		assert!(!Referenda::ensure_ongoing(1).unwrap().in_queue);
+
+		// The same service must also restore the undeciding-timeout alarm (submitted at
+		// block 5 + UndecidingTimeout 20 = block 25): `nudge_referendum` is Root-only on
+		// this chain, so without an alarm the referendum would stay stranded until a
+		// second governance intervention.
+		assert_eq!(Referenda::ensure_ongoing(1).unwrap().alarm.map(|(when, _)| when), Some(25));
+
+		// When that alarm fires, the referendum (deposit placed, prepare period elapsed)
+		// re-routes through `ready_for_deciding` or times out. Whatever the exact outcome,
+		// it must no longer sit stranded with no alarm, no queue entry and no deciding
+		// status.
+		run_to(25);
+		let stranded = matches!(
+			ReferendumInfoFor::<Test>::get(1),
+			Some(ReferendumInfo::Ongoing(ReferendumStatus {
+				in_queue: false,
+				deciding: None,
+				alarm: None,
+				..
+			}))
+		);
+		assert!(!stranded, "evicted referendum must make progress after its timeout alarm");
 	});
 }
 

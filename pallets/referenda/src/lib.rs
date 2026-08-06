@@ -1210,12 +1210,15 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 					} else {
 						// V12 audit #161743: `in_queue` is set but the referendum is absent from
 						// `TrackQueue` — it was evicted from a full queue by
-						// `force_insert_keep_right`. Clear the flag and mark dirty so the next
-						// service re-routes it through `ready_for_deciding` (or the undeciding
-						// timeout below, which is gated on `!in_queue`) instead of stranding it
-						// forever with no alarm.
+						// `force_insert_keep_right`. Clear the flag and mark dirty so this and
+						// subsequent services see consistent state, and set the timeout alarm
+						// (mirroring the `NoDeposit` branch) so the referendum re-routes itself
+						// through `ready_for_deciding` — or the undeciding timeout below, which
+						// is gated on `!in_queue` — without requiring a further external nudge
+						// (`nudge_referendum` is a privileged call).
 						status.in_queue = false;
 						dirty = true;
+						alarm = timeout;
 						ServiceBranch::NotQueued
 					};
 					TrackQueue::<T, I>::insert(status.track, queue);
