@@ -396,7 +396,12 @@ mod tests {
 			acc = hash_node(&[acc, siblings[0], siblings[1], siblings[2]]);
 		}
 		let elapsed = start.elapsed();
-		println!("hash_node: {} ns/call over {} calls (sink {:?})", elapsed.as_nanos() / n as u128, n, acc[0]);
+		println!(
+			"hash_node: {} ns/call over {} calls (sink {:?})",
+			elapsed.as_nanos() / n as u128,
+			n,
+			acc[0]
+		);
 	}
 
 	#[test]

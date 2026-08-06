@@ -128,12 +128,12 @@ pub struct FullDeps<C, P> {
 ///
 /// Every method merged below must therefore be explicitly classified:
 ///
-/// - **Unsafe** (discloses topology/identity or does privileged work): must
-///   call `sc_rpc_api::check_if_safe(ext)` before doing anything, like
-///   [`Peer::get_network_info`] and upstream `system_dryRun`.
-/// - **Safe** (public chain/mempool data, bounded per-request work): must have
-///   its request-driven resource use bounded, like the `zkTree_getMerkleProof`
-///   proof-window guard and `TxWatch`'s fixed-capacity broadcast fanout.
+/// - **Unsafe** (discloses topology/identity or does privileged work): must call
+///   `sc_rpc_api::check_if_safe(ext)` before doing anything, like [`Peer::get_network_info`] and
+///   upstream `system_dryRun`.
+/// - **Safe** (public chain/mempool data, bounded per-request work): must have its request-driven
+///   resource use bounded, like the `zkTree_getMerkleProof` proof-window guard and `TxWatch`'s
+///   fixed-capacity broadcast fanout.
 ///
 /// Do not merge a new module without classifying each of its methods this way.
 pub fn create_full<C, P>(
