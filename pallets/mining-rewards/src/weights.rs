@@ -62,13 +62,21 @@ pub trait WeightInfo {
 /// worst case.
 const MAX_LEAF_INSERTS: u64 = 3;
 
-/// Non-Zk-tree storage measured by the benchmark, split out from the leaf-insert
-/// cost so the latter can be priced at the live tree depth. Covers
-/// `MiningRewards::CollectedFees` (r1 w1), `TreasuryPallet::TreasuryPortion`
-/// (r1), `TreasuryPallet::TreasuryAccount` (r1), `System::Account` (r2 w2) and
-/// `Wormhole::TransferCount` (r2 w2).
-const BASE_READS: u64 = 7;
-const BASE_WRITES: u64 = 5;
+/// Non-Zk-tree storage for the worst-case finalize path, split out from the
+/// leaf-insert cost so the latter can be priced at `MAX_TREE_DEPTH`.
+///
+/// Once per finalize: `MiningRewards::CollectedFees` (r1 w1),
+/// `TreasuryPallet::TreasuryPortion` (r1), `TreasuryPallet::TreasuryAccount` (r1).
+///
+/// Per successful reward transfer × [`MAX_LEAF_INSERTS`], priced independently
+/// with no cross-transfer storage dedup (same stance as the leaf inserts):
+/// `System::Account` mint (r1 w1), `Wormhole::TransferCount` (r1 w1), and the
+/// conditional `Wormhole::PotentialWormholeBalance` deposit add when the
+/// recipient is ambiguous (r1 w1). The shallow benchmark only observed two
+/// unique Account/TransferCount keys and predated the potential-balance write,
+/// so its measured base is not a complete bound.
+const BASE_READS: u64 = 12;
+const BASE_WRITES: u64 = 10;
 
 /// Weights for `pallet_mining_rewards` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
@@ -163,5 +171,39 @@ mod tests {
 	fn weight_is_priced_at_max_tree_depth() {
 		let expected = finalize_cost_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
 		assert_eq!(<() as WeightInfo>::on_finalize_rewarded_miner(), expected);
+	}
+
+	/// Regression for the incomplete fixed base: `on_finalize` can successfully
+	/// `mint_into` + `record_transfer_proof` three times (fees, miner reward,
+	/// treasury), and each native `record_transfer` may also mutate
+	/// `PotentialWormholeBalance` for an ambiguous recipient. The reserved base
+	/// must price those non-tree ops independently for all three transfers — the
+	/// same no-dedup stance as `MAX_LEAF_INSERTS` — not the two-account snapshot
+	/// the shallow benchmark happened to observe.
+	#[test]
+	fn base_covers_three_reward_transfers_including_potential_balance() {
+		// Once per finalize (outside the per-transfer mint/record path).
+		const FIXED_READS: u64 = 3; // CollectedFees + TreasuryPortion + TreasuryAccount
+		const FIXED_WRITES: u64 = 1; // CollectedFees
+
+		// Per successful reward transfer, priced independently:
+		// System::Account mint (r1 w1) + TransferCount (r1 w1) +
+		// conditional PotentialWormholeBalance deposit add (r1 w1).
+		const PER_TRANSFER_READS: u64 = 3;
+		const PER_TRANSFER_WRITES: u64 = 3;
+
+		let expected_reads =
+			FIXED_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(PER_TRANSFER_READS));
+		let expected_writes =
+			FIXED_WRITES.saturating_add(MAX_LEAF_INSERTS.saturating_mul(PER_TRANSFER_WRITES));
+
+		assert_eq!(
+			BASE_READS, expected_reads,
+			"BASE_READS must cover fixed overhead plus three mint/TransferCount/PotentialWormholeBalance reads"
+		);
+		assert_eq!(
+			BASE_WRITES, expected_writes,
+			"BASE_WRITES must cover fixed overhead plus three mint/TransferCount/PotentialWormholeBalance writes"
+		);
 	}
 }
