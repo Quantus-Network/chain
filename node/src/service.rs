@@ -190,8 +190,8 @@ async fn handle_external_mining(
 	loop {
 		let (miner_id, seal) = match wait_for_mining_result(server, &job_id, || {
 			// Interrupt if cancelled, parent block changed, OR block template was rebuilt
-			cancellation_token.is_cancelled()
-				|| worker_handle
+			cancellation_token.is_cancelled() ||
+				worker_handle
 					.metadata()
 					.map(|m| m.best_hash != best_hash || m.pre_hash != original_pre_hash)
 					.unwrap_or(true)

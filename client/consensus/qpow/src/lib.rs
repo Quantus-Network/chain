@@ -195,9 +195,8 @@ where
 
 		let parent_hash = *block_import_params.header.parent_hash();
 		let maybe_new_code = match &mut block_import_params.state_action {
-			StateAction::ApplyChanges(StorageChanges::Changes(changes)) => {
-				extract_code_change(changes)
-			},
+			StateAction::ApplyChanges(StorageChanges::Changes(changes)) =>
+				extract_code_change(changes),
 			StateAction::ApplyChanges(StorageChanges::Import(_)) => {
 				log::warn!(
 					target: LOG_TARGET,
@@ -519,13 +518,12 @@ where
 	let header = &mut block.header;
 	let block_hash = hash;
 	let seal_item = match header.digest_mut().pop() {
-		Some(DigestItem::Seal(id, seal)) => {
+		Some(DigestItem::Seal(id, seal)) =>
 			if id == POW_ENGINE_ID {
 				DigestItem::Seal(id, seal)
 			} else {
 				return Err(Error::<B>::WrongEngine(id).into());
-			}
-		},
+			},
 		_ => return Err(Error::<B>::HeaderUnsealed(block_hash).into()),
 	};
 

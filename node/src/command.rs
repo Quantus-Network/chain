@@ -304,25 +304,21 @@ impl SubstrateCli for Cli {
 
 	fn load_spec(&self, id: &str) -> Result<Box<dyn sc_service::ChainSpec>, String> {
 		Ok(match id {
-			"dev" => {
-				Box::new(chain_spec::development_chain_spec()?) as Box<dyn sc_service::ChainSpec>
-			},
-			"heisenberg_live_spec" => {
-				Box::new(chain_spec::heisenberg_chain_spec()?) as Box<dyn sc_service::ChainSpec>
-			},
+			"dev" =>
+				Box::new(chain_spec::development_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
+			"heisenberg_live_spec" =>
+				Box::new(chain_spec::heisenberg_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
 			"" | "heisenberg" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
 				"chain-specs/heisenberg.json"
 			))?) as Box<dyn sc_service::ChainSpec>,
-			"planck_live_spec" => {
-				Box::new(chain_spec::planck_chain_spec()?) as Box<dyn sc_service::ChainSpec>
-			},
+			"planck_live_spec" =>
+				Box::new(chain_spec::planck_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
 			"planck" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
 				"chain-specs/planck.json"
 			))?) as Box<dyn sc_service::ChainSpec>,
-			path => {
+			path =>
 				Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?)
-					as Box<dyn sc_service::ChainSpec>
-			},
+					as Box<dyn sc_service::ChainSpec>,
 		})
 	}
 }
@@ -556,9 +552,8 @@ pub fn run() -> sc_cli::Result<()> {
 
 						cmd.run(client, inherent_benchmark_data()?, Vec::new(), &ext_factory)
 					},
-					BenchmarkCmd::Machine(cmd) => {
-						cmd.run(&config, SUBSTRATE_REFERENCE_HARDWARE.clone())
-					},
+					BenchmarkCmd::Machine(cmd) =>
+						cmd.run(&config, SUBSTRATE_REFERENCE_HARDWARE.clone()),
 				}
 			})
 		},
@@ -670,9 +665,7 @@ pub fn run() -> sc_cli::Result<()> {
 							eprintln!("To generate an inner hash, run:");
 							eprintln!("  quantus-node key quantus --scheme wormhole\n");
 							eprintln!("Then pass the 'Inner Hash' value as --rewards-inner-hash.");
-							return Err(sc_cli::Error::Input(
-								"Missing --rewards-inner-hash".into(),
-							));
+							return Err(sc_cli::Error::Input("Missing --rewards-inner-hash".into()));
 						} else {
 							// unused for non-validator nodes, use zero placeholder.
 							AccountId32::new([0u8; 32])

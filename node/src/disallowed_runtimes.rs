@@ -37,8 +37,8 @@ pub fn ensure_default_file(path: &Path) -> std::io::Result<()> {
 		fs::create_dir_all(parent)?;
 	}
 	let contents = serde_json::to_string_pretty(&DisallowedRuntimesFile::default())
-		.expect("empty disallow-list serializes")
-		+ "\n";
+		.expect("empty disallow-list serializes") +
+		"\n";
 	fs::write(path, contents)?;
 	log::info!(
 		target: LOG_TARGET,
