@@ -2134,9 +2134,7 @@ mod public_batch_proof_tests {
 #[cfg(test)]
 mod pre_validation_timing {
 	use crate::mock::*;
-	use qp_wormhole_verifier::{
-		parse_private_batch_public_inputs, ProofWithPublicInputs, C, D, F,
-	};
+	use qp_wormhole_verifier::{parse_private_batch_public_inputs, ProofWithPublicInputs, C, D, F};
 	use sp_core::H256;
 	use std::time::Instant;
 
@@ -2156,6 +2154,44 @@ mod pre_validation_timing {
 		}
 	}
 
+	/// All-real, all-valid bundle: every segment non-inert with distinct unused
+	/// nullifiers (mirrors `benchmarking::worst_case_bundle`).
+	fn worst_case_bundle(
+		block_data: qp_wormhole_verifier::BlockData,
+		num_segments: usize,
+	) -> crate::ExitBundle {
+		let slots_per_segment = crate::circuit_config::NUM_LEAF_PROOFS * 2;
+		let mut counter: u32 = 0;
+		let segments = (0..num_segments)
+			.map(|_| {
+				let nullifiers = (0..crate::circuit_config::NUM_LEAF_PROOFS)
+					.map(|_| {
+						counter += 1;
+						let mut bytes = [0xABu8; 32];
+						bytes[0..4].copy_from_slice(&counter.to_le_bytes());
+						qp_wormhole_verifier::BytesDigest::new_unchecked(bytes)
+					})
+					.collect();
+				let account_data = (0..slots_per_segment)
+					.map(|_| qp_wormhole_verifier::PublicInputsByAccount {
+						summed_output_amount: 1,
+						exit_account: qp_wormhole_verifier::BytesDigest::new_unchecked(
+							[0xCDu8; 32],
+						),
+					})
+					.collect();
+				crate::ExitSegment { account_data, nullifiers }
+			})
+			.collect();
+		crate::ExitBundle {
+			asset_id: 0,
+			volume_fee_bps: <Test as crate::Config>::VolumeFeeRateBps::get(),
+			block_data,
+			aggregator_address: None,
+			segments,
+		}
+	}
+
 	#[test]
 	#[ignore] // manual calibration harness, not a correctness test
 	fn measure_pre_validation_time() {
@@ -2172,7 +2208,10 @@ mod pre_validation_timing {
 			)
 			.unwrap();
 			let inputs = parse_private_batch_public_inputs(&proof).unwrap();
-			insert_block_hash(inputs.block_data.block_number, inputs.block_data.block_hash.as_ref());
+			insert_block_hash(
+				inputs.block_data.block_number,
+				inputs.block_data.block_hash.as_ref(),
+			);
 			insert_decoy_nullifiers(crate::circuit_config::NUM_LEAF_PROOFS as u32);
 
 			let t = Instant::now();
@@ -2191,6 +2230,14 @@ mod pre_validation_timing {
 			}
 			println!("private full pre-validate: {:?}/iter", t.elapsed() / iters);
 
+			let worst = worst_case_bundle(inputs.block_data.clone(), 1);
+			let t = Instant::now();
+			for _ in 0..iters {
+				assert!(Wormhole::pre_validate_private_batch_proof(&proof_bytes).is_ok());
+				assert!(Wormhole::validate_exit_bundle_common(&worst).is_ok());
+			}
+			println!("private pre-validate + worst-case segments: {:?}/iter", t.elapsed() / iters);
+
 			// --- Public batch ---
 			let proof_bytes =
 				hex::decode(PUBLIC_BATCH_PROOF_HEX.trim()).expect("Invalid public hex");
@@ -2206,7 +2253,10 @@ mod pre_validation_timing {
 				crate::circuit_config::NUM_LEAF_PROOFS,
 			)
 			.unwrap();
-			insert_block_hash(inputs.block_data.block_number, inputs.block_data.block_hash.as_ref());
+			insert_block_hash(
+				inputs.block_data.block_number,
+				inputs.block_data.block_hash.as_ref(),
+			);
 			insert_decoy_nullifiers(
 				(crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS *
 					crate::circuit_config::NUM_LEAF_PROOFS) as u32,
@@ -2227,6 +2277,17 @@ mod pre_validation_timing {
 				assert!(Wormhole::pre_validate_public_batch_proof(&proof_bytes).is_ok());
 			}
 			println!("public full pre-validate: {:?}/iter", t.elapsed() / iters);
+
+			let worst = worst_case_bundle(
+				inputs.block_data.clone(),
+				crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
+			);
+			let t = Instant::now();
+			for _ in 0..iters {
+				assert!(Wormhole::pre_validate_public_batch_proof(&proof_bytes).is_ok());
+				assert!(Wormhole::validate_exit_bundle_common(&worst).is_ok());
+			}
+			println!("public pre-validate + worst-case segments: {:?}/iter", t.elapsed() / iters);
 		});
 	}
 }

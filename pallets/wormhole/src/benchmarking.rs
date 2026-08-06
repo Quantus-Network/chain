@@ -5,6 +5,7 @@ extern crate alloc;
 use super::*;
 use alloc::vec::Vec;
 use frame_benchmarking::v2::*;
+use frame_support::traits::Get;
 use qp_wormhole_verifier::{ProofWithPublicInputs, C, F};
 
 /// Real private-batch proof for benchmarking (hex-encoded).
@@ -59,6 +60,56 @@ mod benchmarks {
 		}
 	}
 
+	/// Build a worst-case exit bundle for segment validation: every segment is
+	/// non-inert with `NUM_LEAF_PROOFS` distinct, unused nullifiers.
+	///
+	/// The embedded proof fixtures carry dummy padding (the public fixture has one
+	/// real inner segment out of `NUM_PRIVATE_BATCH_PROOFS`; the private fixture
+	/// has one real nullifier out of `NUM_LEAF_PROOFS`), and `segment_validity`
+	/// skips inert segments entirely — so validating the fixture alone would miss
+	/// almost all of the per-segment normalization, intra-segment dedup,
+	/// cross-segment claimed-set checks, and `UsedNullifiers` reads. This bundle
+	/// makes every one of those branches execute in full.
+	///
+	/// Nullifier patterns (`0xAB…` + counter) are disjoint from the decoy keys
+	/// (`0xFF…` + counter), so every scan is an absent-key read against a
+	/// populated map and all segments stay valid — the maximal path.
+	fn worst_case_bundle<T: Config>(
+		block_data: qp_wormhole_verifier::BlockData,
+		num_segments: usize,
+	) -> ExitBundle {
+		let slots_per_segment = crate::circuit_config::NUM_LEAF_PROOFS * 2;
+		let mut counter: u32 = 0;
+		let segments = (0..num_segments)
+			.map(|_| {
+				let nullifiers = (0..crate::circuit_config::NUM_LEAF_PROOFS)
+					.map(|_| {
+						counter += 1;
+						let mut bytes = [0xABu8; 32];
+						bytes[0..4].copy_from_slice(&counter.to_le_bytes());
+						qp_wormhole_verifier::BytesDigest::new_unchecked(bytes)
+					})
+					.collect();
+				let account_data = (0..slots_per_segment)
+					.map(|_| qp_wormhole_verifier::PublicInputsByAccount {
+						summed_output_amount: 1,
+						exit_account: qp_wormhole_verifier::BytesDigest::new_unchecked(
+							[0xCDu8; 32],
+						),
+					})
+					.collect();
+				ExitSegment { account_data, nullifiers }
+			})
+			.collect();
+		ExitBundle {
+			asset_id: 0,
+			volume_fee_bps: T::VolumeFeeRateBps::get(),
+			block_data,
+			aggregator_address: None,
+			segments,
+		}
+	}
+
 	/// Benchmark for the pre-validation phase of verify_private_batch.
 	///
 	/// Executes the *production* `pre_validate_private_batch_proof` path end to end:
@@ -68,6 +119,11 @@ mod benchmarks {
 	/// used-nullifier reads, and `ensure_any_segment_valid`). Measuring anything
 	/// less understates the CPU cost this weight is charged for — twice — on the
 	/// inclusion path.
+	///
+	/// The fixture proof carries dummy nullifier padding that `segment_validity`
+	/// skips, so a worst-case all-real segment validation is measured on top (see
+	/// [`worst_case_bundle`]); the fixture's own (cheaper) validation stays in the
+	/// block, slightly over-charging — the safe direction.
 	#[benchmark]
 	fn pre_validate_proof() {
 		let proof_bytes: Vec<u8> =
@@ -85,19 +141,30 @@ mod benchmarks {
 
 		insert_fixture_block_hash::<T>(&inputs.block_data);
 		insert_decoy_nullifiers::<T>(MAX_NULLIFIERS);
+		let worst_bundle = worst_case_bundle::<T>(inputs.block_data.clone(), 1);
 
 		#[block]
 		{
 			let result = Pallet::<T>::pre_validate_private_batch_proof(&proof_bytes);
 			assert!(result.is_ok(), "production pre-validation must succeed");
+			let validity = Pallet::<T>::validate_exit_bundle_common(&worst_bundle);
+			assert!(validity.is_ok(), "worst-case segment validation must succeed");
 		}
 	}
 
 	/// Pre-validation for the public-batch path. Executes the *production*
 	/// `pre_validate_public_batch_proof` end to end: deserialization, public-input
 	/// parsing, `ExitBundle::from_public_batch` segment construction across all
-	/// `NUM_PRIVATE_BATCH_PROOFS` inner segments, and `validate_exit_bundle_common`
-	/// with the full nullifier scan / dedup / collision checks.
+	/// `NUM_PRIVATE_BATCH_PROOFS` inner segments, and `validate_exit_bundle_common`.
+	///
+	/// The fixture aggregates one real private batch plus dummy padding, and
+	/// `segment_validity` skips the padded (inert) segments — so the fixture alone
+	/// cannot exercise the all-valid worst case. A synthetic bundle with every
+	/// segment non-inert (see [`worst_case_bundle`]) is validated in the same
+	/// block, making all `NUM_PRIVATE_BATCH_PROOFS × NUM_LEAF_PROOFS` nullifier
+	/// normalizations, dedup/claimed-set operations and `UsedNullifiers` reads
+	/// execute. The fixture's own (cheaper) validation stays in the block,
+	/// slightly over-charging — the safe direction.
 	#[benchmark]
 	fn pre_validate_public_batch_proof() {
 		let proof_bytes: Vec<u8> =
@@ -119,11 +186,17 @@ mod benchmarks {
 
 		insert_fixture_block_hash::<T>(&inputs.block_data);
 		insert_decoy_nullifiers::<T>(MAX_PUBLIC_NULLIFIERS);
+		let worst_bundle = worst_case_bundle::<T>(
+			inputs.block_data.clone(),
+			crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
+		);
 
 		#[block]
 		{
 			let result = Pallet::<T>::pre_validate_public_batch_proof(&proof_bytes);
 			assert!(result.is_ok(), "production pre-validation must succeed");
+			let validity = Pallet::<T>::validate_exit_bundle_common(&worst_bundle);
+			assert!(validity.is_ok(), "worst-case segment validation must succeed");
 		}
 	}
 

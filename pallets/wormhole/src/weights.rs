@@ -63,24 +63,33 @@ pub trait WeightInfo {
 
 /// Measured compute base for the production `pre_validate_private_batch_proof`
 /// path (proof deserialization + public-input parsing + `ExitBundle` construction +
-/// `validate_exit_bundle_common` segment validation).
+/// `validate_exit_bundle_common` segment validation), priced at the all-valid
+/// worst case (all `NUM_LEAF_PROOFS` nullifier slots real and unused — the
+/// fixture's dummy padding is compensated with a synthetic worst-case bundle,
+/// see `benchmarking::worst_case_bundle`).
 ///
-/// Calibration 2026-08-06: the full production path measured 176 µs native-release
-/// against 163 µs for deserialization alone; scaled by this path's observed
-/// wasm-compiled factor (550 µs / 163 µs ≈ 3.4× from the 2026-07-30 benchmark run)
-/// that is ~597 µs, padded to 700 µs. Re-run the `pre_validate_proof` benchmark
-/// (which now executes the production path) to regenerate.
+/// Calibration 2026-08-06: worst-case path measured 181 µs native-release against
+/// 167 µs for deserialization alone; scaled by this path's observed wasm-compiled
+/// factor (550 µs / 167 µs ≈ 3.3× from the 2026-07-30 benchmark run) that is
+/// ~600 µs, padded to 700 µs. Re-run the `pre_validate_proof` benchmark to
+/// regenerate.
 const PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS: u64 = 700_000_000;
 
 /// Measured compute base for the production `pre_validate_public_batch_proof` path
 /// (deserialization + parsing + `ExitBundle::from_public_batch` across all
-/// `NUM_PRIVATE_BATCH_PROOFS` segments + full segment validation).
+/// `NUM_PRIVATE_BATCH_PROOFS` segments + full segment validation), priced at the
+/// all-valid worst case: every segment non-inert, so all
+/// `NUM_PRIVATE_BATCH_PROOFS × NUM_LEAF_PROOFS` nullifier normalizations,
+/// dedup/claimed-set operations and `UsedNullifiers` reads execute (the fixture's
+/// 52 dummy segments are skipped as inert by `segment_validity`, so a synthetic
+/// worst-case bundle is measured on top — see `benchmarking::worst_case_bundle`).
 ///
-/// Calibration 2026-08-06 at NUM_PRIVATE_BATCH_PROOFS=53: full production path
-/// 237 µs native-release vs 223 µs deserialize-only; scaled by this path's
-/// wasm-compiled factor (1578 µs / 223 µs ≈ 7.1×) that is ~1.68 ms, padded to
-/// 1.9 ms. Re-run the `pre_validate_public_batch_proof` benchmark to regenerate.
-const PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS: u64 = 1_900_000_000;
+/// Calibration 2026-08-06 at NUM_PRIVATE_BATCH_PROOFS=53: worst-case path 597 µs
+/// native-release (vs 257 µs with the fixture's padding skips and 240 µs
+/// deserialize-only); scaled by this path's wasm-compiled factor
+/// (1578 µs / 240 µs ≈ 6.6–7.1×) that is ~4.2 ms, padded to 4.5 ms. Re-run the
+/// `pre_validate_public_batch_proof` benchmark to regenerate.
+const PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS: u64 = 4_500_000_000;
 
 /// Measured ZK verification time for a private-batch proof (2026-07-30).
 const PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS: u64 = 14_965_000_000;
@@ -426,11 +435,13 @@ mod tests {
 		);
 	}
 
-	/// The pre-validation compute base must price the *production* path, which does
-	/// strictly more work than the deserialize-only micro-benchmark it replaced
-	/// (public-input parsing, bundle construction, segment validation). Guard the
-	/// calibrated floor so a regenerated weights file can't silently regress to the
-	/// old deserialize-only figures (550 µs private / 1578 µs public, 2026-07-30).
+	/// The pre-validation compute base must price the *production* path at the
+	/// all-valid worst case, which does strictly more work than the two
+	/// calibrations it replaced: the deserialize-only micro-benchmark (550 µs
+	/// private / 1578 µs public, 2026-07-30) and the fixture-only production run
+	/// whose dummy-padded segments were skipped as inert by `segment_validity`
+	/// (~1.9 ms public, 2026-08-06). Guard both floors so a regenerated weights
+	/// file can't silently regress to either under-measurement.
 	#[test]
 	fn pre_validation_compute_covers_production_path() {
 		assert!(
@@ -438,8 +449,8 @@ mod tests {
 			"private pre-validate compute must exceed the deserialize-only measurement"
 		);
 		assert!(
-			PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS > 1_578_000_000,
-			"public pre-validate compute must exceed the deserialize-only measurement"
+			PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS > 1_900_000_000,
+			"public pre-validate compute must exceed the inert-skip fixture measurement"
 		);
 	}
 }

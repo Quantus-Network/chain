@@ -1157,7 +1157,9 @@ pub mod pallet {
 
 	impl<T: Config> Pallet<T> {
 		/// Shared cheap checks for any exit bundle (asset, fee, block, segment validity).
-		fn validate_exit_bundle_common(bundle: &ExitBundle) -> Result<Vec<bool>, Error<T>> {
+		pub(crate) fn validate_exit_bundle_common(
+			bundle: &ExitBundle,
+		) -> Result<Vec<bool>, Error<T>> {
 			ensure!(bundle.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
 			ensure!(
 				bundle.volume_fee_bps == T::VolumeFeeRateBps::get(),
