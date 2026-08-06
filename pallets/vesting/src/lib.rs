@@ -299,6 +299,8 @@ pub mod pallet {
 		VestingUpdated { account: T::AccountId, unvested: BalanceOf<T> },
 		/// An \[account\] has become fully vested.
 		VestingCompleted { account: T::AccountId },
+		/// A vesting schedule was moved from one account to another without changing its terms.
+		VestingTransferred { from: T::AccountId, to: T::AccountId, schedule_index: u32 },
 	}
 
 	/// Error for the vesting pallet.
@@ -317,6 +319,8 @@ pub mod pallet {
 		InvalidScheduleParams,
 		/// The two schedules cannot be merged because their repurchasers differ.
 		RepurchaserMismatch,
+		/// Source and destination accounts for a schedule transfer must differ.
+		SameAccount,
 	}
 
 	#[pallet::call]
@@ -500,47 +504,77 @@ pub mod pallet {
 			target: <T::Lookup as StaticLookup>::Source,
 			schedule_index: u32,
 		) -> DispatchResultWithPostInfo {
-			let maybe_signer = ensure_signed_or_root(origin)?;
 			let who = T::Lookup::lookup(target)?;
+			let schedules_count = Vesting::<T>::decode_len(&who).unwrap_or_default();
 
-			let schedules = Vesting::<T>::get(&who).ok_or(Error::<T>::NotVesting)?;
-			let schedules_count = schedules.len();
-			let schedule = schedules
-				.get(schedule_index as usize)
-				.ok_or(Error::<T>::InvalidScheduleParams)?;
+			// Root: unlock in place. Repurchaser: receive the still-unvested funds.
+			let (schedule, maybe_signer) =
+				Self::ensure_can_manage_schedule(origin, &who, schedule_index)?;
+			let payout_to = maybe_signer.as_ref();
 
-			// Root may remove any schedule; a signed origin only the ones naming it as repurchaser.
-			let repurchaser = if let Some(signer) = maybe_signer {
-				ensure!(schedule.repurchaser() == Some(&signer), DispatchError::BadOrigin);
-				Some(signer)
-			} else {
-				None
-			};
-
-			// Amount still unvested right now; this is what the repurchaser receives.
-			let now = T::TimeProvider::now();
-			let unvested = schedule.locked_at::<T::MomentToBalance>(now);
-
-			// Removing the schedule reduces the vesting lock by exactly `unvested`, so the
-			// reclaim transfer below cannot be blocked by the remaining lock.
-			Self::remove_vesting_schedule(&who, schedule_index)?;
-
-			if let Some(repurchaser) = repurchaser {
-				if !unvested.is_zero() {
-					T::Currency::transfer(
-						&who,
-						&repurchaser,
-						unvested,
-						ExistenceRequirement::AllowDeath,
-					)?;
-				}
-			}
+			Self::detach_schedule_and_pay_unvested(&who, schedule_index, &schedule, payout_to)?;
 
 			Ok(Some(T::WeightInfo::force_remove_vesting_schedule(
 				MaxLocksOf::<T>::get(),
 				schedules_count as u32,
 			))
 			.into())
+		}
+
+		/// Transfer a vesting schedule from one account to another without modifying its terms.
+		///
+		/// The dispatch origin for this call must be _Root_, or _Signed_ by the schedule's
+		/// designated repurchaser. Intended for recovering a schedule when the holder loses
+		/// access to their wallet, or for moving a schedule onto a new account (e.g. a multisig).
+		///
+		/// The schedule itself (`locked`, `per_ms`, `start`, `repurchaser`) is preserved
+		/// verbatim. The funds still unvested at the current time move with it to `dest`;
+		/// any already-vested (unlocked) balance stays with `source`.
+		///
+		/// - `source`: Account currently holding the schedule
+		/// - `dest`: Account that will receive the schedule and the unvested funds
+		/// - `schedule_index`: Index of the schedule on `source` to transfer
+		#[pallet::call_index(6)]
+		#[pallet::weight(
+			T::WeightInfo::transfer_vesting_schedule(MaxLocksOf::<T>::get(), T::MAX_VESTING_SCHEDULES)
+		)]
+		pub fn transfer_vesting_schedule(
+			origin: OriginFor<T>,
+			source: <T::Lookup as StaticLookup>::Source,
+			dest: <T::Lookup as StaticLookup>::Source,
+			schedule_index: u32,
+		) -> DispatchResult {
+			let source = T::Lookup::lookup(source)?;
+			let dest = T::Lookup::lookup(dest)?;
+			ensure!(source != dest, Error::<T>::SameAccount);
+
+			let (schedule, _) = Self::ensure_can_manage_schedule(origin, &source, schedule_index)?;
+
+			// Ensure the destination can accept another schedule before mutating storage.
+			Self::can_add_vesting_schedule(
+				&dest,
+				schedule.locked(),
+				schedule.per_ms(),
+				schedule.start(),
+			)?;
+
+			Self::detach_schedule_and_pay_unvested(
+				&source,
+				schedule_index,
+				&schedule,
+				Some(&dest),
+			)?;
+
+			// Re-attach the identical schedule on the destination.
+			Self::do_add_vesting_schedule(&dest, schedule)?;
+
+			Self::deposit_event(Event::<T>::VestingTransferred {
+				from: source,
+				to: dest,
+				schedule_index,
+			});
+
+			Ok(())
 		}
 	}
 }
@@ -551,6 +585,53 @@ impl<T: Config> Pallet<T> {
 		account: T::AccountId,
 	) -> Option<BoundedVec<VestingInfoOf<T>, MaxVestingSchedulesGet<T>>> {
 		Vesting::<T>::get(account)
+	}
+
+	/// Load `who`'s schedule at `schedule_index` and ensure `origin` is Root or that
+	/// schedule's designated repurchaser.
+	///
+	/// Returns the schedule and `Some(signer)` when the origin was signed (the
+	/// repurchaser), or `None` when the origin was Root.
+	fn ensure_can_manage_schedule(
+		origin: frame_system::pallet_prelude::OriginFor<T>,
+		who: &T::AccountId,
+		schedule_index: u32,
+	) -> Result<(VestingInfoOf<T>, Option<T::AccountId>), DispatchError> {
+		let maybe_signer = frame_system::ensure_signed_or_root(origin)?;
+		let schedules = Vesting::<T>::get(who).ok_or(Error::<T>::NotVesting)?;
+		let schedule = schedules
+			.get(schedule_index as usize)
+			.cloned()
+			.ok_or(Error::<T>::InvalidScheduleParams)?;
+
+		if let Some(ref signer) = maybe_signer {
+			ensure!(schedule.repurchaser() == Some(signer), DispatchError::BadOrigin);
+		}
+
+		Ok((schedule, maybe_signer))
+	}
+
+	/// Remove `schedule_index` from `who` and, if `payout_to` is set, transfer the
+	/// still-unvested amount to that account. Removing first drops the vesting lock by
+	/// exactly that amount so the transfer cannot be blocked by it.
+	fn detach_schedule_and_pay_unvested(
+		who: &T::AccountId,
+		schedule_index: u32,
+		schedule: &VestingInfoOf<T>,
+		payout_to: Option<&T::AccountId>,
+	) -> DispatchResult {
+		let now = T::TimeProvider::now();
+		let unvested = schedule.locked_at::<T::MomentToBalance>(now);
+
+		Self::remove_vesting_schedule(who, schedule_index)?;
+
+		if let Some(dest) = payout_to {
+			if !unvested.is_zero() {
+				T::Currency::transfer(who, dest, unvested, ExistenceRequirement::AllowDeath)?;
+			}
+		}
+
+		Ok(())
 	}
 
 	// Create a new `VestingInfo`, based off of two other `VestingInfo`s.

@@ -442,6 +442,41 @@ mod benchmarks {
 		Ok(())
 	}
 
+	#[benchmark]
+	fn transfer_vesting_schedule(
+		l: Linear<0, { MaxLocksOf::<T>::get() - 1 }>,
+		s: Linear<2, { T::MAX_VESTING_SCHEDULES }>,
+	) -> Result<(), BenchmarkError> {
+		let source = account::<T::AccountId>("source", 0, SEED);
+		let source_lookup = T::Lookup::unlookup(source.clone());
+		T::Currency::make_free_balance_be(&source, BalanceOf::<T>::max_value());
+
+		let dest = account::<T::AccountId>("dest", 0, SEED);
+		let dest_lookup = T::Lookup::unlookup(dest.clone());
+		T::Currency::make_free_balance_be(&dest, T::Currency::minimum_balance());
+
+		add_locks::<T>(&source, l as u8);
+		add_vesting_schedules::<T>(&source, s)?;
+
+		let schedule_index = s - 1;
+
+		#[extrinsic_call]
+		_(RawOrigin::Root, source_lookup, dest_lookup, schedule_index);
+
+		assert_eq!(
+			Vesting::<T>::get(&source).map(|v| v.len()).unwrap_or(0),
+			schedule_index as usize,
+			"Source schedule count should reduce by 1"
+		);
+		assert_eq!(
+			Vesting::<T>::get(&dest).unwrap().len(),
+			1,
+			"Dest should receive the transferred schedule"
+		);
+
+		Ok(())
+	}
+
 	impl_benchmark_test_suite! {
 		Pallet,
 		mock::ExtBuilder::default().existential_deposit(256).build(),

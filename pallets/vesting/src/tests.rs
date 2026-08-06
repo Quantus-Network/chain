@@ -1310,6 +1310,58 @@ fn merged_schedule_keeps_repurchaser() {
 }
 
 #[test]
+fn repurchaser_can_transfer_vesting_schedule() {
+	let vesting_config = vec![
+		// Account 1's schedule is transferable by account 4.
+		(1, 0, 10, 5 * ED, Some(4)),
+		// Account 2's schedule has no repurchaser: only root can transfer it.
+		(2, 10, 20, 0, None),
+	];
+	ExtBuilder::default()
+		.existential_deposit(ED)
+		.vesting_genesis_config(vesting_config)
+		.build()
+		.execute_with(|| {
+			let original = VestingStorage::<Test>::get(&1).unwrap()[0];
+			// Account 1: locked 5 * ED vesting over 10 ms from time 0; clock is at 1,
+			// so one tick has vested and the rest is still unvested.
+			let unvested = 5 * ED - (5 * ED / 10);
+			let vested = 5 * ED / 10;
+			let source_before = Balances::free_balance(&1);
+			let dest_before = Balances::free_balance(&3);
+
+			// Neither a random signed account nor the schedule owner can transfer it.
+			assert_noop!(Vesting::transfer_vesting_schedule(Some(3).into(), 1, 3, 0), BadOrigin);
+			assert_noop!(Vesting::transfer_vesting_schedule(Some(1).into(), 1, 3, 0), BadOrigin);
+			assert_noop!(
+				Vesting::transfer_vesting_schedule(Some(4).into(), 1, 1, 0),
+				Error::<Test>::SameAccount
+			);
+
+			// The designated repurchaser can transfer the schedule as-is to another account.
+			assert_ok!(Vesting::transfer_vesting_schedule(Some(4).into(), 1, 3, 0));
+			assert_eq!(VestingStorage::<Test>::get(&1), None);
+			let dest_schedules = VestingStorage::<Test>::get(&3).unwrap();
+			assert_eq!(dest_schedules.len(), 1);
+			// Terms are unmodified: same locked/per_ms/start/repurchaser.
+			assert_eq!(dest_schedules[0], original);
+			// Unvested funds move with the schedule; already-vested stay with the source.
+			assert_eq!(Balances::free_balance(&1), source_before - unvested);
+			assert_eq!(Balances::free_balance(&3), dest_before + unvested);
+			assert_eq!(Vesting::vesting_balance(&3), Some(unvested));
+			// Source kept its liquid genesis amount plus the already-vested tick, unlocked.
+			assert_eq!(Balances::free_balance(&1), 5 * ED + vested);
+			assert_eq!(Vesting::vesting_balance(&1), None);
+
+			// A schedule without a repurchaser stays root-only.
+			assert_noop!(Vesting::transfer_vesting_schedule(Some(4).into(), 2, 3, 0), BadOrigin);
+			assert_ok!(Vesting::transfer_vesting_schedule(RawOrigin::Root.into(), 2, 13, 0));
+			assert_eq!(VestingStorage::<Test>::get(&2), None);
+			assert!(VestingStorage::<Test>::get(&13).is_some());
+		});
+}
+
+#[test]
 fn vested_transfer_impl_works() {
 	ExtBuilder::default().existential_deposit(ED).build().execute_with(|| {
 		assert_eq!(Balances::free_balance(&3), 256 * 30);

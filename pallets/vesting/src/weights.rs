@@ -81,6 +81,7 @@ pub trait WeightInfo {
 	fn not_unlocking_merge_schedules(l: u32, s: u32, ) -> Weight;
 	fn unlocking_merge_schedules(l: u32, s: u32, ) -> Weight;
 	fn force_remove_vesting_schedule(l: u32, s: u32, ) -> Weight;
+	fn transfer_vesting_schedule(l: u32, s: u32, ) -> Weight;
 }
 
 /// Weights for `pallet_vesting` using the Substrate node and recommended hardware.
@@ -285,6 +286,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(4_u64))
 			.saturating_add(T::DbWeight::get().writes(3_u64))
 	}
+	/// Transfer is approximately a force-remove plus a vested transfer onto the destination.
+	fn transfer_vesting_schedule(l: u32, s: u32, ) -> Weight {
+		Self::force_remove_vesting_schedule(l, s)
+			.saturating_add(Self::vested_transfer(l, s))
+	}
 }
 
 // For backwards compatibility and tests.
@@ -487,5 +493,10 @@ impl WeightInfo for () {
 			.saturating_add(Weight::from_parts(81_931, 0).saturating_mul(s.into()))
 			.saturating_add(RocksDbWeight::get().reads(4_u64))
 			.saturating_add(RocksDbWeight::get().writes(3_u64))
+	}
+	/// Transfer is approximately a force-remove plus a vested transfer onto the destination.
+	fn transfer_vesting_schedule(l: u32, s: u32, ) -> Weight {
+		Self::force_remove_vesting_schedule(l, s)
+			.saturating_add(Self::vested_transfer(l, s))
 	}
 }

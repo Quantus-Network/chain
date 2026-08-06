@@ -42,11 +42,13 @@ pub struct VestingInfo<Balance, Moment, AccountId> {
 	per_ms: Balance,
 	/// Time (milliseconds since the unix epoch) at which unlocking (vesting) starts.
 	start: Moment,
-	/// Account allowed to repurchase this schedule via `force_remove_vesting_schedule`,
-	/// in addition to Root. `None` means only Root can remove it.
+	/// Account allowed to repurchase or transfer this schedule, in addition to Root.
+	/// `None` means only Root can do either.
 	///
-	/// When the repurchaser repurchases the schedule, the funds still unvested at that time
-	/// are transferred to them; the already-vested portion stays with the schedule's holder.
+	/// - Repurchase (`force_remove_vesting_schedule`): the still-unvested funds are transferred to
+	///   the repurchaser; the already-vested portion stays with the holder.
+	/// - Transfer (`transfer_vesting_schedule`): the schedule is moved as-is to another account
+	///   along with the still-unvested funds (e.g. lost-wallet recovery).
 	repurchaser: Option<AccountId>,
 }
 

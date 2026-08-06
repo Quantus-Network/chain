@@ -6,10 +6,16 @@ Quantus fork of FRAME `pallet-vesting`: schedules unlock against wall-clock time
 and an optional `repurchaser`.
 
 Each schedule may carry an optional `repurchaser` account (set at genesis or on `vested_transfer`).
-The repurchaser — in addition to Root — may call `force_remove_vesting_schedule` to repurchase
-that schedule: the funds still unvested at that time are transferred to the repurchaser, while the
-already-vested portion stays with the holder. Root removal instead leaves all funds with the
-holder (unlocked). Schedules without a repurchaser can only be removed by Root. Two schedules can
+The repurchaser — in addition to Root — may:
+
+- `force_remove_vesting_schedule` (repurchase): the funds still unvested at that time are
+  transferred to the repurchaser; the already-vested portion stays with the holder. Root removal
+  instead leaves all funds with the holder (unlocked).
+- `transfer_vesting_schedule`: move the schedule as-is to another account (e.g. lost-wallet
+  recovery or switching to a multisig), along with the still-unvested funds. Schedule terms
+  (`locked`, `per_ms`, `start`, `repurchaser`) are preserved verbatim.
+
+Schedules without a repurchaser can only be removed or transferred by Root. Two schedules can
 only be merged if their repurchasers match, and the merged schedule keeps that repurchaser.
 
 ## Overview
