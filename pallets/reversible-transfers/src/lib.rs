@@ -329,6 +329,9 @@ pub mod pallet {
 		TooManyGuardianAccounts,
 		/// Asset transfers are not supported.
 		AssetsNotSupported,
+		/// Zero-amount transfers cannot be scheduled: there is nothing to hold,
+		/// execute, or reverse.
+		ZeroAmount,
 	}
 
 	#[pallet::call]
@@ -753,6 +756,10 @@ pub mod pallet {
 		) -> DispatchResult {
 			let recipient = T::Lookup::lookup(to.clone())?;
 			ensure!(asset_id.is_none(), Error::<T>::AssetsNotSupported);
+			// A zero-amount schedule is a pure no-op with side effects: it consumes a
+			// pending-transfer slot and scheduler agenda space, and its execution would
+			// dispatch a zero-value transfer. Reject it outright.
+			ensure!(!amount.is_zero(), Error::<T>::ZeroAmount);
 
 			// Build the transfer call for tx_id computation (not stored)
 			let transfer_call: RuntimeCallOf<T> =

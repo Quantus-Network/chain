@@ -43,6 +43,13 @@ use serde::{Deserialize, Serialize};
 /// import rather than silently truncated; see the digest length check in
 /// `sc-consensus-qpow`. Truncation would let two distinct headers share a block
 /// hash on the bytes past this window.
+///
+/// Because the window has no slack, the runtime must never deposit digest items
+/// of its own: even a 1-byte item (e.g. upstream frame-system's
+/// `RuntimeEnvironmentUpdated` on `set_code`) pushes the sealed digest to 111
+/// bytes and makes the block unimportable network-wide. The vendored
+/// frame-system's deposits were removed for exactly this reason — see the
+/// warning on `frame_system::Pallet::deposit_log`.
 pub const DIGEST_LOGS_SIZE: usize = 110;
 
 /// Extension trait for headers that support ZK tree root.

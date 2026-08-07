@@ -735,7 +735,12 @@ pub mod pallet {
 			// 65536 pages (4 GiB) is the wasm32 linear-memory hard maximum.
 			ensure!((64..=65536).contains(&pages), Error::<T>::InvalidHeapPages);
 			storage::unhashed::put_raw(well_known_keys::HEAP_PAGES, &pages.encode());
-			Self::deposit_log(generic::DigestItem::RuntimeEnvironmentUpdated);
+			// NOTE: upstream deposits `DigestItem::RuntimeEnvironmentUpdated` here. This
+			// fork must not: the QPoW header commits a fixed digest window that the
+			// pre-runtime item and seal fill exactly, so ANY runtime-deposited digest
+			// item makes the sealed header unimportable network-wide (see `deposit_log`).
+			// Nothing in the node stack consumes the item — clients detect environment
+			// changes from the `:heappages`/`:code` state keys, not the digest.
 			Ok(().into())
 		}
 
@@ -1622,7 +1627,14 @@ impl<T: Config> Pallet<T> {
 	/// the storage (for instance in case of parachains).
 	pub fn update_code_in_storage(code: &[u8]) {
 		storage::unhashed::put_raw(well_known_keys::CODE, code);
-		Self::deposit_log(generic::DigestItem::RuntimeEnvironmentUpdated);
+		// NOTE: upstream deposits `DigestItem::RuntimeEnvironmentUpdated` here. This
+		// fork must not: the QPoW header commits a fixed digest window that the
+		// pre-runtime item and seal fill exactly, so ANY runtime-deposited digest
+		// item makes the sealed header unimportable network-wide (see `deposit_log`).
+		// A runtime upgrade would then be un-includable through normal block
+		// production. Clients detect the new code from the `:code` state key (the
+		// executor's module cache is keyed by code hash); the `CodeUpdated` event
+		// below remains for observability.
 		Self::deposit_event(Event::CodeUpdated);
 	}
 
@@ -2102,6 +2114,20 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// Deposits a log and ensures it matches the block's log data.
+	///
+	/// # WARNING: the QPoW digest window has no spare capacity
+	///
+	/// `qp_header::Header::hash()` commits the digest through a fixed
+	/// `DIGEST_LOGS_SIZE` window that the client-injected pre-runtime item plus the
+	/// PoW seal fill **exactly**, and block import rejects any sealed header whose
+	/// encoded digest exceeds it (truncating would let distinct headers share a
+	/// hash). A digest item deposited from runtime code therefore does not fail the
+	/// call — it makes the finished block **unimportable by the entire network**,
+	/// silently, after mining. This is why the fork's `set_code` /
+	/// `set_heap_pages` paths do not deposit `RuntimeEnvironmentUpdated` the way
+	/// upstream does. Do not deposit digest items from runtime logic unless the
+	/// header format and the wormhole circuit's digest field are resized in the
+	/// same release.
 	pub fn deposit_log(item: generic::DigestItem) {
 		<Digest<T>>::append(item);
 	}

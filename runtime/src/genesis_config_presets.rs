@@ -170,10 +170,11 @@ fn planck_tech_collective_seed() -> Vec<AccountId> {
 
 /// Returns the genesis config populated with given parameters. Treasury is per-profile.
 ///
-/// All endowed addresses automatically get transfer proofs recorded, enabling them to
-/// spend their funds via ZK proofs. The chain doesn't distinguish between "wormhole
-/// addresses" and regular addresses - any address can spend via ZK proofs if they
-/// know the corresponding secret.
+/// All endowed addresses automatically get transfer proofs recorded at block 1 (the
+/// wormhole pallet derives them from the genesis balances — there is no separate
+/// endowment list), enabling them to spend their funds via ZK proofs. The chain doesn't
+/// distinguish between "wormhole addresses" and regular addresses - any address can
+/// spend via ZK proofs if they know the corresponding secret.
 fn genesis_template(
 	endowed_accounts: Vec<AccountId>,
 	treasury: TreasuryGenesis,
@@ -192,16 +193,11 @@ fn genesis_template(
 	// No pre-mine: the treasury starts at zero balance and is funded only by its share of
 	// mining rewards. It is intentionally NOT added to `balances`.
 
-	// Record transfer proofs for the user-visible endowments only. The vesting pot is
-	// appended to `balances` below but deliberately kept OUT of the wormhole endowment
-	// list: it is a keyless pallet account nobody can ZK-spend from, and a block-1 tree
-	// leaf crediting it would be a misleading artifact.
-	let endowed_addresses = balances.clone();
-
 	// The pot must hold exactly the sum of all schedule totals plus its existential-
 	// deposit buffer (asserted by the vesting pallet's genesis build). It is endowed
 	// with at least the ED even when no schedules exist, so `create_schedule` works on
-	// every chain from day one.
+	// every chain from day one. Wormhole transfer proofs at block 1 derive from these
+	// balances (including the pot); the pot is keyless so its leaf is unspendable.
 	let mut vesting_total: u128 = 0;
 	for (_, _, _, _, total) in &vesting_schedules {
 		vesting_total = vesting_total
@@ -221,11 +217,6 @@ fn genesis_template(
 		treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
 			treasury_account: Some(treasury.account),
 			treasury_portion: Some(treasury.portion),
-		},
-		wormhole: pallet_wormhole::GenesisConfig::<crate::Runtime> {
-			// Record transfer proofs for endowed addresses, enabling ZK spending.
-			// Events are emitted in on_initialize at block 1 for indexer compatibility.
-			endowed_addresses,
 		},
 		vesting: pallet_vesting::GenesisConfig::<crate::Runtime> { schedules: vesting_schedules },
 		..Default::default()
@@ -424,6 +415,26 @@ fn planck_treasury_account() -> AccountId {
 /// Parses genesis JSON, removes [`TECH_COLLECTIVE_SEED_MEMBERS_KEY`] if present, and returns
 /// serialized config for [`frame_support::genesis_builder_helper::build_state`] plus the optional
 /// member list.
+///
+/// # Trust model (deliberately no size limits)
+///
+/// This runs inside the `GenesisBuilder` runtime API, which is only invoked by the node
+/// operator's own tooling (chain-spec building / genesis initialization) with the chain
+/// spec that operator chose to launch. It is not reachable by network peers or on a
+/// running chain. Whoever supplies this JSON already controls *everything* about the
+/// chain being built — balances, keys, code — so input-size bounds here would not
+/// protect anyone: an oversized or hostile genesis can only stall the chain of the
+/// operator who supplied it. This matches upstream Substrate, whose `build_state`
+/// helper deserializes the full unbounded config the same way.
+///
+/// The same reasoning covers failure semantics: semantically invalid genesis data
+/// (duplicate balance entries, sub-ED endowments, ...) *panics* inside the pallets'
+/// `BuildGenesisConfig::build` rather than returning `Err`. That is FRAME's design —
+/// `build` returns `()` and has no error channel; only JSON deserialization (which runs
+/// before the trait) can return `Err`. The panics are inherited verbatim from upstream
+/// Substrate and are the intended fail-fast: they abort the operator's own chain-spec
+/// build with the assertion message, and the failed build's candidate storage is
+/// discarded, so nothing half-built can persist.
 pub fn prepare_genesis_build_input(
 	config: Vec<u8>,
 ) -> Result<(Vec<u8>, Option<Vec<AccountId>>), String> {
@@ -567,20 +578,20 @@ mod tests {
 		assert!(GENESIS_VESTING_START_MS < GENESIS_VESTING_END_MS);
 	}
 
-	/// Deserializes every preset through the real genesis-build input path and executes
-	/// the full genesis build — including the vesting pallet's pot-balance assertions —
-	/// so a misconfigured preset fails in CI, not at chain launch.
+	/// Every shipped preset must build genesis storage, including the vesting pallet's
+	/// pot-balance assertions. Wormhole transfer proofs need no preset entry: they are
+	/// derived from genesis balances at block 1.
 	#[test]
-	fn all_presets_deserialize_and_build() {
-		for preset in preset_names() {
-			let raw = get_preset(&preset).expect("preset must exist");
-			let (json, _members) =
-				prepare_genesis_build_input(raw).expect("preset JSON must be well-formed");
-			let config: RuntimeGenesisConfig =
-				serde_json::from_slice(&json).expect("preset must deserialize");
+	fn all_presets_build_genesis_storage() {
+		for id in preset_names() {
+			let bytes = get_preset(&id).expect("listed preset must resolve");
+			let (config_bytes, _members) = prepare_genesis_build_input(bytes)
+				.unwrap_or_else(|e| panic!("preset {:?}: invalid genesis JSON: {e}", id));
+			let config: RuntimeGenesisConfig = serde_json::from_slice(&config_bytes)
+				.unwrap_or_else(|e| panic!("preset {:?} must deserialize: {e}", id));
 			config
 				.build_storage()
-				.unwrap_or_else(|e| panic!("genesis build failed for {preset:?}: {e:?}"));
+				.unwrap_or_else(|e| panic!("preset {:?} must build genesis storage: {e:?}", id));
 		}
 	}
 
@@ -601,9 +612,5 @@ mod tests {
 		let schedule_sum: u128 =
 			config.vesting.schedules.iter().map(|(_, _, _, _, total)| *total).sum();
 		assert_eq!(pot_balance, schedule_sum + EXISTENTIAL_DEPOSIT);
-		assert!(
-			!config.wormhole.endowed_addresses.iter().any(|(who, _)| *who == pot),
-			"the keyless pot must not be in the wormhole endowment list"
-		);
 	}
 }

@@ -83,6 +83,47 @@ mod wormhole_tests {
 		});
 	}
 
+	/// A zero-amount credit moves no value, but recording it would still append a
+	/// ZK-tree leaf, advance the recipient's transfer count, and emit an event.
+	/// Zero-value `Balances::Transfer` events are reachable from permissionless
+	/// surfaces (`transfer_keep_alive(dest, 0)`, zero-value scheduled transfers),
+	/// so the recorder must drop zero-amount credits and report them as not
+	/// recorded (so weight reconciliation doesn't count a leaf insert).
+	#[test]
+	fn zero_amount_credit_is_not_recorded() {
+		use qp_wormhole::TransferProofRecorder;
+
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let from = account_id(1);
+			let to = account_id(9001);
+
+			assert!(
+				!<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+					None,
+					from.clone(),
+					to.clone(),
+					0,
+				),
+				"a zero-amount credit must report as not recorded"
+			);
+			assert_eq!(ZkTree::leaf_count(), 0, "no ZK-tree leaf for a zero-amount credit");
+			assert_eq!(
+				Wormhole::transfer_count(&to),
+				0,
+				"the recipient's transfer count must not advance"
+			);
+
+			// Sanity: the same credit with a nonzero amount is recorded.
+			assert!(
+				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+					None, from, to, 1,
+				)
+			);
+			assert_eq!(ZkTree::leaf_count(), 1);
+		});
+	}
+
 	#[test]
 	fn record_transfer_increments_count() {
 		new_test_ext().execute_with(|| {
@@ -455,6 +496,35 @@ mod wormhole_tests {
 	}
 
 	// =========================================================================
+	// Genesis proofs are derived from real balances (single source of truth)
+	// =========================================================================
+	//
+	// There is no separate wormhole endowment list at genesis: `on_initialize(1)` derives
+	// a transfer proof from every account that exists with a balance. An exitable leaf
+	// that isn't backed by actually-issued value is therefore unrepresentable — the leaf
+	// amount IS the genesis balance.
+
+	#[test]
+	fn genesis_proofs_derive_from_balances() {
+		use frame_support::traits::Hooks;
+
+		let addr1 = account_id(100);
+		let addr2 = account_id(101);
+		let amount1 = 100 * UNIT;
+		let amount2 = 250 * UNIT;
+
+		new_test_ext_with_endowments(vec![(addr1.clone(), amount1), (addr2.clone(), amount2)])
+			.execute_with(|| {
+				System::set_block_number(1);
+				Wormhole::on_initialize(1);
+
+				// One leaf per funded genesis account, amount = the real balance.
+				assert_eq!(Wormhole::transfer_count(&addr1), 1);
+				assert_eq!(Wormhole::transfer_count(&addr2), 1);
+			});
+	}
+
+	// =========================================================================
 	// Soundness counter removal migration
 	// =========================================================================
 
@@ -700,6 +770,58 @@ mod private_batch_proof_tests {
 		});
 	}
 
+	/// The runtime's `WormholeProofRecorderExtension` records transfer proofs by scanning
+	/// `Balances::Transfer`/`Minted` events after a transaction. The exit path must therefore
+	/// never emit either event: `process_exit_bundle` credits exits via
+	/// `Unbalanced::increase_balance` (event-free) and records its own proof internally via
+	/// `record_transfer`. If a refactor ever switched the exit credit to `mint_into` (which
+	/// emits `Minted`), each exit could be recorded twice — inflating `TransferCount` and
+	/// creating a duplicate, unspendable leaf.
+	#[test]
+	fn exit_credits_emit_no_scannable_transfer_events() {
+		new_test_ext().execute_with(|| {
+			let proof = deserialize_test_proof();
+			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
+
+			// Set up block state so the proof's cheap bundle checks pass.
+			let block_number = inputs.block_data.block_number as u64;
+			let block_hash_bytes: [u8; 32] =
+				inputs.block_data.block_hash.as_ref().try_into().unwrap();
+			frame_system::BlockHash::<Test>::insert(block_number, H256::from(block_hash_bytes));
+			System::set_block_number(block_number + 10);
+
+			// Guard that the assertion below is meaningful: the proof must credit exits.
+			let expected_exit: u128 = inputs
+				.account_data
+				.iter()
+				.filter(|a| a.summed_output_amount > 0)
+				.map(|a| (a.summed_output_amount as u128) * crate::SCALE_DOWN_FACTOR)
+				.sum();
+			assert!(expected_exit > 0, "test proof must credit at least one exit");
+
+			System::reset_events();
+			assert_ok!(Wormhole::verify_private_batch(
+				RawOrigin::None.into(),
+				get_test_proof_bytes()
+			));
+
+			// No `Transfer`/`Minted` events: nothing for an event-based recorder to pick up.
+			for record in System::events() {
+				assert!(
+					!matches!(
+						record.event,
+						RuntimeEvent::Balances(
+							pallet_balances::Event::<Test>::Transfer { .. } |
+								pallet_balances::Event::<Test>::Minted { .. }
+						)
+					),
+					"exit processing must not emit scannable Transfer/Minted events: {:?}",
+					record.event
+				);
+			}
+		});
+	}
+
 	/// Sets up the on-chain block state so the test proof's cheap bundle checks pass.
 	fn setup_valid_block_state_for_test_proof() {
 		let proof = deserialize_test_proof();
@@ -708,6 +830,43 @@ mod private_batch_proof_tests {
 		let block_hash_bytes: [u8; 32] = inputs.block_data.block_hash.as_ref().try_into().unwrap();
 		frame_system::BlockHash::<Test>::insert(block_number, H256::from(block_hash_bytes));
 		System::set_block_number(block_number + 10);
+	}
+
+	/// `ProofWithPublicInputs::from_bytes` reads the proof off the front of the buffer
+	/// and silently ignores trailing bytes, so without an exact-framing check one valid
+	/// proof has unboundedly many byte representations — each a distinct transaction
+	/// hash whose full copy + parse every node re-pays at pool admission, fee-free.
+	/// Pre-validation must accept exactly one canonical encoding per proof.
+	#[test]
+	fn pre_validation_rejects_padded_proof_bytes() {
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+
+			// The canonical encoding passes pre-validation.
+			assert!(Wormhole::pre_validate_private_batch_proof(&get_test_proof_bytes()).is_ok());
+
+			// The same proof with trailing junk must be rejected.
+			let mut padded = get_test_proof_bytes();
+			padded.extend_from_slice(&[0u8; 32]);
+			assert!(matches!(
+				Wormhole::pre_validate_private_batch_proof(&padded),
+				Err(Error::<Test>::NonCanonicalProofEncoding)
+			));
+		});
+	}
+
+	/// Oversized blobs must be cut off by a length gate BEFORE the byte copy and the
+	/// parser run — `ProofDeserializationFailed` after the fact means the work was
+	/// already done.
+	#[test]
+	fn pre_validation_rejects_oversized_proof_bytes() {
+		new_test_ext().execute_with(|| {
+			let oversized = vec![0u8; crate::MAX_PROOF_BYTES + 1];
+			assert!(matches!(
+				Wormhole::pre_validate_private_batch_proof(&oversized),
+				Err(Error::<Test>::ProofTooLarge)
+			));
+		});
 	}
 
 	/// The block-inclusion gate (`pre_dispatch`) must reject a proof that cannot be
@@ -1693,6 +1852,25 @@ mod public_batch_proof_tests {
 		System::set_block_number(block_number + 10);
 	}
 
+	/// Public-batch twin of the private-batch exact-framing test: trailing bytes after
+	/// a valid proof are silently ignored by the plonky2 parser, so they must be
+	/// rejected by the canonical-encoding check.
+	#[test]
+	fn pre_validation_rejects_padded_proof_bytes() {
+		new_test_ext().execute_with(|| {
+			setup_matching_block_state(&parse_test_inputs());
+
+			assert!(Wormhole::pre_validate_public_batch_proof(&get_test_proof_bytes()).is_ok());
+
+			let mut padded = get_test_proof_bytes();
+			padded.extend_from_slice(&[0u8; 32]);
+			assert!(matches!(
+				Wormhole::pre_validate_public_batch_proof(&padded),
+				Err(Error::<Test>::NonCanonicalProofEncoding)
+			));
+		});
+	}
+
 	#[test]
 	fn test_parse_public_batch_public_inputs_succeeds() {
 		let inputs = parse_test_inputs();
@@ -1842,6 +2020,68 @@ mod public_batch_proof_tests {
 				Wormhole::verify_public_batch(RawOrigin::None.into(), get_test_proof_bytes());
 			assert!(result.is_err());
 			assert_eq!(result.unwrap_err().error, Error::<Test>::NullifierAlreadyUsed.into());
+		});
+	}
+
+	/// The aggregator rebate is deliberately permissionless: whoever performs the public-batch
+	/// aggregation names its own payout address as a proof public input. The property that
+	/// makes this safe is that the address is *bound* by the proof — a third party cannot take
+	/// someone else's public batch and redirect the rebate to itself, because mutating the
+	/// aggregator-address public inputs invalidates the proof, and `pre_dispatch` (the
+	/// block-inclusion gate) runs full ZK verification.
+	#[test]
+	fn pre_dispatch_rejects_public_batch_with_redirected_aggregator_address() {
+		use frame_support::pallet_prelude::ValidateUnsigned;
+		use qp_plonky2_verifier::field::types::Field;
+
+		new_test_ext().execute_with(|| {
+			let inputs = parse_test_inputs();
+			setup_matching_block_state(&inputs);
+
+			// The genuine proof passes the block-inclusion gate.
+			let original = get_test_proof_bytes();
+			let call = crate::Call::<Test>::verify_public_batch { proof_bytes: original.clone() };
+			assert!(
+				<Wormhole as ValidateUnsigned>::pre_dispatch(&call).is_ok(),
+				"the untampered fixture must pass pre_dispatch"
+			);
+
+			// An attacker rewrites the aggregator-address public inputs (the first 4 felts
+			// of the public-batch PI layout) to point at an account they control.
+			let mut tampered_proof = deserialize_test_proof();
+			for felt in tampered_proof.public_inputs.iter_mut().take(4) {
+				*felt = F::from_canonical_u32(0x42);
+			}
+			let tampered_bytes = tampered_proof.to_bytes();
+			assert_ne!(tampered_bytes, original, "mutation must change the encoded proof");
+
+			// The redirected address round-trips through parsing (i.e. the tampering is
+			// well-formed at the PI level) ...
+			let tampered_deser = ProofWithPublicInputs::<F, C, D>::from_bytes(
+				tampered_bytes.clone(),
+				&crate::get_public_batch_verifier().unwrap().circuit_data.common,
+			)
+			.expect("tampered PIs still deserialize");
+			let tampered_inputs = parse_public_batch_public_inputs(
+				&tampered_deser,
+				crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
+				crate::circuit_config::NUM_LEAF_PROOFS,
+			)
+			.expect("tampered PIs still parse");
+			assert_ne!(
+				tampered_inputs.aggregator_address.as_ref(),
+				&AGGREGATOR_ADDRESS,
+				"the payout address was redirected"
+			);
+
+			// ... but the proof no longer verifies, so the block-inclusion gate rejects it:
+			// the rebate cannot be stolen off an existing proof.
+			let tampered_call =
+				crate::Call::<Test>::verify_public_batch { proof_bytes: tampered_bytes };
+			assert!(
+				<Wormhole as ValidateUnsigned>::pre_dispatch(&tampered_call).is_err(),
+				"pre_dispatch must reject a proof whose aggregator address was redirected"
+			);
 		});
 	}
 
