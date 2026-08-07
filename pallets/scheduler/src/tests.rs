@@ -1100,6 +1100,59 @@ fn scheduler_removes_retry_config_of_permanently_overweight_call() {
 	});
 }
 
+/// V12 audit #181231: a terminal `Unavailable` outcome counts as serviced work, so a
+/// following task that only exceeds the *remaining* weight is postponed (kept for a later
+/// block) instead of being misclassified as permanently overweight and deleted.
+#[test]
+fn unavailable_task_does_not_cause_next_task_loss() {
+	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
+	new_test_ext().execute_with(|| {
+		// Highest-priority task: a lookup whose preimage is never provided, so it hits the
+		// terminal `Unavailable` path and is removed.
+		let missing =
+			RuntimeCall::Logger(LoggerCall::log { i: 1, weight: Weight::from_parts(1000, 0) });
+		let hash = <Test as frame_system::Config>::Hashing::hash_of(&missing);
+		let len = missing.using_encoded(|x| x.len()) as u32;
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			0,
+			root(),
+			Bounded::Lookup { hash, len },
+		));
+
+		// Lower-priority task: overweight, so it runs after the unavailable one in the same
+		// service cycle and fails the weight limit.
+		let heavy = RuntimeCall::Logger(LoggerCall::log { i: 2, weight: max_weight });
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			1,
+			root(),
+			Preimage::bound(heavy).unwrap(),
+		));
+
+		run_to_block(4);
+
+		// The unavailable task is terminally gone.
+		assert!(System::events().iter().any(|e| matches!(
+			e.event,
+			RuntimeEvent::Scheduler(crate::Event::CallUnavailable { .. })
+		)));
+		// The overweight task must NOT be permanently dropped: no `PermanentlyOverweight`
+		// event and it is retained in the agenda for a later block.
+		assert!(!System::events().iter().any(|e| matches!(
+			e.event,
+			RuntimeEvent::Scheduler(crate::Event::PermanentlyOverweight { .. })
+		)));
+		assert_eq!(
+			Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))
+				.iter()
+				.filter(|s| s.is_some())
+				.count(),
+			1,
+		);
+	});
+}
+
 #[test]
 fn scheduler_respects_priority_ordering() {
 	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
