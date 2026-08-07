@@ -811,6 +811,68 @@ mod private_batch_proof_tests {
 		});
 	}
 
+	/// The runtime's `WormholeProofRecorderExtension` records transfer proofs by scanning
+	/// `Balances::Transfer`/`Minted` events after a transaction. The exit path must therefore
+	/// never emit either event: `process_exit_bundle` credits exits via
+	/// `Unbalanced::increase_balance` (event-free) and records its own proof internally via
+	/// `record_transfer`. If a refactor ever switched the exit credit to `mint_into` (which
+	/// emits `Minted`), each exit could be recorded twice — inflating `TransferCount` and
+	/// `PotentialWormholeBalance` and weakening the `TotalWormholeExits <=
+	/// PotentialWormholeBalance` soundness invariant.
+	#[test]
+	fn exit_credits_emit_no_scannable_transfer_events_and_count_once_into_pool() {
+		new_test_ext().execute_with(|| {
+			let proof = deserialize_test_proof();
+			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
+
+			// Set up block state so the proof's cheap bundle checks pass.
+			let block_number = inputs.block_data.block_number as u64;
+			let block_hash_bytes: [u8; 32] =
+				inputs.block_data.block_hash.as_ref().try_into().unwrap();
+			frame_system::BlockHash::<Test>::insert(block_number, H256::from(block_hash_bytes));
+			System::set_block_number(block_number + 10);
+
+			let seeded = 1_000_000 * UNIT;
+			PotentialWormholeBalance::<Test>::put(seeded);
+
+			let expected_exit: u128 = inputs
+				.account_data
+				.iter()
+				.filter(|a| a.summed_output_amount > 0)
+				.map(|a| (a.summed_output_amount as u128) * crate::SCALE_DOWN_FACTOR)
+				.sum();
+			assert!(expected_exit > 0, "test proof must credit at least one exit");
+
+			System::reset_events();
+			assert_ok!(Wormhole::verify_private_batch(
+				RawOrigin::None.into(),
+				get_test_proof_bytes()
+			));
+
+			// No `Transfer`/`Minted` events: nothing for an event-based recorder to pick up.
+			for record in System::events() {
+				assert!(
+					!matches!(
+						record.event,
+						RuntimeEvent::Balances(
+							pallet_balances::Event::<Test>::Transfer { .. } |
+								pallet_balances::Event::<Test>::Minted { .. }
+						)
+					),
+					"exit processing must not emit scannable Transfer/Minted events: {:?}",
+					record.event
+				);
+			}
+
+			// The pallet's internal `record_transfer` credited the pool exactly once per exit.
+			assert_eq!(
+				PotentialWormholeBalance::<Test>::get(),
+				seeded + expected_exit,
+				"each exit credit must enter the potential pool exactly once"
+			);
+		});
+	}
+
 	/// Sets up the on-chain block state so the test proof's cheap bundle checks pass.
 	fn setup_valid_block_state_for_test_proof() {
 		let proof = deserialize_test_proof();

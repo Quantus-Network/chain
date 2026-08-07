@@ -1617,6 +1617,63 @@ mod tests {
 		});
 	}
 
+	// --- wormhole exit credits must not be double recorded by the event scan ---
+	// `process_exit_bundle` credits exits via `Unbalanced::increase_balance` (which emits no
+	// `Transfer`/`Minted` event) and then records the proof itself via `record_transfer`. The
+	// exit extrinsics are bare (unsigned), so this extension's `post_dispatch` never runs for
+	// them — but even if the event scan DID run over the exit's events, it must find nothing:
+	// otherwise every exit would be counted twice into `TransferCount` and
+	// `PotentialWormholeBalance`, weakening the soundness invariant.
+	#[test]
+	fn exit_credit_sequence_is_not_double_recorded_by_event_scan() {
+		use frame_support::traits::fungible::Unbalanced;
+
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let exit_account = intg_account(90);
+			let amount = 100 * UNIT;
+			pallet_wormhole::PotentialWormholeBalance::<Runtime>::put(POOL_BASE);
+
+			let events_before = frame_system::Pallet::<Runtime>::event_count();
+
+			// Replicate exactly what `process_exit_bundle` does for a successful exit credit.
+			assert_ok!(<Balances as Unbalanced<AccountId>>::increase_balance(
+				&exit_account,
+				amount,
+				frame_support::traits::tokens::Precision::Exact,
+			));
+			pallet_wormhole::Pallet::<Runtime>::record_transfer(
+				AssetId::default(),
+				&crate::configs::MintingAccount::get(),
+				&exit_account,
+				amount,
+			);
+
+			// The pallet's own recording applied exactly once.
+			assert_eq!(Wormhole::transfer_count(&exit_account), 1);
+			assert_eq!(pool(), POOL_BASE + amount);
+
+			// A hypothetical event scan over the exit's events must record nothing extra:
+			// `increase_balance` emits no `Transfer`/`Minted` event to pick up.
+			let recorded =
+				WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(
+					events_before,
+				);
+			assert_eq!(recorded, 0, "the event scan must not re-record the exit credit");
+			assert_eq!(
+				Wormhole::transfer_count(&exit_account),
+				1,
+				"exit credit must be recorded exactly once"
+			);
+			assert_eq!(
+				pool(),
+				POOL_BASE + amount,
+				"the potential pool must not be double credited for an exit"
+			);
+		});
+	}
+
 	// --- mined block rewards flow into the potential pool ---
 	// Mining mints brand-new coins to the miner (ambiguous, never-signed) and the treasury (a
 	// keyless governance account, excluded via `NonWormholeAccounts`). Only the miner's portion is

@@ -890,6 +890,13 @@ pub mod pallet {
 			for (exit_account, exit_balance) in &processed_accounts {
 				// Skip failed credits (e.g. below ED); nullifier already marked, value
 				// excluded from fee settlement / event / TotalWormholeExits.
+				//
+				// NOTE: this must stay `Unbalanced::increase_balance` (event-free). The runtime's
+				// `WormholeProofRecorderExtension` records a transfer proof for every
+				// `Balances::Minted` event it scans, and this exit already records its own proof
+				// via `record_transfer` below — switching to `mint_into` (which emits `Minted`)
+				// could double-record the credit. Pinned by the test
+				// `exit_credits_emit_no_scannable_transfer_events_and_count_once_into_pool`.
 				match <T::Currency as Unbalanced<_>>::increase_balance(
 					exit_account,
 					*exit_balance,
