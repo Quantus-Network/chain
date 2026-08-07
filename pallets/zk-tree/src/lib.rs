@@ -37,8 +37,31 @@ pub mod tree;
 #[cfg(test)]
 mod tests;
 
-/// Maximum depth supported by ZK circuits.
-/// A tree of depth 32 can hold 4^32 leaves (more than enough).
+/// Maximum depth the on-chain tree may grow to (weight-metering / growth cap).
+/// A tree of depth 32 can hold 4^32 leaves.
+///
+/// NOTE (known, accepted limitation): this is intentionally *larger* than the depth the
+/// wormhole circuits accept. The circuits fix `MAX_DEPTH = 16` (`qp-zk-circuits-common`,
+/// `zk_merkle.rs`) because every leaf proof pays the proving cost of a full
+/// `MAX_DEPTH`-level Merkle path regardless of the tree's current depth — keeping it at
+/// 16 keeps proving fast for everyone. If the tree ever grows past depth 16
+/// (4^16 ≈ 4.3 billion leaves), Merkle proofs gain a 17th sibling level and the prover
+/// and verifier reject them, so wormhole proof generation halts until a circuit update
+/// raises `MAX_DEPTH` and a runtime upgrade embeds the regenerated verifiers.
+///
+/// This is a deliberate "fix it when we get close" trade-off, not an oversight:
+/// - Timeline: at one leaf per block (the mining-reward floor, 12s blocks) depth 16
+///   lasts ~1,600 years; at a sustained 10 transfers/sec chain-wide it lasts ~13 years;
+///   even permanently saturated blocks (~50 tps) give ~2.5 years. Each +1 of circuit
+///   depth quadruples capacity.
+/// - Observability: `LeafCount` is public storage, so exhaustion is visible years in
+///   advance; alert well before 4^16 leaves.
+/// - The update itself: bump `MAX_DEPTH` in `qp-zk-circuits-common`, release the
+///   circuit crates, let `pallets/wormhole/build.rs` regenerate the embedded verifier
+///   binaries, regenerate proof fixtures, re-benchmark, and ship a runtime upgrade —
+///   days of engineering inside a normal release cycle. Old proofs are invalidated by
+///   the circuit change; nullifier state is unaffected, so nothing can double-spend
+///   across the upgrade.
 pub const MAX_TREE_DEPTH: u8 = 32;
 
 /// Worst-case `(reads, writes)` storage-operation counts for one [`Pallet::insert_leaf`]

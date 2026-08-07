@@ -63,9 +63,45 @@ Depth 3 (capacity: 64 leaves)
 | 2     | 16            | Grows automatically      |
 | 3     | 64            |                          |
 | ...   | ...           |                          |
-| 32    | ~1.8 × 10^19  | Maximum supported depth  |
+| 16    | ~4.3 × 10^9   | Max depth the **circuits** accept (see below) |
+| 32    | ~1.8 × 10^19  | Max depth the on-chain tree may grow to |
 
 The tree grows dynamically -- when the 5th leaf arrives, depth increases from 1 to 2. The old root becomes child[0] of a new root node.
+
+### Circuit depth limit (known, accepted limitation)
+
+The on-chain tree may grow up to depth 32 (`MAX_TREE_DEPTH` in `pallets/zk-tree`), but the
+wormhole circuits only accept Merkle paths up to depth 16 (`MAX_DEPTH` in
+`qp-zk-circuits-common/src/zk_merkle.rs`). The circuit pads every proof's witness to the
+full `MAX_DEPTH` levels, so **every leaf proof pays the proving cost of a depth-16 path
+regardless of the tree's actual depth** -- that is why the circuit constant is kept as
+small as safely possible instead of matching the on-chain cap.
+
+**What happens at the limit:** once leaf 4^16 + 1 (~4.3 billion) is inserted, the tree
+grows to depth 17, all Merkle proofs gain a 17th sibling level, and the prover and
+on-chain verifier reject them. Existing funds are never lost and nullifier state is
+untouched -- wormhole proof *generation* simply halts until the circuit is updated.
+
+**The plan is to do a circuit update when (long before) that happens.** Rough timeline
+to exhaustion at 12-second blocks:
+
+| Sustained leaf rate | Time to 4.3 B leaves |
+|---|---|
+| 1 leaf/block (mining-reward floor) | ~1,600 years |
+| 10 transfers/sec chain-wide | ~13 years |
+| ~50 transfers/sec (permanently full blocks) | ~2.5 years |
+
+`LeafCount` is public storage, so the approach is observable years ahead; each +1 of
+circuit depth quadruples capacity (e.g. 16 → 20 buys ~256× the runway).
+
+**What the update involves:** bump `MAX_DEPTH` in `qp-zk-circuits-common`, release the
+circuit crates, rebuild -- `pallets/wormhole/build.rs` regenerates and embeds the new
+verifier binaries automatically -- regenerate the proof test fixtures
+(`regenerate_*_fixture` tests), re-benchmark weights, and ship a normal runtime upgrade.
+The code change is a one-line constant; the end-to-end effort is on the order of days of
+engineering inside a standard release cycle. Proofs built against the old circuit become
+invalid at the upgrade (wallets/provers must update in step), but spent nullifiers
+persist, so nothing can double-spend across the transition.
 
 ### Hashing Strategy
 
