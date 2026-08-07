@@ -22,7 +22,6 @@
 use super::*;
 
 use crate as utility;
-use core::cell::RefCell;
 use frame_support::{
 	assert_err_ignore_postinfo, assert_noop, assert_ok, derive_impl,
 	dispatch::{DispatchErrorWithPostInfo, Pays},
@@ -229,20 +228,6 @@ impl Config for Test {
 	type PalletsOrigin = OriginCaller;
 	type WeightInfo = ();
 	type HighSecurity = qp_high_security::testing::TestHighSecurity<HighSecurityWhitelist>;
-	type AddressRevealer = MockAddressRevealer;
-}
-
-thread_local! {
-	/// Records addresses passed to `AddressRevealer::reveal_address`, so tests can assert a
-	/// derivative pseudonym is revealed to the wormhole soundness counter on first use.
-	pub static REVEALED_ADDRESSES: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
-}
-
-pub struct MockAddressRevealer;
-impl qp_wormhole::AddressRevealer<u64> for MockAddressRevealer {
-	fn reveal_address(account: u64) {
-		REVEALED_ADDRESSES.with(|a| a.borrow_mut().push(account));
-	}
 }
 
 /// High-security accounts in tests may only dispatch `System::remark`.
@@ -318,80 +303,11 @@ fn as_derivative_works() {
 }
 
 #[test]
-fn as_derivative_reveals_pseudonym_on_first_use_only() {
-	new_test_ext().execute_with(|| {
-		REVEALED_ADDRESSES.with(|a| a.borrow_mut().clear());
-		let sub_1_0 = derivative_account_id(1u64, 0);
-		assert!(!Utility::is_derivative(&sub_1_0));
-
-		// First use reveals the pseudonym to the wormhole soundness counter and marks it known.
-		assert_ok!(Utility::as_derivative(
-			RuntimeOrigin::signed(1),
-			0,
-			Box::new(RuntimeCall::System(frame_system::Call::remark { remark: vec![] })),
-		));
-		assert!(Utility::is_derivative(&sub_1_0));
-		assert_eq!(REVEALED_ADDRESSES.with(|a| a.borrow().clone()), vec![sub_1_0]);
-
-		// A second use must not reveal again.
-		assert_ok!(Utility::as_derivative(
-			RuntimeOrigin::signed(1),
-			0,
-			Box::new(RuntimeCall::System(frame_system::Call::remark { remark: vec![] })),
-		));
-		assert_eq!(REVEALED_ADDRESSES.with(|a| a.borrow().clone()), vec![sub_1_0]);
-
-		// A different index is a different pseudonym and reveals separately.
-		let sub_1_1 = derivative_account_id(1u64, 1);
-		assert_ok!(Utility::as_derivative(
-			RuntimeOrigin::signed(1),
-			1,
-			Box::new(RuntimeCall::System(frame_system::Call::remark { remark: vec![] })),
-		));
-		assert_eq!(REVEALED_ADDRESSES.with(|a| a.borrow().clone()), vec![sub_1_0, sub_1_1]);
-	});
-}
-
-/// The `as_derivative` annotation charges for the first-use derivative reveal (the
-/// `KnownDerivatives` insert plus the wormhole pool write). Repeat uses of an already-known
-/// pseudonym skip that work, so their returned actual weight must refund the two writes.
-/// The `KnownDerivatives` read happens on every invocation and is never refunded.
-#[test]
-fn as_derivative_refunds_reveal_overhead_on_repeat_use() {
-	new_test_ext().execute_with(|| {
-		let remark = Box::new(RuntimeCall::System(frame_system::Call::remark { remark: vec![] }));
-		let call = RuntimeCall::Utility(UtilityCall::as_derivative { index: 0, call: remark });
-		let info = call.get_dispatch_info();
-
-		// First use performs the reveal: full declared weight is consumed.
-		let result = call.clone().dispatch(RuntimeOrigin::signed(1));
-		assert_ok!(result);
-		let first_weight = extract_actual_weight(&result, &info);
-		assert_eq!(first_weight, info.call_weight);
-
-		// Repeat use skips the `KnownDerivatives` insert and the wormhole pool write.
-		let result = call.dispatch(RuntimeOrigin::signed(1));
-		assert_ok!(result);
-		let repeat_weight = extract_actual_weight(&result, &info);
-		assert_eq!(
-			repeat_weight,
-			first_weight - <Test as frame_system::Config>::DbWeight::get().writes(2),
-			"repeat use must refund the two reveal writes it did not perform"
-		);
-	});
-}
-
-#[test]
 fn as_derivative_handles_weight_refund() {
 	new_test_ext().execute_with(|| {
 		let start_weight = Weight::from_parts(100, 0);
 		let end_weight = Weight::from_parts(75, 0);
 		let diff = start_weight - end_weight;
-
-		// Each dispatch uses a fresh derivative index so every call is a first use and
-		// consumes the full declared reveal overhead; this test is only about how the
-		// inner call's weight refund propagates. (Repeat-use reveal refunds are covered
-		// by `as_derivative_refunds_reveal_overhead_on_repeat_use`.)
 
 		// Full weight when ok
 		let inner_call = call_foobar(false, start_weight, None);
@@ -462,7 +378,7 @@ fn as_derivative_handles_weight_refund() {
 /// (`T::HighSecurity::is_call_allowed`) before dispatching, which in the runtime
 /// costs one `HighSecurityAccounts` storage read. The declared weight must
 /// charge that read on top of the benchmarked base (which runs with a no-op
-/// inspector), the AccountData ops, the reveal ops, and the inner call.
+/// inspector), the AccountData ops, and the inner call.
 #[test]
 fn as_derivative_weight_charges_high_security_policy_read() {
 	new_test_ext().execute_with(|| {
@@ -473,11 +389,9 @@ fn as_derivative_weight_charges_high_security_policy_read() {
 
 		let db = <Test as frame_system::Config>::DbWeight::get();
 		// Everything the declared weight covered before the policy read was
-		// accounted: benchmarked base + AccountData r/w + first-use reveal ops
-		// + the inner call.
+		// accounted: benchmarked base + AccountData r/w + the inner call.
 		let without_policy_read = <Test as Config>::WeightInfo::as_derivative()
 			.saturating_add(db.reads_writes(1, 1))
-			.saturating_add(db.reads_writes(1, 2))
 			.saturating_add(inner_weight);
 
 		assert!(

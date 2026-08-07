@@ -105,20 +105,6 @@ parameter_types! {
 	pub const VolumeFeesAggregatorRate: Permill = Permill::from_percent(50);
 }
 
-/// Sentinel account used in tests to exercise the `NonWormholeAccounts` exclusion path (stands in
-/// for a multisig / keyless account that must never be counted as ambiguous).
-pub fn excluded_account() -> AccountId {
-	account_id(424242)
-}
-
-/// Test exclusion set: excludes [`excluded_account`] from the ambiguous-address heuristic.
-pub struct ExcludedAccounts;
-impl frame_support::traits::Contains<AccountId> for ExcludedAccounts {
-	fn contains(account: &AccountId) -> bool {
-		*account == excluded_account()
-	}
-}
-
 impl pallet_zk_tree::Config for Test {
 	type AssetId = u32;
 	type Balance = Balance;
@@ -131,7 +117,6 @@ impl pallet_wormhole::Config for Test {
 	type AssetBalance = Balance;
 	type TransferCount = u64;
 	type MintingAccount = MintingAccount;
-	type NonWormholeAccounts = ExcludedAccounts;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
 	type VolumeFeesAggregatorRate = VolumeFeesAggregatorRate;

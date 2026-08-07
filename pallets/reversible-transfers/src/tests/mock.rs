@@ -239,8 +239,6 @@ impl qp_wormhole::TransferProofRecorder<AccountId, u32, Balance> for MockProofRe
 		});
 		true
 	}
-
-	fn reveal_address(_account: AccountId) {}
 }
 
 impl pallet_reversible_transfers::Config for Test {
@@ -323,7 +321,6 @@ impl pallet_utility::Config for Test {
 	type PalletsOrigin = OriginCaller;
 	type WeightInfo = ();
 	type HighSecurity = ();
-	type AddressRevealer = ();
 }
 
 // Build genesis storage according to the mock runtime.

@@ -37,12 +37,11 @@ mod wormhole_tests {
 	/// an unrelated, independently-mintable token. Native deposits reach the recorder as `None`
 	/// (from `Balances` events); a `pallet_assets` asset-0 credit reaches it as `Some(0)` (from
 	/// `Assets::Issued`). These must NOT be conflated: a `Some(0)` credit is not backed by any
-	/// native, so treating it as native would let an asset-0 issuer inflate the native
-	/// `PotentialWormholeBalance` and insert a natively-exitable leaf — minting unbacked native
-	/// out of the wormhole.
+	/// native, so treating it as native would insert a natively-exitable leaf — minting
+	/// unbacked native out of the wormhole.
 	///
-	/// This asserts that `record_transfer_proof(Some(0), ..)` to an ambiguous recipient neither
-	/// inserts a ZK-tree leaf nor inflates the pool, while genuine native (`None`) still does.
+	/// This asserts that `record_transfer_proof(Some(0), ..)` inserts no ZK-tree leaf, while
+	/// genuine native (`None`) still does.
 	#[test]
 	fn asset_zero_credit_is_not_treated_as_native_deposit() {
 		use qp_wormhole::TransferProofRecorder;
@@ -50,17 +49,14 @@ mod wormhole_tests {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
 			let from = account_id(1);
-			// A fresh (nonce 0) recipient that is not excluded: genuinely ambiguous.
 			let to = account_id(9001);
-			assert!(Wormhole::is_ambiguous_account(&to));
 			let amount = 1_000 * UNIT;
 
 			assert_eq!(ZkTree::leaf_count(), 0);
-			assert_eq!(Wormhole::potential_wormhole_balance(), 0);
 
 			// A pallet_assets asset-0 mint (arrives as `Some(0)`) must be inert for the
-			// native wormhole: no leaf, no pool inflation — and must report as not recorded
-			// so weight reconciliation does not treat the drop as a ZK-tree insert.
+			// native wormhole: no leaf — and must report as not recorded so weight
+			// reconciliation does not treat the drop as a ZK-tree insert.
 			assert!(
 				!<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
 					Some(0u32),
@@ -75,13 +71,8 @@ mod wormhole_tests {
 				0,
 				"an asset-0 credit must not insert a native-exitable ZK-tree leaf"
 			);
-			assert_eq!(
-				Wormhole::potential_wormhole_balance(),
-				0,
-				"an asset-0 credit must not inflate the native potential-balance pool"
-			);
 
-			// Genuine native (arrives as `None`) is still recorded and still inflates the pool.
+			// Genuine native (arrives as `None`) is still recorded.
 			assert!(
 				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
 					None, from, to, amount,
@@ -89,11 +80,6 @@ mod wormhole_tests {
 				"a native deposit must report as recorded"
 			);
 			assert_eq!(ZkTree::leaf_count(), 1, "a native deposit must insert a leaf");
-			assert_eq!(
-				Wormhole::potential_wormhole_balance(),
-				amount,
-				"a native deposit to an ambiguous recipient must inflate the pool"
-			);
 		});
 	}
 
@@ -111,7 +97,6 @@ mod wormhole_tests {
 			System::set_block_number(1);
 			let from = account_id(1);
 			let to = account_id(9001);
-			assert!(Wormhole::is_ambiguous_account(&to));
 
 			assert!(
 				!<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
@@ -128,7 +113,6 @@ mod wormhole_tests {
 				0,
 				"the recipient's transfer count must not advance"
 			);
-			assert_eq!(Wormhole::potential_wormhole_balance(), 0);
 
 			// Sanity: the same credit with a nonzero amount is recorded.
 			assert!(
@@ -516,12 +500,12 @@ mod wormhole_tests {
 	// =========================================================================
 	//
 	// There is no separate wormhole endowment list at genesis: `on_initialize(1)` derives
-	// a transfer proof from every account that exists with a balance. An exitable leaf or
-	// `PotentialWormholeBalance` credit that isn't backed by actually-issued value is
-	// therefore unrepresentable — the leaf amount IS the genesis balance.
+	// a transfer proof from every account that exists with a balance. An exitable leaf
+	// that isn't backed by actually-issued value is therefore unrepresentable — the leaf
+	// amount IS the genesis balance.
 
 	#[test]
-	fn genesis_proofs_derive_from_balances_and_seed_pool() {
+	fn genesis_proofs_derive_from_balances() {
 		use frame_support::traits::Hooks;
 
 		let addr1 = account_id(100);
@@ -537,149 +521,31 @@ mod wormhole_tests {
 				// One leaf per funded genesis account, amount = the real balance.
 				assert_eq!(Wormhole::transfer_count(&addr1), 1);
 				assert_eq!(Wormhole::transfer_count(&addr2), 1);
-
-				// The soundness pool is seeded with exactly the ambiguous genesis
-				// balances — consistent with what a later reveal would subtract.
-				assert_eq!(
-					crate::PotentialWormholeBalance::<Test>::get(),
-					amount1 + amount2,
-					"pool must equal the total of ambiguous genesis balances"
-				);
 			});
 	}
 
-	#[test]
-	fn genesis_proofs_exclude_non_wormhole_accounts_from_pool() {
-		use frame_support::traits::Hooks;
-
-		// An excluded (`NonWormholeAccounts`) genesis account still gets an inert leaf,
-		// but must not count into the soundness pool.
-		let excluded = excluded_account();
-		let regular = account_id(100);
-
-		new_test_ext_with_endowments(vec![
-			(excluded.clone(), 100 * UNIT),
-			(regular.clone(), 40 * UNIT),
-		])
-		.execute_with(|| {
-			System::set_block_number(1);
-			Wormhole::on_initialize(1);
-
-			assert_eq!(Wormhole::transfer_count(&excluded), 1);
-			assert_eq!(Wormhole::transfer_count(&regular), 1);
-			assert_eq!(
-				crate::PotentialWormholeBalance::<Test>::get(),
-				40 * UNIT,
-				"excluded accounts must not seed the pool"
-			);
-		});
-	}
-
 	// =========================================================================
-	// Soundness counter tracking
+	// Soundness counter removal migration
 	// =========================================================================
 
 	#[test]
-	fn record_transfer_to_ambiguous_address_increases_potential_balance() {
-		new_test_ext().execute_with(|| {
-			let from = account_id(1);
-			let to = account_id(2);
-			let amount = 25 * UNIT;
-
-			// `to` has never signed (nonce == 0), so it's ambiguous.
-			assert_eq!(Wormhole::potential_wormhole_balance(), 0);
-			Wormhole::record_transfer(0u32, &from, &to, amount);
-			assert_eq!(Wormhole::potential_wormhole_balance(), amount);
-
-			// A second deposit to another ambiguous address accumulates.
-			let to2 = account_id(3);
-			Wormhole::record_transfer(0u32, &from, &to2, amount);
-			assert_eq!(Wormhole::potential_wormhole_balance(), amount * 2);
-		});
-	}
-
-	#[test]
-	fn record_transfer_to_revealed_address_does_not_change_potential_balance() {
-		new_test_ext().execute_with(|| {
-			let from = account_id(1);
-			let to = account_id(2);
-			let amount = 25 * UNIT;
-
-			// Reveal `to` by bumping its nonce above zero.
-			frame_system::Pallet::<Test>::inc_account_nonce(&to);
-
-			Wormhole::record_transfer(0u32, &from, &to, amount);
-			assert_eq!(
-				Wormhole::potential_wormhole_balance(),
-				0,
-				"Transfers to revealed (nonce > 0) addresses must not add to the pool"
-			);
-		});
-	}
-
-	#[test]
-	fn record_transfer_to_non_wormhole_account_does_not_change_potential_balance() {
-		new_test_ext().execute_with(|| {
-			let from = account_id(1);
-			let to = crate::mock::excluded_account();
-			let amount = 25 * UNIT;
-
-			// `to` has nonce == 0 but is in the NonWormholeAccounts set (e.g. a multisig or known
-			// keyless account), so it must not be treated as an ambiguous wormhole deposit.
-			assert!(!Wormhole::is_ambiguous_account(&to));
-			Wormhole::record_transfer(0u32, &from, &to, amount);
-			assert_eq!(
-				Wormhole::potential_wormhole_balance(),
-				0,
-				"Transfers to excluded (non-wormhole) addresses must not add to the pool"
-			);
-		});
-	}
-
-	#[test]
-	fn reveal_account_subtracts_free_balance_from_potential_balance() {
-		new_test_ext_with_endowments(vec![(account_id(7), 500 * UNIT)]).execute_with(|| {
-			let revealed = account_id(7);
-			let seeded = 1_000 * UNIT;
-			crate::PotentialWormholeBalance::<Test>::put(seeded);
-
-			// Mirrors funds being sent to a pre-computed multisig address before creation: when
-			// the address is later revealed, its balance is removed from the pool.
-			Wormhole::reveal_account(&revealed);
-			assert_eq!(
-				Wormhole::potential_wormhole_balance(),
-				seeded - 500 * UNIT,
-				"reveal_account must subtract the account's free balance from the pool"
-			);
-
-			// Idempotent against over-subtraction: revealing an empty account is a no-op.
-			let before = Wormhole::potential_wormhole_balance();
-			Wormhole::reveal_account(&account_id(99));
-			assert_eq!(Wormhole::potential_wormhole_balance(), before);
-		});
-	}
-
-	#[test]
-	fn migration_seeds_potential_balance_to_total_issuance() {
+	fn migration_removes_soundness_counters() {
 		use frame_support::traits::UncheckedOnRuntimeUpgrade;
 
 		new_test_ext().execute_with(|| {
-			// The migration seeds the pool to current total issuance, a safe upper bound on the
-			// value that could be sitting in ambiguous addresses.
-			let alice = account_id(1);
-			let minted = 750 * UNIT;
-			assert_ok!(Balances::mint_into(&alice, minted));
+			// Simulate leftover v1 storage from before the counters were removed.
+			crate::migrations::v2::PotentialWormholeBalance::<Test>::put(1_000 * UNIT);
+			crate::migrations::v2::TotalWormholeExits::<Test>::put(250 * UNIT);
 
-			let issuance = <Balances as Inspect<AccountId>>::total_issuance();
-			assert_eq!(issuance, minted);
-			assert_eq!(Wormhole::potential_wormhole_balance(), 0);
+			crate::migrations::v2::RemoveSoundnessCounters::<Test>::on_runtime_upgrade();
 
-			crate::migrations::v1::InitSoundnessCounters::<Test>::on_runtime_upgrade();
-
-			assert_eq!(
-				Wormhole::potential_wormhole_balance(),
-				issuance,
-				"Migration must seed PotentialWormholeBalance to total issuance"
+			assert!(
+				!crate::migrations::v2::PotentialWormholeBalance::<Test>::exists(),
+				"Migration must delete PotentialWormholeBalance"
+			);
+			assert!(
+				!crate::migrations::v2::TotalWormholeExits::<Test>::exists(),
+				"Migration must delete TotalWormholeExits"
 			);
 		});
 	}
@@ -690,7 +556,7 @@ mod wormhole_tests {
 mod private_batch_proof_tests {
 	use crate::{
 		mock::*,
-		pallet::{Error, PotentialWormholeBalance, TotalWormholeExits, UsedNullifiers},
+		pallet::{Error, UsedNullifiers},
 	};
 	use frame_support::{assert_noop, assert_ok};
 	use frame_system::RawOrigin;
@@ -855,24 +721,10 @@ mod private_batch_proof_tests {
 			// Set current block number higher than the proof's block
 			System::set_block_number(block_number + 10);
 
-			// Seed the soundness pool so the exit doesn't trip the invariant.
-			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
-
 			let proof_bytes = get_test_proof_bytes();
-
-			// Expected exit total from the proof's public inputs.
-			let expected_exit: u128 = inputs
-				.account_data
-				.iter()
-				.filter(|a| a.summed_output_amount > 0)
-				.map(|a| (a.summed_output_amount as u128) * crate::SCALE_DOWN_FACTOR)
-				.sum();
 
 			// This should succeed - proof is valid and state matches
 			assert_ok!(Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes));
-
-			// TotalWormholeExits should now reflect the exit amount.
-			assert_eq!(TotalWormholeExits::<Test>::get(), expected_exit);
 
 			// Verify nullifiers are now marked as used
 			for nullifier in &inputs.nullifiers {
@@ -924,10 +776,9 @@ mod private_batch_proof_tests {
 	/// `Unbalanced::increase_balance` (event-free) and records its own proof internally via
 	/// `record_transfer`. If a refactor ever switched the exit credit to `mint_into` (which
 	/// emits `Minted`), each exit could be recorded twice — inflating `TransferCount` and
-	/// `PotentialWormholeBalance` and weakening the `TotalWormholeExits <=
-	/// PotentialWormholeBalance` soundness invariant.
+	/// creating a duplicate, unspendable leaf.
 	#[test]
-	fn exit_credits_emit_no_scannable_transfer_events_and_count_once_into_pool() {
+	fn exit_credits_emit_no_scannable_transfer_events() {
 		new_test_ext().execute_with(|| {
 			let proof = deserialize_test_proof();
 			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
@@ -939,9 +790,7 @@ mod private_batch_proof_tests {
 			frame_system::BlockHash::<Test>::insert(block_number, H256::from(block_hash_bytes));
 			System::set_block_number(block_number + 10);
 
-			let seeded = 1_000_000 * UNIT;
-			PotentialWormholeBalance::<Test>::put(seeded);
-
+			// Guard that the assertion below is meaningful: the proof must credit exits.
 			let expected_exit: u128 = inputs
 				.account_data
 				.iter()
@@ -970,13 +819,6 @@ mod private_batch_proof_tests {
 					record.event
 				);
 			}
-
-			// The pallet's internal `record_transfer` credited the pool exactly once per exit.
-			assert_eq!(
-				PotentialWormholeBalance::<Test>::get(),
-				seeded + expected_exit,
-				"each exit credit must enter the potential pool exactly once"
-			);
 		});
 	}
 
@@ -988,7 +830,6 @@ mod private_batch_proof_tests {
 		let block_hash_bytes: [u8; 32] = inputs.block_data.block_hash.as_ref().try_into().unwrap();
 		frame_system::BlockHash::<Test>::insert(block_number, H256::from(block_hash_bytes));
 		System::set_block_number(block_number + 10);
-		PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
 	}
 
 	/// `ProofWithPublicInputs::from_bytes` reads the proof off the front of the buffer
@@ -1204,9 +1045,6 @@ mod private_batch_proof_tests {
 					.expect("test preimage limbs are canonical"),
 			);
 
-			// Seed the soundness pool so the exit doesn't trip the invariant.
-			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
-
 			// Expected miner fee from the proof's public inputs:
 			// fee = exit * bps / (10000 - bps); miner gets fee minus the 50% burn
 			// (mock: VolumeFeeRateBps = 10, VolumeFeesBurnRate = 50%).
@@ -1242,48 +1080,6 @@ mod private_batch_proof_tests {
 	}
 
 	#[test]
-	fn exit_to_ambiguous_address_rejected_when_margin_exhausted() {
-		new_test_ext().execute_with(|| {
-			let proof = deserialize_test_proof();
-			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
-
-			let block_number = inputs.block_data.block_number as u64;
-			let block_hash_bytes: [u8; 32] =
-				inputs.block_data.block_hash.as_ref().try_into().unwrap();
-			frame_system::BlockHash::<Test>::insert(block_number, H256::from(block_hash_bytes));
-			System::set_block_number(block_number + 10);
-
-			let expected_exit: u128 = inputs
-				.account_data
-				.iter()
-				.filter(|a| a.summed_output_amount > 0)
-				.map(|a| (a.summed_output_amount as u128) * crate::SCALE_DOWN_FACTOR)
-				.sum();
-
-			// Margin is exactly zero: the pool has already been fully consumed by prior exits
-			// (potential_balance == total_exits). Exiting into another wormhole (an ambiguous
-			// address) is itself valid, but it must NOT be possible when there is no margin left,
-			// regardless of where the exit lands. The exit account in the fixture is ambiguous.
-			PotentialWormholeBalance::<Test>::put(expected_exit);
-			TotalWormholeExits::<Test>::put(expected_exit);
-
-			let proof_bytes = get_test_proof_bytes();
-			let result = Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes);
-
-			assert!(result.is_err());
-			assert_eq!(
-				result.unwrap_err().error,
-				Error::<Test>::SoundnessInvariantViolation.into(),
-				"exit must be rejected when margin is zero, even to an ambiguous address"
-			);
-
-			// State is unchanged: no tokens minted, no counters moved.
-			assert_eq!(TotalWormholeExits::<Test>::get(), expected_exit);
-			assert_eq!(PotentialWormholeBalance::<Test>::get(), expected_exit);
-		});
-	}
-
-	#[test]
 	fn test_verify_private_batch_cannot_replay() {
 		new_test_ext().execute_with(|| {
 			let proof = deserialize_test_proof();
@@ -1298,9 +1094,6 @@ mod private_batch_proof_tests {
 			frame_system::BlockHash::<Test>::insert(block_number, block_hash);
 			System::set_block_number(block_number + 10);
 
-			// Seed the soundness pool so the exit doesn't trip the invariant.
-			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
-
 			let proof_bytes = get_test_proof_bytes();
 
 			// First submission should succeed
@@ -1311,35 +1104,6 @@ mod private_batch_proof_tests {
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::NullifierAlreadyUsed.into());
-		});
-	}
-
-	#[test]
-	fn test_verify_private_batch_fails_when_soundness_invariant_violated() {
-		new_test_ext().execute_with(|| {
-			let proof = deserialize_test_proof();
-			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
-
-			let block_number = inputs.block_data.block_number as u64;
-			let block_hash_bytes: [u8; 32] =
-				inputs.block_data.block_hash.as_ref().try_into().unwrap();
-			let block_hash = H256::from(block_hash_bytes);
-
-			frame_system::BlockHash::<Test>::insert(block_number, block_hash);
-			System::set_block_number(block_number + 10);
-
-			// PotentialWormholeBalance defaults to 0, so any exit must be rejected: the proof is
-			// valid but there is no recorded deposit backing it.
-			let proof_bytes = get_test_proof_bytes();
-			let result = Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes);
-			assert!(result.is_err());
-			assert_eq!(
-				result.unwrap_err().error,
-				Error::<Test>::SoundnessInvariantViolation.into()
-			);
-
-			// Nothing should have been exited.
-			assert_eq!(TotalWormholeExits::<Test>::get(), 0);
 		});
 	}
 
@@ -1651,10 +1415,7 @@ mod verifier_profile_tests {
 mod exit_bundle_tests {
 	use crate::{
 		mock::*,
-		pallet::{
-			Error, ExitBundle, ExitSegment, PotentialWormholeBalance, TotalWormholeExits,
-			UsedNullifiers,
-		},
+		pallet::{Error, ExitBundle, ExitSegment, UsedNullifiers},
 	};
 	use frame_support::{
 		assert_ok,
@@ -1772,7 +1533,6 @@ mod exit_bundle_tests {
 	fn process_exit_bundle_partial_denial_mints_only_valid_segments() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
-			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
 
 			// Segment 1 has one already-spent nullifier (3) and one fresh one (4):
 			// the whole segment is denied and the fresh nullifier left unmarked.
@@ -1791,7 +1551,6 @@ mod exit_bundle_tests {
 			// from the exit accounting.
 			assert_eq!(Balances::balance(&exit_a), scaled(AMOUNT_A));
 			assert_eq!(Balances::balance(&exit_b), 0, "denied segment must not mint");
-			assert_eq!(TotalWormholeExits::<Test>::get(), scaled(AMOUNT_A));
 
 			// Valid segment's nullifiers are consumed; the denied segment's fresh
 			// nullifier is not, so its owner can still exit later.
@@ -1819,7 +1578,6 @@ mod exit_bundle_tests {
 	fn process_exit_bundle_same_private_batch_twice_mints_once() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
-			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
 
 			let exit = AccountId32::new([10u8; 32]);
 			let seg = || segment(&[1, 2], &[(10, AMOUNT_A)]);
@@ -1830,7 +1588,6 @@ mod exit_bundle_tests {
 				scaled(AMOUNT_A),
 				"duplicate segment in one bundle must not double-mint"
 			);
-			assert_eq!(TotalWormholeExits::<Test>::get(), scaled(AMOUNT_A));
 			System::assert_has_event(
 				crate::Event::<Test>::SegmentsDenied { indices: vec![1] }.into(),
 			);
@@ -1841,7 +1598,6 @@ mod exit_bundle_tests {
 	fn process_exit_bundle_fee_and_rebate_exclude_denied_segment() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
-			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
 
 			// Seed issuance so the burn is observable (set_total_issuance saturates at 0).
 			assert_ok!(Balances::mint_into(&account_id(999), 1_000 * UNIT));
@@ -1889,14 +1645,12 @@ mod exit_bundle_tests {
 	fn process_exit_bundle_rejects_when_no_segment_valid() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
-			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
 			UsedNullifiers::<Test>::insert(nullifier_bytes(1), true);
 
 			let b = bundle(vec![segment(&[1], &[(10, AMOUNT_A)])], None);
 			let result = Wormhole::process_exit_bundle(b);
 			assert!(result.is_err());
 			assert_eq!(result.unwrap_err().error, Error::<Test>::NullifierAlreadyUsed.into());
-			assert_eq!(TotalWormholeExits::<Test>::get(), 0);
 		});
 	}
 
@@ -1904,7 +1658,6 @@ mod exit_bundle_tests {
 	fn process_exit_bundle_rejects_all_dummy_bundle_with_no_valid_segments() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
-			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
 
 			// A bundle of only dummy padding segments carries no replayed nullifier,
 			// so it must be reported as NoValidSegments, not NullifierAlreadyUsed.
@@ -1919,7 +1672,6 @@ mod exit_bundle_tests {
 	fn process_exit_bundle_skips_below_ed_exit_without_reverting_others() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
-			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
 
 			// Raise the ED so a small exit to a fresh account cannot be minted, while a
 			// larger co-bundled exit clears it. AMOUNT_A (20 QUAN) stays below the ED;
@@ -1956,9 +1708,6 @@ mod exit_bundle_tests {
 				.into(),
 			);
 
-			// Only the successfully minted exit is committed to the cumulative total.
-			assert_eq!(TotalWormholeExits::<Test>::get(), scaled(AMOUNT_B));
-
 			// Both segments' nullifiers are marked used: the skipped exit's deposit
 			// cannot be re-exited (isolation, not a free retry).
 			assert!(UsedNullifiers::<Test>::contains_key(nullifier_bytes(1)));
@@ -1970,7 +1719,6 @@ mod exit_bundle_tests {
 	fn process_exit_bundle_settles_fee_and_event_from_minted_exits_only() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
-			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
 
 			// Seed issuance so the burn is observable.
 			assert_ok!(Balances::mint_into(&account_id(999), 1_000 * UNIT));
@@ -1995,7 +1743,6 @@ mod exit_bundle_tests {
 
 			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();
 			assert_eq!(issuance_before - issuance_after, fee_minted);
-			assert_eq!(TotalWormholeExits::<Test>::get(), scaled(AMOUNT_B));
 			System::assert_has_event(
 				crate::Event::<Test>::ProofVerified {
 					exit_amount: scaled(AMOUNT_B),
@@ -2010,7 +1757,6 @@ mod exit_bundle_tests {
 	fn process_exit_bundle_burns_rebate_when_aggregator_mint_fails() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
-			PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
 
 			// Seed issuance so the burn is observable.
 			assert_ok!(Balances::mint_into(&account_id(999), 1_000 * UNIT));
@@ -2055,7 +1801,7 @@ mod exit_bundle_tests {
 mod public_batch_proof_tests {
 	use crate::{
 		mock::*,
-		pallet::{Error, PotentialWormholeBalance, TotalWormholeExits, UsedNullifiers},
+		pallet::{Error, UsedNullifiers},
 	};
 	use frame_support::{assert_noop, assert_ok, traits::fungible::Inspect};
 	use frame_system::RawOrigin;
@@ -2104,7 +1850,6 @@ mod public_batch_proof_tests {
 		let block_hash_bytes: [u8; 32] = inputs.block_data.block_hash.as_ref().try_into().unwrap();
 		frame_system::BlockHash::<Test>::insert(block_number, H256::from(block_hash_bytes));
 		System::set_block_number(block_number + 10);
-		PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
 	}
 
 	/// Public-batch twin of the private-batch exact-framing test: trailing bytes after
@@ -2206,8 +1951,6 @@ mod public_batch_proof_tests {
 				RawOrigin::None.into(),
 				get_test_proof_bytes()
 			));
-
-			assert_eq!(TotalWormholeExits::<Test>::get(), expected_exit);
 
 			// Real nullifiers marked used; zero (dummy) nullifiers never stored.
 			for nullifier in &inputs.nullifiers {

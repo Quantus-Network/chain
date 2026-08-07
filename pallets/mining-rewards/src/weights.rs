@@ -69,9 +69,9 @@ const MAX_LEAF_INSERTS: u64 = 3;
 ///
 /// Per reward transfer × [`MAX_LEAF_INSERTS`], priced independently: failed miner
 /// mint (Account r1) → successful treasury mint (Account r1 w1) + `TransferCount`
-/// (r1 w1) + conditional `PotentialWormholeBalance` (r1 w1) = 4 reads, 3 writes.
-const BASE_READS: u64 = 15;
-const BASE_WRITES: u64 = 10;
+/// (r1 w1) = 3 reads, 2 writes.
+const BASE_READS: u64 = 12;
+const BASE_WRITES: u64 = 7;
 
 /// PoV per fixed-base key (rounded up from `System::Account` MaxEncodedLen).
 const BASE_KEY_POV: u64 = 2700;
@@ -195,7 +195,7 @@ mod tests {
 	}
 
 	#[test]
-	fn base_covers_three_reward_transfers_including_potential_balance() {
+	fn base_covers_three_reward_transfers() {
 		// Once per finalize (outside the per-transfer mint/record path).
 		// CollectedFees (r1 w1) + TreasuryPortion (r1) + TreasuryAccount (r1).
 		const FIXED_READS: u64 = 3;
@@ -203,10 +203,9 @@ mod tests {
 
 		// Per reward transfer, priced independently at the worst-case redirect
 		// path: failed miner Account mint (r1) + successful treasury Account
-		// mint (r1 w1) + TransferCount (r1 w1) + conditional
-		// PotentialWormholeBalance deposit add (r1 w1).
-		const PER_TRANSFER_READS: u64 = 4;
-		const PER_TRANSFER_WRITES: u64 = 3;
+		// mint (r1 w1) + TransferCount (r1 w1).
+		const PER_TRANSFER_READS: u64 = 3;
+		const PER_TRANSFER_WRITES: u64 = 2;
 
 		let expected_reads =
 			FIXED_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(PER_TRANSFER_READS));
@@ -215,11 +214,11 @@ mod tests {
 
 		assert_eq!(
 			BASE_READS, expected_reads,
-			"BASE_READS must cover fixed overhead plus three mint/TransferCount/PotentialWormholeBalance reads"
+			"BASE_READS must cover fixed overhead plus three mint/TransferCount reads"
 		);
 		assert_eq!(
 			BASE_WRITES, expected_writes,
-			"BASE_WRITES must cover fixed overhead plus three mint/TransferCount/PotentialWormholeBalance writes"
+			"BASE_WRITES must cover fixed overhead plus three mint/TransferCount writes"
 		);
 	}
 }
