@@ -103,7 +103,7 @@ pub mod pallet {
 		dispatch::PostDispatchInfo,
 		traits::{
 			fungible::MutateHold, schedule::v3::TaskName, tokens::Precision, CallerTrait,
-			DefensiveResult, StorePreimage, Time,
+			StorePreimage, Time,
 		},
 		PalletId,
 	};
@@ -883,12 +883,19 @@ pub mod pallet {
 				list.retain(|id| *id != tx_id);
 			});
 
-			// Cancel scheduler. If the pending transfer exists, the corresponding scheduled task
-			// should also exist. Failure here indicates an invariant violation between this pallet
-			// and the scheduler.
+			// Cancel scheduler best-effort: the funds have already been released above, so a
+			// failure here must NOT propagate — propagating rolls back the whole transactional
+			// extrinsic, re-arming the pending transfer and permanently freezing the held funds
+			// (the scheduler terminally removes a named task on a failed dispatch). Mirrors the
+			// best-effort cancel in `recover_funds`.
 			let schedule_id = Self::make_schedule_id(&tx_id)?;
-			T::Scheduler::cancel_named(schedule_id)
-				.defensive_map_err(|_| Error::<T>::CancellationFailed)?;
+			if let Err(e) = T::Scheduler::cancel_named(schedule_id) {
+				log::warn!(
+					"Failed to cancel scheduled task for tx {:?}: {:?} (funds already released)",
+					tx_id,
+					e
+				);
+			}
 
 			Self::deposit_event(Event::TransactionCancelled { who: who.clone(), tx_id });
 			Ok(())
@@ -953,6 +960,15 @@ pub mod pallet {
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
 			for (who, guardian, delay) in &self.initial_high_security_accounts {
+				// A self-guardian silently voids all guardian protection. Enforce the same
+				// invariant as the signed `set_high_security` path (GuardianCannotBeSelf),
+				// failing genesis construction rather than admitting an unprotected account.
+				assert!(
+					guardian != who,
+					"Genesis high-security account {:?} cannot be its own guardian",
+					who
+				);
+
 				// Basic validation, ensure delay is reasonable if needed
 				let wrapped_delay = BlockNumberOrTimestampOf::<T>::BlockNumber(*delay);
 

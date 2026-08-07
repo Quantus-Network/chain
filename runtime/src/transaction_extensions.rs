@@ -109,12 +109,18 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	///
 	/// Per recorded transfer, `record_transfer` touches one `TransferCount` read and one
 	/// write, plus the ZK-tree leaf insert, whose path update walks the tree leaf-to-root
-	/// and therefore costs reads/writes proportional to the *current* tree depth (read from
-	/// storage here, so the charge tracks the tree as it deepens over the chain's life).
+	/// and therefore costs reads/writes and Poseidon hashing proportional to the *current*
+	/// tree depth (read from storage here, so the charge tracks the tree as it deepens over
+	/// the chain's life).
 	fn per_transfer_weight() -> Weight {
-		let (tree_reads, tree_writes) = pallet_zk_tree::Pallet::<Runtime>::insert_leaf_db_ops();
+		let depth = pallet_zk_tree::Depth::<Runtime>::get();
+		let (tree_reads, tree_writes) = pallet_zk_tree::insert_leaf_db_ops_at_depth(depth);
 		T::DbWeight::get()
 			.reads_writes(1u64.saturating_add(tree_reads), 1u64.saturating_add(tree_writes))
+			.saturating_add(Weight::from_parts(
+				pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(depth),
+				0,
+			))
 	}
 
 	fn count_transfers(call: &RuntimeCall) -> u64 {

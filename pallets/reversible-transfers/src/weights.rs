@@ -65,11 +65,16 @@ const EXECUTE_TRANSFER_BASE_WRITES: u64 = 5;
 
 /// `execute_transfer`'s weight: the benchmarked base (compute + non-tree storage)
 /// plus the depth-dependent ZK-tree leaf insert performed by the wormhole proof
-/// recorder. `insert_leaf` walks the tree leaf-to-root, so DB ops and PoV scale
-/// with `tree_ops` via [`pallet_zk_tree::TREE_KEY_POV`].
-fn execute_transfer_weight(db: RuntimeDbWeight, (tree_reads, tree_writes): (u64, u64)) -> Weight {
+/// recorder. `insert_leaf` walks the tree leaf-to-root, so hash compute, DB ops,
+/// and PoV all scale with the current depth.
+fn execute_transfer_weight(
+	db: RuntimeDbWeight,
+	(tree_reads, tree_writes): (u64, u64),
+	tree_hash_ref_time: u64,
+) -> Weight {
 	// Minimum execution time: 105_000_000 picoseconds.
 	Weight::from_parts(110_000_000, 8619)
+		.saturating_add(Weight::from_parts(tree_hash_ref_time, 0))
 		.saturating_add(Weight::from_parts(
 			0,
 			tree_reads.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
@@ -175,9 +180,11 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 		// Proof Size summary in bytes:
 		//  Measured:  `639`
 		//  Estimated: `8619` + tree
+		let depth = pallet_zk_tree::Pallet::<T>::depth();
 		execute_transfer_weight(
 			T::DbWeight::get(),
-			pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops(),
+			pallet_zk_tree::insert_leaf_db_ops_at_depth(depth),
+			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(depth),
 		)
 	}
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
@@ -311,6 +318,7 @@ impl WeightInfo for () {
 		execute_transfer_weight(
 			RocksDbWeight::get(),
 			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
+			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
 		)
 	}
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
@@ -372,6 +380,14 @@ mod tests {
 			assert!(
 				deep.proof_size() > shallow.proof_size(),
 				"execute_transfer weight must grow with ZK-tree depth (shallow: {:?}, deep: {:?})",
+				shallow,
+				deep,
+			);
+			// The per-level Poseidon hashing of `insert_leaf` must also be priced, so
+			// ref-time grows with depth even when `DbWeight` is zero.
+			assert!(
+				deep.ref_time() > shallow.ref_time(),
+				"execute_transfer ref-time must grow with ZK-tree depth (shallow: {:?}, deep: {:?})",
 				shallow,
 				deep,
 			);
