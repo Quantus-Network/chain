@@ -229,11 +229,11 @@ pub mod pallet {
 
 	/// Current storage version of the pallet.
 	///
-	/// - v1 introduced the (since removed) wormhole soundness counters
-	///   (`PotentialWormholeBalance` and `TotalWormholeExits`).
+	/// - v1 introduced the (since removed) wormhole soundness counters (`PotentialWormholeBalance`
+	///   and `TotalWormholeExits`).
 	/// - v2 removes them again: the mechanism only bounded the *rate* of a soundness attacker
-	///   rather than stopping one, at considerable complexity. The v1 -> v2 migration deletes
-	///   the two counters from storage (see `migrations::v2`).
+	///   rather than stopping one, at considerable complexity. The v1 -> v2 migration deletes the
+	///   two counters from storage (see `migrations::v2`).
 	///
 	/// `TransferCount` is keyed on the Goldilocks-canonical recipient form, but that is enforced
 	/// in `record_transfer` at write time (see `canonical_leaf_recipient` and the test

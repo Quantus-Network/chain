@@ -728,8 +728,7 @@ mod tests {
 			>>::weight(&ext, &wrapped);
 			assert_eq!(
 				weight,
-				WormholeProofRecorderExtension::<Runtime>::per_transfer_weight()
-					.saturating_mul(2),
+				WormholeProofRecorderExtension::<Runtime>::per_transfer_weight().saturating_mul(2),
 				"as_derivative-wrapped transfers must be statically counted"
 			);
 		});
