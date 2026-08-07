@@ -164,8 +164,6 @@ impl qp_wormhole::TransferProofRecorder<sp_core::crypto::AccountId32, u32, u128>
 		});
 		true
 	}
-
-	fn reveal_address(_account: sp_core::crypto::AccountId32) {}
 }
 
 impl pallet_mining_rewards::Config for Test {
