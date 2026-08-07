@@ -318,6 +318,15 @@ fn planck_treasury_account() -> AccountId {
 /// protect anyone: an oversized or hostile genesis can only stall the chain of the
 /// operator who supplied it. This matches upstream Substrate, whose `build_state`
 /// helper deserializes the full unbounded config the same way.
+///
+/// The same reasoning covers failure semantics: semantically invalid genesis data
+/// (duplicate balance entries, sub-ED endowments, ...) *panics* inside the pallets'
+/// `BuildGenesisConfig::build` rather than returning `Err`. That is FRAME's design —
+/// `build` returns `()` and has no error channel; only JSON deserialization (which runs
+/// before the trait) can return `Err`. The panics are inherited verbatim from upstream
+/// Substrate and are the intended fail-fast: they abort the operator's own chain-spec
+/// build with the assertion message, and the failed build's candidate storage is
+/// discarded, so nothing half-built can persist.
 pub fn prepare_genesis_build_input(
 	config: Vec<u8>,
 ) -> Result<(Vec<u8>, Option<Vec<AccountId>>), String> {
