@@ -307,6 +307,17 @@ fn planck_treasury_account() -> AccountId {
 /// Parses genesis JSON, removes [`TECH_COLLECTIVE_SEED_MEMBERS_KEY`] if present, and returns
 /// serialized config for [`frame_support::genesis_builder_helper::build_state`] plus the optional
 /// member list.
+///
+/// # Trust model (deliberately no size limits)
+///
+/// This runs inside the `GenesisBuilder` runtime API, which is only invoked by the node
+/// operator's own tooling (chain-spec building / genesis initialization) with the chain
+/// spec that operator chose to launch. It is not reachable by network peers or on a
+/// running chain. Whoever supplies this JSON already controls *everything* about the
+/// chain being built — balances, keys, code — so input-size bounds here would not
+/// protect anyone: an oversized or hostile genesis can only stall the chain of the
+/// operator who supplied it. This matches upstream Substrate, whose `build_state`
+/// helper deserializes the full unbounded config the same way.
 pub fn prepare_genesis_build_input(
 	config: Vec<u8>,
 ) -> Result<(Vec<u8>, Option<Vec<AccountId>>), String> {
