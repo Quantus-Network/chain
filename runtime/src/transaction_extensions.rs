@@ -154,6 +154,28 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			.saturating_add(Weight::from_parts(hash_time, 0))
 	}
 
+	/// Worst-case `ref_time` (picoseconds) to stream-decode one `EventRecord` in
+	/// [`Self::record_proofs_from_events_since`]. A record is a small SCALE blob
+	/// (phase + event enum + topics, typically well under ~300 bytes) decoded from an
+	/// already-fetched storage value — roughly 100–300ns of pure decode on reference
+	/// hardware; 1µs is a conservative ceiling.
+	const EVENT_SCAN_DECODE_REF_TIME_PS: u64 = 1_000_000;
+
+	/// Weight of the post-dispatch event scan when `events` records are present at
+	/// scan time. `Events::stream_iter` fetches the storage value (one read) and the
+	/// scan then decodes EVERY record present — `Iterator::skip` discards but still
+	/// decodes the pre-snapshot prefix — so the cost is per record *present*, not per
+	/// record matched or recorded.
+	fn event_scan_weight(events: u32) -> Weight {
+		if events == 0 {
+			return Weight::zero();
+		}
+		T::DbWeight::get().reads(1).saturating_add(Weight::from_parts(
+			Self::EVENT_SCAN_DECODE_REF_TIME_PS.saturating_mul(u64::from(events)),
+			0,
+		))
+	}
+
 	fn count_transfers(call: &RuntimeCall) -> u64 {
 		// NOTE: this must stay in sync with the events matched by `record_proofs_from_events_since`
 		// — we only weight calls whose emitted events we actually record. In particular
@@ -371,18 +393,33 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		// Use the event count snapshot from prepare() to avoid duplicate recording.
 		if result.is_ok() {
 			let (event_count_before, charged_transfers) = pre;
+			// Captured BEFORE recording deposits new events: this is exactly the number
+			// of records the scan below decodes.
+			let events_at_scan = frame_system::Pallet::<Runtime>::event_count();
 			let recorded = Self::record_proofs_from_events_since(event_count_before);
 
-			// Wrappers that dispatch inner calls stored on-chain (`Multisig::execute`,
-			// `ReversibleTransfers::recover_funds`, ...) can emit transfer events the static
-			// `count_transfers` matcher cannot see, so the proof-recording work above may exceed
-			// the weight reserved by `weight()`. Register the shortfall against the block so
-			// block-weight based DoS protection stays sound even when the static count drifts.
+			// Two pieces of caller-influenced work here are invisible to the static
+			// `weight()` and are therefore registered against the block post-hoc (this
+			// keeps block-capacity accounting sound; it is not fee-charged):
+			//
+			// 1. The event scan itself: any call can emit events the scan must decode
+			//    (e.g. batched `remark_with_event`), and the decode cost is per record
+			//    present at scan time — see `event_scan_weight`.
+			//
+			// 2. Recording shortfall: wrappers that dispatch inner calls stored on-chain
+			//    (`Multisig::execute`, `ReversibleTransfers::recover_funds`, ...) can emit
+			//    transfer events the static `count_transfers` matcher cannot see, so the
+			//    proof-recording work above may exceed the weight reserved by `weight()`.
+			let mut extra = Self::event_scan_weight(events_at_scan);
 			if recorded > charged_transfers {
-				frame_system::Pallet::<Runtime>::register_extra_weight_unchecked(
+				extra = extra.saturating_add(
 					Self::per_transfer_weight()
 						.saturating_mul(recorded.saturating_sub(charged_transfers)),
-					info.class,
+				);
+			}
+			if extra != Weight::zero() {
+				frame_system::Pallet::<Runtime>::register_extra_weight_unchecked(
+					extra, info.class,
 				);
 			}
 		}
@@ -945,19 +982,62 @@ mod tests {
 
 			let weight_before = frame_system::Pallet::<Runtime>::block_weight().total();
 
+			let scanned = core::cell::Cell::new(0u32);
 			run_lifecycle(&alice(), opaque_call, || {
 				assert_ok!(Balances::transfer_keep_alive(
 					RuntimeOrigin::signed(alice()),
 					MultiAddress::Id(bob()),
 					EXISTENTIAL_DEPOSIT * 50,
 				));
+				scanned.set(frame_system::Pallet::<Runtime>::event_count());
 			});
 
 			let weight_after = frame_system::Pallet::<Runtime>::block_weight().total();
 			assert_eq!(
 				weight_after.saturating_sub(weight_before),
-				WormholeProofRecorderExtension::<Runtime>::per_transfer_weight(),
-				"the uncounted recorded transfer must be registered as extra block weight"
+				WormholeProofRecorderExtension::<Runtime>::per_transfer_weight().saturating_add(
+					WormholeProofRecorderExtension::<Runtime>::event_scan_weight(scanned.get())
+				),
+				"the uncounted recorded transfer must be registered as extra block weight, \
+				 on top of the always-registered event-scan weight"
+			);
+		});
+	}
+
+	/// The post-dispatch scan streams `System::Events` through a decoding iterator —
+	/// and `skip()` still decodes the records it discards — so every event record
+	/// present at scan time costs decode work even when nothing is recorded. A signed
+	/// caller can emit arbitrarily many events with zero-transfer calls (e.g. batched
+	/// `remark_with_event`), so that work must be registered against the block.
+	#[test]
+	fn wormhole_proof_recorder_registers_event_scan_weight() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
+			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&call), 0);
+
+			let weight_before = frame_system::Pallet::<Runtime>::block_weight().total();
+
+			// Capture the event count at the end of the dispatch closure: that is
+			// exactly the number of records the post-dispatch scan decodes.
+			let scanned = core::cell::Cell::new(0u32);
+			run_lifecycle(&alice(), call, || {
+				for i in 0..7u8 {
+					assert_ok!(System::remark_with_event(
+						RuntimeOrigin::signed(alice()),
+						vec![i],
+					));
+				}
+				scanned.set(frame_system::Pallet::<Runtime>::event_count());
+			});
+			assert!(scanned.get() >= 7, "the remarks must have emitted events");
+
+			let weight_after = frame_system::Pallet::<Runtime>::block_weight().total();
+			assert_eq!(
+				weight_after.saturating_sub(weight_before),
+				WormholeProofRecorderExtension::<Runtime>::event_scan_weight(scanned.get()),
+				"the per-event decode work of the scan must be registered as block weight"
 			);
 		});
 	}
