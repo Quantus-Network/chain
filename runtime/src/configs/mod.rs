@@ -529,6 +529,10 @@ impl pallet_treasury::Config for Runtime {
 
 parameter_types! {
 	pub const VestingPalletId: PalletId = PalletId(*b"qvesting");
+	/// Vesting payouts are rounded down to multiples of the wormhole leaf quantum
+	/// (`SCALE_DOWN_FACTOR`): a sub-quantum transfer would be committed as a
+	/// zero-value leaf, stranding funds paid to keyless beneficiaries.
+	pub const VestingPayoutQuantum: Balance = pallet_wormhole::SCALE_DOWN_FACTOR;
 }
 
 /// The configured treasury account as an `Option` — unlike
@@ -570,6 +574,12 @@ impl pallet_vesting::Config for Runtime {
 	type PalletId = VestingPalletId;
 	type AdminOrigin = EitherOfDiverse<EnsureRoot<AccountId>, EnsureTreasury>;
 	type TreasuryAccount = TreasuryAccountOption;
+	type AssetId = AssetId;
+	// The pallet records its payouts itself so Root calls enacted by the scheduler
+	// (invisible to the event-scanning extension) still create ZK-tree leaves; the
+	// extension skips pot-sourced events to avoid double-recording signed paths.
+	type ProofRecorder = Wormhole;
+	type PayoutQuantum = VestingPayoutQuantum;
 	type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
 }
 

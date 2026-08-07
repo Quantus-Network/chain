@@ -49,6 +49,7 @@ pub mod pallet {
 		PalletId,
 	};
 	use frame_system::pallet_prelude::*;
+	use qp_wormhole::TransferProofRecorder;
 	use sp_arithmetic::{helpers_128bit::multiply_by_rational_with_rounding, Rounding};
 	use sp_runtime::{
 		traits::{AccountIdConversion, CheckedAdd, Saturating, Zero},
@@ -82,6 +83,12 @@ pub mod pallet {
 	}
 
 	/// The in-code storage version.
+	///
+	/// This pallet is deployed on fresh chains only: genesis endows the pot and seeds
+	/// the schedule table. There is deliberately no upgrade migration — if the pallet
+	/// ever were added to a live chain in place, the pot would simply start unfunded
+	/// and `create_schedule` fails loudly with [`Error::PotUnderfunded`] until the
+	/// treasury sends the pot its existential-deposit buffer.
 	const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 
 	#[pallet::pallet]
@@ -108,6 +115,30 @@ pub mod pallet {
 		/// destination for unvested remainders. `None` if the chain was started without
 		/// a treasury, in which case admin calls fail loudly.
 		type TreasuryAccount: Get<Option<Self::AccountId>>;
+
+		/// Asset id type forwarded to the proof recorder (payouts are always native:
+		/// `None`).
+		type AssetId;
+
+		/// Records beneficiary payouts as wormhole transfer proofs (ZK-tree leaves).
+		///
+		/// The pallet records its payouts itself so that they are captured on **every**
+		/// dispatch origin — including Root calls enacted by the scheduler, which run
+		/// outside the signed-extrinsic lifecycle and are invisible to the event-scanning
+		/// `WormholeProofRecorderExtension`. The extension in turn skips pot-sourced
+		/// transfer events, so signed paths are not double-recorded.
+		type ProofRecorder: qp_wormhole::TransferProofRecorder<
+			Self::AccountId,
+			Self::AssetId,
+			BalanceOf<Self>,
+		>;
+
+		/// Wormhole leaf amount quantum. ZK-tree leaves commit `amount / quantum`, so a
+		/// payout below one quantum would create a zero-value leaf: funds moved to a
+		/// keyless beneficiary would be irrecoverable. Every schedule total must be a
+		/// multiple of this, and every payout is rounded down to a multiple.
+		#[pallet::constant]
+		type PayoutQuantum: Get<BalanceOf<Self>>;
 
 		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
@@ -155,10 +186,12 @@ pub mod pallet {
 	pub enum Error<T> {
 		/// No schedule exists under this id.
 		NoSchedule,
-		/// Schedule parameters violate `start <= cliff <= end`, `start < end`, or
-		/// `total >= existential deposit`.
+		/// Schedule parameters violate `start <= cliff <= end`, `start < end`,
+		/// `total >= existential deposit`, or `total` is not a multiple of the payout
+		/// quantum.
 		InvalidSchedule,
-		/// Nothing is claimable right now (before cliff, or already fully claimed).
+		/// Nothing is claimable right now (before the cliff, already fully claimed, or
+		/// less than one payout quantum accrued).
 		NothingToClaim,
 		/// The treasury account is not configured on this chain.
 		TreasuryNotConfigured,
@@ -225,6 +258,13 @@ pub mod pallet {
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		fn integrity_test() {
+			assert!(
+				!T::PayoutQuantum::get().is_zero(),
+				"PayoutQuantum must be non-zero (it is a divisor)"
+			);
+		}
+
 		#[cfg(feature = "try-runtime")]
 		fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
 			Self::do_try_state()
@@ -233,7 +273,10 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Pay out everything currently claimable on `schedule_id` to its beneficiary.
+		/// Pay out everything currently claimable on `schedule_id` to its beneficiary,
+		/// rounded down to a multiple of [`Config::PayoutQuantum`] (sub-quantum payouts
+		/// would create zero-value wormhole leaves and strand funds on keyless
+		/// beneficiaries).
 		///
 		/// Permissionless: any signed account may call this for any schedule; the payout
 		/// always goes to the stored beneficiary. This is the only claim path for
@@ -246,18 +289,17 @@ pub mod pallet {
 				let schedule = maybe_schedule.as_mut().ok_or(Error::<T>::NoSchedule)?;
 				let vested = Self::vested_amount(schedule, T::TimeProvider::now());
 				let owed = vested.saturating_sub(schedule.claimed);
-				ensure!(!owed.is_zero(), Error::<T>::NothingToClaim);
-				T::Currency::transfer(
-					&Self::pot_account_id(),
-					&schedule.beneficiary,
-					owed,
-					Preservation::Preserve,
-				)?;
-				schedule.claimed = schedule.claimed.saturating_add(owed);
+				let payable = Self::quantize_down(owed);
+				ensure!(!payable.is_zero(), Error::<T>::NothingToClaim);
+				Self::pay_out(&Self::pot_account_id(), &schedule.beneficiary, payable)?;
+				// `claimed` advances only by the transferred amount, so it stays
+				// quantum-aligned; totals are quantum-aligned too, hence the final claim
+				// at `end` pays out exactly and no dust is ever left behind.
+				schedule.claimed = schedule.claimed.saturating_add(payable);
 				Self::deposit_event(Event::Claimed {
 					schedule_id,
 					beneficiary: schedule.beneficiary.clone(),
-					amount: owed,
+					amount: payable,
 				});
 				Ok(())
 			})
@@ -315,8 +357,12 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// End a schedule early: the still-unpaid vested part goes to the beneficiary,
-		/// the unvested remainder returns to the treasury, and the schedule is removed.
+		/// End a schedule early: the still-unpaid vested part (rounded down to a
+		/// [`Config::PayoutQuantum`] multiple) goes to the beneficiary, everything else
+		/// this schedule still holds — the unvested remainder plus any sub-quantum
+		/// vested dust — returns to the treasury, and the schedule is removed. The
+		/// treasury is signature-controlled and needs no wormhole leaf, so dust is safe
+		/// there but would be stranded on a keyless beneficiary.
 		#[pallet::call_index(2)]
 		#[pallet::weight(T::WeightInfo::end_schedule())]
 		pub fn end_schedule(origin: OriginFor<T>, schedule_id: u64) -> DispatchResult {
@@ -325,20 +371,21 @@ pub mod pallet {
 			let schedule = Schedules::<T>::get(schedule_id).ok_or(Error::<T>::NoSchedule)?;
 			let pot = Self::pot_account_id();
 			let vested = Self::vested_amount(&schedule, T::TimeProvider::now());
-			let owed = vested.saturating_sub(schedule.claimed);
-			let remainder = schedule.total.saturating_sub(vested);
-			if !owed.is_zero() {
-				T::Currency::transfer(&pot, &schedule.beneficiary, owed, Preservation::Preserve)?;
+			let vested_paid = Self::quantize_down(vested.saturating_sub(schedule.claimed));
+			let unvested_returned =
+				schedule.total.saturating_sub(schedule.claimed).saturating_sub(vested_paid);
+			if !vested_paid.is_zero() {
+				Self::pay_out(&pot, &schedule.beneficiary, vested_paid)?;
 			}
-			if !remainder.is_zero() {
-				T::Currency::transfer(&pot, &treasury, remainder, Preservation::Preserve)?;
+			if !unvested_returned.is_zero() {
+				T::Currency::transfer(&pot, &treasury, unvested_returned, Preservation::Preserve)?;
 			}
 			Schedules::<T>::remove(schedule_id);
 			Self::deposit_event(Event::ScheduleEnded {
 				schedule_id,
 				beneficiary: schedule.beneficiary,
-				vested_paid: owed,
-				unvested_returned: remainder,
+				vested_paid,
+				unvested_returned,
 			});
 			Ok(())
 		}
@@ -404,7 +451,35 @@ pub mod pallet {
 			end: Moment,
 			total: BalanceOf<T>,
 		) -> bool {
-			start <= cliff && cliff <= end && start < end && total >= T::Currency::minimum_balance()
+			start <= cliff &&
+				cliff <= end && start < end &&
+				total >= T::Currency::minimum_balance() &&
+				(total % T::PayoutQuantum::get()).is_zero()
+		}
+
+		/// Round down to a multiple of the payout quantum.
+		fn quantize_down(amount: BalanceOf<T>) -> BalanceOf<T> {
+			amount.saturating_sub(amount % T::PayoutQuantum::get())
+		}
+
+		/// Move a payout out of the pot AND record it as a wormhole transfer proof —
+		/// fused into one function so no payout path can move funds without creating
+		/// the ZK proof material a wormhole beneficiary needs to exit.
+		///
+		/// The recorder is the same canonical entry point every recorded transfer on
+		/// this chain funnels through. It must be invoked here, with the payout, rather
+		/// than left to the event-scanning transaction extension: Root calls enacted by
+		/// the scheduler run outside the signed-extrinsic lifecycle and the extension
+		/// never sees them. The extension in turn skips pot-sourced transfer events, so
+		/// signed paths are not double-recorded.
+		fn pay_out(
+			pot: &T::AccountId,
+			beneficiary: &T::AccountId,
+			amount: BalanceOf<T>,
+		) -> DispatchResult {
+			T::Currency::transfer(pot, beneficiary, amount, Preservation::Preserve)?;
+			T::ProofRecorder::record_transfer_proof(None, pot.clone(), beneficiary.clone(), amount);
+			Ok(())
 		}
 
 		/// Invariant: the pot covers all outstanding obligations plus its ED buffer, and
@@ -431,6 +506,10 @@ pub mod pallet {
 				frame_support::ensure!(
 					schedule.claimed <= schedule.total,
 					sp_runtime::TryRuntimeError::Other("claimed exceeds total")
+				);
+				frame_support::ensure!(
+					(schedule.claimed % T::PayoutQuantum::get()).is_zero(),
+					sp_runtime::TryRuntimeError::Other("claimed is not quantum-aligned")
 				);
 				frame_support::ensure!(
 					schedule.beneficiary != pot,

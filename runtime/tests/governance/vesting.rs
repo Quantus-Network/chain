@@ -7,10 +7,9 @@ mod tests {
 	use codec::Encode;
 	use frame_support::{assert_noop, assert_ok, traits::Currency};
 	use pallet_multisig::BoundedCallOf;
-	use qp_wormhole::TransferProofRecorder;
 	use quantus_runtime::{
-		AccountId, AssetId, Balance, Balances, Multisig, Runtime, RuntimeCall, RuntimeEvent,
-		RuntimeOrigin, System, Vesting, Wormhole, EXISTENTIAL_DEPOSIT, UNIT,
+		AccountId, Balance, Balances, Multisig, Runtime, RuntimeCall, RuntimeEvent, RuntimeOrigin,
+		System, Vesting, Wormhole, EXISTENTIAL_DEPOSIT, UNIT,
 	};
 	use sp_core::crypto::AccountId32;
 	use sp_runtime::{BuildStorage, DispatchError, Permill};
@@ -178,7 +177,7 @@ mod tests {
 	}
 
 	#[test]
-	fn claim_payout_event_feeds_the_wormhole_proof_recorder() {
+	fn claim_records_exactly_one_wormhole_leaf_for_the_beneficiary() {
 		new_test_ext(Some(account(4))).execute_with(|| {
 			Balances::make_free_balance_be(&account(4), 1000 * UNIT);
 			// The beneficiary never signs anything — exactly like a wormhole address.
@@ -194,10 +193,17 @@ mod tests {
 			));
 			set_time(END_MS);
 			System::reset_events();
+			let count_before = Wormhole::transfer_count(&beneficiary);
 			assert_ok!(Vesting::claim(RuntimeOrigin::signed(account(1)), 0));
 
-			// The payout is an ordinary `Balances::Transfer` — the exact event shape the
-			// `WormholeProofRecorderExtension` scans in `post_dispatch`.
+			// The pallet records the payout itself, exactly once — this ZK-tree leaf is
+			// what lets a wormhole owner later exit the funds via ZK proof. (The
+			// event-scanning extension skips pot-sourced transfers, so signed
+			// submissions don't add a second leaf — covered by the extension's own
+			// unit test.)
+			assert_eq!(Wormhole::transfer_count(&beneficiary), count_before + 1);
+
+			// The payout itself is an ordinary keep-alive `Transfer` from the pot.
 			let payout = System::events()
 				.into_iter()
 				.find_map(|record| match record.event {
@@ -210,13 +216,58 @@ mod tests {
 				})
 				.expect("claim must emit a plain Transfer event from the pot");
 			assert_eq!(payout, GRANT);
+		});
+	}
 
-			// Feeding that event into the recorder (as post_dispatch does) records a
-			// ZK-tree leaf for the beneficiary — this is what lets a wormhole owner
-			// later exit the funds via ZK proof.
+	#[test]
+	fn scheduler_enacted_root_end_schedule_records_the_payout_leaf() {
+		use frame_support::traits::{
+			schedule::{v3::Anon, DispatchTime},
+			Hooks, StorePreimage,
+		};
+		use quantus_runtime::{OriginCaller, Scheduler};
+
+		new_test_ext(Some(account(4))).execute_with(|| {
+			Balances::make_free_balance_be(&account(4), 1000 * UNIT);
+			let beneficiary = account(9);
+			assert_ok!(Vesting::create_schedule(
+				RuntimeOrigin::root(),
+				beneficiary.clone(),
+				0,
+				0,
+				END_MS,
+				GRANT,
+			));
+			// Halfway vested at enactment time.
+			set_time(END_MS / 2);
+
+			// Schedule `end_schedule` as Root — the exact shape of a governance
+			// enactment. The scheduler dispatches it from `on_initialize`, entirely
+			// outside the signed-extrinsic pipeline: no transaction extension runs.
+			let call = RuntimeCall::Vesting(pallet_vesting::Call::end_schedule { schedule_id: 0 });
+			let bounded = <Runtime as pallet_scheduler::Config>::Preimages::bound(call)
+				.expect("small call bounds inline");
+			assert_ok!(<Scheduler as Anon<_, _, _>>::schedule(
+				DispatchTime::At(3),
+				None,
+				0,
+				OriginCaller::system(frame_system::RawOrigin::Root),
+				bounded,
+			));
+
 			let count_before = Wormhole::transfer_count(&beneficiary);
-			assert!(<Wormhole as TransferProofRecorder<AccountId, AssetId, Balance>>::
-				record_transfer_proof(None, pot, beneficiary.clone(), payout));
+			while System::block_number() < 3 {
+				let block = System::block_number();
+				Scheduler::on_finalize(block);
+				System::set_block_number(block + 1);
+				Scheduler::on_initialize(block + 1);
+			}
+
+			// The schedule was ended by the hook-dispatched Root call: the beneficiary
+			// got the vested half, the treasury the rest — and the payout leaf exists
+			// even though no extension ever saw this dispatch.
+			assert!(pallet_vesting::Schedules::<Runtime>::get(0).is_none());
+			assert_eq!(Balances::total_balance(&beneficiary), GRANT / 2);
 			assert_eq!(Wormhole::transfer_count(&beneficiary), count_before + 1);
 		});
 	}

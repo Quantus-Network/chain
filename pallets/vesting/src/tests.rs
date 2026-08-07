@@ -185,7 +185,9 @@ mod claim {
 	#[test]
 	fn below_ed_payout_to_nonexistent_account_fails_cleanly_then_succeeds_later() {
 		new_test_ext(vec![(CHARLIE, START, START, END, TOTAL)]).execute_with(|| {
-			// 10 per ms; ED is 1_000, so 50ms in only 500 is owed.
+			// A quantum finer than the ED so the transfer itself is what fails:
+			// 10 per ms; at 50ms the quantized 500 is payable but below the 1_000 ED.
+			PayoutQuantum::set(100);
 			set_time(START + 50);
 			assert_noop!(
 				Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
@@ -302,11 +304,12 @@ mod create_schedule {
 	fn rejects_invalid_parameters() {
 		new_test_ext(vec![]).execute_with(|| {
 			let cases = [
-				(CLIFF, START, END, TOTAL),   // start > cliff
-				(START, END + 1, END, TOTAL), // cliff > end
-				(START, START, START, TOTAL), // start == end
-				(START, CLIFF, END, 999),     // total < ED
-				(START, CLIFF, END, 0),       // total == 0
+				(CLIFF, START, END, TOTAL),       // start > cliff
+				(START, END + 1, END, TOTAL),     // cliff > end
+				(START, START, START, TOTAL),     // start == end
+				(START, CLIFF, END, 999),         // total < ED
+				(START, CLIFF, END, 0),           // total == 0
+				(START, CLIFF, END, TOTAL + 500), // total not quantum-aligned
 			];
 			for (start, cliff, end, total) in cases {
 				assert_noop!(
@@ -362,7 +365,7 @@ mod create_schedule {
 					START,
 					CLIFF,
 					END,
-					TREASURY_FUNDS + 1
+					TREASURY_FUNDS + 1_000
 				),
 				TokenError::FundsUnavailable
 			);
@@ -585,6 +588,179 @@ mod genesis {
 	fn pot_as_beneficiary_panics() {
 		let pot = crate::Pallet::<Test>::pot_account_id();
 		new_test_ext(vec![(pot, START, CLIFF, END, TOTAL)]);
+	}
+}
+
+mod quantization {
+	use super::*;
+
+	#[test]
+	fn sub_quantum_claims_are_rejected_not_paid() {
+		// The griefing scenario from review: per-block accrual above the ED but below
+		// one wormhole quantum. A third party claiming every block must get an error —
+		// never a sub-quantum payout that would land as a zero-value leaf.
+		new_test_ext(vec![(CHARLIE, START, START, END, TOTAL)]).execute_with(|| {
+			PayoutQuantum::set(3_000);
+			// 10 per ms: 250ms in, 2_500 accrued — above the 1_000 ED, below one quantum.
+			set_time(START + 250);
+			assert_noop!(
+				Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
+				Error::<Test>::NothingToClaim
+			);
+			assert_eq!(stored(0).claimed, 0);
+			assert_eq!(free(&CHARLIE), 0);
+			assert!(MockProofRecorder::recorded().is_empty());
+		});
+	}
+
+	#[test]
+	fn payouts_are_always_quantum_multiples_and_claimed_stays_aligned() {
+		// A total aligned to the coarser 3_000 quantum this test switches to.
+		const ALIGNED_TOTAL: u128 = 3_000_000;
+		const ALIGNED_END: u64 = START + 300_000;
+		new_test_ext(vec![(CHARLIE, START, START, ALIGNED_END, ALIGNED_TOTAL)]).execute_with(
+			|| {
+				PayoutQuantum::set(3_000);
+				// 350ms in: 3_500 accrued -> pays exactly one quantum, 500 stays owed.
+				set_time(START + 350);
+				assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
+				assert_eq!(free(&CHARLIE), 3_000);
+				assert_eq!(stored(0).claimed, 3_000);
+				// Immediately claiming again: only the 500 remainder accrued — rejected.
+				assert_noop!(
+					Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
+					Error::<Test>::NothingToClaim
+				);
+				// Repeated eager third-party claims can never strand value: at `end`
+				// the aligned total drains exactly.
+				set_time(ALIGNED_END);
+				assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
+				assert_eq!(free(&CHARLIE), ALIGNED_TOTAL);
+				assert_eq!(stored(0).claimed, ALIGNED_TOTAL);
+				assert_eq!(free(&pot()), ExistentialDeposit::get());
+				for (_, _, amount) in MockProofRecorder::recorded() {
+					assert_eq!(amount % 3_000, 0, "every payout must be quantum-aligned");
+				}
+			},
+		);
+	}
+
+	#[test]
+	fn end_schedule_sends_sub_quantum_dust_to_treasury_not_the_beneficiary() {
+		new_test_ext(vec![(BOB, START, START, END, TOTAL)]).execute_with(|| {
+			PayoutQuantum::set(3_000);
+			let treasury_before = free(&TREASURY);
+			// 350ms in: 3_500 vested. Beneficiary gets the aligned 3_000; the 500 dust
+			// plus the 3_996_500 unvested remainder return to the treasury.
+			set_time(START + 350);
+			assert_ok!(Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), 0));
+			assert_eq!(free(&BOB), 3_000);
+			assert_eq!(free(&TREASURY), treasury_before + TOTAL - 3_000);
+			assert_eq!(free(&pot()), ExistentialDeposit::get());
+			System::assert_last_event(
+				Event::ScheduleEnded {
+					schedule_id: 0,
+					beneficiary: BOB,
+					vested_paid: 3_000,
+					unvested_returned: TOTAL - 3_000,
+				}
+				.into(),
+			);
+		});
+	}
+}
+
+mod proof_recording {
+	use super::*;
+
+	#[test]
+	fn claim_records_the_payout() {
+		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
+			set_time(300_000);
+			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
+			assert_eq!(MockProofRecorder::recorded(), vec![(pot(), BOB, TOTAL / 2)]);
+		});
+	}
+
+	#[test]
+	fn end_schedule_records_only_the_beneficiary_payout() {
+		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
+			// Root origin — the scheduler-enacted governance path the event-scanning
+			// extension never sees; the pallet must record the payout itself. The
+			// treasury refund is signature-controlled and gets no leaf.
+			set_time(300_000);
+			assert_ok!(Vesting::end_schedule(RuntimeOrigin::root(), 0));
+			assert_eq!(MockProofRecorder::recorded(), vec![(pot(), BOB, TOTAL / 2)]);
+		});
+	}
+
+	#[test]
+	fn failed_and_zero_payouts_record_nothing() {
+		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
+			set_time(CLIFF - 1);
+			assert_noop!(
+				Vesting::claim(RuntimeOrigin::signed(BOB), 0),
+				Error::<Test>::NothingToClaim
+			);
+			// Ending before the cliff pays the beneficiary nothing: no payout, no leaf.
+			assert_ok!(Vesting::end_schedule(RuntimeOrigin::root(), 0));
+			assert!(MockProofRecorder::recorded().is_empty());
+		});
+	}
+
+	#[test]
+	fn create_and_retarget_record_nothing() {
+		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
+			assert_ok!(Vesting::create_schedule(
+				RuntimeOrigin::signed(TREASURY),
+				CHARLIE,
+				START,
+				CLIFF,
+				END,
+				TOTAL
+			));
+			assert_ok!(Vesting::retarget_schedule(RuntimeOrigin::root(), 0, ALICE));
+			assert!(MockProofRecorder::recorded().is_empty());
+		});
+	}
+}
+
+mod unfunded_pot_bootstrap {
+	use super::*;
+
+	#[test]
+	fn create_is_blocked_loudly_until_the_pot_gets_its_ed_buffer() {
+		// The state of any chain where genesis did not endow the pot (this pallet is
+		// deployed on fresh chains, so normally genesis does): schedule creation fails
+		// with an explicit error until the treasury sends the pot one ED — the
+		// documented manual bootstrap, no migration involved.
+		new_test_ext_with_pot_balance(vec![], 0).execute_with(|| {
+			assert_noop!(
+				Vesting::create_schedule(
+					RuntimeOrigin::signed(TREASURY),
+					BOB,
+					START,
+					CLIFF,
+					END,
+					TOTAL
+				),
+				Error::<Test>::PotUnderfunded
+			);
+			assert_ok!(Balances::transfer_keep_alive(
+				RuntimeOrigin::signed(TREASURY),
+				pot(),
+				ExistentialDeposit::get()
+			));
+			assert_ok!(Vesting::create_schedule(
+				RuntimeOrigin::signed(TREASURY),
+				BOB,
+				START,
+				CLIFF,
+				END,
+				TOTAL
+			));
+			assert_ok!(Vesting::do_try_state());
+		});
 	}
 }
 

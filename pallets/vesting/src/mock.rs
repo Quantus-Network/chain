@@ -1,5 +1,6 @@
 use crate as pallet_vesting;
 
+use core::cell::RefCell;
 use frame_support::{
 	parameter_types,
 	traits::{ConstU32, ConstU64, EitherOfDiverse, EnsureOrigin, Everything},
@@ -40,6 +41,9 @@ parameter_types! {
 	pub const VestingPalletId: PalletId = PalletId(*b"qvesting");
 	/// `static` so tests can unset it to exercise `TreasuryNotConfigured`.
 	pub static TreasuryAccount: Option<AccountId32> = Some(TREASURY);
+	/// `static` so tests can vary the wormhole leaf quantum (e.g. make it coarser than
+	/// the ED to exercise sub-quantum rounding, or finer to exercise below-ED payouts).
+	pub static PayoutQuantum: Balance = 1_000;
 }
 
 impl frame_system::Config for Test {
@@ -117,12 +121,44 @@ impl EnsureOrigin<RuntimeOrigin> for EnsureTreasury {
 	}
 }
 
+/// One recorded payout proof: `(from, to, amount)`.
+pub type RecordedProof = (AccountId32, AccountId32, Balance);
+
+thread_local! {
+	static RECORDED_PROOFS: RefCell<Vec<RecordedProof>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Captures every payout the pallet records, for test assertions.
+pub struct MockProofRecorder;
+
+impl MockProofRecorder {
+	pub fn recorded() -> Vec<RecordedProof> {
+		RECORDED_PROOFS.with(|proofs| proofs.borrow().clone())
+	}
+}
+
+impl qp_wormhole::TransferProofRecorder<AccountId32, u32, Balance> for MockProofRecorder {
+	fn record_transfer_proof(
+		asset_id: Option<u32>,
+		from: AccountId32,
+		to: AccountId32,
+		amount: Balance,
+	) -> bool {
+		assert!(asset_id.is_none(), "vesting payouts are always native");
+		RECORDED_PROOFS.with(|proofs| proofs.borrow_mut().push((from, to, amount)));
+		true
+	}
+}
+
 impl pallet_vesting::Config for Test {
 	type Currency = Balances;
 	type TimeProvider = Timestamp;
 	type PalletId = VestingPalletId;
 	type AdminOrigin = EitherOfDiverse<EnsureRoot<AccountId32>, EnsureTreasury>;
 	type TreasuryAccount = TreasuryAccount;
+	type AssetId = u32;
+	type ProofRecorder = MockProofRecorder;
+	type PayoutQuantum = PayoutQuantum;
 	type WeightInfo = ();
 }
 
@@ -161,6 +197,11 @@ pub fn new_test_ext_with_pot_balance(
 		.unwrap();
 
 	let mut ext = sp_io::TestExternalities::new(t);
-	ext.execute_with(|| System::set_block_number(1));
+	ext.execute_with(|| {
+		System::set_block_number(1);
+		// Stamp in-code storage versions like the real runtime genesis build does
+		// (this mock assembles storage from individual pallet configs, which skips it).
+		<AllPalletsWithSystem as frame_support::traits::OnGenesis>::on_genesis();
+	});
 	ext
 }
