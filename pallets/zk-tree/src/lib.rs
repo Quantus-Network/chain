@@ -246,6 +246,15 @@ pub mod pallet {
 		pub fn insert_leaf_db_ops() -> (u64, u64) {
 			crate::insert_leaf_db_ops_at_depth(Depth::<T>::get())
 		}
+
+		/// Worst-case Poseidon-hashing `ref_time` for one `insert_leaf` at the tree's
+		/// *current* depth. See [`insert_leaf_hash_ref_time_at_depth`]. Anything that
+		/// prices a leaf insert must charge this *in addition to*
+		/// [`Self::insert_leaf_db_ops`]: the DB ops cover storage I/O only, while the
+		/// path update also computes one Poseidon hash per tree level.
+		pub fn insert_leaf_hash_ref_time() -> u64 {
+			crate::insert_leaf_hash_ref_time_at_depth(Depth::<T>::get())
+		}
 	}
 
 	impl<T: Config> Pallet<T>

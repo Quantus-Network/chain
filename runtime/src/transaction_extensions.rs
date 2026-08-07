@@ -117,12 +117,15 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	///   writes: TransferCount (1) + the conditional `PotentialWormholeBalance`
 	///           deposit add (1) => 2 writes.
 	/// plus the ZK-tree leaf insert, whose path update walks the tree leaf-to-root and
-	/// therefore costs reads/writes proportional to the *current* tree depth (read from
-	/// storage here, so the charge tracks the tree as it deepens over the chain's life).
+	/// therefore costs reads/writes *and* one Poseidon hash per level, both proportional
+	/// to the *current* tree depth (read from storage here, so the charge tracks the
+	/// tree as it deepens over the chain's life).
 	fn per_transfer_weight() -> Weight {
 		let (tree_reads, tree_writes) = pallet_zk_tree::Pallet::<Runtime>::insert_leaf_db_ops();
+		let hash_time = pallet_zk_tree::Pallet::<Runtime>::insert_leaf_hash_ref_time();
 		T::DbWeight::get()
 			.reads_writes(5u64.saturating_add(tree_reads), 2u64.saturating_add(tree_writes))
+			.saturating_add(Weight::from_parts(hash_time, 0))
 	}
 
 	fn count_transfers(call: &RuntimeCall) -> u64 {
@@ -831,6 +834,32 @@ mod tests {
 				WormholeProofRecorderExtension::<Runtime>::count_transfers(&call),
 				1,
 				"dispatch_as_fallible-wrapped transfers must be statically counted"
+			);
+		});
+	}
+
+	#[test]
+	fn per_transfer_weight_includes_tree_hash_compute() {
+		new_test_ext().execute_with(|| {
+			// Recording a transfer inserts a ZK-tree leaf; the path update computes one
+			// Poseidon hash per tree level. That compute must be charged on top of the
+			// DB ops, otherwise every recorded transfer under-declares execution work
+			// by an amount that grows with the tree depth.
+			pallet_zk_tree::Depth::<Runtime>::put(20);
+			let weight = WormholeProofRecorderExtension::<Runtime>::per_transfer_weight();
+
+			let (tree_reads, tree_writes) = pallet_zk_tree::insert_leaf_db_ops_at_depth(20);
+			let db_time = <Runtime as frame_system::Config>::DbWeight::get()
+				.reads_writes(
+					5u64.saturating_add(tree_reads),
+					2u64.saturating_add(tree_writes),
+				)
+				.ref_time();
+			assert!(
+				weight.ref_time() >=
+					db_time + pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(20),
+				"per-transfer weight must charge the leaf insert's Poseidon hashing \
+				 on top of its DB ops"
 			);
 		});
 	}
