@@ -159,7 +159,8 @@ pub fn is_heavier<N: PartialOrd>(
 		(candidate_work == current_work && candidate_number > current_number)
 }
 
-/// Finalizes blocks that are `max_reorg_depth - 1` blocks behind the current best block.
+/// Finalizes blocks that are `max_reorg_depth` blocks behind the current best block,
+/// keeping exactly `max_reorg_depth` blocks reorganizable to match the configured window.
 /// This should be called synchronously after each block import to ensure finalization
 /// happens before the next block is imported.
 ///
@@ -204,8 +205,8 @@ where
 		ChainManagementError::RuntimeApiError(format!("Failed to get max reorg depth: {:?}", e))
 	})?;
 
-	// Calculate how far back to finalize
-	let finalize_depth = max_reorg_depth.saturating_sub(1);
+	// Keep the full maximum reorganization window unfinalized.
+	let finalize_depth = max_reorg_depth;
 
 	// Only finalize if we have enough blocks
 	if best_number <= finalize_depth.into() {

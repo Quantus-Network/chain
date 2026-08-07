@@ -2,6 +2,7 @@ use crate::{mock::*, Config, CurrentDifficulty};
 use frame_support::{pallet_prelude::TypedGet, traits::Hooks};
 use primitive_types::U512;
 use qpow_math::{get_nonce_hash, is_valid_nonce};
+use sp_runtime::BuildStorage;
 
 #[test]
 fn test_submit_valid_proof() {
@@ -333,6 +334,44 @@ fn test_difficulty_recovers_after_sleep() {
 			"Difficulty should stay above 10% after sleep. Pre: {}, Post: {}",
 			pre_sleep.low_u64(),
 			recovered.low_u64()
+		);
+	});
+}
+
+/// V12 audit fix (181313): genesis difficulty outside the operational bounds
+/// (here: zero) must fail early during genesis build.
+#[test]
+#[should_panic(expected = "Genesis initial difficulty must be within")]
+fn test_genesis_rejects_out_of_range_difficulty() {
+	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+	crate::GenesisConfig::<Test> { initial_difficulty: U512::zero(), _phantom: Default::default() }
+		.assimilate_storage(&mut t)
+		.unwrap();
+}
+
+/// V12 audit fix (181438): the retarget floors the author-controlled block time,
+/// so an implausibly small timestamp delta cannot steer difficulty. The floor
+/// stays below the divisor at the production-scale target, so genuinely fast
+/// blocks still raise difficulty (the floor is a no-op there).
+#[test]
+fn test_retarget_floors_small_block_time() {
+	new_test_ext().execute_with(|| {
+		let difficulty = U512::from(1_000_000u64);
+
+		// target 600ms -> divisor 400ms, below the 500ms floor: a sub-floor delta
+		// is clamped to the floor and yields no increase.
+		let target = 600u64;
+		let floored = QPow::calculate_difficulty(difficulty, 1, target);
+		let at_floor = QPow::calculate_difficulty(difficulty, 500, target);
+		assert_eq!(floored, at_floor, "sub-floor block time must be clamped to the floor");
+		assert_eq!(floored, difficulty, "floored delta must not raise difficulty");
+
+		// production-scale target: floor stays below the divisor, so fast blocks
+		// still increase difficulty.
+		let fast = QPow::calculate_difficulty(difficulty, 100, 12_000);
+		assert!(
+			fast > difficulty,
+			"fast blocks must still increase difficulty at production target"
 		);
 	});
 }
