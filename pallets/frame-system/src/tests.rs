@@ -653,7 +653,8 @@ fn set_code_checks_works() {
 		ext.execute_with(|| {
 			let res = System::set_code(RawOrigin::Root.into(), vec![1, 2, 3, 4]);
 
-			assert_runtime_updated_digest(if res.is_ok() { 1 } else { 0 });
+			// Success or failure, no digest item may be deposited (QPoW window).
+			assert_no_deposited_digest_items();
 			assert_eq!(expected.map_err(DispatchErrorWithPostInfo::from), res);
 		});
 	}
@@ -755,15 +756,16 @@ fn validate_unsigned_apply_authorized_upgrade_honors_check_version() {
 	}
 }
 
-fn assert_runtime_updated_digest(num: usize) {
+/// The QPoW header commits a fixed digest window that the pre-runtime item and
+/// seal fill exactly, so a runtime-deposited digest item (like upstream's
+/// `RuntimeEnvironmentUpdated`) makes the sealed block unimportable
+/// network-wide. Environment-changing calls must deposit NO digest items.
+fn assert_no_deposited_digest_items() {
 	assert_eq!(
-		System::digest()
-			.logs
-			.into_iter()
-			.filter(|item| *item == generic::DigestItem::RuntimeEnvironmentUpdated)
-			.count(),
-		num,
-		"Incorrect number of Runtime Updated digest items",
+		System::digest().logs,
+		alloc::vec::Vec::new(),
+		"runtime code must not deposit digest items: the QPoW digest window has \
+		 no spare capacity and the sealed block would be rejected at import",
 	);
 }
 
@@ -810,12 +812,12 @@ fn extrinsics_root_is_calculated_correctly() {
 }
 
 #[test]
-fn runtime_updated_digest_emitted_when_heap_pages_changed() {
+fn no_digest_item_deposited_when_heap_pages_changed() {
 	new_test_ext().execute_with(|| {
 		System::reset_events();
 		System::initialize(&1, &[0u8; 32].into(), &Default::default());
 		System::set_heap_pages(RawOrigin::Root.into(), 64).unwrap();
-		assert_runtime_updated_digest(1);
+		assert_no_deposited_digest_items();
 	});
 }
 
@@ -834,10 +836,11 @@ fn set_heap_pages_validates_range() {
 			);
 		}
 
-		// Both bounds of the allowed range are accepted and still emit the digest item.
+		// Both bounds of the allowed range are accepted, without depositing any
+		// digest item (the QPoW digest window has no spare capacity).
 		assert_ok!(System::set_heap_pages(RawOrigin::Root.into(), 64));
 		assert_ok!(System::set_heap_pages(RawOrigin::Root.into(), 65536));
-		assert_runtime_updated_digest(2);
+		assert_no_deposited_digest_items();
 	});
 }
 
