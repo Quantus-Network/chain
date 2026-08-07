@@ -989,6 +989,43 @@ mod private_batch_proof_tests {
 		PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
 	}
 
+	/// `ProofWithPublicInputs::from_bytes` reads the proof off the front of the buffer
+	/// and silently ignores trailing bytes, so without an exact-framing check one valid
+	/// proof has unboundedly many byte representations — each a distinct transaction
+	/// hash whose full copy + parse every node re-pays at pool admission, fee-free.
+	/// Pre-validation must accept exactly one canonical encoding per proof.
+	#[test]
+	fn pre_validation_rejects_padded_proof_bytes() {
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+
+			// The canonical encoding passes pre-validation.
+			assert!(Wormhole::pre_validate_private_batch_proof(&get_test_proof_bytes()).is_ok());
+
+			// The same proof with trailing junk must be rejected.
+			let mut padded = get_test_proof_bytes();
+			padded.extend_from_slice(&[0u8; 32]);
+			assert!(matches!(
+				Wormhole::pre_validate_private_batch_proof(&padded),
+				Err(Error::<Test>::NonCanonicalProofEncoding)
+			));
+		});
+	}
+
+	/// Oversized blobs must be cut off by a length gate BEFORE the byte copy and the
+	/// parser run — `ProofDeserializationFailed` after the fact means the work was
+	/// already done.
+	#[test]
+	fn pre_validation_rejects_oversized_proof_bytes() {
+		new_test_ext().execute_with(|| {
+			let oversized = vec![0u8; crate::MAX_PROOF_BYTES + 1];
+			assert!(matches!(
+				Wormhole::pre_validate_private_batch_proof(&oversized),
+				Err(Error::<Test>::ProofTooLarge)
+			));
+		});
+	}
+
 	/// The block-inclusion gate (`pre_dispatch`) must reject a proof that cannot be
 	/// verified. Before this was fixed, `pre_dispatch` was a no-op that returned `Ok(())`
 	/// for any `verify_*` call, so junk rode into blocks as failed `Pays::No` extrinsics;
@@ -2066,6 +2103,25 @@ mod public_batch_proof_tests {
 		frame_system::BlockHash::<Test>::insert(block_number, H256::from(block_hash_bytes));
 		System::set_block_number(block_number + 10);
 		PotentialWormholeBalance::<Test>::put(1_000_000 * UNIT);
+	}
+
+	/// Public-batch twin of the private-batch exact-framing test: trailing bytes after
+	/// a valid proof are silently ignored by the plonky2 parser, so they must be
+	/// rejected by the canonical-encoding check.
+	#[test]
+	fn pre_validation_rejects_padded_proof_bytes() {
+		new_test_ext().execute_with(|| {
+			setup_matching_block_state(&parse_test_inputs());
+
+			assert!(Wormhole::pre_validate_public_batch_proof(&get_test_proof_bytes()).is_ok());
+
+			let mut padded = get_test_proof_bytes();
+			padded.extend_from_slice(&[0u8; 32]);
+			assert!(matches!(
+				Wormhole::pre_validate_public_batch_proof(&padded),
+				Err(Error::<Test>::NonCanonicalProofEncoding)
+			));
+		});
 	}
 
 	#[test]

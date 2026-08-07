@@ -27,6 +27,22 @@ const PRIVATE_BATCH_PI_HEADER_FELTS: usize = 8;
 /// exit traffic.
 pub const UNSIGNED_EXIT_PRIORITY: u64 = 1;
 
+/// Hard upper bound on the serialized size of a settlement proof (the `proof_bytes`
+/// argument of `verify_private_batch` / `verify_public_batch`), enforced before the
+/// blob is copied or parsed.
+///
+/// Settlement extrinsics are unsigned and fee-free, and pre-validation runs for every
+/// gossiped pool candidate, so without this gate the only bound on the bytes an
+/// attacker can make every node copy (`to_vec`) and feed through the plonky2 parser
+/// is the block-length limit — megabytes above any real proof. Proof sizes are fixed
+/// by the compiled circuit dimensions: the current fixtures serialize to ~151 KB
+/// (private batch) and ~224 KB (public batch), so 512 KiB leaves ample headroom for
+/// circuit-knob growth (proof size scales only mildly with batch counts) while
+/// keeping worst-case admission work near real-proof cost. If a circuit upgrade ever
+/// pushes a real proof past this cap, `pre_validation_rejects_oversized_proof_bytes`
+/// and every fixture-based settlement test will fail loudly at the same time.
+pub const MAX_PROOF_BYTES: usize = 512 * 1024;
+
 /// Expected public-input count of the private-batch circuit compiled into this runtime.
 fn private_batch_expected_public_inputs() -> usize {
 	PRIVATE_BATCH_PI_HEADER_FELTS + circuit_config::NUM_LEAF_PROOFS * PUBLIC_INPUTS_FELTS_LEN
@@ -457,6 +473,13 @@ pub mod pallet {
 		BlockNotFound,
 		VerifierNotAvailable,
 		ProofDeserializationFailed,
+		/// The submitted proof blob exceeds [`crate::MAX_PROOF_BYTES`]. Rejected before
+		/// any copy or parsing so oversized unsigned spam costs only a length check.
+		ProofTooLarge,
+		/// The proof bytes are not the canonical serialization of the decoded proof
+		/// (e.g. a valid proof with trailing bytes, which the plonky2 parser would
+		/// silently ignore). Every proof has exactly one accepted byte encoding.
+		NonCanonicalProofEncoding,
 		ProofVerificationFailed,
 		InvalidProofPublicInputs,
 		/// The volume fee rate in the proof doesn't match the configured rate
@@ -1151,6 +1174,11 @@ pub mod pallet {
 			),
 			Error<T>,
 		> {
+			// Length gate FIRST: `proof_bytes` is attacker-controlled, unsigned and
+			// fee-free, and everything below copies (`to_vec`) and parses the whole
+			// blob. Without this bound the only limit is the block-length cap,
+			// megabytes above any real proof.
+			ensure!(proof_bytes.len() <= crate::MAX_PROOF_BYTES, Error::<T>::ProofTooLarge);
 			let verifier = crate::get_private_batch_verifier()
 				.map_err(|_| Error::<T>::VerifierNotAvailable)?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
@@ -1158,6 +1186,16 @@ pub mod pallet {
 				&verifier.circuit_data.common,
 			)
 			.map_err(|_| Error::<T>::ProofDeserializationFailed)?;
+			// Exact-framing check: `from_bytes` reads the proof off the front of the
+			// buffer and silently ignores trailing bytes, so without this a valid
+			// proof would have unboundedly many accepted byte representations — each
+			// a distinct tx hash whose copy+parse the pool re-pays at admission.
+			// Round-tripping pins one canonical encoding per proof (and also rejects
+			// non-canonical field encodings).
+			ensure!(
+				proof.to_bytes().as_slice() == proof_bytes,
+				Error::<T>::NonCanonicalProofEncoding
+			);
 			let inputs = parse_private_batch_public_inputs(&proof)
 				.map_err(|_| Error::<T>::InvalidProofPublicInputs)?;
 			let bundle: ExitBundle = inputs.into();
@@ -1195,6 +1233,9 @@ pub mod pallet {
 			),
 			Error<T>,
 		> {
+			// Same gates as `pre_validate_private_batch_proof`: length bound before
+			// any copy/parse, then exact canonical framing after deserialization.
+			ensure!(proof_bytes.len() <= crate::MAX_PROOF_BYTES, Error::<T>::ProofTooLarge);
 			let verifier =
 				crate::get_public_batch_verifier().map_err(|_| Error::<T>::VerifierNotAvailable)?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
@@ -1202,6 +1243,10 @@ pub mod pallet {
 				&verifier.circuit_data.common,
 			)
 			.map_err(|_| Error::<T>::ProofDeserializationFailed)?;
+			ensure!(
+				proof.to_bytes().as_slice() == proof_bytes,
+				Error::<T>::NonCanonicalProofEncoding
+			);
 			let inputs = parse_public_batch_public_inputs(
 				&proof,
 				crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
