@@ -16,6 +16,7 @@ PALLETS=(
   "pallet_scheduler:pallets/scheduler/src/weights.rs:50:20"
   "pallet_mining_rewards:pallets/mining-rewards/src/weights.rs:50:20"
   "pallet_treasury:pallets/treasury/src/weights.rs:50:20"
+  "pallet_vesting:pallets/vesting/src/weights.rs:50:20"
 )
 
 COMMON_ARGS=(

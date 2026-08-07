@@ -135,6 +135,13 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::force_transfer { .. }) => 1,
 
+			// Vesting payouts are plain pot transfers recorded like any other. `end_schedule`
+			// makes up to two (beneficiary payout + treasury refund); charge the worst case,
+			// consistent with `if_else` below. `retarget_schedule` moves no funds.
+			RuntimeCall::Vesting(pallet_vesting::Call::claim { .. }) |
+			RuntimeCall::Vesting(pallet_vesting::Call::create_schedule { .. }) => 1,
+			RuntimeCall::Vesting(pallet_vesting::Call::end_schedule { .. }) => 2,
+
 			RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
 			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
 			RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) =>
@@ -762,6 +769,36 @@ mod tests {
 				1,
 				"if_else must charge for the transfer-heavier branch (fallback)"
 			);
+		});
+	}
+
+	#[test]
+	fn wormhole_proof_recorder_counts_vesting_calls() {
+		new_test_ext().execute_with(|| {
+			// `claim` and `create_schedule` each move funds once; `end_schedule` up to twice
+			// (beneficiary payout + treasury refund, worst case); `retarget_schedule` never.
+			// Admin calls executed *through* `Multisig::execute` are statically opaque and
+			// rely on the post_dispatch shortfall reconciliation instead.
+			let claim = RuntimeCall::Vesting(pallet_vesting::Call::claim { schedule_id: 0 });
+			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&claim), 1);
+
+			let create = RuntimeCall::Vesting(pallet_vesting::Call::create_schedule {
+				beneficiary: alice(),
+				start: 0,
+				cliff: 0,
+				end: 1,
+				total: 1,
+			});
+			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&create), 1);
+
+			let end = RuntimeCall::Vesting(pallet_vesting::Call::end_schedule { schedule_id: 0 });
+			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&end), 2);
+
+			let retarget = RuntimeCall::Vesting(pallet_vesting::Call::retarget_schedule {
+				schedule_id: 0,
+				new_beneficiary: alice(),
+			});
+			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&retarget), 0);
 		});
 	}
 

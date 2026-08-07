@@ -49,6 +49,7 @@ members = [
 	"pallets/transaction-payment-rpc-runtime-api",
 	"pallets/treasury",
 	"pallets/utility",
+	"pallets/vesting",
 	"pallets/wormhole",
 	"pallets/zk-tree",
 	"primitives/consensus/qpow",
@@ -273,6 +274,7 @@ pallet-transaction-payment-rpc = { path = "./pallets/transaction-payment-rpc", d
 pallet-transaction-payment-rpc-runtime-api = { path = "./pallets/transaction-payment-rpc-runtime-api", default-features = false }
 pallet-treasury = { path = "pallets/treasury", default-features = false }
 pallet-utility = { path = "./pallets/utility", default-features = false }
+pallet-vesting = { path = "./pallets/vesting", default-features = false }
 prometheus-endpoint = { version = "0.17.7", default-features = false, package = "substrate-prometheus-endpoint" }
 sc-basic-authorship = { version = "0.53.0", default-features = false }
 sc-block-builder = { version = "0.48.0", default-features = true }
