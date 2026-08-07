@@ -624,8 +624,11 @@ pub mod pallet {
 			// ===== PHASE 4: High-security whitelist check (if applicable) =====
 			// (additional read: HighSecurityAccounts)
 			let is_high_security = T::HighSecurity::is_high_security(&multisig_address);
-			// Use the shared `is_call_allowed` policy so `propose` and `execute` stay consistent.
-			if !T::HighSecurity::is_call_allowed(&multisig_address, &decoded_call) {
+			// Apply the shared call policy (the same predicate `execute` consults via
+			// `is_call_allowed`) using the classification already fetched above for
+			// weight selection, so the `HighSecurityAccounts` lookup is not repeated —
+			// the propose weights charge exactly one classification read.
+			if !T::HighSecurity::is_call_allowed_given(is_high_security, &decoded_call) {
 				// Don't refund after decode - same reasoning as above.
 				return Self::err_burn_full(Error::<T>::CallNotAllowedForHighSecurityMultisig);
 			}

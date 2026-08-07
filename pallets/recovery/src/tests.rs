@@ -32,6 +32,31 @@ fn basic_setup_works() {
 	});
 }
 
+/// `as_recovered` consults the high-security policy on the recovered account
+/// (`T::HighSecurity::is_call_allowed`) before dispatching, which in the runtime
+/// costs one `HighSecurityAccounts` storage read. The benchmarked base ran with
+/// the no-op inspector, so the declared weight must add that read explicitly.
+#[test]
+fn as_recovered_weight_charges_high_security_policy_read() {
+	new_test_ext().execute_with(|| {
+		let inner = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+		let inner_weight = inner.get_dispatch_info().call_weight;
+		let call =
+			RuntimeCall::Recovery(crate::Call::as_recovered { account: 5, call: Box::new(inner) });
+
+		let db = <Test as frame_system::Config>::DbWeight::get();
+		let without_policy_read =
+			<Test as Config>::WeightInfo::as_recovered().saturating_add(inner_weight);
+
+		assert!(
+			call.get_dispatch_info()
+				.call_weight
+				.all_gte(without_policy_read.saturating_add(db.reads(1))),
+			"declared as_recovered weight must include the high-security policy read"
+		);
+	});
+}
+
 /// A Root-installed proxy must hold the same frame_system consumer reference as a
 /// `claim_recovery`-created one: the reference keeps the rescuer account alive while the
 /// proxy exists, and it backs the unconditional `dec_consumers` in `cancel_recovered`,

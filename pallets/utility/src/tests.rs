@@ -458,6 +458,37 @@ fn as_derivative_handles_weight_refund() {
 	});
 }
 
+/// `as_derivative` consults the high-security policy on the pseudonym
+/// (`T::HighSecurity::is_call_allowed`) before dispatching, which in the runtime
+/// costs one `HighSecurityAccounts` storage read. The declared weight must
+/// charge that read on top of the benchmarked base (which runs with a no-op
+/// inspector), the AccountData ops, the reveal ops, and the inner call.
+#[test]
+fn as_derivative_weight_charges_high_security_policy_read() {
+	new_test_ext().execute_with(|| {
+		let inner = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+		let inner_weight = inner.get_dispatch_info().call_weight;
+		let call =
+			RuntimeCall::Utility(UtilityCall::as_derivative { index: 0, call: Box::new(inner) });
+
+		let db = <Test as frame_system::Config>::DbWeight::get();
+		// Everything the declared weight covered before the policy read was
+		// accounted: benchmarked base + AccountData r/w + first-use reveal ops
+		// + the inner call.
+		let without_policy_read = <Test as Config>::WeightInfo::as_derivative()
+			.saturating_add(db.reads_writes(1, 1))
+			.saturating_add(db.reads_writes(1, 2))
+			.saturating_add(inner_weight);
+
+		assert!(
+			call.get_dispatch_info()
+				.call_weight
+				.all_gte(without_policy_read.saturating_add(db.reads(1))),
+			"declared as_derivative weight must include the high-security policy read"
+		);
+	});
+}
+
 #[test]
 fn as_derivative_filters() {
 	new_test_ext().execute_with(|| {

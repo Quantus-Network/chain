@@ -37,6 +37,9 @@ construct_runtime!(
 impl frame_system::Config for Test {
 	type Block = Block;
 	type AccountData = pallet_balances::AccountData<u128>;
+	// A non-zero database weight so tests can observe the db-op components of
+	// the weights the dispatchables charge (the prelude default is zero).
+	type DbWeight = frame::deps::frame_support::weights::constants::RocksDbWeight;
 }
 
 parameter_types! {

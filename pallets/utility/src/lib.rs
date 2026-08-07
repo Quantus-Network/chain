@@ -281,6 +281,10 @@ pub mod pallet {
 				T::WeightInfo::as_derivative()
 					// AccountData for inner call origin accountdata.
 					.saturating_add(T::DbWeight::get().reads_writes(1, 1))
+					// High-security policy check on the pseudonym (`is_call_allowed` →
+					// one classification read in the runtime inspector); the benchmarked
+					// base runs with the no-op inspector and does not include it.
+					.saturating_add(T::DbWeight::get().reads(1))
 					// First-use derivative reveal: `KnownDerivatives` read + insert and the
 					// wormhole pool write.
 					.saturating_add(T::DbWeight::get().reads_writes(1, 2))
@@ -319,10 +323,11 @@ pub mod pallet {
 			let info = call.get_dispatch_info();
 			let result = call.dispatch(origin);
 			// Always take into account the base weight of this call, plus the
-			// `KnownDerivatives` membership read performed on every invocation.
+			// `KnownDerivatives` membership read and the high-security policy read
+			// on the pseudonym, both performed on every invocation.
 			let mut weight = T::WeightInfo::as_derivative()
 				.saturating_add(T::DbWeight::get().reads_writes(1, 1))
-				.saturating_add(T::DbWeight::get().reads(1));
+				.saturating_add(T::DbWeight::get().reads(2));
 			// The `KnownDerivatives` insert and the wormhole pool write only happen on a
 			// pseudonym's first use; refund them to repeat users via the actual weight.
 			if revealed {

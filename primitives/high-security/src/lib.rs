@@ -122,13 +122,28 @@ pub trait HighSecurityInspector<AccountId, RuntimeCall> {
 	/// `Some(guardian_account)` if the account has a guardian, `None` otherwise
 	fn guardian(who: &AccountId) -> Option<AccountId>;
 
+	/// Evaluate the call policy for an account whose high-security classification has
+	/// already been determined.
+	///
+	/// This is the single policy predicate behind [`Self::is_call_allowed`], split out
+	/// so a caller that already paid the `is_high_security` lookup for another purpose
+	/// (e.g. weight selection in `pallet_multisig::propose`) can apply the policy
+	/// without repeating the classification storage read.
+	fn is_call_allowed_given(is_high_security: bool, call: &RuntimeCall) -> bool {
+		!is_high_security || Self::is_whitelisted(call)
+	}
+
 	/// Whether `call` may be dispatched with `who` as the effective signed origin.
 	///
 	/// Non-High-Security accounts may dispatch anything; High-Security accounts are
 	/// restricted to whitelisted calls. Origin-rewriting wrappers (multisig execution,
 	/// `as_recovered`, `as_derivative`) must consult this before dispatching as `who`.
+	///
+	/// NOTE: this performs one `is_high_security` classification lookup — a storage
+	/// read in the runtime implementation — so every dispatchable that calls it must
+	/// charge that read in its declared weight.
 	fn is_call_allowed(who: &AccountId, call: &RuntimeCall) -> bool {
-		!Self::is_high_security(who) || Self::is_whitelisted(call)
+		Self::is_call_allowed_given(Self::is_high_security(who), call)
 	}
 
 	// NOTE: No benchmarking-specific methods in the trait!

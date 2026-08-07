@@ -433,7 +433,13 @@ pub mod pallet {
 		#[pallet::weight({
 			let dispatch_info = call.get_dispatch_info();
 			(
-				T::WeightInfo::as_recovered().saturating_add(dispatch_info.call_weight),
+				T::WeightInfo::as_recovered()
+					// High-security policy check on the recovered account
+					// (`is_call_allowed` → one classification read in the runtime
+					// inspector); the benchmarked base runs with the no-op inspector
+					// and does not include it.
+					.saturating_add(T::DbWeight::get().reads(1))
+					.saturating_add(dispatch_info.call_weight),
 				dispatch_info.class,
 			)})]
 		pub fn as_recovered(
