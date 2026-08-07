@@ -35,29 +35,6 @@ use sp_runtime::{traits::IdentifyAccount, Permill};
 /// as reported by `pallet_timestamp` (matches `pallet_vesting::Config::Moment` = u64).
 type VestingMoment = u64;
 
-/// Milliseconds since the unix epoch for `year-month-day 00:00:00 UTC`.
-///
-/// Compile-time helper so genesis dates can be written as human-readable calendar dates
-/// instead of raw millisecond counts. Uses the standard civil-calendar day count
-/// (Howard Hinnant's `days_from_civil`); valid for any Gregorian date from 1970 onwards.
-/// Invalid dates (month 0/13, day 0/32) fail compilation via the `assert!`s.
-const fn utc_ms(year: u64, month: u64, day: u64) -> VestingMoment {
-	assert!(year >= 1970, "utc_ms only supports dates from 1970 onwards");
-	assert!(month >= 1 && month <= 12, "month must be 1-12");
-	assert!(day >= 1 && day <= 31, "day must be 1-31");
-
-	// Shift so the year starts in March, making leap days the last day of the "year".
-	let y = if month <= 2 { year - 1 } else { year };
-	let era = y / 400;
-	let yoe = y - era * 400; // [0, 399]
-	let mp = if month > 2 { month - 3 } else { month + 9 }; // March-based month [0, 11]
-	let doy = (153 * mp + 2) / 5 + day - 1; // [0, 365]
-	let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; // [0, 146096]
-	let days_since_epoch = era * 146097 + doe - 719_468; // 719468 = days from 0000-03-01 to 1970-01-01
-
-	days_since_epoch * MILLIS_PER_DAY
-}
-
 const MILLIS_PER_DAY: VestingMoment = 24 * 60 * 60 * 1000;
 
 /// A duration of `n` days, in milliseconds.
@@ -65,12 +42,14 @@ const fn days_ms(days: u64) -> VestingMoment {
 	days * MILLIS_PER_DAY
 }
 
-/// Genesis vesting starts at this wall-clock time (UTC).
+/// Genesis vesting starts at this wall-clock time: **2026-08-05 00:00:00 UTC**.
+///
+/// To change the date, run `date -u -d "YYYY-MM-DD" +%s` and append `000` (ms).
 ///
 /// Schedules vest against real time, not blocks. Set this to the intended launch time before
 /// starting a new network — a chain launched later than this date will already be partially
 /// vested, and one launched earlier stays fully locked until this time is reached.
-const GENESIS_VESTING_START_MS: VestingMoment = utc_ms(2026, 8, 5);
+const GENESIS_VESTING_START_MS: VestingMoment = 1_785_888_000_000;
 /// Genesis vesting: unlock completes this many milliseconds after start (~1 year).
 const GENESIS_VESTING_LENGTH_MS: VestingMoment = days_ms(365);
 /// Amount kept immediately spendable for fees; the rest of each vested endowment is locked.
@@ -530,17 +509,13 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn utc_ms_matches_known_timestamps() {
-		assert_eq!(utc_ms(1970, 1, 1), 0);
-		// date -u -d "2000-03-01" +%s => 951868800
-		assert_eq!(utc_ms(2000, 3, 1), 951_868_800_000);
-		// date -u -d "2024-02-29" +%s => 1709164800 (leap day)
-		assert_eq!(utc_ms(2024, 2, 29), 1_709_164_800_000);
-		// date -u -d "2026-08-05" +%s => 1785888000
-		assert_eq!(utc_ms(2026, 8, 5), 1_785_888_000_000);
-		// date -u -d "2100-01-01" +%s => 4102444800 (2100 is not a leap year)
-		assert_eq!(utc_ms(2100, 1, 1), 4_102_444_800_000);
-		assert_eq!(utc_ms(2100, 3, 1), 4_102_444_800_000 + days_ms(59));
+	fn genesis_vesting_start_is_sane() {
+		// A hand-pasted timestamp is easy to fat-finger; catch order-of-magnitude and
+		// seconds-vs-milliseconds mistakes. Must be a midnight UTC boundary...
+		assert_eq!(GENESIS_VESTING_START_MS % MILLIS_PER_DAY, 0);
+		// ...and lie between 2020-01-01 and 2100-01-01.
+		assert!(GENESIS_VESTING_START_MS > 1_577_836_800_000);
+		assert!(GENESIS_VESTING_START_MS < 4_102_444_800_000);
 	}
 
 	#[test]
