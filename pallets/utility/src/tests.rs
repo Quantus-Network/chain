@@ -965,6 +965,57 @@ fn dispatch_as_works() {
 }
 
 #[test]
+fn dispatch_as_enforces_high_security_whitelist() {
+	new_test_ext().execute_with(|| {
+		qp_high_security::testing::reset();
+		qp_high_security::testing::set_high_security(&666u64);
+
+		// A non-whitelisted call dispatched as the high-security account is rejected before
+		// any dispatch happens.
+		assert_noop!(
+			Utility::dispatch_as(
+				RuntimeOrigin::root(),
+				Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(666))),
+				Box::new(call_transfer(777, 1)),
+			),
+			Error::<Test>::CallNotAllowedForHighSecurity,
+		);
+
+		// A whitelisted call (System::remark) as the same account is allowed.
+		assert_ok!(Utility::dispatch_as(
+			RuntimeOrigin::root(),
+			Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(666))),
+			Box::new(RuntimeCall::System(SystemCall::remark { remark: Default::default() })),
+		));
+
+		// A non-high-security account is unaffected by the guard.
+		assert_ok!(Utility::dispatch_as(
+			RuntimeOrigin::root(),
+			Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(1))),
+			Box::new(RuntimeCall::System(SystemCall::remark { remark: Default::default() })),
+		));
+		qp_high_security::testing::reset();
+	})
+}
+
+#[test]
+fn dispatch_as_fallible_enforces_high_security_whitelist() {
+	new_test_ext().execute_with(|| {
+		qp_high_security::testing::reset();
+		qp_high_security::testing::set_high_security(&666u64);
+		assert_noop!(
+			Utility::dispatch_as_fallible(
+				RuntimeOrigin::root(),
+				Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(666))),
+				Box::new(call_transfer(777, 1)),
+			),
+			Error::<Test>::CallNotAllowedForHighSecurity,
+		);
+		qp_high_security::testing::reset();
+	})
+}
+
+#[test]
 fn if_else_with_root_works() {
 	new_test_ext().execute_with(|| {
 		let k = b"a".to_vec();

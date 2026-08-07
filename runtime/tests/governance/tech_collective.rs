@@ -1323,14 +1323,14 @@ mod tests {
 		TestCommons::new_fast_governance_test_ext().execute_with(|| {
 			let proposer = TestCommons::account_id(1);
 			let voter = TestCommons::account_id(2);
+			let extra: Vec<_> = (3..=5u8).map(TestCommons::account_id).collect();
 
 			Balances::make_free_balance_be(&proposer, 3000 * UNIT);
 			Balances::make_free_balance_be(&voter, 2000 * UNIT);
 
-			assert_ok!(quantus_runtime::genesis_config_presets::seed_tech_collective(&[
-				proposer.clone(),
-				voter.clone(),
-			]));
+			let mut seed = vec![proposer.clone(), voter.clone()];
+			seed.extend(extra.iter().cloned());
+			assert_ok!(quantus_runtime::genesis_config_presets::seed_tech_collective(&seed));
 
 			assert!(
 				pallet_ranked_collective::Members::<Runtime>::contains_key(&proposer),
@@ -1366,18 +1366,15 @@ mod tests {
 				referendum_index
 			));
 
-			// Both members must vote aye to clear the 60% support threshold (2/2 = 100%)
-			assert_ok!(TechCollective::vote(
-				RuntimeOrigin::signed(proposer.clone()),
-				referendum_index,
-				true
-			));
-
-			assert_ok!(TechCollective::vote(
-				RuntimeOrigin::signed(voter.clone()),
-				referendum_index,
-				true
-			));
+			// All five seeded members vote aye (5/5 = 100%) to clear the 60% support and
+			// 61% approval thresholds the curves assume for a five-member collective.
+			for member in seed.iter() {
+				assert_ok!(TechCollective::vote(
+					RuntimeOrigin::signed(member.clone()),
+					referendum_index,
+					true
+				));
+			}
 
 			let track_info =
 				<Runtime as pallet_referenda::Config<TechReferendaInstance>>::Tracks::info(
@@ -1414,22 +1411,31 @@ mod tests {
 	fn seed_tech_collective_rejects_duplicates_without_panicking() {
 		TestCommons::new_fast_governance_test_ext().execute_with(|| {
 			let member = TestCommons::account_id(1);
+			// A valid-size seed (>= MIN_TECH_COLLECTIVE_MEMBERS) that repeats a member, so the
+			// duplicate — not the size floor — is the reason for rejection.
+			let dup_seed: Vec<_> = vec![
+				member.clone(),
+				TestCommons::account_id(2),
+				TestCommons::account_id(3),
+				TestCommons::account_id(4),
+				member.clone(),
+			];
 
 			let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-				quantus_runtime::genesis_config_presets::seed_tech_collective(&[
-					member.clone(),
-					member.clone(),
-				])
+				quantus_runtime::genesis_config_presets::seed_tech_collective(&dup_seed)
 			}));
 			let result =
 				outcome.expect("seeding with a duplicate member must return an error, not panic");
 			let err = result.expect_err("duplicate member must be rejected");
 			assert!(err.contains("AlreadyMember"), "error should name the cause: {err}");
 
-			// Overlap with a member already added by other genesis mechanisms must also
-			// surface as an error.
+			// Overlap with a member already added above must also surface as an error.
+			let overlap_seed: Vec<_> = vec![member.clone()]
+				.into_iter()
+				.chain((5..=8u8).map(TestCommons::account_id))
+				.collect();
 			assert!(
-				quantus_runtime::genesis_config_presets::seed_tech_collective(&[member.clone()])
+				quantus_runtime::genesis_config_presets::seed_tech_collective(&overlap_seed)
 					.is_err(),
 				"re-seeding an existing member must be rejected"
 			);
@@ -1445,9 +1451,10 @@ mod tests {
 			Balances::make_free_balance_be(&proposer, 3000 * UNIT);
 			Balances::make_free_balance_be(&non_member, 3000 * UNIT);
 
-			assert_ok!(quantus_runtime::genesis_config_presets::seed_tech_collective(&[
-				proposer.clone()
-			]));
+			let seed: Vec<_> = std::iter::once(proposer.clone())
+				.chain((2..=5u8).map(TestCommons::account_id))
+				.collect();
+			assert_ok!(quantus_runtime::genesis_config_presets::seed_tech_collective(&seed));
 
 			assert!(
 				!pallet_ranked_collective::Members::<Runtime>::contains_key(&non_member),

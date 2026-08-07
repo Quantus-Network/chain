@@ -25,11 +25,20 @@ use alloc::{
 	vec::Vec,
 };
 use pallet_multisig::Pallet as Multisig;
-use qp_dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
+use qp_dilithium_crypto::{
+	pair::{crystal_alice, crystal_charlie, dilithium_bob},
+	Dilithium87Pair,
+};
 use serde_json::Value;
-use sp_core::crypto::Ss58Codec;
+use sp_core::{crypto::Ss58Codec, Pair};
 use sp_genesis_builder::{self, PresetId};
 use sp_runtime::{traits::IdentifyAccount, Permill};
+
+/// Minimum tech-collective size the tech-referenda approval/support curves in
+/// [`crate::governance::definitions`] are designed for (see the 5-member analysis on
+/// `TechCollectiveTracksInfo`). A non-empty genesis seed smaller than this would let a minority
+/// authorize Root, so [`seed_tech_collective`] rejects it (fail-early).
+pub const MIN_TECH_COLLECTIVE_MEMBERS: usize = 5;
 
 /// Well-known test secret for testing ZK proof spending.
 /// This is a simple pattern (`[42u8; 32]`) for easy testing.
@@ -129,21 +138,46 @@ struct TreasuryGenesis {
 	portion: Permill,
 }
 
-/// Initial tech collective members for the development preset (configurable independently of
-/// treasury).
+/// Two extra well-known Dilithium accounts (public seeds `[3u8; 32]` / `[4u8; 32]`) that pad the
+/// `dev` and `heisenberg` tech collectives to the [`MIN_TECH_COLLECTIVE_MEMBERS`] size the
+/// tech-referenda curves are designed for. These public keys are acceptable only for those
+/// non-value-bearing chains — see [`dilithium_default_accounts`].
+fn dilithium_extra_collective_members() -> Vec<AccountId> {
+	[[3u8; 32], [4u8; 32]]
+		.into_iter()
+		.map(|seed| {
+			Dilithium87Pair::from_seed_slice(&seed)
+				.expect("static 32-byte seed is valid")
+				.into_account()
+		})
+		.collect()
+}
+
+/// Initial tech collective members for the development preset. Grown to
+/// [`MIN_TECH_COLLECTIVE_MEMBERS`] so the tech-referenda curves behave as designed.
 fn development_tech_collective_seed() -> Vec<AccountId> {
-	dilithium_default_accounts()
+	let mut members = dilithium_default_accounts();
+	members.extend(dilithium_extra_collective_members());
+	members
 }
 
-/// Initial tech collective members for Heisenberg (defaults to the same accounts as treasury
-/// signers; kept as a separate hook if the two diverge).
+/// Initial tech collective members for Heisenberg. Grown to [`MIN_TECH_COLLECTIVE_MEMBERS`] so the
+/// tech-referenda curves behave as designed.
 fn heisenberg_tech_collective_seed() -> Vec<AccountId> {
-	heisenberg_treasury_signers()
+	let mut members = heisenberg_treasury_signers();
+	members.extend(dilithium_extra_collective_members());
+	members
 }
 
-/// Initial tech collective members for Planck (defaults to the same accounts as treasury signers).
+/// Initial tech collective members for Planck: the three treasury signers plus two dedicated
+/// members, giving the [`MIN_TECH_COLLECTIVE_MEMBERS`] the tech-referenda curves assume.
 fn planck_tech_collective_seed() -> Vec<AccountId> {
-	planck_treasury_signers()
+	let mut members = planck_treasury_signers();
+	members.extend([
+		account_from_ss58("qzmTAz3UUw1WGUuVh8nbFmPwcftomduwy6twq6NDR6y9qqtEs"),
+		account_from_ss58("qzm5QCox8Dp5A3oSXZZYHD8YoYgPz7enykZb6RPUropdCyN5h"),
+	]);
+	members
 }
 
 /// Returns the genesis config populated with given parameters. Treasury is per-profile.
@@ -256,15 +290,24 @@ pub fn development_config_genesis() -> Value {
 			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
 		let mut template_value =
 			genesis_template(endowed_accounts, treasury, tech_collective, vec![]);
-		// `genesis_template` adds a chain-spec-only field; strip before deserializing.
-		template_value
+		// `genesis_template` adds a chain-spec-only field that `RuntimeGenesisConfig` cannot
+		// deserialize; strip it before deserializing, then restore it on the returned JSON so
+		// `build_state` still seeds the tech collective (otherwise a benchmark dev chain starts
+		// with an empty collective and nobody can pass RootOrMemberForTechReferendaOrigin).
+		let tech_collective_members = template_value
 			.as_object_mut()
 			.expect("RuntimeGenesisConfig serializes to a JSON object")
 			.remove(TECH_COLLECTIVE_SEED_MEMBERS_KEY);
 		let mut config: RuntimeGenesisConfig =
 			serde_json::from_value(template_value).expect("genesis_template returns valid config");
 		config.reversible_transfers = rt_genesis;
-		return serde_json::to_value(config).expect("Could not build genesis config.");
+		let mut out = serde_json::to_value(config).expect("Could not build genesis config.");
+		if let Some(members) = tech_collective_members {
+			out.as_object_mut()
+				.expect("RuntimeGenesisConfig serializes to a JSON object")
+				.insert(TECH_COLLECTIVE_SEED_MEMBERS_KEY.into(), members);
+		}
+		return out;
 	}
 
 	#[cfg(not(feature = "runtime-benchmarks"))]
@@ -356,6 +399,13 @@ pub fn seed_tech_collective(members: &[AccountId]) -> Result<(), String> {
 	if members.is_empty() {
 		return Ok(());
 	}
+	if members.len() < MIN_TECH_COLLECTIVE_MEMBERS {
+		return Err(alloc::format!(
+			"tech collective seed has {} members; the governance curves require at least {}",
+			members.len(),
+			MIN_TECH_COLLECTIVE_MEMBERS
+		));
+	}
 	log::info!("🏛️ Seeding tech collective with {} members", members.len());
 	let ss58 = ss58_version();
 	for member in members {
@@ -383,7 +433,10 @@ pub fn planck_config_genesis() -> Value {
 	let tech_collective = planck_tech_collective_seed();
 	let treasury_account = planck_treasury_account();
 	let endowed_accounts = vec![planck_faucet_account()];
-	let signer_fee_seed: Vec<_> = treasury_signers.iter().cloned().map(|a| (a, UNIT)).collect();
+	// Each signer needs enough to create + propose on the treasury multisig once: MultisigFee
+	// (0.6) burned + ProposalFee (~1.03) burned + ProposalDeposit (1.0) reserved = ~2.63 UNIT,
+	// plus transaction fees and the existential deposit. 1 UNIT was insufficient.
+	let signer_fee_seed: Vec<_> = treasury_signers.iter().cloned().map(|a| (a, 3 * UNIT)).collect();
 	log_genesis_accounts(
 		"planck",
 		&endowed_accounts,
@@ -424,4 +477,30 @@ pub fn preset_names() -> Vec<PresetId> {
 		PresetId::from(HEISENBERG_RUNTIME_PRESET),
 		PresetId::from(PLANCK_RUNTIME_PRESET),
 	]
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn seed_tech_collective_rejects_undersized_seed() {
+		let too_few: Vec<AccountId> = (0..(MIN_TECH_COLLECTIVE_MEMBERS as u8 - 1))
+			.map(|i| AccountId::new([i; 32]))
+			.collect();
+		assert!(seed_tech_collective(&too_few).is_err());
+		// An absent seed (empty) stays valid: it just means the collective is not seeded here.
+		assert!(seed_tech_collective(&[]).is_ok());
+	}
+
+	#[test]
+	fn all_presets_meet_the_tech_collective_floor() {
+		for seed in [
+			development_tech_collective_seed(),
+			heisenberg_tech_collective_seed(),
+			planck_tech_collective_seed(),
+		] {
+			assert!(seed.len() >= MIN_TECH_COLLECTIVE_MEMBERS);
+		}
+	}
 }

@@ -149,6 +149,7 @@ runtime-benchmarks = [
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"pallet-treasury/runtime-benchmarks",
+	"pallet-utility/runtime-benchmarks",
 	"pallet-wormhole/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
@@ -160,6 +161,7 @@ try-runtime = [
 	"frame-try-runtime/try-runtime",
 	"pallet-balances/try-runtime",
 	"pallet-mining-rewards/try-runtime",
+	"pallet-multisig/try-runtime",
 	"pallet-qpow/try-runtime",
 	"pallet-ranked-collective/try-runtime",
 	"pallet-recovery/try-runtime",
