@@ -85,13 +85,15 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 /// Transaction extension that records transfer proofs in the wormhole pallet
 ///
 /// This extension uses an EVENT-BASED approach to detect transfers:
-/// - After successful execution, scans for Transfer/Transferred/Issued events
+/// - After successful execution, scans for `Transfer`, `Minted` and `TransferOnHold` events
 /// - Records proofs for any transfers that were sent TO a wormhole account
 /// - Automatically catches ALL transfers regardless of how they're initiated:
 ///   - Direct transfers (transfer, transfer_keep_alive, transfer_all, etc.)
 ///   - Batch transfers (utility.batch, batch_all, force_batch)
 ///   - Multisig transfers (multisig.execute)
 ///   - Recovery transfers (recovery.as_recovered)
+///   - Held-fund seizures/recoveries (reversible_transfers.cancel / recover_funds,
+///     which move value with `transfer_on_hold` instead of a free-balance transfer)
 ///   - Scheduled transfers (scheduler)
 ///   - Future mechanisms automatically covered
 ///
@@ -204,6 +206,18 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 							let minting_account = crate::configs::MintingAccount::get();
 							Some((None, minting_account, who, amount))
 						},
+						// Held-balance transfers. The reversible-transfers pallet releases
+						// seized/recovered funds to the guardian with `transfer_on_hold`
+						// (`Restriction::Free`), so the destination receives ordinary free
+						// balance — a genuine credit that needs a leaf exactly like a
+						// `Transfer`, it just emits a different event. (`TransferAndHold`
+						// is deliberately not matched: nothing in the runtime emits it.)
+						RuntimeEvent::Balances(pallet_balances::Event::TransferOnHold {
+							source,
+							dest,
+							amount,
+							..
+						}) => Some((None, source, dest, amount)),
 						_ => None, // Ignore all other events
 					}
 				})
@@ -1073,6 +1087,50 @@ mod tests {
 			// Verify both transfers were recorded (proofs are now in ZK trie)
 			assert_eq!(Wormhole::transfer_count(&bob_account), bob_count_before + 1);
 			assert_eq!(Wormhole::transfer_count(&charlie_account), charlie_count_before + 1);
+		});
+	}
+
+	#[test]
+	fn event_based_proof_recording_guardian_seizure_via_transfer_on_hold() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let amount = EXISTENTIAL_DEPOSIT * 10;
+			let guardian = alice();
+			let count_before = Wormhole::transfer_count(&guardian);
+
+			// charlie is high-security (guardian = alice, from genesis); scheduling a
+			// transfer places the funds on hold.
+			assert_ok!(ReversibleTransfers::schedule_transfer(
+				RuntimeOrigin::signed(charlie()),
+				MultiAddress::Id(bob()),
+				amount,
+			));
+			let tx_id =
+				pallet_reversible_transfers::PendingTransfersBySender::<Runtime>::get(charlie())
+					[0];
+
+			// The guardian cancels: the held funds (minus the volume fee) are seized to
+			// the guardian via `transfer_on_hold`, which emits `Balances::TransferOnHold`
+			// — not a free-balance `Transfer`. The credit is real spendable value landing
+			// on the guardian's free balance, so the recorder must create a leaf for it
+			// exactly as it would for a plain transfer.
+			let events_before = frame_system::Pallet::<Runtime>::event_count();
+			assert_ok!(ReversibleTransfers::cancel(
+				RuntimeOrigin::signed(guardian.clone()),
+				tx_id
+			));
+
+			let recorded =
+				WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(
+					events_before,
+				);
+
+			assert_eq!(
+				recorded, 1,
+				"hold-transfer seizure must be recorded as a transfer proof"
+			);
+			assert_eq!(Wormhole::transfer_count(&guardian), count_before + 1);
 		});
 	}
 
