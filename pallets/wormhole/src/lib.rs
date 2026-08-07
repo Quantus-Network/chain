@@ -27,6 +27,22 @@ const PRIVATE_BATCH_PI_HEADER_FELTS: usize = 8;
 /// exit traffic.
 pub const UNSIGNED_EXIT_PRIORITY: u64 = 1;
 
+/// Hard upper bound on the serialized size of a settlement proof (the `proof_bytes`
+/// argument of `verify_private_batch` / `verify_public_batch`), enforced before the
+/// blob is copied or parsed.
+///
+/// Settlement extrinsics are unsigned and fee-free, and pre-validation runs for every
+/// gossiped pool candidate, so without this gate the only bound on the bytes an
+/// attacker can make every node copy (`to_vec`) and feed through the plonky2 parser
+/// is the block-length limit — megabytes above any real proof. Proof sizes are fixed
+/// by the compiled circuit dimensions: the current fixtures serialize to ~151 KB
+/// (private batch) and ~224 KB (public batch), so 512 KiB leaves ample headroom for
+/// circuit-knob growth (proof size scales only mildly with batch counts) while
+/// keeping worst-case admission work near real-proof cost. If a circuit upgrade ever
+/// pushes a real proof past this cap, `pre_validation_rejects_oversized_proof_bytes`
+/// and every fixture-based settlement test will fail loudly at the same time.
+pub const MAX_PROOF_BYTES: usize = 512 * 1024;
+
 /// Expected public-input count of the private-batch circuit compiled into this runtime.
 fn private_batch_expected_public_inputs() -> usize {
 	PRIVATE_BATCH_PI_HEADER_FELTS + circuit_config::NUM_LEAF_PROOFS * PUBLIC_INPUTS_FELTS_LEN
@@ -207,7 +223,7 @@ pub mod pallet {
 		pallet_prelude::*,
 		traits::{
 			fungible::{Inspect as FungibleInspect, Mutate, Unbalanced},
-			BuildGenesisConfig, Currency,
+			Currency,
 		},
 	};
 	use frame_system::pallet_prelude::*;
@@ -244,54 +260,6 @@ pub mod pallet {
 	#[pallet::pallet]
 	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
-
-	/// Genesis configuration for recording transfer proofs.
-	///
-	/// This allows addresses to be endowed at genesis with funds that can be spent
-	/// using ZK proofs. The endowments are stored during genesis and processed in
-	/// `on_initialize` at block 1, which calls `record_transfer` for each address.
-	/// This records both the TransferProof in storage AND emits NativeTransferred events.
-	///
-	/// We defer to block 1 because events emitted during genesis_build are not
-	/// persisted (Substrate limitation). By processing at block 1, indexers like
-	/// Subsquid can track these transfers.
-	///
-	/// The chain does not distinguish between "wormhole addresses" and regular addresses -
-	/// any address can have transfer proofs recorded and spend via ZK proofs.
-	///
-	/// Note: The actual balance must also be set via BalancesConfig separately.
-	#[pallet::genesis_config]
-	#[derive(frame_support::DefaultNoBound)]
-	pub struct GenesisConfig<T: Config> {
-		/// Addresses to record transfer proofs for at genesis: (address, amount).
-		/// A TransferProof will be recorded for each, enabling ZK spending.
-		/// Uses u128 for serde compatibility; converted to BalanceOf<T> at build time.
-		pub endowed_addresses: Vec<(T::WormholeAccountId, u128)>,
-	}
-
-	#[pallet::genesis_build]
-	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
-		fn build(&self) {
-			// Store endowments to be processed in on_initialize at block 1.
-			// We can't call record_transfer here because events emitted during
-			// genesis_build are not persisted (Substrate limitation).
-			// By deferring to block 1, both storage and events are handled correctly.
-			let pending: Vec<(T::WormholeAccountId, BalanceOf<T>)> = self
-				.endowed_addresses
-				.iter()
-				.map(|(to, amount)| {
-					let balance: BalanceOf<T> = (*amount).try_into().unwrap_or_else(|_| {
-						panic!("Genesis endowment amount {} exceeds Balance capacity", amount)
-					});
-					(to.clone(), balance)
-				})
-				.collect();
-
-			if !pending.is_empty() {
-				GenesisEndowmentsPending::<T>::put(pending);
-			}
-		}
-	}
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
@@ -396,17 +364,6 @@ pub mod pallet {
 	pub type TransferCount<T: Config> =
 		StorageMap<_, Blake2_128Concat, T::WormholeAccountId, T::TransferCount, ValueQuery>;
 
-	/// Genesis endowments pending event emission.
-	/// Stores (to_address, amount) for each genesis endowment.
-	/// These are processed in on_initialize at block 1 to emit NativeTransferred events,
-	/// then cleared. This ensures indexers like Subsquid can track genesis transfers.
-	///
-	/// Unbounded because it's only populated at genesis and cleared on block 1.
-	#[pallet::storage]
-	#[pallet::unbounded]
-	pub type GenesisEndowmentsPending<T: Config> =
-		StorageValue<_, Vec<(T::WormholeAccountId, BalanceOf<T>)>, ValueQuery>;
-
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
@@ -479,6 +436,13 @@ pub mod pallet {
 		BlockNotFound,
 		VerifierNotAvailable,
 		ProofDeserializationFailed,
+		/// The submitted proof blob exceeds [`crate::MAX_PROOF_BYTES`]. Rejected before
+		/// any copy or parsing so oversized unsigned spam costs only a length check.
+		ProofTooLarge,
+		/// The proof bytes are not the canonical serialization of the decoded proof
+		/// (e.g. a valid proof with trailing bytes, which the plonky2 parser would
+		/// silently ignore). Every proof has exactly one accepted byte encoding.
+		NonCanonicalProofEncoding,
 		ProofVerificationFailed,
 		InvalidProofPublicInputs,
 		/// The volume fee rate in the proof doesn't match the configured rate
@@ -489,31 +453,46 @@ pub mod pallet {
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-		/// On block 1, process all genesis endowments by calling record_transfer.
-		/// This records transfer proofs and emits NativeTransferred events.
-		/// We defer this from genesis_build because events emitted during genesis
-		/// are not persisted (Substrate limitation).
+		/// On block 1, record a transfer proof for every account that exists with a
+		/// balance — i.e. exactly the genesis balances.
+		///
+		/// The genesis state is the single source of truth: proofs are *derived* from the
+		/// balances actually issued (there is no separate endowment list that could
+		/// disagree with them), so an exitable leaf that isn't backed by real issuance is
+		/// unrepresentable. This runs before any extrinsic has ever executed, so the
+		/// account set observed here is precisely the genesis set.
+		///
+		/// We do this at block 1 rather than in a genesis build because events emitted
+		/// during genesis are not persisted (Substrate limitation); recording here emits
+		/// `NativeTransferred` events that indexers like Subsquid can track.
 		fn on_initialize(n: BlockNumberFor<T>) -> Weight {
 			// Only process on block 1
 			if n != One::one() {
 				return Weight::zero();
 			}
 
-			let pending = GenesisEndowmentsPending::<T>::take();
-			if pending.is_empty() {
-				return Weight::zero();
-			}
-
 			let minting_account: T::WormholeAccountId = T::MintingAccount::get().into();
-			let num_endowments = pending.len() as u64;
+			let mut accounts_seen = 0u64;
+			let mut recorded = 0u64;
 
-			for (to, amount) in pending {
+			for who in frame_system::Account::<T>::iter_keys() {
+				accounts_seen = accounts_seen.saturating_add(1);
+				let amount = <T::Currency as Currency<_>>::total_balance(&who);
+				if amount.is_zero() {
+					continue;
+				}
+				let to: T::WormholeAccountId = who.into();
 				// Record transfer proof and emit event
 				Self::record_transfer(T::AssetId::default(), &minting_account, &to, amount);
+				recorded = recorded.saturating_add(1);
 			}
 
-			// Weight: 1 read (take pending) + N * (2 reads + 2 writes + 1 event) per endowment
-			T::DbWeight::get().reads_writes(1 + num_endowments * 2, num_endowments * 2)
+			// Weight: 1 read per iterated account + N * (2 reads + 2 writes + 1 event)
+			// per recorded proof
+			T::DbWeight::get().reads_writes(
+				accounts_seen.saturating_add(recorded.saturating_mul(2)),
+				recorded.saturating_mul(2),
+			)
 		}
 	}
 
@@ -839,6 +818,13 @@ pub mod pallet {
 			for (exit_account, exit_balance) in &processed_accounts {
 				// Skip failed credits (e.g. below ED); nullifier already marked, value
 				// excluded from fee settlement / event.
+				//
+				// NOTE: this must stay `Unbalanced::increase_balance` (event-free). The runtime's
+				// `WormholeProofRecorderExtension` records a transfer proof for every
+				// `Balances::Minted` event it scans, and this exit already records its own proof
+				// via `record_transfer` below — switching to `mint_into` (which emits `Minted`)
+				// could double-record the credit. Pinned by the test
+				// `exit_credits_emit_no_scannable_transfer_events`.
 				match <T::Currency as Unbalanced<_>>::increase_balance(
 					exit_account,
 					*exit_balance,
@@ -1123,6 +1109,11 @@ pub mod pallet {
 			),
 			Error<T>,
 		> {
+			// Length gate FIRST: `proof_bytes` is attacker-controlled, unsigned and
+			// fee-free, and everything below copies (`to_vec`) and parses the whole
+			// blob. Without this bound the only limit is the block-length cap,
+			// megabytes above any real proof.
+			ensure!(proof_bytes.len() <= crate::MAX_PROOF_BYTES, Error::<T>::ProofTooLarge);
 			let verifier = crate::get_private_batch_verifier()
 				.map_err(|_| Error::<T>::VerifierNotAvailable)?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
@@ -1130,6 +1121,16 @@ pub mod pallet {
 				&verifier.circuit_data.common,
 			)
 			.map_err(|_| Error::<T>::ProofDeserializationFailed)?;
+			// Exact-framing check: `from_bytes` reads the proof off the front of the
+			// buffer and silently ignores trailing bytes, so without this a valid
+			// proof would have unboundedly many accepted byte representations — each
+			// a distinct tx hash whose copy+parse the pool re-pays at admission.
+			// Round-tripping pins one canonical encoding per proof (and also rejects
+			// non-canonical field encodings).
+			ensure!(
+				proof.to_bytes().as_slice() == proof_bytes,
+				Error::<T>::NonCanonicalProofEncoding
+			);
 			let inputs = parse_private_batch_public_inputs(&proof)
 				.map_err(|_| Error::<T>::InvalidProofPublicInputs)?;
 			let bundle: ExitBundle = inputs.into();
@@ -1167,6 +1168,9 @@ pub mod pallet {
 			),
 			Error<T>,
 		> {
+			// Same gates as `pre_validate_private_batch_proof`: length bound before
+			// any copy/parse, then exact canonical framing after deserialization.
+			ensure!(proof_bytes.len() <= crate::MAX_PROOF_BYTES, Error::<T>::ProofTooLarge);
 			let verifier =
 				crate::get_public_batch_verifier().map_err(|_| Error::<T>::VerifierNotAvailable)?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
@@ -1174,6 +1178,10 @@ pub mod pallet {
 				&verifier.circuit_data.common,
 			)
 			.map_err(|_| Error::<T>::ProofDeserializationFailed)?;
+			ensure!(
+				proof.to_bytes().as_slice() == proof_bytes,
+				Error::<T>::NonCanonicalProofEncoding
+			);
 			let inputs = parse_public_batch_public_inputs(
 				&proof,
 				crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
@@ -1312,6 +1320,16 @@ pub mod pallet {
 			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
 		) -> bool {
+			// A zero-amount credit moves no value, so a leaf for it is pure state growth:
+			// it would advance the recipient's transfer count, enlarge the ZK tree, and
+			// emit a transfer event for nothing. Zero-value `Balances::Transfer` events
+			// are reachable from permissionless surfaces (plain `transfer_keep_alive(0)`,
+			// zero-value scheduled transfers, ...), so drop the credit here — the single
+			// chokepoint every event-scan / call-site recorder goes through — and report
+			// it as not recorded so weight reconciliation does not count a leaf insert.
+			if amount.is_zero() {
+				return false;
+			}
 			// The wormhole tags native leaves with `asset_id == 0`, but `pallet_assets` uses
 			// id 0 for an unrelated, independently-mintable token. Genuine native reaches us as
 			// `None` (from `Balances` events); a `pallet_assets` asset-0 credit reaches us as

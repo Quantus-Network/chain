@@ -163,27 +163,38 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 			.saturating_add(T::DbWeight::get().reads(1_u64.saturating_add(nullifier_reads)))
 	}
 	/// Inclusion path: ZK verify + pre-validation twice (`pre_dispatch` and dispatch
-	/// body), each charged in full (compute + DB + PoV), plus exit-processing storage.
+	/// body), each charged in full (compute + DB + PoV), plus exit-processing storage
+	/// and the per-exit ZK-tree Poseidon hashing (one hash per tree level per insert).
 	fn verify_private_batch() -> Weight {
 		let tree_ops = pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops();
 		let (reads, writes, proof_size) =
 			storage_tail(private_batch_max_exits(), false, tree_ops);
-		Weight::from_parts(PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS, proof_size)
-			.saturating_add(T::DbWeight::get().reads(reads))
-			.saturating_add(T::DbWeight::get().writes(writes))
-			.saturating_add(Self::pre_validate_proof())
-			.saturating_add(Self::pre_validate_proof())
+		let hash_time = private_batch_max_exits()
+			.saturating_mul(pallet_zk_tree::Pallet::<T>::insert_leaf_hash_ref_time());
+		Weight::from_parts(
+			PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS.saturating_add(hash_time),
+			proof_size,
+		)
+		.saturating_add(T::DbWeight::get().reads(reads))
+		.saturating_add(T::DbWeight::get().writes(writes))
+		.saturating_add(Self::pre_validate_proof())
+		.saturating_add(Self::pre_validate_proof())
 	}
 	/// Same double-prevalidation shape as [`Self::verify_private_batch`], scaled
 	/// across all inner segments plus the aggregator rebate.
 	fn verify_public_batch() -> Weight {
 		let tree_ops = pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops();
 		let (reads, writes, proof_size) = storage_tail(public_batch_max_exits(), true, tree_ops);
-		Weight::from_parts(PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS, proof_size)
-			.saturating_add(T::DbWeight::get().reads(reads))
-			.saturating_add(T::DbWeight::get().writes(writes))
-			.saturating_add(Self::pre_validate_public_batch_proof())
-			.saturating_add(Self::pre_validate_public_batch_proof())
+		let hash_time = public_batch_max_exits()
+			.saturating_mul(pallet_zk_tree::Pallet::<T>::insert_leaf_hash_ref_time());
+		Weight::from_parts(
+			PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS.saturating_add(hash_time),
+			proof_size,
+		)
+		.saturating_add(T::DbWeight::get().reads(reads))
+		.saturating_add(T::DbWeight::get().writes(writes))
+		.saturating_add(Self::pre_validate_public_batch_proof())
+		.saturating_add(Self::pre_validate_public_batch_proof())
 	}
 }
 
@@ -204,27 +215,39 @@ impl WeightInfo for () {
 		Weight::from_parts(PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS, proof_size)
 			.saturating_add(RocksDbWeight::get().reads(1_u64.saturating_add(nullifier_reads)))
 	}
-	/// See `SubstrateWeight::verify_private_batch`. Tree component priced at
-	/// `MAX_TREE_DEPTH` (no runtime type to read live depth).
+	/// See `SubstrateWeight::verify_private_batch`. Tree component (DB ops and
+	/// Poseidon hashing) priced at `MAX_TREE_DEPTH` (no runtime type to read live depth).
 	fn verify_private_batch() -> Weight {
 		let tree_ops = pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
 		let (reads, writes, proof_size) =
 			storage_tail(private_batch_max_exits(), false, tree_ops);
-		Weight::from_parts(PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS, proof_size)
-			.saturating_add(RocksDbWeight::get().reads(reads))
-			.saturating_add(RocksDbWeight::get().writes(writes))
-			.saturating_add(Self::pre_validate_proof())
-			.saturating_add(Self::pre_validate_proof())
+		let hash_time = private_batch_max_exits().saturating_mul(
+			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
+		);
+		Weight::from_parts(
+			PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS.saturating_add(hash_time),
+			proof_size,
+		)
+		.saturating_add(RocksDbWeight::get().reads(reads))
+		.saturating_add(RocksDbWeight::get().writes(writes))
+		.saturating_add(Self::pre_validate_proof())
+		.saturating_add(Self::pre_validate_proof())
 	}
 	/// See `SubstrateWeight::verify_public_batch`.
 	fn verify_public_batch() -> Weight {
 		let tree_ops = pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
 		let (reads, writes, proof_size) = storage_tail(public_batch_max_exits(), true, tree_ops);
-		Weight::from_parts(PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS, proof_size)
-			.saturating_add(RocksDbWeight::get().reads(reads))
-			.saturating_add(RocksDbWeight::get().writes(writes))
-			.saturating_add(Self::pre_validate_public_batch_proof())
-			.saturating_add(Self::pre_validate_public_batch_proof())
+		let hash_time = public_batch_max_exits().saturating_mul(
+			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
+		);
+		Weight::from_parts(
+			PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS.saturating_add(hash_time),
+			proof_size,
+		)
+		.saturating_add(RocksDbWeight::get().reads(reads))
+		.saturating_add(RocksDbWeight::get().writes(writes))
+		.saturating_add(Self::pre_validate_public_batch_proof())
+		.saturating_add(Self::pre_validate_public_batch_proof())
 	}
 }
 
@@ -365,6 +388,87 @@ mod tests {
 		assert!(
 			verify_public.proof_size() >= public_tail_pov + 2 * pre_public.proof_size(),
 			"public verify must charge both pre-validations' PoV"
+		);
+	}
+
+	/// Every processed exit inserts a ZK-tree leaf, whose path update computes one
+	/// Poseidon hash per tree level. That compute must be charged in `ref_time` on
+	/// top of the DB ops — the mock's `DbWeight` is zero, so any depth-driven
+	/// `ref_time` growth must come from the hashing term.
+	#[test]
+	fn verify_weights_charge_per_exit_hash_compute() {
+		crate::mock::new_test_ext().execute_with(|| {
+			type W = SubstrateWeight<crate::mock::Test>;
+
+			pallet_zk_tree::Depth::<crate::mock::Test>::put(1);
+			let shallow = W::verify_private_batch();
+			pallet_zk_tree::Depth::<crate::mock::Test>::put(20);
+			let deep = W::verify_private_batch();
+			assert!(
+				deep.ref_time() > shallow.ref_time(),
+				"per-exit Poseidon hashing must make verify ref_time grow with tree depth"
+			);
+
+			// Exact floor: ZK verify + both pre-validations + one leaf insert's
+			// hashing per exit, all at the live depth.
+			let hash_private = private_batch_max_exits()
+				.saturating_mul(pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(20));
+			assert!(
+				deep.ref_time() >=
+					PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS +
+						2 * W::pre_validate_proof().ref_time() + hash_private,
+				"private verify must charge per-exit hash compute"
+			);
+
+			let deep_public = W::verify_public_batch();
+			let hash_public = public_batch_max_exits()
+				.saturating_mul(pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(20));
+			assert!(
+				deep_public.ref_time() >=
+					PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS +
+						2 * W::pre_validate_public_batch_proof().ref_time() +
+						hash_public,
+				"public verify must charge per-exit hash compute"
+			);
+		});
+	}
+
+	/// The depth-blind `()` impl must charge the same per-exit hash compute,
+	/// priced at `MAX_TREE_DEPTH`.
+	#[test]
+	fn unit_impl_verify_weights_charge_per_exit_hash_compute() {
+		let hash_per_insert = pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(
+			pallet_zk_tree::MAX_TREE_DEPTH,
+		);
+		let tree_ops =
+			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
+
+		let (reads, writes, _) = storage_tail(private_batch_max_exits(), false, tree_ops);
+		let private_db_time = RocksDbWeight::get()
+			.reads(reads)
+			.saturating_add(RocksDbWeight::get().writes(writes))
+			.ref_time();
+		assert!(
+			<() as WeightInfo>::verify_private_batch().ref_time() >=
+				PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS +
+					private_db_time +
+					2 * <() as WeightInfo>::pre_validate_proof().ref_time() +
+					private_batch_max_exits().saturating_mul(hash_per_insert),
+			"() private verify must charge per-exit hash compute on top of DB ops"
+		);
+
+		let (reads, writes, _) = storage_tail(public_batch_max_exits(), true, tree_ops);
+		let public_db_time = RocksDbWeight::get()
+			.reads(reads)
+			.saturating_add(RocksDbWeight::get().writes(writes))
+			.ref_time();
+		assert!(
+			<() as WeightInfo>::verify_public_batch().ref_time() >=
+				PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS +
+					public_db_time +
+					2 * <() as WeightInfo>::pre_validate_public_batch_proof().ref_time() +
+					public_batch_max_exits().saturating_mul(hash_per_insert),
+			"() public verify must charge per-exit hash compute on top of DB ops"
 		);
 	}
 

@@ -84,17 +84,42 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 /// Transaction extension that records transfer proofs in the wormhole pallet
 ///
 /// This extension uses an EVENT-BASED approach to detect transfers:
-/// - After successful execution, scans for Transfer/Transferred/Issued events
+/// - After successful execution, scans for `Transfer`, `Minted`, `TransferOnHold` and
+///   `ReserveRepatriated` events
 /// - Records proofs for any transfers that were sent TO a wormhole account
-/// - Automatically catches ALL transfers regardless of how they're initiated:
+/// - Automatically catches ALL transfers dispatched inside a transaction, regardless of how they're
+///   initiated:
 ///   - Direct transfers (transfer, transfer_keep_alive, transfer_all, etc.)
 ///   - Batch transfers (utility.batch, batch_all, force_batch)
 ///   - Multisig transfers (multisig.execute)
 ///   - Recovery transfers (recovery.as_recovered)
-///   - Scheduled transfers (scheduler)
-///   - Future mechanisms automatically covered
+///   - Held-fund seizures/recoveries (reversible_transfers.cancel / recover_funds, which move value
+///     with `transfer_on_hold` instead of a free-balance transfer)
+///   - Recovery-deposit seizures (recovery.close_recovery, which moves the rescuer's deposit with
+///     `repatriate_reserved`)
+///   - Future call-based mechanisms automatically covered, since wrapper calls emit their inner
+///     events within the same extrinsic's event range
 ///
-/// This addresses audit item EQ-QNT-WORMHOLE-F-05 comprehensively.
+/// COVERAGE BOUNDARY: transaction extensions only run for transactions, so this scan
+/// never sees events emitted from hooks (`on_initialize` / `on_finalize`). Every
+/// hook-context credit therefore needs — and has — an explicit
+/// `TransferProofRecorder::record_transfer_proof` call instead:
+///   - reversible-transfers' scheduled execution records its transfer in `do_execute_transfer`;
+///   - mining rewards and the treasury share record theirs in `on_finalize`
+///     (`pallet_mining_rewards`), using eventless `increase_balance` credits.
+///
+/// The one remaining hook-context path is a governance-enacted call: referenda enactment
+/// dispatches the approved call via the scheduler in `on_initialize` (e.g. a Root
+/// `force_transfer`), so its events are not scanned and no leaf is recorded. This is a
+/// known, accepted gap rather than an oversight: the scheduler's `ScheduleOrigin` is
+/// Root, the tech-referenda track only accepts Root proposal origins, and sudo is
+/// removed — so only Root can reach it, and Root can already forge or delete leaves
+/// outright (`set_storage`, runtime upgrades), so there is no invariant left to defend
+/// against it. The miss is conservative (the credit exists but gains no ZK-spendable
+/// leaf; no unbacked exit capacity is created) and repairable (governance can re-issue
+/// the credit as an ordinary signed transfer if a leaf is wanted).
+///
+/// This addresses audit item EQ-QNT-WORMHOLE-F-05.
 #[derive(Encode, Decode, Clone, Eq, PartialEq, Default, TypeInfo, Debug, DecodeWithMemTracking)]
 #[scale_info(skip_type_params(T))]
 pub struct WormholeProofRecorderExtension<T: pallet_wormhole::Config + Send + Sync>(PhantomData<T>);
@@ -109,12 +134,37 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	///
 	/// Per recorded transfer, `record_transfer` touches one `TransferCount` read and one
 	/// write, plus the ZK-tree leaf insert, whose path update walks the tree leaf-to-root
-	/// and therefore costs reads/writes proportional to the *current* tree depth (read from
-	/// storage here, so the charge tracks the tree as it deepens over the chain's life).
+	/// and therefore costs reads/writes *and* one Poseidon hash per level, both
+	/// proportional to the *current* tree depth (read from storage here, so the charge
+	/// tracks the tree as it deepens over the chain's life).
 	fn per_transfer_weight() -> Weight {
 		let (tree_reads, tree_writes) = pallet_zk_tree::Pallet::<Runtime>::insert_leaf_db_ops();
+		let hash_time = pallet_zk_tree::Pallet::<Runtime>::insert_leaf_hash_ref_time();
 		T::DbWeight::get()
 			.reads_writes(1u64.saturating_add(tree_reads), 1u64.saturating_add(tree_writes))
+			.saturating_add(Weight::from_parts(hash_time, 0))
+	}
+
+	/// Worst-case `ref_time` (picoseconds) to stream-decode one `EventRecord` in
+	/// [`Self::record_proofs_from_events_since`]. A record is a small SCALE blob
+	/// (phase + event enum + topics, typically well under ~300 bytes) decoded from an
+	/// already-fetched storage value — roughly 100–300ns of pure decode on reference
+	/// hardware; 1µs is a conservative ceiling.
+	const EVENT_SCAN_DECODE_REF_TIME_PS: u64 = 1_000_000;
+
+	/// Weight of the post-dispatch event scan when `events` records are present at
+	/// scan time. `Events::stream_iter` fetches the storage value (one read) and the
+	/// scan then decodes EVERY record present — `Iterator::skip` discards but still
+	/// decodes the pre-snapshot prefix — so the cost is per record *present*, not per
+	/// record matched or recorded.
+	fn event_scan_weight(events: u32) -> Weight {
+		if events == 0 {
+			return Weight::zero();
+		}
+		T::DbWeight::get().reads(1).saturating_add(Weight::from_parts(
+			Self::EVENT_SCAN_DECODE_REF_TIME_PS.saturating_mul(u64::from(events)),
+			0,
+		))
 	}
 
 	fn count_transfers(call: &RuntimeCall) -> u64 {
@@ -193,6 +243,30 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 							let minting_account = crate::configs::MintingAccount::get();
 							Some((None, minting_account, who, amount))
 						},
+						// Held-balance transfers. The reversible-transfers pallet releases
+						// seized/recovered funds to the guardian with `transfer_on_hold`
+						// (`Restriction::Free`), so the destination receives ordinary free
+						// balance — a genuine credit that needs a leaf exactly like a
+						// `Transfer`, it just emits a different event. (`TransferAndHold`
+						// is deliberately not matched: nothing in the runtime emits it.)
+						RuntimeEvent::Balances(pallet_balances::Event::TransferOnHold {
+							source,
+							dest,
+							amount,
+							..
+						}) => Some((None, source, dest, amount)),
+						// Reserved-balance repatriations. `pallet_recovery::close_recovery`
+						// seizes the rescuer's recovery deposit into the rescued account with
+						// `repatriate_reserved`, which emits this instead of a `Transfer`. The
+						// event is only emitted for cross-account moves (self-repatriations
+						// return early), and the credit belongs to `to` whether it lands free
+						// or reserved, so record it unconditionally.
+						RuntimeEvent::Balances(pallet_balances::Event::ReserveRepatriated {
+							from,
+							to,
+							amount,
+							..
+						}) => Some((None, from, to, amount)),
 						_ => None, // Ignore all other events
 					}
 				})
@@ -273,19 +347,32 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		// Use the event count snapshot from prepare() to avoid duplicate recording.
 		if result.is_ok() {
 			let (event_count_before, charged_transfers) = pre;
+			// Captured BEFORE recording deposits new events: this is exactly the number
+			// of records the scan below decodes.
+			let events_at_scan = frame_system::Pallet::<Runtime>::event_count();
 			let recorded = Self::record_proofs_from_events_since(event_count_before);
 
-			// Wrappers that dispatch inner calls stored on-chain (`Multisig::execute`,
-			// `ReversibleTransfers::recover_funds`, ...) can emit transfer events the static
-			// `count_transfers` matcher cannot see, so the proof-recording work above may exceed
-			// the weight reserved by `weight()`. Register the shortfall against the block so
-			// block-weight based DoS protection stays sound even when the static count drifts.
+			// Two pieces of caller-influenced work here are invisible to the static
+			// `weight()` and are therefore registered against the block post-hoc (this
+			// keeps block-capacity accounting sound; it is not fee-charged):
+			//
+			// 1. The event scan itself: any call can emit events the scan must decode (e.g. batched
+			//    `remark_with_event`), and the decode cost is per record present at scan time — see
+			//    `event_scan_weight`.
+			//
+			// 2. Recording shortfall: wrappers that dispatch inner calls stored on-chain
+			//    (`Multisig::execute`, `ReversibleTransfers::recover_funds`, ...) can emit transfer
+			//    events the static `count_transfers` matcher cannot see, so the proof-recording
+			//    work above may exceed the weight reserved by `weight()`.
+			let mut extra = Self::event_scan_weight(events_at_scan);
 			if recorded > charged_transfers {
-				frame_system::Pallet::<Runtime>::register_extra_weight_unchecked(
+				extra = extra.saturating_add(
 					Self::per_transfer_weight()
 						.saturating_mul(recorded.saturating_sub(charged_transfers)),
-					info.class,
 				);
+			}
+			if extra != Weight::zero() {
+				frame_system::Pallet::<Runtime>::register_extra_weight_unchecked(extra, info.class);
 			}
 		}
 
@@ -783,6 +870,29 @@ mod tests {
 	}
 
 	#[test]
+	fn per_transfer_weight_includes_tree_hash_compute() {
+		new_test_ext().execute_with(|| {
+			// Recording a transfer inserts a ZK-tree leaf; the path update computes one
+			// Poseidon hash per tree level. That compute must be charged on top of the
+			// DB ops, otherwise every recorded transfer under-declares execution work
+			// by an amount that grows with the tree depth.
+			pallet_zk_tree::Depth::<Runtime>::put(20);
+			let weight = WormholeProofRecorderExtension::<Runtime>::per_transfer_weight();
+
+			let (tree_reads, tree_writes) = pallet_zk_tree::insert_leaf_db_ops_at_depth(20);
+			let db_time = <Runtime as frame_system::Config>::DbWeight::get()
+				.reads_writes(1u64.saturating_add(tree_reads), 1u64.saturating_add(tree_writes))
+				.ref_time();
+			assert!(
+				weight.ref_time() >=
+					db_time + pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(20),
+				"per-transfer weight must charge the leaf insert's Poseidon hashing \
+				 on top of its DB ops"
+			);
+		});
+	}
+
+	#[test]
 	fn per_transfer_weight_scales_with_tree_depth() {
 		new_test_ext().execute_with(|| {
 			// Recording a transfer inserts a ZK-tree leaf, and the path update walks the
@@ -813,19 +923,59 @@ mod tests {
 
 			let weight_before = frame_system::Pallet::<Runtime>::block_weight().total();
 
+			let scanned = core::cell::Cell::new(0u32);
 			run_lifecycle(&alice(), opaque_call, || {
 				assert_ok!(Balances::transfer_keep_alive(
 					RuntimeOrigin::signed(alice()),
 					MultiAddress::Id(bob()),
 					EXISTENTIAL_DEPOSIT * 50,
 				));
+				scanned.set(frame_system::Pallet::<Runtime>::event_count());
 			});
 
 			let weight_after = frame_system::Pallet::<Runtime>::block_weight().total();
 			assert_eq!(
 				weight_after.saturating_sub(weight_before),
-				WormholeProofRecorderExtension::<Runtime>::per_transfer_weight(),
-				"the uncounted recorded transfer must be registered as extra block weight"
+				WormholeProofRecorderExtension::<Runtime>::per_transfer_weight().saturating_add(
+					WormholeProofRecorderExtension::<Runtime>::event_scan_weight(scanned.get())
+				),
+				"the uncounted recorded transfer must be registered as extra block weight, \
+				 on top of the always-registered event-scan weight"
+			);
+		});
+	}
+
+	/// The post-dispatch scan streams `System::Events` through a decoding iterator —
+	/// and `skip()` still decodes the records it discards — so every event record
+	/// present at scan time costs decode work even when nothing is recorded. A signed
+	/// caller can emit arbitrarily many events with zero-transfer calls (e.g. batched
+	/// `remark_with_event`), so that work must be registered against the block.
+	#[test]
+	fn wormhole_proof_recorder_registers_event_scan_weight() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
+			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&call), 0);
+
+			let weight_before = frame_system::Pallet::<Runtime>::block_weight().total();
+
+			// Capture the event count at the end of the dispatch closure: that is
+			// exactly the number of records the post-dispatch scan decodes.
+			let scanned = core::cell::Cell::new(0u32);
+			run_lifecycle(&alice(), call, || {
+				for i in 0..7u8 {
+					assert_ok!(System::remark_with_event(RuntimeOrigin::signed(alice()), vec![i],));
+				}
+				scanned.set(frame_system::Pallet::<Runtime>::event_count());
+			});
+			assert!(scanned.get() >= 7, "the remarks must have emitted events");
+
+			let weight_after = frame_system::Pallet::<Runtime>::block_weight().total();
+			assert_eq!(
+				weight_after.saturating_sub(weight_before),
+				WormholeProofRecorderExtension::<Runtime>::event_scan_weight(scanned.get()),
+				"the per-event decode work of the scan must be registered as block weight"
 			);
 		});
 	}
@@ -991,6 +1141,87 @@ mod tests {
 			// Verify both transfers were recorded (proofs are now in ZK trie)
 			assert_eq!(Wormhole::transfer_count(&bob_account), bob_count_before + 1);
 			assert_eq!(Wormhole::transfer_count(&charlie_account), charlie_count_before + 1);
+		});
+	}
+
+	#[test]
+	fn event_based_proof_recording_guardian_seizure_via_transfer_on_hold() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let amount = EXISTENTIAL_DEPOSIT * 10;
+			let guardian = alice();
+			let count_before = Wormhole::transfer_count(&guardian);
+
+			// charlie is high-security (guardian = alice, from genesis); scheduling a
+			// transfer places the funds on hold.
+			assert_ok!(ReversibleTransfers::schedule_transfer(
+				RuntimeOrigin::signed(charlie()),
+				MultiAddress::Id(bob()),
+				amount,
+			));
+			let tx_id =
+				pallet_reversible_transfers::PendingTransfersBySender::<Runtime>::get(charlie())[0];
+
+			// The guardian cancels: the held funds (minus the volume fee) are seized to
+			// the guardian via `transfer_on_hold`, which emits `Balances::TransferOnHold`
+			// — not a free-balance `Transfer`. The credit is real spendable value landing
+			// on the guardian's free balance, so the recorder must create a leaf for it
+			// exactly as it would for a plain transfer.
+			let events_before = frame_system::Pallet::<Runtime>::event_count();
+			assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(guardian.clone()), tx_id));
+
+			let recorded =
+				WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(
+					events_before,
+				);
+
+			assert_eq!(recorded, 1, "hold-transfer seizure must be recorded as a transfer proof");
+			assert_eq!(Wormhole::transfer_count(&guardian), count_before + 1);
+		});
+	}
+
+	#[test]
+	fn event_based_proof_recording_recovery_deposit_repatriation() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			// alice makes her account recoverable; bob (say, maliciously) initiates a
+			// recovery, reserving the recovery deposit on his own account. The recovery
+			// deposits are UNIT-denominated, so fund both well past the genesis balances.
+			Balances::make_free_balance_be(&alice(), 100 * crate::UNIT);
+			Balances::make_free_balance_be(&bob(), 100 * crate::UNIT);
+			assert_ok!(Recovery::create_recovery(
+				RuntimeOrigin::signed(alice()),
+				vec![charlie()],
+				1,
+				0,
+			));
+			assert_ok!(Recovery::initiate_recovery(
+				RuntimeOrigin::signed(bob()),
+				MultiAddress::Id(alice()),
+			));
+
+			let count_before = Wormhole::transfer_count(&alice());
+			let events_before = frame_system::Pallet::<Runtime>::event_count();
+
+			// Closing the recovery seizes the rescuer's reserved deposit into alice's
+			// free balance via `repatriate_reserved`, which emits
+			// `Balances::ReserveRepatriated` — not a free-balance `Transfer`. The
+			// credit is real spendable value landing on alice, so the recorder must
+			// create a leaf for it.
+			assert_ok!(Recovery::close_recovery(
+				RuntimeOrigin::signed(alice()),
+				MultiAddress::Id(bob()),
+			));
+
+			let recorded =
+				WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(
+					events_before,
+				);
+
+			assert_eq!(recorded, 1, "reserve repatriation must be recorded as a transfer proof");
+			assert_eq!(Wormhole::transfer_count(&alice()), count_before + 1);
 		});
 	}
 

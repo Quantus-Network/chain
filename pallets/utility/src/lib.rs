@@ -267,6 +267,10 @@ pub mod pallet {
 				T::WeightInfo::as_derivative()
 					// AccountData for inner call origin accountdata.
 					.saturating_add(T::DbWeight::get().reads_writes(1, 1))
+					// High-security policy check on the pseudonym (`is_call_allowed` →
+					// one classification read in the runtime inspector); the benchmarked
+					// base runs with the no-op inspector and does not include it.
+					.saturating_add(T::DbWeight::get().reads(1))
 					.saturating_add(dispatch_info.call_weight),
 				dispatch_info.class,
 			)
@@ -286,9 +290,11 @@ pub mod pallet {
 			origin.set_caller_from(frame_system::RawOrigin::Signed(pseudonym));
 			let info = call.get_dispatch_info();
 			let result = call.dispatch(origin);
-			// Always take into account the base weight of this call.
+			// Always take into account the base weight of this call, plus the
+			// high-security policy read on the pseudonym performed on every invocation.
 			let mut weight = T::WeightInfo::as_derivative()
-				.saturating_add(T::DbWeight::get().reads_writes(1, 1));
+				.saturating_add(T::DbWeight::get().reads_writes(1, 1))
+				.saturating_add(T::DbWeight::get().reads(1));
 			// Add the real weight of the dispatch.
 			weight = weight.saturating_add(extract_actual_weight(&result, &info));
 			result
