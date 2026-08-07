@@ -207,7 +207,7 @@ pub mod pallet {
 		pallet_prelude::*,
 		traits::{
 			fungible::{Inspect as FungibleInspect, Mutate, Unbalanced},
-			BuildGenesisConfig, Contains, Currency,
+			Contains, Currency,
 		},
 	};
 	use frame_system::pallet_prelude::*;
@@ -243,54 +243,6 @@ pub mod pallet {
 	#[pallet::pallet]
 	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
-
-	/// Genesis configuration for recording transfer proofs.
-	///
-	/// This allows addresses to be endowed at genesis with funds that can be spent
-	/// using ZK proofs. The endowments are stored during genesis and processed in
-	/// `on_initialize` at block 1, which calls `record_transfer` for each address.
-	/// This records both the TransferProof in storage AND emits NativeTransferred events.
-	///
-	/// We defer to block 1 because events emitted during genesis_build are not
-	/// persisted (Substrate limitation). By processing at block 1, indexers like
-	/// Subsquid can track these transfers.
-	///
-	/// The chain does not distinguish between "wormhole addresses" and regular addresses -
-	/// any address can have transfer proofs recorded and spend via ZK proofs.
-	///
-	/// Note: The actual balance must also be set via BalancesConfig separately.
-	#[pallet::genesis_config]
-	#[derive(frame_support::DefaultNoBound)]
-	pub struct GenesisConfig<T: Config> {
-		/// Addresses to record transfer proofs for at genesis: (address, amount).
-		/// A TransferProof will be recorded for each, enabling ZK spending.
-		/// Uses u128 for serde compatibility; converted to BalanceOf<T> at build time.
-		pub endowed_addresses: Vec<(T::WormholeAccountId, u128)>,
-	}
-
-	#[pallet::genesis_build]
-	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
-		fn build(&self) {
-			// Store endowments to be processed in on_initialize at block 1.
-			// We can't call record_transfer here because events emitted during
-			// genesis_build are not persisted (Substrate limitation).
-			// By deferring to block 1, both storage and events are handled correctly.
-			let pending: Vec<(T::WormholeAccountId, BalanceOf<T>)> = self
-				.endowed_addresses
-				.iter()
-				.map(|(to, amount)| {
-					let balance: BalanceOf<T> = (*amount).try_into().unwrap_or_else(|_| {
-						panic!("Genesis endowment amount {} exceeds Balance capacity", amount)
-					});
-					(to.clone(), balance)
-				})
-				.collect();
-
-			if !pending.is_empty() {
-				GenesisEndowmentsPending::<T>::put(pending);
-			}
-		}
-	}
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
@@ -412,17 +364,6 @@ pub mod pallet {
 	pub type TransferCount<T: Config> =
 		StorageMap<_, Blake2_128Concat, T::WormholeAccountId, T::TransferCount, ValueQuery>;
 
-	/// Genesis endowments pending event emission.
-	/// Stores (to_address, amount) for each genesis endowment.
-	/// These are processed in on_initialize at block 1 to emit NativeTransferred events,
-	/// then cleared. This ensures indexers like Subsquid can track genesis transfers.
-	///
-	/// Unbounded because it's only populated at genesis and cleared on block 1.
-	#[pallet::storage]
-	#[pallet::unbounded]
-	pub type GenesisEndowmentsPending<T: Config> =
-		StorageValue<_, Vec<(T::WormholeAccountId, BalanceOf<T>)>, ValueQuery>;
-
 	/// Sum of balances held by "ambiguous" addresses (accounts that have never signed a
 	/// dilithium transaction, i.e. `nonce == 0`). These addresses are indistinguishable from
 	/// wormhole deposit addresses, so this is the maximum value that could legitimately be
@@ -530,31 +471,51 @@ pub mod pallet {
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-		/// On block 1, process all genesis endowments by calling record_transfer.
-		/// This records transfer proofs and emits NativeTransferred events.
-		/// We defer this from genesis_build because events emitted during genesis
-		/// are not persisted (Substrate limitation).
+		/// On block 1, record a transfer proof for every account that exists with a
+		/// balance — i.e. exactly the genesis balances.
+		///
+		/// The genesis state is the single source of truth: proofs are *derived* from the
+		/// balances actually issued (there is no separate endowment list that could
+		/// disagree with them), so an exitable leaf or `PotentialWormholeBalance` credit
+		/// that isn't backed by real issuance is unrepresentable. This runs before any
+		/// extrinsic has ever executed, so the account set observed here is precisely the
+		/// genesis set.
+		///
+		/// This also seeds the soundness pool consistently: the reveal logic subtracts a
+		/// first-time signer's whole balance from the pool on the assumption that every
+		/// credit it received was counted in, which now holds for genesis balances too.
+		///
+		/// We do this at block 1 rather than in a genesis build because events emitted
+		/// during genesis are not persisted (Substrate limitation); recording here emits
+		/// `NativeTransferred` events that indexers like Subsquid can track.
 		fn on_initialize(n: BlockNumberFor<T>) -> Weight {
 			// Only process on block 1
 			if n != One::one() {
 				return Weight::zero();
 			}
 
-			let pending = GenesisEndowmentsPending::<T>::take();
-			if pending.is_empty() {
-				return Weight::zero();
-			}
-
 			let minting_account: T::WormholeAccountId = T::MintingAccount::get().into();
-			let num_endowments = pending.len() as u64;
+			let mut accounts_seen = 0u64;
+			let mut recorded = 0u64;
 
-			for (to, amount) in pending {
+			for who in frame_system::Account::<T>::iter_keys() {
+				accounts_seen = accounts_seen.saturating_add(1);
+				let amount = <T::Currency as Currency<_>>::total_balance(&who);
+				if amount.is_zero() {
+					continue;
+				}
+				let to: T::WormholeAccountId = who.into();
 				// Record transfer proof and emit event
 				Self::record_transfer(T::AssetId::default(), &minting_account, &to, amount);
+				recorded = recorded.saturating_add(1);
 			}
 
-			// Weight: 1 read (take pending) + N * (2 reads + 2 writes + 1 event) per endowment
-			T::DbWeight::get().reads_writes(1 + num_endowments * 2, num_endowments * 2)
+			// Weight: 1 read per iterated account + N * (2 reads + 2 writes + 1 event)
+			// per recorded proof
+			T::DbWeight::get().reads_writes(
+				accounts_seen.saturating_add(recorded.saturating_mul(2)),
+				recorded.saturating_mul(2),
+			)
 		}
 	}
 

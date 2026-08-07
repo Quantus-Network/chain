@@ -148,13 +148,12 @@ pub fn new_test_ext() -> sp_state_machine::TestExternalities<BlakeTwo256> {
 	t.into()
 }
 
-/// Build test externalities with genesis endowments.
-/// Each endowment is (address, amount) and will have both balance and TransferProof recorded
-/// (after block 1 initialization), enabling the address to spend via ZK proofs.
+/// Build test externalities with genesis balance endowments.
 ///
-/// Note: This sets up the genesis state, but TransferProofs are recorded in on_initialize
-/// at block 1. Tests should call `System::set_block_number(1)` and then trigger
-/// `Wormhole::on_initialize(1)` to process the endowments.
+/// TransferProofs are *derived* from these balances in `on_initialize` at block 1 (the
+/// wormhole pallet records a proof for every account existing with a balance), enabling
+/// each address to spend via ZK proofs. Tests should call `System::set_block_number(1)`
+/// and then trigger `Wormhole::on_initialize(1)` to process them.
 pub fn new_test_ext_with_endowments(
 	endowments: Vec<(AccountId, Balance)>,
 ) -> sp_state_machine::TestExternalities<BlakeTwo256> {
@@ -162,13 +161,8 @@ pub fn new_test_ext_with_endowments(
 
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
-	// Set up balances for the endowed accounts
-	pallet_balances::GenesisConfig::<Test> { balances: endowments.to_vec(), dev_accounts: None }
-		.assimilate_storage(&mut t)
-		.unwrap();
-
-	// Set up endowments to be processed at block 1
-	pallet_wormhole::GenesisConfig::<Test> { endowed_addresses: endowments }
+	// Set up balances for the endowed accounts; wormhole proofs derive from these.
+	pallet_balances::GenesisConfig::<Test> { balances: endowments, dev_accounts: None }
 		.assimilate_storage(&mut t)
 		.unwrap();
 

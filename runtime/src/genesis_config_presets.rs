@@ -148,10 +148,11 @@ fn planck_tech_collective_seed() -> Vec<AccountId> {
 
 /// Returns the genesis config populated with given parameters. Treasury is per-profile.
 ///
-/// All endowed addresses automatically get transfer proofs recorded, enabling them to
-/// spend their funds via ZK proofs. The chain doesn't distinguish between "wormhole
-/// addresses" and regular addresses - any address can spend via ZK proofs if they
-/// know the corresponding secret.
+/// All endowed addresses automatically get transfer proofs recorded at block 1 (the
+/// wormhole pallet derives them from the genesis balances — there is no separate
+/// endowment list), enabling them to spend their funds via ZK proofs. The chain doesn't
+/// distinguish between "wormhole addresses" and regular addresses - any address can
+/// spend via ZK proofs if they know the corresponding secret.
 fn genesis_template(
 	endowed_accounts: Vec<AccountId>,
 	treasury: TreasuryGenesis,
@@ -170,15 +171,10 @@ fn genesis_template(
 	// mining rewards. It is intentionally NOT added to `balances`.
 
 	let config = RuntimeGenesisConfig {
-		balances: BalancesConfig { balances: balances.clone(), dev_accounts: None },
+		balances: BalancesConfig { balances, dev_accounts: None },
 		treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
 			treasury_account: Some(treasury.account),
 			treasury_portion: Some(treasury.portion),
-		},
-		wormhole: pallet_wormhole::GenesisConfig::<crate::Runtime> {
-			// Record transfer proofs for ALL endowed addresses, enabling ZK spending.
-			// Events are emitted in on_initialize at block 1 for indexer compatibility.
-			endowed_addresses: balances,
 		},
 		..Default::default()
 	};
@@ -424,4 +420,28 @@ pub fn preset_names() -> Vec<PresetId> {
 		PresetId::from(HEISENBERG_RUNTIME_PRESET),
 		PresetId::from(PLANCK_RUNTIME_PRESET),
 	]
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use sp_runtime::BuildStorage;
+
+	/// Every shipped preset must actually build genesis storage, i.e. pass every pallet's
+	/// genesis-build invariants. (Wormhole transfer proofs need no preset entry at all:
+	/// they are derived from these genesis balances at block 1, so they cannot disagree
+	/// with the value actually issued.)
+	#[test]
+	fn all_presets_build_genesis_storage() {
+		for id in preset_names() {
+			let bytes = get_preset(&id).expect("listed preset must resolve");
+			let (config_bytes, _members) = prepare_genesis_build_input(bytes)
+				.unwrap_or_else(|e| panic!("preset {:?}: invalid genesis JSON: {e}", id));
+			let config: crate::RuntimeGenesisConfig = serde_json::from_slice(&config_bytes)
+				.unwrap_or_else(|e| panic!("preset {:?} must deserialize: {e}", id));
+			config
+				.build_storage()
+				.unwrap_or_else(|e| panic!("preset {:?} must build genesis storage: {e:?}", id));
+		}
+	}
 }

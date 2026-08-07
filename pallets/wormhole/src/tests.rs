@@ -469,6 +469,70 @@ mod wormhole_tests {
 	}
 
 	// =========================================================================
+	// Genesis proofs are derived from real balances (single source of truth)
+	// =========================================================================
+	//
+	// There is no separate wormhole endowment list at genesis: `on_initialize(1)` derives
+	// a transfer proof from every account that exists with a balance. An exitable leaf or
+	// `PotentialWormholeBalance` credit that isn't backed by actually-issued value is
+	// therefore unrepresentable — the leaf amount IS the genesis balance.
+
+	#[test]
+	fn genesis_proofs_derive_from_balances_and_seed_pool() {
+		use frame_support::traits::Hooks;
+
+		let addr1 = account_id(100);
+		let addr2 = account_id(101);
+		let amount1 = 100 * UNIT;
+		let amount2 = 250 * UNIT;
+
+		new_test_ext_with_endowments(vec![(addr1.clone(), amount1), (addr2.clone(), amount2)])
+			.execute_with(|| {
+				System::set_block_number(1);
+				Wormhole::on_initialize(1);
+
+				// One leaf per funded genesis account, amount = the real balance.
+				assert_eq!(Wormhole::transfer_count(&addr1), 1);
+				assert_eq!(Wormhole::transfer_count(&addr2), 1);
+
+				// The soundness pool is seeded with exactly the ambiguous genesis
+				// balances — consistent with what a later reveal would subtract.
+				assert_eq!(
+					crate::PotentialWormholeBalance::<Test>::get(),
+					amount1 + amount2,
+					"pool must equal the total of ambiguous genesis balances"
+				);
+			});
+	}
+
+	#[test]
+	fn genesis_proofs_exclude_non_wormhole_accounts_from_pool() {
+		use frame_support::traits::Hooks;
+
+		// An excluded (`NonWormholeAccounts`) genesis account still gets an inert leaf,
+		// but must not count into the soundness pool.
+		let excluded = excluded_account();
+		let regular = account_id(100);
+
+		new_test_ext_with_endowments(vec![
+			(excluded.clone(), 100 * UNIT),
+			(regular.clone(), 40 * UNIT),
+		])
+		.execute_with(|| {
+			System::set_block_number(1);
+			Wormhole::on_initialize(1);
+
+			assert_eq!(Wormhole::transfer_count(&excluded), 1);
+			assert_eq!(Wormhole::transfer_count(&regular), 1);
+			assert_eq!(
+				crate::PotentialWormholeBalance::<Test>::get(),
+				40 * UNIT,
+				"excluded accounts must not seed the pool"
+			);
+		});
+	}
+
+	// =========================================================================
 	// Soundness counter tracking
 	// =========================================================================
 
