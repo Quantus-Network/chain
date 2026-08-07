@@ -88,7 +88,8 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 /// - After successful execution, scans for `Transfer`, `Minted`, `TransferOnHold` and
 ///   `ReserveRepatriated` events
 /// - Records proofs for any transfers that were sent TO a wormhole account
-/// - Automatically catches ALL transfers regardless of how they're initiated:
+/// - Automatically catches ALL transfers dispatched inside a transaction, regardless of
+///   how they're initiated:
 ///   - Direct transfers (transfer, transfer_keep_alive, transfer_all, etc.)
 ///   - Batch transfers (utility.batch, batch_all, force_batch)
 ///   - Multisig transfers (multisig.execute)
@@ -97,10 +98,30 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 ///     which move value with `transfer_on_hold` instead of a free-balance transfer)
 ///   - Recovery-deposit seizures (recovery.close_recovery, which moves the rescuer's
 ///     deposit with `repatriate_reserved`)
-///   - Scheduled transfers (scheduler)
-///   - Future mechanisms automatically covered
+///   - Future call-based mechanisms automatically covered, since wrapper calls emit
+///     their inner events within the same extrinsic's event range
 ///
-/// This addresses audit item EQ-QNT-WORMHOLE-F-05 comprehensively.
+/// COVERAGE BOUNDARY: transaction extensions only run for transactions, so this scan
+/// never sees events emitted from hooks (`on_initialize` / `on_finalize`). Every
+/// hook-context credit therefore needs — and has — an explicit
+/// `TransferProofRecorder::record_transfer_proof` call instead:
+///   - reversible-transfers' scheduled execution records its transfer in
+///     `do_execute_transfer`;
+///   - mining rewards and the treasury share record theirs in `on_finalize`
+///     (`pallet_mining_rewards`), using eventless `increase_balance` credits.
+///
+/// The one remaining hook-context path is a governance-enacted call: referenda enactment
+/// dispatches the approved call via the scheduler in `on_initialize` (e.g. a Root
+/// `force_transfer`), so its events are not scanned and no leaf is recorded. This is a
+/// known, accepted gap rather than an oversight: the scheduler's `ScheduleOrigin` is
+/// Root, the tech-referenda track only accepts Root proposal origins, and sudo is
+/// removed — so only Root can reach it, and Root can already forge or delete leaves
+/// outright (`set_storage`, runtime upgrades), so there is no invariant left to defend
+/// against it. The miss is conservative (the credit exists but gains no ZK-spendable
+/// leaf; no unbacked exit capacity is created) and repairable (governance can re-issue
+/// the credit as an ordinary signed transfer if a leaf is wanted).
+///
+/// This addresses audit item EQ-QNT-WORMHOLE-F-05.
 #[derive(Encode, Decode, Clone, Eq, PartialEq, Default, TypeInfo, Debug, DecodeWithMemTracking)]
 #[scale_info(skip_type_params(T))]
 pub struct WormholeProofRecorderExtension<T: pallet_wormhole::Config + Send + Sync>(PhantomData<T>);
