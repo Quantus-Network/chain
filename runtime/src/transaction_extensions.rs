@@ -85,7 +85,8 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 /// Transaction extension that records transfer proofs in the wormhole pallet
 ///
 /// This extension uses an EVENT-BASED approach to detect transfers:
-/// - After successful execution, scans for `Transfer`, `Minted` and `TransferOnHold` events
+/// - After successful execution, scans for `Transfer`, `Minted`, `TransferOnHold` and
+///   `ReserveRepatriated` events
 /// - Records proofs for any transfers that were sent TO a wormhole account
 /// - Automatically catches ALL transfers regardless of how they're initiated:
 ///   - Direct transfers (transfer, transfer_keep_alive, transfer_all, etc.)
@@ -94,6 +95,8 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 ///   - Recovery transfers (recovery.as_recovered)
 ///   - Held-fund seizures/recoveries (reversible_transfers.cancel / recover_funds,
 ///     which move value with `transfer_on_hold` instead of a free-balance transfer)
+///   - Recovery-deposit seizures (recovery.close_recovery, which moves the rescuer's
+///     deposit with `repatriate_reserved`)
 ///   - Scheduled transfers (scheduler)
 ///   - Future mechanisms automatically covered
 ///
@@ -218,6 +221,18 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 							amount,
 							..
 						}) => Some((None, source, dest, amount)),
+						// Reserved-balance repatriations. `pallet_recovery::close_recovery`
+						// seizes the rescuer's recovery deposit into the rescued account with
+						// `repatriate_reserved`, which emits this instead of a `Transfer`. The
+						// event is only emitted for cross-account moves (self-repatriations
+						// return early), and the credit belongs to `to` whether it lands free
+						// or reserved, so record it unconditionally.
+						RuntimeEvent::Balances(pallet_balances::Event::ReserveRepatriated {
+							from,
+							to,
+							amount,
+							..
+						}) => Some((None, from, to, amount)),
 						_ => None, // Ignore all other events
 					}
 				})
@@ -1131,6 +1146,53 @@ mod tests {
 				"hold-transfer seizure must be recorded as a transfer proof"
 			);
 			assert_eq!(Wormhole::transfer_count(&guardian), count_before + 1);
+		});
+	}
+
+	#[test]
+	fn event_based_proof_recording_recovery_deposit_repatriation() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			// alice makes her account recoverable; bob (say, maliciously) initiates a
+			// recovery, reserving the recovery deposit on his own account. The recovery
+			// deposits are UNIT-denominated, so fund both well past the genesis balances.
+			Balances::make_free_balance_be(&alice(), 100 * crate::UNIT);
+			Balances::make_free_balance_be(&bob(), 100 * crate::UNIT);
+			assert_ok!(Recovery::create_recovery(
+				RuntimeOrigin::signed(alice()),
+				vec![charlie()],
+				1,
+				0,
+			));
+			assert_ok!(Recovery::initiate_recovery(
+				RuntimeOrigin::signed(bob()),
+				MultiAddress::Id(alice()),
+			));
+
+			let count_before = Wormhole::transfer_count(&alice());
+			let events_before = frame_system::Pallet::<Runtime>::event_count();
+
+			// Closing the recovery seizes the rescuer's reserved deposit into alice's
+			// free balance via `repatriate_reserved`, which emits
+			// `Balances::ReserveRepatriated` — not a free-balance `Transfer`. The
+			// credit is real spendable value landing on alice, so the recorder must
+			// create a leaf for it.
+			assert_ok!(Recovery::close_recovery(
+				RuntimeOrigin::signed(alice()),
+				MultiAddress::Id(bob()),
+			));
+
+			let recorded =
+				WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(
+					events_before,
+				);
+
+			assert_eq!(
+				recorded, 1,
+				"reserve repatriation must be recorded as a transfer proof"
+			);
+			assert_eq!(Wormhole::transfer_count(&alice()), count_before + 1);
 		});
 	}
 
