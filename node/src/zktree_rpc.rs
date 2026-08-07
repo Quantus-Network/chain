@@ -70,6 +70,12 @@ pub trait ZkTreeApi {
 /// the proving block's hash is still in `frame_system::BlockHash`, a sliding
 /// window of `BlockHashCount` blocks. Blocks outside that window are rejected.
 ///
+/// The requested hash must also be the *canonical* hash at its height. The backend
+/// resolves numbers for any imported block (side forks included), but settlement
+/// verifies the claimed hash against `frame_system::BlockHash`, so a proof built on
+/// fork state is unusable by construction — reject it here instead of spending
+/// state-execution resources producing it.
+///
 /// The window is `quantus_runtime::configs::BlockHashCount` from the runtime
 /// crate linked into this node binary — a compile-time constant, not a live
 /// chain/metadata lookup. After a forkless upgrade that changes
@@ -103,6 +109,43 @@ where
 				None::<()>,
 			)),
 	};
+
+	// The backend resolves a number for ANY block it has imported, including
+	// side-fork blocks — resolvability is not canonicality. On-chain settlement
+	// compares the proof's claimed hash against `frame_system::BlockHash` (the
+	// canonical chain), so proof material derived from fork state can never
+	// settle. Reject anything that is not the canonical hash at its height;
+	// heights above best (where `best - number` saturates to 0) are rejected
+	// first for a precise error.
+	if number > info.best_number {
+		return Err(jsonrpsee::types::error::ErrorObject::owned(
+			9007,
+			format!(
+				"Block {hash:?} (#{number}) is above the current best block \
+				 (#{best}); it is not on the canonical chain",
+				best = info.best_number,
+			),
+			None::<()>,
+		));
+	}
+
+	let canonical = client.hash(number).map_err(|e| {
+		jsonrpsee::types::error::ErrorObject::owned(
+			9006,
+			format!("Failed to resolve canonical hash at #{number}: {e}"),
+			None::<()>,
+		)
+	})?;
+	if canonical != Some(hash) {
+		return Err(jsonrpsee::types::error::ErrorObject::owned(
+			9008,
+			format!(
+				"Block {hash:?} (#{number}) is not on the canonical chain; proofs \
+				 against fork state cannot be verified on-chain"
+			),
+			None::<()>,
+		));
+	}
 
 	// Compile-time constant from the linked runtime crate — see fn docs.
 	let window = <quantus_runtime::configs::BlockHashCount as sp_core::Get<u32>>::get();
@@ -207,24 +250,39 @@ mod tests {
 		H256::from_low_u64_be(u64::from(number) + 1)
 	}
 
-	/// Minimal chain view: a best block and a set of known (hash -> number) blocks.
+	/// Minimal chain view: a best block, the known (hash -> number) blocks the
+	/// backend has imported (canonical *and* side-fork), and the canonical
+	/// (number -> hash) index.
 	struct MockChain {
 		best_number: u32,
-		blocks: HashMap<H256, u32>,
+		/// Every imported block, like the backend's hash->number index. Includes
+		/// side-fork blocks, which is exactly why resolvability != canonicality.
+		known: HashMap<H256, u32>,
+		/// The canonical chain's number->hash index.
+		canonical: HashMap<u32, H256>,
 		/// Hashes for which `number()` simulates a backend/DB failure.
 		failing: HashSet<H256>,
 	}
 
 	impl MockChain {
 		fn with_blocks(best_number: u32, numbers: &[u32]) -> Self {
-			let blocks = numbers.iter().map(|n| (hash_for(*n), *n)).collect();
-			Self { best_number, blocks, failing: HashSet::new() }
+			let known = numbers.iter().map(|n| (hash_for(*n), *n)).collect();
+			let canonical = numbers.iter().map(|n| (*n, hash_for(*n))).collect();
+			Self { best_number, known, canonical, failing: HashSet::new() }
 		}
 
 		fn with_number_failure(best_number: u32, failing_hash: H256) -> Self {
 			let mut chain = Self::with_blocks(best_number, &[best_number]);
 			chain.failing.insert(failing_hash);
 			chain
+		}
+
+		/// Add a block the backend knows about (imported) that is NOT on the
+		/// canonical chain, at the given height. Returns its hash.
+		fn add_fork_block(&mut self, number: u32) -> H256 {
+			let fork_hash = H256::from_low_u64_be(0xF0_0000 + u64::from(number));
+			self.known.insert(fork_hash, number);
+			fork_hash
 		}
 	}
 
@@ -247,7 +305,7 @@ mod tests {
 		}
 
 		fn status(&self, hash: H256) -> BlockchainResult<BlockStatus> {
-			Ok(if self.blocks.contains_key(&hash) {
+			Ok(if self.known.contains_key(&hash) {
 				BlockStatus::InChain
 			} else {
 				BlockStatus::Unknown
@@ -258,11 +316,11 @@ mod tests {
 			if self.failing.contains(&hash) {
 				return Err(sp_blockchain::Error::Backend("simulated db failure".into()));
 			}
-			Ok(self.blocks.get(&hash).copied())
+			Ok(self.known.get(&hash).copied())
 		}
 
 		fn hash(&self, number: NumberFor<Block>) -> BlockchainResult<Option<H256>> {
-			Ok(self.blocks.iter().find(|(_, n)| **n == number).map(|(h, _)| *h))
+			Ok(self.canonical.get(&number).copied())
 		}
 	}
 
@@ -303,6 +361,44 @@ mod tests {
 		assert_eq!(err.code(), 9005);
 
 		assert!(resolve_proof_block(&chain, Some(hash_for(ancient))).is_err());
+	}
+
+	/// The backend resolves a number for ANY imported block, including side-fork
+	/// blocks — resolvability is not canonicality. A proof generated against fork
+	/// state can never settle (the wormhole pallet compares the claimed hash to
+	/// `frame_system::BlockHash`, the canonical chain), so the RPC must reject
+	/// noncanonical hashes instead of burning state-execution resources on them.
+	#[test]
+	fn rejects_noncanonical_hashes_within_the_window() {
+		let best = 10 * window();
+		let fork_height = best - 5;
+		let mut chain = MockChain::with_blocks(best, &[best, fork_height]);
+		let fork_hash = chain.add_fork_block(fork_height);
+
+		let err = resolve_proof_block(&chain, Some(fork_hash))
+			.expect_err("side-fork hash must be rejected even inside the proof window");
+		assert_eq!(err.code(), 9008);
+
+		// The canonical block at the same height is still accepted.
+		assert_eq!(
+			resolve_proof_block(&chain, Some(hash_for(fork_height))).unwrap(),
+			hash_for(fork_height)
+		);
+	}
+
+	/// A backend-known block ABOVE the current best (e.g. from a longer side
+	/// fork that was imported but not chosen) makes `best_number - number`
+	/// saturate to 0, which the one-sided window check happily accepts. Heights
+	/// above best have no canonical hash and can never settle.
+	#[test]
+	fn rejects_blocks_above_the_best_number() {
+		let best = 10 * window();
+		let mut chain = MockChain::with_blocks(best, &[best]);
+		let ahead_hash = chain.add_fork_block(best + 5);
+
+		let err = resolve_proof_block(&chain, Some(ahead_hash))
+			.expect_err("block above best must be rejected");
+		assert_eq!(err.code(), 9007);
 	}
 
 	#[test]
