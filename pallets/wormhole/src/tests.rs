@@ -97,6 +97,47 @@ mod wormhole_tests {
 		});
 	}
 
+	/// A zero-amount credit moves no value, but recording it would still append a
+	/// ZK-tree leaf, advance the recipient's transfer count, and emit an event.
+	/// Zero-value `Balances::Transfer` events are reachable from permissionless
+	/// surfaces (`transfer_keep_alive(dest, 0)`, zero-value scheduled transfers),
+	/// so the recorder must drop zero-amount credits and report them as not
+	/// recorded (so weight reconciliation doesn't count a leaf insert).
+	#[test]
+	fn zero_amount_credit_is_not_recorded() {
+		use qp_wormhole::TransferProofRecorder;
+
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let from = account_id(1);
+			let to = account_id(9001);
+			assert!(Wormhole::is_ambiguous_account(&to));
+
+			assert!(
+				!<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+					None,
+					from.clone(),
+					to.clone(),
+					0,
+				),
+				"a zero-amount credit must report as not recorded"
+			);
+			assert_eq!(ZkTree::leaf_count(), 0, "no ZK-tree leaf for a zero-amount credit");
+			assert_eq!(
+				Wormhole::transfer_count(&to),
+				0,
+				"the recipient's transfer count must not advance"
+			);
+			assert_eq!(Wormhole::potential_wormhole_balance(), 0);
+
+			// Sanity: the same credit with a nonzero amount is recorded.
+			assert!(<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+				None, from, to, 1,
+			));
+			assert_eq!(ZkTree::leaf_count(), 1);
+		});
+	}
+
 	#[test]
 	fn record_transfer_increments_count() {
 		new_test_ext().execute_with(|| {

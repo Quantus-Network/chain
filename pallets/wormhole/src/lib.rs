@@ -1419,6 +1419,16 @@ pub mod pallet {
 			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
 		) -> bool {
+			// A zero-amount credit moves no value, so a leaf for it is pure state growth:
+			// it would advance the recipient's transfer count, enlarge the ZK tree, and
+			// emit a transfer event for nothing. Zero-value `Balances::Transfer` events
+			// are reachable from permissionless surfaces (plain `transfer_keep_alive(0)`,
+			// zero-value scheduled transfers, ...), so drop the credit here — the single
+			// chokepoint every event-scan / call-site recorder goes through — and report
+			// it as not recorded so weight reconciliation does not count a leaf insert.
+			if amount.is_zero() {
+				return false;
+			}
 			// The wormhole tags native leaves with `asset_id == 0`, but `pallet_assets` uses
 			// id 0 for an unrelated, independently-mintable token. Genuine native reaches us as
 			// `None` (from `Balances` events); a `pallet_assets` asset-0 credit reaches us as

@@ -213,6 +213,38 @@ fn set_reversibility_fails_delay_too_short() {
 	});
 }
 
+/// A zero-amount schedule is a pure no-op with side effects: it consumes a
+/// pending-transfer slot and scheduler agenda space, and its execution would
+/// dispatch a zero-value transfer. Both signed scheduling entry points must
+/// reject it before any state is written.
+#[test]
+fn schedule_transfer_rejects_zero_amount() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		// High-security entry point (alice is high-security from genesis).
+		assert_err!(
+			ReversibleTransfers::schedule_transfer(RuntimeOrigin::signed(alice()), bob(), 0),
+			Error::<Test>::ZeroAmount
+		);
+
+		// One-time entry point (charlie is a regular account).
+		assert_err!(
+			ReversibleTransfers::schedule_transfer_with_delay(
+				RuntimeOrigin::signed(charlie()),
+				bob(),
+				0,
+				BlockNumberOrTimestamp::BlockNumber(10),
+			),
+			Error::<Test>::ZeroAmount
+		);
+
+		// Nothing was scheduled or stored on either path.
+		assert!(PendingTransfersBySender::<Test>::get(&alice()).is_empty());
+		assert!(PendingTransfersBySender::<Test>::get(&charlie()).is_empty());
+	});
+}
+
 #[test]
 fn schedule_transfer_works() {
 	new_test_ext().execute_with(|| {
