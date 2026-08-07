@@ -2181,6 +2181,68 @@ mod public_batch_proof_tests {
 		});
 	}
 
+	/// The aggregator rebate is deliberately permissionless: whoever performs the public-batch
+	/// aggregation names its own payout address as a proof public input. The property that
+	/// makes this safe is that the address is *bound* by the proof — a third party cannot take
+	/// someone else's public batch and redirect the rebate to itself, because mutating the
+	/// aggregator-address public inputs invalidates the proof, and `pre_dispatch` (the
+	/// block-inclusion gate) runs full ZK verification.
+	#[test]
+	fn pre_dispatch_rejects_public_batch_with_redirected_aggregator_address() {
+		use frame_support::pallet_prelude::ValidateUnsigned;
+		use qp_plonky2_verifier::field::types::Field;
+
+		new_test_ext().execute_with(|| {
+			let inputs = parse_test_inputs();
+			setup_matching_block_state(&inputs);
+
+			// The genuine proof passes the block-inclusion gate.
+			let original = get_test_proof_bytes();
+			let call = crate::Call::<Test>::verify_public_batch { proof_bytes: original.clone() };
+			assert!(
+				<Wormhole as ValidateUnsigned>::pre_dispatch(&call).is_ok(),
+				"the untampered fixture must pass pre_dispatch"
+			);
+
+			// An attacker rewrites the aggregator-address public inputs (the first 4 felts
+			// of the public-batch PI layout) to point at an account they control.
+			let mut tampered_proof = deserialize_test_proof();
+			for felt in tampered_proof.public_inputs.iter_mut().take(4) {
+				*felt = F::from_canonical_u32(0x42);
+			}
+			let tampered_bytes = tampered_proof.to_bytes();
+			assert_ne!(tampered_bytes, original, "mutation must change the encoded proof");
+
+			// The redirected address round-trips through parsing (i.e. the tampering is
+			// well-formed at the PI level) ...
+			let tampered_deser = ProofWithPublicInputs::<F, C, D>::from_bytes(
+				tampered_bytes.clone(),
+				&crate::get_public_batch_verifier().unwrap().circuit_data.common,
+			)
+			.expect("tampered PIs still deserialize");
+			let tampered_inputs = parse_public_batch_public_inputs(
+				&tampered_deser,
+				crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
+				crate::circuit_config::NUM_LEAF_PROOFS,
+			)
+			.expect("tampered PIs still parse");
+			assert_ne!(
+				tampered_inputs.aggregator_address.as_ref(),
+				&AGGREGATOR_ADDRESS,
+				"the payout address was redirected"
+			);
+
+			// ... but the proof no longer verifies, so the block-inclusion gate rejects it:
+			// the rebate cannot be stolen off an existing proof.
+			let tampered_call =
+				crate::Call::<Test>::verify_public_batch { proof_bytes: tampered_bytes };
+			assert!(
+				<Wormhole as ValidateUnsigned>::pre_dispatch(&tampered_call).is_err(),
+				"pre_dispatch must reject a proof whose aggregator address was redirected"
+			);
+		});
+	}
+
 	/// Regenerate the public-batch test fixture when circuit parameters change.
 	///
 	/// Run with: cargo test -p pallet-wormhole --release --lib --
