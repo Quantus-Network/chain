@@ -131,9 +131,11 @@ mod wormhole_tests {
 			assert_eq!(Wormhole::potential_wormhole_balance(), 0);
 
 			// Sanity: the same credit with a nonzero amount is recorded.
-			assert!(<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
-				None, from, to, 1,
-			));
+			assert!(
+				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+					None, from, to, 1,
+				)
+			);
 			assert_eq!(ZkTree::leaf_count(), 1);
 		});
 	}

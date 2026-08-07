@@ -88,25 +88,24 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 /// - After successful execution, scans for `Transfer`, `Minted`, `TransferOnHold` and
 ///   `ReserveRepatriated` events
 /// - Records proofs for any transfers that were sent TO a wormhole account
-/// - Automatically catches ALL transfers dispatched inside a transaction, regardless of
-///   how they're initiated:
+/// - Automatically catches ALL transfers dispatched inside a transaction, regardless of how they're
+///   initiated:
 ///   - Direct transfers (transfer, transfer_keep_alive, transfer_all, etc.)
 ///   - Batch transfers (utility.batch, batch_all, force_batch)
 ///   - Multisig transfers (multisig.execute)
 ///   - Recovery transfers (recovery.as_recovered)
-///   - Held-fund seizures/recoveries (reversible_transfers.cancel / recover_funds,
-///     which move value with `transfer_on_hold` instead of a free-balance transfer)
-///   - Recovery-deposit seizures (recovery.close_recovery, which moves the rescuer's
-///     deposit with `repatriate_reserved`)
-///   - Future call-based mechanisms automatically covered, since wrapper calls emit
-///     their inner events within the same extrinsic's event range
+///   - Held-fund seizures/recoveries (reversible_transfers.cancel / recover_funds, which move value
+///     with `transfer_on_hold` instead of a free-balance transfer)
+///   - Recovery-deposit seizures (recovery.close_recovery, which moves the rescuer's deposit with
+///     `repatriate_reserved`)
+///   - Future call-based mechanisms automatically covered, since wrapper calls emit their inner
+///     events within the same extrinsic's event range
 ///
 /// COVERAGE BOUNDARY: transaction extensions only run for transactions, so this scan
 /// never sees events emitted from hooks (`on_initialize` / `on_finalize`). Every
 /// hook-context credit therefore needs — and has — an explicit
 /// `TransferProofRecorder::record_transfer_proof` call instead:
-///   - reversible-transfers' scheduled execution records its transfer in
-///     `do_execute_transfer`;
+///   - reversible-transfers' scheduled execution records its transfer in `do_execute_transfer`;
 ///   - mining rewards and the treasury share record theirs in `on_finalize`
 ///     (`pallet_mining_rewards`), using eventless `increase_balance` credits.
 ///
@@ -402,14 +401,14 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 			// `weight()` and are therefore registered against the block post-hoc (this
 			// keeps block-capacity accounting sound; it is not fee-charged):
 			//
-			// 1. The event scan itself: any call can emit events the scan must decode
-			//    (e.g. batched `remark_with_event`), and the decode cost is per record
-			//    present at scan time — see `event_scan_weight`.
+			// 1. The event scan itself: any call can emit events the scan must decode (e.g. batched
+			//    `remark_with_event`), and the decode cost is per record present at scan time — see
+			//    `event_scan_weight`.
 			//
 			// 2. Recording shortfall: wrappers that dispatch inner calls stored on-chain
-			//    (`Multisig::execute`, `ReversibleTransfers::recover_funds`, ...) can emit
-			//    transfer events the static `count_transfers` matcher cannot see, so the
-			//    proof-recording work above may exceed the weight reserved by `weight()`.
+			//    (`Multisig::execute`, `ReversibleTransfers::recover_funds`, ...) can emit transfer
+			//    events the static `count_transfers` matcher cannot see, so the proof-recording
+			//    work above may exceed the weight reserved by `weight()`.
 			let mut extra = Self::event_scan_weight(events_at_scan);
 			if recorded > charged_transfers {
 				extra = extra.saturating_add(
@@ -418,9 +417,7 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 				);
 			}
 			if extra != Weight::zero() {
-				frame_system::Pallet::<Runtime>::register_extra_weight_unchecked(
-					extra, info.class,
-				);
+				frame_system::Pallet::<Runtime>::register_extra_weight_unchecked(extra, info.class);
 			}
 		}
 
@@ -937,10 +934,7 @@ mod tests {
 
 			let (tree_reads, tree_writes) = pallet_zk_tree::insert_leaf_db_ops_at_depth(20);
 			let db_time = <Runtime as frame_system::Config>::DbWeight::get()
-				.reads_writes(
-					5u64.saturating_add(tree_reads),
-					2u64.saturating_add(tree_writes),
-				)
+				.reads_writes(5u64.saturating_add(tree_reads), 2u64.saturating_add(tree_writes))
 				.ref_time();
 			assert!(
 				weight.ref_time() >=
@@ -1024,10 +1018,7 @@ mod tests {
 			let scanned = core::cell::Cell::new(0u32);
 			run_lifecycle(&alice(), call, || {
 				for i in 0..7u8 {
-					assert_ok!(System::remark_with_event(
-						RuntimeOrigin::signed(alice()),
-						vec![i],
-					));
+					assert_ok!(System::remark_with_event(RuntimeOrigin::signed(alice()), vec![i],));
 				}
 				scanned.set(frame_system::Pallet::<Runtime>::event_count());
 			});
@@ -1223,8 +1214,7 @@ mod tests {
 				amount,
 			));
 			let tx_id =
-				pallet_reversible_transfers::PendingTransfersBySender::<Runtime>::get(charlie())
-					[0];
+				pallet_reversible_transfers::PendingTransfersBySender::<Runtime>::get(charlie())[0];
 
 			// The guardian cancels: the held funds (minus the volume fee) are seized to
 			// the guardian via `transfer_on_hold`, which emits `Balances::TransferOnHold`
@@ -1232,20 +1222,14 @@ mod tests {
 			// on the guardian's free balance, so the recorder must create a leaf for it
 			// exactly as it would for a plain transfer.
 			let events_before = frame_system::Pallet::<Runtime>::event_count();
-			assert_ok!(ReversibleTransfers::cancel(
-				RuntimeOrigin::signed(guardian.clone()),
-				tx_id
-			));
+			assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(guardian.clone()), tx_id));
 
 			let recorded =
 				WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(
 					events_before,
 				);
 
-			assert_eq!(
-				recorded, 1,
-				"hold-transfer seizure must be recorded as a transfer proof"
-			);
+			assert_eq!(recorded, 1, "hold-transfer seizure must be recorded as a transfer proof");
 			assert_eq!(Wormhole::transfer_count(&guardian), count_before + 1);
 		});
 	}
@@ -1289,10 +1273,7 @@ mod tests {
 					events_before,
 				);
 
-			assert_eq!(
-				recorded, 1,
-				"reserve repatriation must be recorded as a transfer proof"
-			);
+			assert_eq!(recorded, 1, "reserve repatriation must be recorded as a transfer proof");
 			assert_eq!(Wormhole::transfer_count(&alice()), count_before + 1);
 		});
 	}

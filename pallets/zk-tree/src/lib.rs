@@ -50,18 +50,16 @@ mod tests;
 /// raises `MAX_DEPTH` and a runtime upgrade embeds the regenerated verifiers.
 ///
 /// This is a deliberate "fix it when we get close" trade-off, not an oversight:
-/// - Timeline: at one leaf per block (the mining-reward floor, 12s blocks) depth 16
-///   lasts ~1,600 years; at a sustained 10 transfers/sec chain-wide it lasts ~13 years;
-///   even permanently saturated blocks (~50 tps) give ~2.5 years. Each +1 of circuit
-///   depth quadruples capacity.
-/// - Observability: `LeafCount` is public storage, so exhaustion is visible years in
-///   advance; alert well before 4^16 leaves.
-/// - The update itself: bump `MAX_DEPTH` in `qp-zk-circuits-common`, release the
-///   circuit crates, let `pallets/wormhole/build.rs` regenerate the embedded verifier
-///   binaries, regenerate proof fixtures, re-benchmark, and ship a runtime upgrade —
-///   days of engineering inside a normal release cycle. Old proofs are invalidated by
-///   the circuit change; nullifier state is unaffected, so nothing can double-spend
-///   across the upgrade.
+/// - Timeline: at one leaf per block (the mining-reward floor, 12s blocks) depth 16 lasts ~1,600
+///   years; at a sustained 10 transfers/sec chain-wide it lasts ~13 years; even permanently
+///   saturated blocks (~50 tps) give ~2.5 years. Each +1 of circuit depth quadruples capacity.
+/// - Observability: `LeafCount` is public storage, so exhaustion is visible years in advance; alert
+///   well before 4^16 leaves.
+/// - The update itself: bump `MAX_DEPTH` in `qp-zk-circuits-common`, release the circuit crates,
+///   let `pallets/wormhole/build.rs` regenerate the embedded verifier binaries, regenerate proof
+///   fixtures, re-benchmark, and ship a runtime upgrade — days of engineering inside a normal
+///   release cycle. Old proofs are invalidated by the circuit change; nullifier state is
+///   unaffected, so nothing can double-spend across the upgrade.
 pub const MAX_TREE_DEPTH: u8 = 32;
 
 /// Worst-case `(reads, writes)` storage-operation counts for one [`Pallet::insert_leaf`]
