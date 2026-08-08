@@ -110,7 +110,7 @@ mod vested_amount {
 		new_test_ext(vec![]).execute_with(|| {
 			let s = schedule(0, 0, u64::MAX, u128::from(u64::MAX) * 1_000_000_000_000);
 			assert_eq!(Vesting::vested_amount(&s, u64::MAX), s.total);
-			assert_eq!(Vesting::vested_amount(&s, u64::MAX - 1) > s.total / 2, true);
+			assert!(Vesting::vested_amount(&s, u64::MAX - 1) > s.total / 2);
 		});
 	}
 }
