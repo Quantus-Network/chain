@@ -204,6 +204,11 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			RuntimeCall::Utility(pallet_utility::Call::if_else { main, fallback }) =>
 				Self::count_transfers(main).max(Self::count_transfers(fallback)),
 
+			// Vesting calls fall through to 0 deliberately: the pallet records its
+			// payouts itself (so Root calls enacted by the scheduler are captured too)
+			// and carries the recording cost in its own benchmarked weights, while the
+			// event scan below skips every pot-touching transfer. Counting them here
+			// would charge twice for work this extension never performs.
 			_ => 0,
 		}
 	}
@@ -226,6 +231,14 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		// If we modify Events storage during iteration (by depositing new events),
 		// the cached data becomes stale and decoding fails.
 
+		// The vesting pot's flows are excluded: the vesting pallet records its own
+		// pot -> beneficiary payouts (also for scheduler-enacted Root calls this
+		// extension never sees), so scanning them here would double-record; and pot
+		// inbound/refund legs (treasury <-> pot) need no leaves — the pot is a keyless
+		// pallet account and the treasury spends by signature, so neither can ever
+		// exit through the wormhole.
+		let vesting_pot = pallet_vesting::Pallet::<Runtime>::pot_account_id();
+
 		// Collect transfers to record - (asset_id, from, to, amount)
 		let transfers_to_record: alloc::vec::Vec<(Option<AssetId>, AccountId, AccountId, Balance)> =
 			frame_system::Pallet::<Runtime>::read_events_no_consensus()
@@ -237,7 +250,7 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 							from,
 							to,
 							amount,
-						}) => Some((None, from, to, amount)),
+						}) if from != vesting_pot && to != vesting_pot => Some((None, from, to, amount)),
 						// Native balance mints
 						RuntimeEvent::Balances(pallet_balances::Event::Minted { who, amount }) => {
 							let minting_account = crate::configs::MintingAccount::get();
@@ -849,6 +862,46 @@ mod tests {
 				1,
 				"if_else must charge for the transfer-heavier branch (fallback)"
 			);
+		});
+	}
+
+	#[test]
+	fn wormhole_proof_recorder_ignores_vesting_calls_and_pot_events() {
+		new_test_ext().execute_with(|| {
+			// Vesting calls charge no extension weight: the pallet records its own
+			// payouts (covering scheduler-enacted Root calls too) and its benchmarked
+			// weights carry that cost, while the event scan skips pot-touching
+			// transfers.
+			for call in [
+				RuntimeCall::Vesting(pallet_vesting::Call::claim { schedule_id: 0 }),
+				RuntimeCall::Vesting(pallet_vesting::Call::create_schedule {
+					beneficiary: alice(),
+					start: 0,
+					cliff: 0,
+					end: 1,
+					total: 1,
+				}),
+				RuntimeCall::Vesting(pallet_vesting::Call::end_schedule { schedule_id: 0 }),
+				RuntimeCall::Vesting(pallet_vesting::Call::retarget_schedule {
+					schedule_id: 0,
+					new_beneficiary: alice(),
+				}),
+			] {
+				assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&call), 0);
+			}
+
+			// And the event scan must not record pot-sourced payouts (the pallet
+			// already did): a pot -> alice transfer event yields no new proof.
+			System::set_block_number(1);
+			let pot = pallet_vesting::Pallet::<Runtime>::pot_account_id();
+			let count_before = Wormhole::transfer_count(&alice());
+			System::deposit_event(RuntimeEvent::Balances(pallet_balances::Event::Transfer {
+				from: pot,
+				to: alice(),
+				amount: EXISTENTIAL_DEPOSIT * 100,
+			}));
+			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
+			assert_eq!(Wormhole::transfer_count(&alice()), count_before);
 		});
 	}
 

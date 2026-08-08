@@ -7,7 +7,7 @@ the runtime, their dispatchable calls, the runtime APIs, transaction extensions,
 genesis logic, and the workspace primitive crates pulled in.
 
 - **Crate:** `quantus-runtime` (`runtime/`), version `0.7.1-q-day-2`
-- **Spec:** `spec_name = quantus-runtime`, `spec_version = 139`, `transaction_version = 3`, `authoring_version = 1`
+- **Spec:** `spec_name = quantus-runtime`, `spec_version = 142`, `transaction_version = 3`, `authoring_version = 1`
 - **Build:** `no_std` WASM via `substrate-wasm-builder` (`runtime/build.rs`); native `std` build for the node/client
 - **Block time target:** 12s (`TARGET_BLOCK_TIME_MS = 12_000`)
 - **Consensus:** QPoW (quantum-resistant Proof of Work, Poseidon2-based)
@@ -70,9 +70,9 @@ The runtime derives `RuntimeCall`, `RuntimeEvent`, `RuntimeError`, `RuntimeOrigi
 | 7 | `Preimage` | `pallet-preimage` `45.0.0` | **Inlined** (`pallets/preimage`) | yes |
 | 8 | `Scheduler` | `pallet-scheduler` | **Local fork** (`pallets/scheduler`) | **calls disabled** (`#[runtime::disable_call]`) |
 | 9 | `Utility` | `pallet-utility` `45.0.0` | **Inlined** (`pallets/utility`) | yes |
-| 10 | `Referenda` | `pallet-referenda` `45.0.0` | **Inlined** (`pallets/referenda`) | yes |
+| 10 | — | *(vacant; was community `Referenda`)* | — | — |
 | 11 | `ReversibleTransfers` | `pallet-reversible-transfers` | **Local** (`pallets/reversible-transfers`) | yes |
-| 12 | `ConvictionVoting` | `pallet-conviction-voting` `45.0.0` | **Inlined** (`pallets/conviction-voting`) | yes |
+| 12 | — | *(vacant; was `ConvictionVoting`)* | — | — |
 | 13 | `TechCollective` | `pallet-ranked-collective` `45.0.0` | **Inlined** (`pallets/ranked-collective`) | yes |
 | 14 | `TechReferenda` | `pallet-referenda::Pallet<Runtime, Instance1>` `45.0.0` | **Inlined** (2nd instance) | yes |
 | 15 | `TreasuryPallet` | `pallet-treasury` | **Local** (`pallets/treasury`) | yes |
@@ -82,8 +82,9 @@ The runtime derives `RuntimeCall`, `RuntimeEvent`, `RuntimeError`, `RuntimeOrigi
 | 19 | `Multisig` | `pallet-multisig` | **Local** (`pallets/multisig`) | yes |
 | 20 | `Wormhole` | `pallet-wormhole` | **Local** (`pallets/wormhole`) | yes |
 | 21 | `ZkTree` | `pallet-zk-tree` | **Local** (`pallets/zk-tree`) | no |
+| 22 | `Vesting` | `pallet-vesting` | **Local** (`pallets/vesting`) | yes |
 
-> Indices 4, 17, and 18 are intentionally left vacant after pallet removals so downstream indices stay stable.
+> Indices 4, 10, 12, 17, and 18 are intentionally left vacant after pallet removals so downstream indices stay stable.
 
 ---
 
@@ -175,6 +176,16 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - **Storage:** `Leaves`, `Nodes`, `LeafCount`, `Depth`, `Root`. Types `ZkLeaf`, `ZkMerkleProof`, `ZkMerkleProofRpc`, `Hash256`.
 - `on_finalize` commits the merkle root. Backs the `ZkTreeApi` runtime API.
 
+### Index 22 — `Vesting` (`pallet-vesting`, local)
+- Pull-based "vesting wallet": the pallet's sovereign pot (`PalletId(*b"qvesting")`, keyless) holds the entire unclaimed allocation; beneficiaries are paid by plain keep-alive transfers only when a payout is due. **No locks, freezes, or holds ever touch a beneficiary account**, so wormhole addresses can be beneficiaries.
+- Config: `Currency = Balances` (`fungible::{Inspect, Mutate}`), `TimeProvider = Timestamp` (ms since epoch), `AdminOrigin = EitherOfDiverse<EnsureRoot, EnsureTreasury>` (`EnsureTreasury` = signed by the configured treasury account; the treasury multisig executes proposals as a plain signed origin), `TreasuryAccount = TreasuryAccountOption` (Option-returning storage read, never panics), `ProofRecorder = Wormhole`, `PayoutQuantum = SCALE_DOWN_FACTOR` (10^10), `MinimumPayout = UNIT` (1 QUAN), `MinClaimInterval = 86,400,000 ms` (24 hours).
+- **Storage:** `Schedules: schedule_id (u64) → { beneficiary, start, cliff, end, total, claimed, last_claim_at }` (ids sequential, never reused; a beneficiary may hold any number of schedules), `NextScheduleId`. Storage version 0 has no migration: an in-place upgrade with no schedules may leave the pot unfunded, and `create_schedule` then fails with `PotUnderfunded` until the treasury sends it one ED.
+- Vesting math: `vested(t) = 0` before `cliff`, `total` from `end`, else `⌊total·(t−start)/(end−start)⌋` (256-bit rational, floor; the `end` branch guarantees exactness).
+- **Payout policy:** wormhole leaves commit `amount / 10^10`, so a sub-quantum payout would create a zero-value leaf and strand funds on a keyless beneficiary. Schedule totals must be at least `MinimumPayout` and multiples of `PayoutQuantum`; payouts are quantized and `claimed` stays aligned. A successful claim must pay at least 1 QUAN and be at least 24 hours after that schedule's previous payout. Non-final claims reserve a complete minimum-sized final payout; a claim that cannot avoid a sub-minimum remainder fails with `ClaimWouldLeaveDust` until the full remainder vests. The final claim pays the exact remainder. `end_schedule` returns sub-quantum vested dust to the signature-controlled treasury and rejects a non-zero beneficiary payout below `MinimumPayout` without removing the schedule.
+- **Proof recording:** the pallet records each pot → beneficiary payout via `TransferProofRecorder` itself (`pay_out` fuses transfer + record), so scheduler-enacted Root calls — invisible to the event-scanning extension — still create leaves; the extension skips pot-touching transfer events and charges no static weight for vesting calls.
+- **Calls:** `claim`(0) — **permissionless**; pays the largest valid claim from the pot to the schedule's stored beneficiary (never the caller); the only claim path for keyless/high-security beneficiaries. `create_schedule`(1) — admin; validates the schedule and funds the pot from the treasury in the same call. `end_schedule`(2) — admin; quantized unpaid vested part → beneficiary, everything else → treasury, schedule removed. `retarget_schedule`(3) — admin; first settles exactly the payout a permissionless claim could currently force to the old beneficiary, then changes the beneficiary (lost-key remedy independent of claim/retarget ordering).
+- Genesis build validates every schedule (`start ≤ cliff ≤ end`, `start < end`, `total ≥ MinimumPayout`, `total % PayoutQuantum = 0`, beneficiary ≠ pot) and, for a non-empty table, asserts the pot holds exactly `Σ schedule totals + ED`; a misconfigured chain refuses to start. `try_state` validates stored schedules, aligned claims, dust-safe remaining obligations, and—when any schedule exists—`pot balance ≥ Σ(total − claimed) + ED`; an empty schedule table is valid with an unfunded pot.
+
 ---
 
 ## 4. Runtime APIs (`apis.rs`, `impl_runtime_apis!`)
@@ -212,7 +223,9 @@ Signed-extension pipeline applied to every extrinsic, in order:
 8. `pallet_transaction_payment::ChargeTransactionPayment`
 9. `frame_metadata_hash_extension::CheckMetadataHash`
 10. `transaction_extensions::ReversibleTransactionExtension` — **custom**: blocks non-whitelisted calls from high-security accounts.
-11. `transaction_extensions::WormholeProofRecorderExtension` — **custom**: in `post_dispatch`, scans emitted native `Balances::Transfer` / `Balances::Minted` events and records transfer proofs into the ZK tree (event-based, covers direct/batch/multisig/recovery/scheduled native transfers).
+11. `transaction_extensions::WormholeProofRecorderExtension` — **custom**: in `post_dispatch`, scans emitted native `Balances::Transfer` / `Balances::Minted` events and records transfer proofs into the ZK tree (event-based, covers direct/batch/multisig/recovery native transfers). Statically pre-charged calls (`count_transfers`): `Balances` transfers and `Utility` wrappers; uncounted paths are reconciled via `register_extra_weight_unchecked`. Transfers touching the **vesting pot** are skipped: the vesting pallet records its own payouts (covering scheduler-enacted Root calls the extension never sees) and carries that cost in its benchmarked weights.
+
+The high-security whitelist (`HighSecurityConfig::is_whitelisted`, extension 10) admits `ReversibleTransfers::{schedule_transfer, cancel, recover_funds}` and `Vesting::claim` (safe: the payout target is fixed by storage, never the caller).
 
 ---
 
@@ -234,6 +247,7 @@ Signed-extension pipeline applied to every extrinsic, in order:
   - `dev` — local development.
   - `heisenberg` — **internal integration testnet**, not mainnet. Tokens have no monetary value; the network may be reset.
   - `planck` — public testnet (live treasury signers + faucet).
+- **Vesting genesis:** every preset endows the vesting pot with `Σ schedule totals + ED` (ED alone when the table is empty, as on `planck`). Because the pot is part of the balances genesis endowment, standard genesis proof generation creates a block-1 Wormhole leaf for it; that leaf is unspendable because the pot is keyless. `dev`/`heisenberg` seed example schedules (one account with two schedules; `dev` also vests the keyless test wormhole address, claimable only via third-party ping). A mainnet preset (4-of-6 treasury multisig, launch-gated allocation table) is planned as a separate PR.
 - Dilithium well-known accounts: `crystal_alice`, `dilithium_bob`, `crystal_charlie` (public seeds `[0]` / `[1]` / `[2]`). Used by `dev` and **intentionally also by `heisenberg`** so integrators and CI can exercise governance, treasury, and transfer flows without distributing secrets. Those private keys are public by design; do **not** reuse this pattern on a mainnet or any value-bearing chain (Planck already uses distinct live treasury signers).
 - Treasury = 2-of-3 multisig of the three signers for `dev`/`heisenberg` (distinct nonce per preset); no genesis endowment (funded from mining-reward share only).
 - Tech-collective seeded via the chain-spec-only `tech_collective_seed_members` JSON field (`prepare_genesis_build_input` + `seed_tech_collective`).

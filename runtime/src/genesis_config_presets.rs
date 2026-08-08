@@ -18,7 +18,7 @@
 // this module is used by the client, so it's ok to panic/unwrap here
 #![allow(clippy::expect_used)]
 
-use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, UNIT};
+use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, EXISTENTIAL_DEPOSIT, UNIT};
 use alloc::{
 	string::{String, ToString},
 	vec,
@@ -54,6 +54,28 @@ const TEST_WORMHOLE_ADDRESS: [u8; 32] = [
 fn test_wormhole_account() -> AccountId {
 	AccountId::new(TEST_WORMHOLE_ADDRESS)
 }
+
+/// Milliseconds since the unix epoch, the time basis of vesting schedules.
+type VestingMoment = u64;
+
+/// One vesting genesis entry: `(beneficiary, start_ms, cliff_ms, end_ms, total)`.
+type VestingScheduleTuple = (AccountId, VestingMoment, VestingMoment, VestingMoment, u128);
+
+const MILLIS_PER_DAY: VestingMoment = 24 * 60 * 60 * 1000;
+
+const fn days_ms(days: u64) -> VestingMoment {
+	days * MILLIS_PER_DAY
+}
+
+/// Genesis vesting starts at this wall-clock time: **2026-08-05 00:00:00 UTC**.
+/// Re-derive this (midnight UTC of the intended start date) before any real launch.
+const GENESIS_VESTING_START_MS: VestingMoment = 1_785_888_000_000;
+/// Testnet example cliff: 90 days after start.
+const GENESIS_VESTING_CLIFF_MS: VestingMoment = GENESIS_VESTING_START_MS + days_ms(90);
+/// Testnet example vesting end: 1 year after start.
+const GENESIS_VESTING_END_MS: VestingMoment = GENESIS_VESTING_START_MS + days_ms(365);
+/// Testnet example grant size.
+const GENESIS_VESTING_TOTAL: u128 = 10_000 * UNIT;
 
 /// Identifier for the heisenberg runtime preset.
 ///
@@ -158,6 +180,7 @@ fn genesis_template(
 	treasury: TreasuryGenesis,
 	tech_collective_members: Vec<AccountId>,
 	extra_balances: Vec<(AccountId, u128)>,
+	vesting_schedules: Vec<VestingScheduleTuple>,
 ) -> Value {
 	const ENDOWED_BALANCE_UNITS: u128 = 100_000;
 	let mut balances = endowed_accounts
@@ -170,12 +193,32 @@ fn genesis_template(
 	// No pre-mine: the treasury starts at zero balance and is funded only by its share of
 	// mining rewards. It is intentionally NOT added to `balances`.
 
+	// The pot must hold exactly the sum of all schedule totals plus its existential-
+	// deposit buffer (asserted by the vesting pallet's genesis build). It is endowed
+	// with at least the ED even when no schedules exist, so `create_schedule` works on
+	// every chain from day one. Wormhole transfer proofs at block 1 derive from these
+	// balances (including the pot); the pot is keyless so its leaf is unspendable.
+	let mut vesting_total: u128 = 0;
+	for (_, _, _, _, total) in &vesting_schedules {
+		vesting_total = vesting_total
+			.checked_add(*total)
+			.expect("vesting genesis allocation overflows u128");
+	}
+	let pot_account = pallet_vesting::Pallet::<crate::Runtime>::pot_account_id();
+	balances.push((
+		pot_account,
+		vesting_total
+			.checked_add(EXISTENTIAL_DEPOSIT)
+			.expect("vesting pot endowment overflows u128"),
+	));
+
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances, dev_accounts: None },
 		treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
 			treasury_account: Some(treasury.account),
 			treasury_portion: Some(treasury.portion),
 		},
+		vesting: pallet_vesting::GenesisConfig::<crate::Runtime> { schedules: vesting_schedules },
 		..Default::default()
 	};
 
@@ -190,6 +233,62 @@ fn genesis_template(
 			.insert(TECH_COLLECTIVE_SEED_MEMBERS_KEY.into(), Value::Array(arr));
 	}
 	v
+}
+
+/// Testnet vesting table for `dev` and `heisenberg`: Bob holds two schedules
+/// (exercises multi-schedule-per-account), Charlie one.
+fn testnet_vesting_schedules() -> Vec<VestingScheduleTuple> {
+	let accounts = dilithium_default_accounts();
+	vec![
+		(
+			accounts[1].clone(),
+			GENESIS_VESTING_START_MS,
+			GENESIS_VESTING_CLIFF_MS,
+			GENESIS_VESTING_END_MS,
+			GENESIS_VESTING_TOTAL,
+		),
+		(
+			accounts[1].clone(),
+			GENESIS_VESTING_START_MS,
+			GENESIS_VESTING_START_MS,
+			GENESIS_VESTING_END_MS,
+			GENESIS_VESTING_TOTAL,
+		),
+		(
+			accounts[2].clone(),
+			GENESIS_VESTING_START_MS,
+			GENESIS_VESTING_CLIFF_MS,
+			GENESIS_VESTING_END_MS,
+			GENESIS_VESTING_TOTAL,
+		),
+	]
+}
+
+/// Dev additionally vests the keyless test wormhole address: it can never sign, so its
+/// grants are claimable only via the permissionless third-party `claim` — exercising the
+/// exact path wormhole beneficiaries rely on.
+fn development_vesting_schedules() -> Vec<VestingScheduleTuple> {
+	let mut schedules = testnet_vesting_schedules();
+	schedules.push((
+		test_wormhole_account(),
+		GENESIS_VESTING_START_MS,
+		GENESIS_VESTING_CLIFF_MS,
+		GENESIS_VESTING_END_MS,
+		GENESIS_VESTING_TOTAL,
+	));
+	schedules
+}
+
+fn log_vesting_schedules(preset: &str, schedules: &[VestingScheduleTuple]) {
+	let ss58 = ss58_version();
+	let pot = pallet_vesting::Pallet::<crate::Runtime>::pot_account_id();
+	log::info!("[{preset}] 🪙 Vesting pot: {:?}", pot.to_ss58check_with_version(ss58));
+	for (beneficiary, start, cliff, end, total) in schedules {
+		log::info!(
+			"[{preset}] 🪙 Vesting: {:?} total={total} start={start} cliff={cliff} end={end}",
+			beneficiary.to_ss58check_with_version(ss58),
+		);
+	}
 }
 
 fn log_genesis_accounts(
@@ -227,6 +326,8 @@ pub fn development_config_genesis() -> Value {
 		&tech_collective,
 	);
 	log::info!("[dev] 🕳️  Test ZK: {:?}", test_account.to_ss58check_with_version(ss58_version()));
+	let vesting_schedules = development_vesting_schedules();
+	log_vesting_schedules("dev", &vesting_schedules);
 
 	#[cfg(feature = "runtime-benchmarks")]
 	{
@@ -250,8 +351,13 @@ pub fn development_config_genesis() -> Value {
 
 		let treasury =
 			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
-		let mut template_value =
-			genesis_template(endowed_accounts, treasury, tech_collective, vec![]);
+		let mut template_value = genesis_template(
+			endowed_accounts,
+			treasury,
+			tech_collective,
+			vec![],
+			vesting_schedules,
+		);
 		// `genesis_template` adds a chain-spec-only field; strip before deserializing.
 		template_value
 			.as_object_mut()
@@ -267,7 +373,7 @@ pub fn development_config_genesis() -> Value {
 	{
 		let treasury =
 			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
-		genesis_template(endowed_accounts, treasury, tech_collective, vec![])
+		genesis_template(endowed_accounts, treasury, tech_collective, vec![], vesting_schedules)
 	}
 }
 
@@ -283,9 +389,11 @@ pub fn heisenberg_config_genesis() -> Value {
 		&treasury_signers,
 		&tech_collective,
 	);
+	let vesting_schedules = testnet_vesting_schedules();
+	log_vesting_schedules("heisenberg", &vesting_schedules);
 	let treasury =
 		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
-	genesis_template(endowed_accounts, treasury, tech_collective, vec![])
+	genesis_template(endowed_accounts, treasury, tech_collective, vec![], vesting_schedules)
 }
 
 fn planck_faucet_account() -> AccountId {
@@ -407,9 +515,12 @@ pub fn planck_config_genesis() -> Value {
 		&treasury_signers,
 		&tech_collective,
 	);
+	// No vesting allocations on Planck; the pot still receives its ED buffer so
+	// `create_schedule` works post-genesis.
+	log_vesting_schedules("planck", &[]);
 	let treasury =
 		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
-	genesis_template(endowed_accounts, treasury, tech_collective, signer_fee_seed)
+	genesis_template(endowed_accounts, treasury, tech_collective, signer_fee_seed, vec![])
 }
 
 /// Provides the JSON representation of predefined genesis config for given `id`.
@@ -447,21 +558,59 @@ mod tests {
 	use super::*;
 	use sp_runtime::BuildStorage;
 
-	/// Every shipped preset must actually build genesis storage, i.e. pass every pallet's
-	/// genesis-build invariants. (Wormhole transfer proofs need no preset entry at all:
-	/// they are derived from these genesis balances at block 1, so they cannot disagree
-	/// with the value actually issued.)
+	/// 2020-01-01 and 2100-01-01 UTC, sanity bounds for genesis vesting dates.
+	const YEAR_2020_MS: u64 = 1_577_836_800_000;
+	const YEAR_2100_MS: u64 = 4_102_444_800_000;
+
+	#[test]
+	fn days_ms_is_exact() {
+		assert_eq!(days_ms(1), 86_400_000);
+		assert_eq!(days_ms(365), 31_536_000_000);
+	}
+
+	#[test]
+	fn genesis_vesting_times_are_sane() {
+		assert_eq!(GENESIS_VESTING_START_MS % MILLIS_PER_DAY, 0, "start must be midnight UTC");
+		assert!(GENESIS_VESTING_START_MS > YEAR_2020_MS);
+		assert!(GENESIS_VESTING_START_MS < YEAR_2100_MS);
+		assert!(GENESIS_VESTING_START_MS <= GENESIS_VESTING_CLIFF_MS);
+		assert!(GENESIS_VESTING_CLIFF_MS <= GENESIS_VESTING_END_MS);
+		assert!(GENESIS_VESTING_START_MS < GENESIS_VESTING_END_MS);
+	}
+
+	/// Every shipped preset must build genesis storage, including the vesting pallet's
+	/// pot-balance assertions. Wormhole transfer proofs need no preset entry: they are
+	/// derived from genesis balances at block 1.
 	#[test]
 	fn all_presets_build_genesis_storage() {
 		for id in preset_names() {
 			let bytes = get_preset(&id).expect("listed preset must resolve");
 			let (config_bytes, _members) = prepare_genesis_build_input(bytes)
 				.unwrap_or_else(|e| panic!("preset {:?}: invalid genesis JSON: {e}", id));
-			let config: crate::RuntimeGenesisConfig = serde_json::from_slice(&config_bytes)
+			let config: RuntimeGenesisConfig = serde_json::from_slice(&config_bytes)
 				.unwrap_or_else(|e| panic!("preset {:?} must deserialize: {e}", id));
 			config
 				.build_storage()
 				.unwrap_or_else(|e| panic!("preset {:?} must build genesis storage: {e:?}", id));
 		}
+	}
+
+	/// The vesting pot's genesis endowment must exactly cover the schedule table.
+	#[test]
+	fn preset_pot_endowment_matches_schedules() {
+		let raw = get_preset(&PresetId::from(HEISENBERG_RUNTIME_PRESET)).expect("preset exists");
+		let (json, _) = prepare_genesis_build_input(raw).expect("well-formed");
+		let config: RuntimeGenesisConfig = serde_json::from_slice(&json).expect("deserializes");
+		let pot = pallet_vesting::Pallet::<crate::Runtime>::pot_account_id();
+		let pot_balance = config
+			.balances
+			.balances
+			.iter()
+			.find(|(who, _)| *who == pot)
+			.map(|(_, amount)| *amount)
+			.expect("pot must be endowed");
+		let schedule_sum: u128 =
+			config.vesting.schedules.iter().map(|(_, _, _, _, total)| *total).sum();
+		assert_eq!(pot_balance, schedule_sum + EXISTENTIAL_DEPOSIT);
 	}
 }
