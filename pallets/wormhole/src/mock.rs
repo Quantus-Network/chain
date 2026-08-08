@@ -96,9 +96,9 @@ parameter_types! {
 	/// Uses the shared MINTING_ACCOUNT constant from qp_wormhole.
 	pub const MintingAccount: AccountId = MINTING_ACCOUNT;
 	/// Volume fee rate in basis points.
-	/// Kept at 10 to match the committed private/public batch hex fixtures
-	/// (`test-data/*.hex`); the live runtime uses 4 bps.
-	pub const VolumeFeeRateBps: u32 = 10;
+	/// Matches the live runtime and the committed private/public batch hex fixtures
+	/// (`test-data/*.hex`).
+	pub const VolumeFeeRateBps: u32 = 4;
 	/// Proportion of volume fees to burn (50% burned, 50% to miner)
 	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
 	/// Half of the burn bucket on public-batch exits goes to the aggregator.
