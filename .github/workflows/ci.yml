@@ -45,7 +45,7 @@ jobs:
           cargo +nightly fmt --all -- --check
 
   build-and-test-matrix:
-    name: 🛠️ Build & Test Matrix
+    name: 🛠️ Check & Test Matrix
     needs: fast-checks
     runs-on: ${{ matrix.os }}
     # Production default is 53 (build.rs). Do not override here — CI must exercise
@@ -92,6 +92,9 @@ jobs:
         uses: ./.github/actions/ubuntu
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          # Match the Linux matrix job so clippy/doc can reuse its cache.
+          shared-key: "build-ubuntu"
       - name: Install required components
         run: rustup component add rust-src clippy
       - name: Run clippy
