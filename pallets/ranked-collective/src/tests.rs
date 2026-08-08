@@ -624,6 +624,98 @@ fn tally_support_zero_when_electorate_empty() {
 }
 
 #[test]
+fn removed_member_votes_are_reconciled() {
+	ExtBuilder::default().build_and_execute(|| {
+		// Three rank-1 members, all eligible for poll 3 (class 1).
+		for who in 1..=3 {
+			assert_ok!(Club::add_member(RuntimeOrigin::root(), who));
+			assert_ok!(Club::promote_member(RuntimeOrigin::root(), who));
+		}
+		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, true));
+		assert_ok!(Club::vote(RuntimeOrigin::signed(2), 3, false));
+		assert_eq!(tally(3), Tally::from_parts(1, 1, 1));
+
+		// Removing the aye voter must remove their tally contribution and stored vote.
+		assert_ok!(Club::remove_member(RuntimeOrigin::root(), 1, 1));
+		assert_eq!(tally(3), Tally::from_parts(0, 0, 1));
+		assert_eq!(Voting::<Test>::get(3, 1), None);
+
+		// Removing the nay voter too: the tally is back to zero.
+		assert_ok!(Club::remove_member(RuntimeOrigin::root(), 2, 1));
+		assert_eq!(tally(3), Tally::from_parts(0, 0, 0));
+		assert_eq!(Voting::<Test>::get(3, 2), None);
+	});
+}
+
+#[test]
+fn removing_members_cannot_inflate_support() {
+	ExtBuilder::default().build_and_execute(|| {
+		// Three rank-1 members; only account 1 votes aye: support is 1/3.
+		for who in 1..=3 {
+			assert_ok!(Club::add_member(RuntimeOrigin::root(), who));
+			assert_ok!(Club::promote_member(RuntimeOrigin::root(), who));
+		}
+		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, true));
+		assert_eq!(tally(3).support(1), Perbill::from_rational(1u32, 3));
+
+		// Removing the aye voter must drop support to 0/2, not raise it to 1/2.
+		assert_ok!(Club::remove_member(RuntimeOrigin::root(), 1, 1));
+		assert_eq!(tally(3).support(1), Perbill::zero());
+	});
+}
+
+#[test]
+fn exchange_member_reconciles_votes() {
+	ExtBuilder::default().build_and_execute(|| {
+		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::promote_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, true));
+		assert_eq!(tally(3), Tally::from_parts(1, 1, 0));
+
+		// The outgoing account's vote must not survive the exchange; the incoming
+		// account votes for itself.
+		assert_ok!(Club::exchange_member(RuntimeOrigin::root(), 1, 9));
+		assert_eq!(tally(3), Tally::from_parts(0, 0, 0));
+		assert_eq!(Voting::<Test>::get(3, 1), None);
+
+		assert_ok!(Club::vote(RuntimeOrigin::signed(9), 3, false));
+		assert_eq!(tally(3), Tally::from_parts(0, 0, 1));
+	});
+}
+
+#[test]
+fn demotion_out_of_collective_reconciles_votes() {
+	ExtBuilder::default().build_and_execute(|| {
+		// A class-0 poll which rank-0 members may vote on.
+		Polls::set(
+			vec![(9, Ongoing(Tally::from_parts(0, 0, 0), 0))].into_iter().collect(),
+		);
+		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 9, true));
+		assert_eq!(tally(9), Tally::from_parts(1, 1, 0));
+
+		// Demoting a rank-0 member removes them entirely; their vote must go too.
+		assert_ok!(Club::demote_member(RuntimeOrigin::root(), 1));
+		assert_eq!(tally(9), Tally::from_parts(0, 0, 0));
+		assert_eq!(Voting::<Test>::get(9, 1), None);
+	});
+}
+
+#[test]
+fn removal_leaves_completed_poll_votes_untouched() {
+	ExtBuilder::default().build_and_execute(|| {
+		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::promote_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, true));
+
+		// Poll 3 completes; historical vote records are only cleaned by `cleanup_poll`.
+		Polls::set(vec![(3, Completed(3, true))].into_iter().collect());
+		assert_ok!(Club::remove_member(RuntimeOrigin::root(), 1, 1));
+		assert_eq!(Voting::<Test>::get(3, 1), Some(VoteRecord::Aye(1)));
+	});
+}
+
+#[test]
 fn exchange_member_works() {
 	ExtBuilder::default().build_and_execute(|| {
 		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));

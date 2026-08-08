@@ -788,6 +788,38 @@ pub mod pallet {
 			})
 		}
 
+		/// Withdraw all votes cast by `who` on ongoing polls, reconciling each poll's tally.
+		///
+		/// Called whenever an account ceases to be a member, so that in-flight referenda are
+		/// always tallied against the live electorate: without this, a removed member's
+		/// aye/nay would keep counting — and keep inflating `support`, whose `MemberCount`
+		/// denominator shrinks on removal — even though the account can no longer change or
+		/// withdraw its vote. Votes on completed polls are left for `cleanup_poll`.
+		///
+		/// Work is bounded by the number of vote records in storage, which is kept small by
+		/// the member count limit and the fee-free `cleanup_poll` of completed polls.
+		fn remove_votes_from_ongoing_polls(who: &T::AccountId) {
+			use VoteRecord::*;
+			let cast: alloc::vec::Vec<_> = Voting::<T, I>::iter()
+				.filter(|(_, voter, _)| voter == who)
+				.map(|(poll, _, record)| (poll, record))
+				.collect();
+			for (poll, record) in cast {
+				T::Polls::access_poll(poll, |status| {
+					if let PollStatus::Ongoing(tally, _) = status {
+						match record {
+							Aye(votes) => {
+								tally.bare_ayes.saturating_dec();
+								tally.ayes.saturating_reduce(votes);
+							},
+							Nay(votes) => tally.nays.saturating_reduce(votes),
+						}
+						Voting::<T, I>::remove(&poll, who);
+					}
+				});
+			}
+		}
+
 		/// Adds a member into the ranked collective at level 0.
 		///
 		/// No origin checks are executed.
@@ -855,6 +887,7 @@ pub mod pallet {
 			match maybe_rank {
 				None => {
 					Members::<T, I>::remove(&who);
+					Self::remove_votes_from_ongoing_polls(&who);
 					Self::deposit_event(Event::MemberRemoved { who, rank: 0 });
 				},
 				Some(rank) => {
@@ -895,6 +928,7 @@ pub mod pallet {
 				Self::remove_from_rank(&who, r)?;
 			}
 			Members::<T, I>::remove(&who);
+			Self::remove_votes_from_ongoing_polls(who);
 			Ok(())
 		}
 	}

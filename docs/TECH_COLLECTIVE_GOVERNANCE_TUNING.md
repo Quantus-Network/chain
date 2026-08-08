@@ -121,7 +121,7 @@ Both are Root-only. Root is only reachable via a passed referendum, so cancellin
 
 Member removal mid-flight: `remove_member` (`pallet-ranked-collective/src/lib.rs:600-617`) requires `RemoveOrigin`, which this runtime now sets to `EnsureRootWithSuccess<AccountId, ConstU16<0>>` (`configs/mod.rs`) — **Root only**; `AddOrigin` is the same (#91267 fixed). Membership changes therefore require a passed referendum: a single member can no longer unilaterally remove the others or stuff the collective up to `MaxMemberCount = 13`. (Genesis seeding bypasses the origin via `do_add_member_to_rank`, as before.)
 
-Removal does **not** touch ongoing tallies: `do_remove_member_from_rank` (lib.rs:886-892) clears member indices only — cast votes stay counted, but the support denominator `MemberCount[0]` shrinks immediately, *raising* the support percentage of remaining ayes (e.g. after removing 2 of 5 members, 3 ayes = 100% support). Membership changes during a live referendum therefore shift its outcome.
+Removal reconciles ongoing tallies: whenever an account ceases to be a member (`remove_member`, `exchange_member`, or demotion out of rank 0), `remove_votes_from_ongoing_polls` withdraws its aye/nay from every ongoing poll and deletes the `Voting` record, so in-flight referenda are always tallied against the live electorate. The support denominator `MemberCount[0]` still shrinks on removal, but only votes of current members remain in the numerator — a removed member's stale aye can no longer be amplified (or a stale nay keep blocking). Votes on completed polls are left for `cleanup_poll`.
 
 ## 5. Security summary (current 5-member config: approval 61%, support 60%)
 
