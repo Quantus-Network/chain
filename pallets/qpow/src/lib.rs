@@ -35,6 +35,10 @@ pub mod pallet {
 	pub type Timestamp = u64;
 	pub type BlockDuration = u64;
 
+	/// Lower bound (ms) on the author-controlled block time fed into the difficulty
+	/// retarget. Flooring can only lower the adjustment, so it can never stall the chain.
+	const MIN_RETARGET_BLOCK_TIME_MS: u64 = 500;
+
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
@@ -77,6 +81,14 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
+			// Fail early on an out-of-range genesis difficulty (this also rejects
+			// zero, since the floor is non-zero) before it can drive first-block
+			// consensus. Reuse the operational difficulty bounds.
+			assert!(
+				self.initial_difficulty >= Pallet::<T>::get_min_difficulty() &&
+					self.initial_difficulty < Pallet::<T>::get_max_difficulty(),
+				"Genesis initial difficulty must be within [get_min_difficulty, get_max_difficulty)"
+			);
 			// Use the genesis config value, not the runtime constant.
 			// This allows chain-spec overrides of initial difficulty.
 			<CurrentDifficulty<T>>::put(self.initial_difficulty);
@@ -208,6 +220,10 @@ pub mod pallet {
 			target_time_ms: u64,
 		) -> U512 {
 			log::debug!(target: "qpow", "📊 Calculating new difficulty ---------------------------------------------");
+
+			// Floor the author-controlled block time so an implausibly small timestamp
+			// delta cannot steer the retarget.
+			let block_time_ms = block_time_ms.max(MIN_RETARGET_BLOCK_TIME_MS);
 
 			// Divisor scales with target: 8s divisor for 12s target
 			// divisor = target * 8 / 12 = target * 2 / 3

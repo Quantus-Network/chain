@@ -29,7 +29,8 @@ use primitive_types::{H256, U512};
 use sc_client_api::ImportNotifications;
 use sc_consensus::{BlockImportParams, BoxBlockImport, StateAction, StorageChanges};
 use sp_api::ProvideRuntimeApi;
-use sp_consensus::{BlockOrigin, Proposal};
+use sp_blockchain::HeaderBackend;
+use sp_consensus::{BlockOrigin, Proposal, SyncOracle};
 use sp_consensus_qpow::{QPoWApi, Seal, POW_ENGINE_ID};
 use sp_runtime::{
 	traits::{Block as BlockT, Header as HeaderT},
@@ -76,12 +77,17 @@ pub struct MiningHandle<Block: BlockT, AC, L: sc_consensus::JustificationSyncLin
 	justification_sync_link: Arc<L>,
 	build: Arc<Mutex<Option<MiningBuild<Block, Proof>>>>,
 	block_import: Arc<BoxBlockImport<Block>>,
+	sync_oracle: Arc<dyn SyncOracle + Send + Sync>,
+	// Rebuild-request channel shared with the block-building task, so mining can be
+	// resumed (post-sync, or after a failed import) without an external trigger.
+	pending_build: Arc<Mutex<Option<Block::Hash>>>,
+	rebuild_notify: futures::channel::mpsc::Sender<()>,
 }
 
 impl<Block, AC, L, Proof> MiningHandle<Block, AC, L, Proof>
 where
 	Block: BlockT<Hash = H256>,
-	AC: ProvideRuntimeApi<Block>,
+	AC: ProvideRuntimeApi<Block> + HeaderBackend<Block>,
 	AC::Api: QPoWApi<Block>,
 	L: sc_consensus::JustificationSyncLink<Block>,
 {
@@ -89,18 +95,36 @@ where
 		self.version.fetch_add(1, Ordering::SeqCst);
 	}
 
-	pub(crate) fn new(
+	pub(crate) fn new<SO>(
 		client: Arc<AC>,
 		block_import: BoxBlockImport<Block>,
 		justification_sync_link: L,
-	) -> Self {
+		sync_oracle: SO,
+		pending_build: Arc<Mutex<Option<Block::Hash>>>,
+		rebuild_notify: futures::channel::mpsc::Sender<()>,
+	) -> Self
+	where
+		SO: SyncOracle + Send + Sync + 'static,
+	{
 		Self {
 			version: Arc::new(AtomicUsize::new(0)),
 			client,
 			justification_sync_link: Arc::new(justification_sync_link),
 			build: Arc::new(Mutex::new(None)),
 			block_import: Arc::new(block_import),
+			sync_oracle: Arc::new(sync_oracle),
+			pending_build,
+			rebuild_notify,
 		}
+	}
+
+	/// Request a rebuild of the mining candidate on top of the current best block.
+	/// Used to resume mining after the build was cleared (post-sync) or a submitted
+	/// block failed to import, leaving no candidate.
+	pub fn request_rebuild(&self) {
+		let best_hash = self.client.info().best_hash;
+		*self.pending_build.lock() = Some(best_hash);
+		let _ = self.rebuild_notify.clone().try_send(());
 	}
 
 	pub(crate) fn on_major_syncing(&self) {
@@ -141,6 +165,15 @@ where
 		// This prevents TOCTOU issues where a rebuild could land between verify and consume.
 		let build = {
 			let mut build_guard = self.build.lock();
+
+			// Defense-in-depth: never import a locally mined block while the node is
+			// still doing major sync. Drop the stale candidate.
+			if self.sync_oracle.is_major_syncing() {
+				debug!(target: LOG_TARGET, "Rejecting mined block submission due to sync.");
+				*build_guard = None;
+				self.increment_version();
+				return false;
+			}
 
 			// Extract metadata for verification while keeping the build in place
 			let (pre_hash, best_hash) = match build_guard.as_ref() {
@@ -215,6 +248,9 @@ where
 			},
 			Err(err) => {
 				warn!(target: LOG_TARGET, "Unable to import mined block: {}", err,);
+				// The build was consumed above; request a fresh candidate so mining
+				// resumes without waiting for an external trigger.
+				self.request_rebuild();
 				false
 			},
 		}
@@ -234,6 +270,9 @@ where
 			justification_sync_link: self.justification_sync_link.clone(),
 			build: self.build.clone(),
 			block_import: self.block_import.clone(),
+			sync_oracle: self.sync_oracle.clone(),
+			pending_build: self.pending_build.clone(),
+			rebuild_notify: self.rebuild_notify.clone(),
 		}
 	}
 }

@@ -180,10 +180,11 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 		// Proof Size summary in bytes:
 		//  Measured:  `639`
 		//  Estimated: `8619` + tree
+		let depth = pallet_zk_tree::Pallet::<T>::depth();
 		execute_transfer_weight(
 			T::DbWeight::get(),
-			pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops(),
-			pallet_zk_tree::Pallet::<T>::insert_leaf_hash_ref_time(),
+			pallet_zk_tree::insert_leaf_db_ops_at_depth(depth),
+			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(depth),
 		)
 	}
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
@@ -379,6 +380,14 @@ mod tests {
 			assert!(
 				deep.proof_size() > shallow.proof_size(),
 				"execute_transfer weight must grow with ZK-tree depth (shallow: {:?}, deep: {:?})",
+				shallow,
+				deep,
+			);
+			// The per-level Poseidon hashing of `insert_leaf` must also be priced, so
+			// ref-time grows with depth even when `DbWeight` is zero.
+			assert!(
+				deep.ref_time() > shallow.ref_time(),
+				"execute_transfer ref-time must grow with ZK-tree depth (shallow: {:?}, deep: {:?})",
 				shallow,
 				deep,
 			);

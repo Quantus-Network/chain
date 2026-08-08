@@ -21,7 +21,10 @@ use super::*;
 use crate::mock::{RefState::*, *};
 use assert_matches::assert_matches;
 use codec::Decode;
-use frame_support::{assert_noop, assert_ok, dispatch::RawOrigin, traits::Contains};
+use frame_support::{
+	assert_err, assert_noop, assert_ok, dispatch::RawOrigin, storage::with_storage_layer,
+	traits::Contains,
+};
 use pallet_balances::Error as BalancesError;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::DispatchError::BadOrigin;
@@ -160,17 +163,17 @@ fn full_alarm_block_agenda_retries_on_next_block() {
 	});
 }
 
-/// V12 audit #161743: a referendum evicted from a full `TrackQueue` keeps `in_queue =
-/// true` in storage while being absent from the queue (ghost-queued). Servicing it must
-/// clear the flag and mark the status dirty so it can be re-routed through
-/// `ready_for_deciding` or the undeciding timeout instead of stranding it forever.
+/// V12 audit #161743/#161418: a referendum evicted from a full `TrackQueue` would keep
+/// `in_queue = true` in storage while being absent from the queue (ghost-queued) with no
+/// alarm, stranding it forever. The eviction must be repaired *eagerly*: the moment the
+/// evicting insertion happens, the displaced referendum's `in_queue` flag is cleared and its
+/// undeciding-timeout alarm restored so it stays serviceable without any further nudge.
 ///
-/// Track 0 has `max_deciding = 1` and `MaxQueued = 3`. Once the queue is full, ref4 with
-/// more ayes than the queue's tail squeezes in via `force_insert_keep_right`, which evicts
-/// the lowest-ayes entry (ref1). Servicing ref1 must then hit the `NotQueued` arm (its
-/// ayes sort to position 0) and clear `in_queue`.
+/// Track 0 has `max_deciding = 1` and `MaxQueued = 3`. Once the queue is full, ref4 with more
+/// ayes than the queue's tail squeezes in via `force_insert_keep_right`, evicting the
+/// lowest-ayes entry (ref1).
 #[test]
-fn evicted_from_full_queue_clears_in_queue_on_service() {
+fn evicted_from_full_queue_is_repaired_immediately() {
 	ExtBuilder::default().build_and_execute(|| {
 		// Block 1: ref0 occupies the single deciding slot of track 0 from block 5 on.
 		assert_ok!(propose_set_balance(1, 0, 0));
@@ -193,24 +196,15 @@ fn evicted_from_full_queue_clears_in_queue_on_service() {
 			Vec::<_>::from(TrackQueue::<Test>::get(0)),
 			vec![(4u32, 2u32), (2u32, 2u32), (3u32, 3u32)]
 		);
-		// Pre-fix ghost state: ref1 believes it is queued but is absent from `TrackQueue`.
-		assert!(Referenda::ensure_ongoing(1).unwrap().in_queue);
 
-		// Service ref1: it is not found in the queue and its single aye sorts to position
-		// 0, so the `NotQueued` arm must clear the flag and store the referendum.
-		assert_ok!(Referenda::nudge_referendum(RuntimeOrigin::root(), 1));
-		assert!(!Referenda::ensure_ongoing(1).unwrap().in_queue);
+		// #161418: ref1 was evicted, and repaired eagerly - no ghost state, no missing alarm.
+		// Its `in_queue` flag is already cleared and its undeciding-timeout alarm (submitted at
+		// block 5 + UndecidingTimeout 20 = block 25) restored, with no external nudge.
+		let s1 = Referenda::ensure_ongoing(1).unwrap();
+		assert!(!s1.in_queue);
+		assert_eq!(s1.alarm.map(|(when, _)| when), Some(25));
 
-		// The same service must also restore the undeciding-timeout alarm (submitted at
-		// block 5 + UndecidingTimeout 20 = block 25): `nudge_referendum` is Root-only on
-		// this chain, so without an alarm the referendum would stay stranded until a
-		// second governance intervention.
-		assert_eq!(Referenda::ensure_ongoing(1).unwrap().alarm.map(|(when, _)| when), Some(25));
-
-		// When that alarm fires, the referendum (deposit placed, prepare period elapsed)
-		// re-routes through `ready_for_deciding` or times out. Whatever the exact outcome,
-		// it must no longer sit stranded with no alarm, no queue entry and no deciding
-		// status.
+		// When that alarm fires, the referendum makes progress instead of stranding.
 		run_to(25);
 		let stranded = matches!(
 			ReferendumInfoFor::<Test>::get(1),
@@ -280,6 +274,158 @@ fn unschedulable_one_fewer_deciding_releases_deciding_slot_inline() {
 		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(2), 1));
 		run_to(31);
 		assert_eq!(deciding_since(1), 31);
+	});
+}
+
+/// V12 audit #161327: if the undeciding-timeout alarm cannot be scheduled (its target block and
+/// all retry blocks are full), `submit` must fail instead of recording a referendum that is never
+/// serviced (no alarm, not queued, not deciding) and whose deposit is locked forever. Being
+/// transactional, the `Err` rolls back the reserve and the `ReferendumCount` increment.
+#[test]
+fn submit_fails_when_timeout_alarm_unschedulable() {
+	ExtBuilder::default().build_and_execute(|| {
+		// Undeciding-timeout alarm target once submitted at block 1: 1 + 20 = 21. Fill it and all
+		// 16 retry blocks so `set_alarm` returns `None`.
+		let max = <<Test as pallet_scheduler::Config>::MaxScheduledPerBlock as frame_support::traits::Get<
+			u32,
+		>>::get();
+		let filler = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+		for when in 21..=37 {
+			for _ in 0..max {
+				assert_ok!(Scheduler::schedule(
+					RuntimeOrigin::root(),
+					when,
+					100,
+					Box::new(filler.clone()),
+				));
+			}
+		}
+		assert_err!(
+			with_storage_layer(|| propose_set_balance(1, 1, 0)),
+			Error::<Test>::AlarmSchedulingFailed
+		);
+		// Nothing recorded, nothing reserved.
+		assert_eq!(ReferendumCount::<Test>::get(), 0);
+		assert_eq!(Balances::reserved_balance(1), 0);
+	});
+}
+
+/// V12 audit #161329: when a full `TrackQueue` rejects a low-ayes referendum (it sorts at index 0
+/// and is not inserted), the referendum must NOT be marked `in_queue`; it must keep its
+/// undeciding-timeout alarm so it can time out or retry admission rather than strand with no queue
+/// entry and no alarm.
+#[test]
+fn queue_admission_failure_keeps_timeout_alarm() {
+	ExtBuilder::default().build_and_execute(|| {
+		// ref0 holds track 0's single deciding slot from block 5 on.
+		assert_ok!(propose_set_balance(1, 0, 0));
+		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(1), 0));
+		run_to(5);
+		assert_eq!(deciding_and_failing_since(0), 5);
+
+		// Fill the queue with [(1,1),(2,2),(3,3)]; ref4 (0 ayes) sorts below the queue minimum, so
+		// admission into the full queue fails.
+		for (who, ayes) in [(2u64, 1u32), (3, 2), (4, 3), (5, 0)] {
+			let index = who as u32 - 1;
+			assert_ok!(propose_set_balance(who, who, 0));
+			assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(who), index));
+			set_tally(index, ayes, 0);
+		}
+		run_to(9);
+		assert_eq!(
+			Vec::<_>::from(TrackQueue::<Test>::get(0)),
+			vec![(1u32, 1u32), (2u32, 2u32), (3u32, 3u32)]
+		);
+		// ref4 was not admitted: not `in_queue`, but keeps a wake-up (submitted 5 + 20 = 25).
+		let s4 = Referenda::ensure_ongoing(4).unwrap();
+		assert!(!s4.in_queue);
+		assert_eq!(s4.alarm.map(|(when, _)| when), Some(25));
+	});
+}
+
+/// V12 audit #160560: an approved referendum whose enactment call cannot be scheduled (its
+/// preferred block and all retry blocks are full) must NOT be committed as `Approved` (which
+/// discards the call/origin). It stays `Ongoing`/confirming and retries the enactment on a later
+/// alarm, so the enactment is never lost.
+#[test]
+fn approved_referendum_retries_enactment_when_agendas_full() {
+	ExtBuilder::default().build_and_execute(|| {
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(10),
+		));
+		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(2), 0));
+
+		// Preferred enactment block once approved at 9: max(10, 9+4) = 13. Fill it and all 16
+		// retry blocks so enactment scheduling fully fails at the approval attempt.
+		let max = <<Test as pallet_scheduler::Config>::MaxScheduledPerBlock as frame_support::traits::Get<
+			u32,
+		>>::get();
+		let filler = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+		for when in 13..=29 {
+			for _ in 0..max {
+				assert_ok!(Scheduler::schedule(
+					RuntimeOrigin::root(),
+					when,
+					100,
+					Box::new(filler.clone()),
+				));
+			}
+		}
+
+		run_to(6);
+		set_tally(0, 100, 0);
+		run_to(9);
+		// Enactment could not be scheduled, so the referendum is NOT approved - it stays ongoing.
+		assert_matches!(ReferendumInfoFor::<Test>::get(0), Some(ReferendumInfo::Ongoing(..)));
+		assert_eq!(confirming_until(0), 9);
+
+		// Once past the filled agendas the enactment schedules and the referendum is approved.
+		run_to(30);
+		assert_eq!(approved_since(0), 30);
+		// The enactment then executes (earliest 30 + min_enactment 4 = 34).
+		run_to(34);
+		assert_eq!(Balances::free_balance(42), 1);
+	});
+}
+
+/// V12 audit #161394: cancelling a queued referendum must drop its `TrackQueue` entry so terminal
+/// referenda do not occupy the bounded queue's capacity.
+#[test]
+fn cancel_removes_queued_referendum_from_track_queue() {
+	ExtBuilder::default().build_and_execute(|| {
+		// ref0 takes track 0's single deciding slot; ref1 queues behind it.
+		assert_ok!(propose_set_balance(1, 0, 0));
+		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(1), 0));
+		run_to(3);
+		assert_ok!(propose_set_balance(2, 2, 0));
+		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(2), 1));
+		run_to(7);
+		assert!(Referenda::ensure_ongoing(1).unwrap().in_queue);
+		assert!(Vec::<_>::from(TrackQueue::<Test>::get(0)).iter().any(|(i, _)| *i == 1));
+
+		assert_ok!(Referenda::cancel(RuntimeOrigin::signed(4), 1));
+		assert!(!Vec::<_>::from(TrackQueue::<Test>::get(0)).iter().any(|(i, _)| *i == 1));
+	});
+}
+
+/// V12 audit #161394: killing a queued referendum must likewise drop its `TrackQueue` entry.
+#[test]
+fn kill_removes_queued_referendum_from_track_queue() {
+	ExtBuilder::default().build_and_execute(|| {
+		assert_ok!(propose_set_balance(1, 0, 0));
+		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(1), 0));
+		run_to(3);
+		assert_ok!(propose_set_balance(2, 2, 0));
+		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(2), 1));
+		run_to(7);
+		assert!(Referenda::ensure_ongoing(1).unwrap().in_queue);
+		assert!(Vec::<_>::from(TrackQueue::<Test>::get(0)).iter().any(|(i, _)| *i == 1));
+
+		assert_ok!(Referenda::kill(RuntimeOrigin::root(), 1));
+		assert!(!Vec::<_>::from(TrackQueue::<Test>::get(0)).iter().any(|(i, _)| *i == 1));
 	});
 }
 

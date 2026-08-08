@@ -37,6 +37,16 @@ pub fn alarm_retry_weight<T: Config<I>, I: 'static>() -> Weight {
 		.saturating_mul(Pallet::<T, I>::MAX_ALARM_SCHEDULE_RETRIES as u64)
 }
 
+/// Worst-case overhead of repairing a referendum displaced from a full `TrackQueue` (V12 audit
+/// #161743): one `ReferendumInfoFor` read+write plus the re-armed evicted referendum's alarm
+/// retry overhead. Charged on the branches that insert into a possibly-full queue (`Queued` /
+/// `RequeuedInsertion`).
+pub fn queue_eviction_repair_weight<T: Config<I>, I: 'static>() -> Weight {
+	T::DbWeight::get()
+		.reads_writes(1, 1)
+		.saturating_add(alarm_retry_weight::<T, I>())
+}
+
 /// Branches within the `begin_deciding` function.
 pub enum BeginDecidingBranch {
 	Passing,
@@ -110,8 +120,12 @@ impl ServiceBranch {
 			ContinueNotConfirming |
 			Approved |
 			Rejected => base.saturating_add(alarm_retry_weight::<T, I>()),
+			// Inserting into a possibly-full queue may evict and repair another referendum
+			// (#161743): one read/write plus its alarm-retry overhead.
+			Queued | RequeuedInsertion =>
+				base.saturating_add(queue_eviction_repair_weight::<T, I>()),
 			// These branches leave the referendum without an alarm (or only cancel one).
-			Queued | RequeuedInsertion | RequeuedSlide | TimedOut | Fail => base,
+			RequeuedSlide | TimedOut | Fail => base,
 		}
 	}
 
@@ -134,6 +148,7 @@ impl ServiceBranch {
 			.max(T::WeightInfo::nudge_referendum_rejected())
 			.max(T::WeightInfo::nudge_referendum_timed_out())
 			.saturating_add(alarm_retry_weight::<T, I>())
+			.saturating_add(queue_eviction_repair_weight::<T, I>())
 	}
 
 	/// Return the weight of the `place_decision_deposit` function when it takes the branch denoted
@@ -148,7 +163,8 @@ impl ServiceBranch {
 			// the referendum alarm-less.
 			Preparing => T::WeightInfo::place_decision_deposit_preparing()
 				.saturating_add(alarm_retry_weight::<T, I>()),
-			Queued => T::WeightInfo::place_decision_deposit_queued(),
+			Queued => T::WeightInfo::place_decision_deposit_queued()
+				.saturating_add(queue_eviction_repair_weight::<T, I>()),
 			NotQueued => T::WeightInfo::place_decision_deposit_not_queued()
 				.saturating_add(alarm_retry_weight::<T, I>()),
 			BeginDecidingPassing => T::WeightInfo::place_decision_deposit_passing()
@@ -180,6 +196,7 @@ impl ServiceBranch {
 			.max(T::WeightInfo::place_decision_deposit_passing())
 			.max(T::WeightInfo::place_decision_deposit_failing())
 			.saturating_add(alarm_retry_weight::<T, I>())
+			.saturating_add(queue_eviction_repair_weight::<T, I>())
 	}
 }
 

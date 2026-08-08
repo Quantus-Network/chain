@@ -444,6 +444,8 @@ pub mod pallet {
 		PreimageNotExist,
 		/// The preimage is stored with a different length than the one provided.
 		PreimageStoredWithDifferentLength,
+		/// The referendum's wake-up alarm could not be scheduled.
+		AlarmSchedulingFailed,
 	}
 
 	#[pallet::hooks]
@@ -505,11 +507,12 @@ pub mod pallet {
 			let now = T::BlockNumberProvider::current_block_number();
 			let nudge_call =
 				T::Preimages::bound(CallOf::<T, I>::from(Call::nudge_referendum { index }))?;
+			// A referendum without its undeciding-timeout alarm is never serviced (#91210) and
+			// nothing here can recover from it, so fail the extrinsic. Being transactional, the
+			// `Err` rolls back the reserve, the `ReferendumCount` bump and any scheduler writes.
 			let alarm =
-				Self::set_alarm(nudge_call, now.saturating_add(T::UndecidingTimeout::get()));
-			// A referendum without its undeciding-timeout alarm is not serviced (#91210)
-			// and nothing here can recover from that, so flag it loudly under debug.
-			debug_assert!(alarm.is_some(), "unable to schedule the undeciding-timeout alarm");
+				Self::set_alarm(nudge_call, now.saturating_add(T::UndecidingTimeout::get()))
+					.ok_or(Error::<T, I>::AlarmSchedulingFailed)?;
 			let status = ReferendumStatus {
 				track,
 				origin: proposal_origin,
@@ -521,7 +524,7 @@ pub mod pallet {
 				deciding: None,
 				tally: TallyOf::<T, I>::new(track),
 				in_queue: false,
-				alarm,
+				alarm: Some(alarm),
 			};
 			ReferendumInfoFor::<T, I>::insert(index, ReferendumInfo::Ongoing(status));
 
@@ -597,8 +600,10 @@ pub mod pallet {
 		/// Emits `Cancelled`.
 		#[pallet::call_index(3)]
 		// May defer `one_fewer_deciding` via `set_alarm`, bearing its worst-case retry
-		// overhead.
-		#[pallet::weight(T::WeightInfo::cancel().saturating_add(alarm_retry_weight::<T, I>()))]
+		// overhead; plus one read/write to drop a queued entry from `TrackQueue`.
+		#[pallet::weight(T::WeightInfo::cancel()
+			.saturating_add(alarm_retry_weight::<T, I>())
+			.saturating_add(T::DbWeight::get().reads_writes(1, 1)))]
 		pub fn cancel(origin: OriginFor<T>, index: ReferendumIndex) -> DispatchResult {
 			T::CancelOrigin::ensure_origin(origin)?;
 			let status = Self::ensure_ongoing(index)?;
@@ -611,6 +616,11 @@ pub mod pallet {
 			// more than `max_deciding` referenda decide at once.
 			if status.deciding.is_some() {
 				Self::note_one_fewer_deciding(status.track);
+			}
+			// A queued referendum still holds a `TrackQueue` slot; drop it so terminal entries
+			// do not occupy the bounded queue's capacity.
+			if status.in_queue {
+				Self::remove_from_track_queue(status.track, index);
 			}
 			Self::deposit_event(Event::<T, I>::Cancelled { index, tally: status.tally });
 			let info = ReferendumInfo::Cancelled(
@@ -630,8 +640,10 @@ pub mod pallet {
 		/// Emits `Killed` and `DepositSlashed`.
 		#[pallet::call_index(4)]
 		// May defer `one_fewer_deciding` via `set_alarm`, bearing its worst-case retry
-		// overhead.
-		#[pallet::weight(T::WeightInfo::kill().saturating_add(alarm_retry_weight::<T, I>()))]
+		// overhead; plus one read/write to drop a queued entry from `TrackQueue`.
+		#[pallet::weight(T::WeightInfo::kill()
+			.saturating_add(alarm_retry_weight::<T, I>())
+			.saturating_add(T::DbWeight::get().reads_writes(1, 1)))]
 		pub fn kill(origin: OriginFor<T>, index: ReferendumIndex) -> DispatchResult {
 			T::KillOrigin::ensure_origin(origin)?;
 			let status = Self::ensure_ongoing(index)?;
@@ -641,6 +653,10 @@ pub mod pallet {
 			// #91213: as in `cancel`, only release a deciding slot if this referendum held one.
 			if status.deciding.is_some() {
 				Self::note_one_fewer_deciding(status.track);
+			}
+			// As in `cancel`, drop any stale `TrackQueue` entry this referendum still holds.
+			if status.in_queue {
+				Self::remove_from_track_queue(status.track, index);
 			}
 			Self::deposit_event(Event::<T, I>::Killed { index, tally: status.tally });
 			Self::slash_deposit(Some(status.submission_deposit.clone()));
@@ -664,8 +680,17 @@ pub mod pallet {
 			ensure_root(origin)?;
 			let now = T::BlockNumberProvider::current_block_number();
 			let mut status = Self::ensure_ongoing(index)?;
-			// This is our wake-up, so we can disregard the alarm.
-			status.alarm = None;
+			// Only treat the alarm as consumed when this nudge IS its scheduled wake-up (its
+			// task is the currently-executing agenda entry, so it must not be cancelled). A
+			// manual Root nudge at any other block must cancel the still-pending task instead
+			// of orphaning it, which would otherwise leave a self-perpetuating alarm chain.
+			if let Some((when, _)) = status.alarm {
+				if when == now {
+					status.alarm = None;
+				} else {
+					Self::ensure_no_alarm(&mut status);
+				}
+			}
 			let (info, dirty, branch) = Self::service_referendum(now, index, status);
 			if dirty {
 				ReferendumInfoFor::<T, I>::insert(index, info);
@@ -690,22 +715,7 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			ensure_root(origin)?;
 			let track_info = T::Tracks::info(track).ok_or(Error::<T, I>::BadTrack)?;
-			let mut track_queue = TrackQueue::<T, I>::get(track);
-			let branch =
-				if let Some((index, mut status)) = Self::next_for_deciding(&mut track_queue) {
-					let now = T::BlockNumberProvider::current_block_number();
-					let (maybe_alarm, branch) =
-						Self::begin_deciding(&mut status, index, now, &track_info);
-					if let Some(set_alarm) = maybe_alarm {
-						Self::ensure_alarm_at(&mut status, index, set_alarm);
-					}
-					ReferendumInfoFor::<T, I>::insert(index, ReferendumInfo::Ongoing(status));
-					TrackQueue::<T, I>::insert(track, track_queue);
-					branch.into()
-				} else {
-					DecidingCount::<T, I>::mutate(track, |x| x.saturating_dec());
-					OneFewerDecidingBranch::QueueEmpty
-				};
+			let branch = Self::one_fewer_deciding_now(track, &track_info);
 			Ok(Some(branch.weight::<T, I>()).into())
 		}
 
@@ -936,13 +946,18 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	const MAX_ALARM_SCHEDULE_RETRIES: u32 = 16;
 
 	// Enqueue a proposal from a referendum which has presumably passed.
+	//
+	// #160560: returns `Err(retry_at)` if the enactment call could not be placed on any of the
+	// candidate agendas. The caller MUST keep the referendum `Ongoing` in that case (retrying at
+	// `retry_at`) rather than committing `ReferendumInfo::Approved`, which would discard the
+	// call/origin and lose the enactment entirely.
 	fn schedule_enactment(
 		index: ReferendumIndex,
 		track: &TrackInfoOf<T, I>,
 		desired: DispatchTime<BlockNumberFor<T, I>>,
 		origin: PalletsOriginOf<T>,
 		call: BoundedCallOf<T, I>,
-	) {
+	) -> Result<(), BlockNumberFor<T, I>> {
 		let now = T::BlockNumberProvider::current_block_number();
 		// Earliest allowed block is always at minimum the next block.
 		let earliest_allowed = now.saturating_add(track.min_enactment_period.max(One::one()));
@@ -959,7 +974,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 				origin.clone(),
 				call.clone(),
 			) {
-				Ok(_) => return,
+				Ok(_) => return Ok(()),
 				Err(e) => {
 					last_err = Some(e);
 					when = when.saturating_add(One::one());
@@ -967,16 +982,17 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 			}
 		}
 
-		// #91210: never fail silently. Even after sliding forward, a full agenda means an
-		// approved referendum's enacted call is never scheduled.
+		// #91210: never fail silently. Even after sliding forward, a full agenda means the
+		// enactment could not be scheduled; the caller retries at `when` instead of losing it.
 		log::error!(
 			target: "runtime::referenda",
-			"referendum {:?} approved but enactment scheduling failed after {} retries: {:?}",
+			"referendum {:?} enactment scheduling failed after {} retries, will retry at #{:?}: {:?}",
 			index,
 			Self::MAX_ENACTMENT_SCHEDULE_RETRIES,
+			when,
 			last_err,
 		);
-		debug_assert!(false, "LOGIC ERROR: bake_referendum/schedule_named failed after retries");
+		Err(when)
 	}
 
 	/// Set an alarm to dispatch `call` at block number `when`.
@@ -1093,15 +1109,54 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 			let r = Self::begin_deciding(status, index, now, track);
 			(r.0, r.1.into())
 		} else {
-			// Add to queue. #91271: honor the bounded-insertion result. If the item sorts beyond
-			// the queue bound it is NOT inserted, so it must not be marked `in_queue` —
-			// otherwise it is skipped by timeout yet absent from `TrackQueue`, stranding it
-			// (ghost-queued).
+			// Add to queue. #91271: honor the bounded-insertion result (see arms below).
 			let item = (index, status.tally.ayes(status.track));
-			status.in_queue =
-				TrackQueue::<T, I>::mutate(status.track, |q| q.insert_sorted_by_key(item, |x| x.1));
-			(None, ServiceBranch::Queued)
+			match TrackQueue::<T, I>::mutate(status.track, |q| {
+				q.insert_sorted_by_key(item, |x| x.1)
+			}) {
+				Ok(evicted) => {
+					status.in_queue = true;
+					// #161743: inserting into a full queue displaced the lowest-ayes entry.
+					// Repair the evicted referendum so it is not left ghost-queued (marked
+					// `in_queue` yet absent from `TrackQueue`, with no alarm).
+					if let Some((evicted_index, _)) = evicted {
+						Self::repair_evicted_referendum(evicted_index, now);
+					}
+					(None, ServiceBranch::Queued)
+				},
+				Err(_) => {
+					// #91271: the item sorts beyond the queue bound and was NOT inserted, so it
+					// must not be marked `in_queue`. Keep a wake-up (mirroring `NotQueued`) so it
+					// can time out or retry admission instead of stranding.
+					status.in_queue = false;
+					(
+						Some(status.submitted.saturating_add(T::UndecidingTimeout::get())),
+						ServiceBranch::NotQueued,
+					)
+				},
+			}
 		}
+	}
+
+	/// Repair a referendum displaced from a full `TrackQueue`: clear its stale `in_queue` flag
+	/// and re-arm its undeciding-timeout alarm so it stays serviceable (#161743).
+	fn repair_evicted_referendum(index: ReferendumIndex, now: BlockNumberFor<T, I>) {
+		ReferendumInfoFor::<T, I>::mutate(index, |maybe_info| {
+			if let Some(ReferendumInfo::Ongoing(status)) = maybe_info {
+				status.in_queue = false;
+				let timeout = status.submitted.saturating_add(T::UndecidingTimeout::get());
+				Self::ensure_alarm_at(status, index, timeout.max(now.saturating_add(One::one())));
+			}
+		});
+	}
+
+	/// Remove a referendum's entry from its track queue, if present.
+	fn remove_from_track_queue(track: TrackIdOf<T, I>, index: ReferendumIndex) {
+		TrackQueue::<T, I>::mutate(track, |q| {
+			if let Some(pos) = q.iter().position(|(x, _)| *x == index) {
+				q.remove(pos);
+			}
+		});
 	}
 
 	/// Grab the index and status for the referendum which is the highest priority of those for the
@@ -1115,6 +1170,43 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 				Ok(s) => return Some((index, s)),
 				Err(_) => {}, // referendum already timedout or was cancelled.
 			}
+		}
+	}
+
+	/// Promote the highest-priority queued referendum on `track` into deciding, or release the
+	/// deciding slot if the queue is empty. Factored out of the `one_fewer_deciding` dispatchable
+	/// so the `note_one_fewer_deciding` fallback preserves the same invariant (#162455).
+	fn one_fewer_deciding_now(
+		track: TrackIdOf<T, I>,
+		track_info: &TrackInfoOf<T, I>,
+	) -> OneFewerDecidingBranch {
+		let mut track_queue = TrackQueue::<T, I>::get(track);
+		if let Some((index, mut status)) = Self::next_for_deciding(&mut track_queue) {
+			let now = T::BlockNumberProvider::current_block_number();
+			let (maybe_alarm, branch) = Self::begin_deciding(&mut status, index, now, track_info);
+			if let Some(set_alarm) = maybe_alarm {
+				Self::ensure_alarm_at(&mut status, index, set_alarm);
+			}
+			// #162455: if the promoted referendum could not be armed, do not consume the freed
+			// slot with a referendum nothing will service. Release it and drop the referendum
+			// back to a serviceable, timeout-armed non-deciding state to retry later.
+			if status.alarm.is_none() {
+				DecidingCount::<T, I>::mutate(track, |x| x.saturating_dec());
+				status.deciding = None;
+				status.in_queue = false;
+				let timeout = status.submitted.saturating_add(T::UndecidingTimeout::get());
+				let _ = Self::ensure_alarm_at(
+					&mut status,
+					index,
+					timeout.max(now.saturating_add(One::one())),
+				);
+			}
+			ReferendumInfoFor::<T, I>::insert(index, ReferendumInfo::Ongoing(status));
+			TrackQueue::<T, I>::insert(track, track_queue);
+			branch.into()
+		} else {
+			DecidingCount::<T, I>::mutate(track, |x| x.saturating_dec());
+			OneFewerDecidingBranch::QueueEmpty
 		}
 	}
 
@@ -1135,14 +1227,24 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 			},
 		};
 		if Self::set_alarm(call, next_block).is_none() {
-			// V12 audit #162455: the deferred `one_fewer_deciding` could not be scheduled
-			// even after sliding forward. Never lose the accounting: release the deciding
-			// slot inline so the track is not recorded as full forever (with
-			// `max_deciding = 1` that would deadlock the whole lane). Queued referenda are
-			// not promoted here; they are pulled as usual by the `one_fewer_deciding` of
-			// the next referendum to finish deciding on this track, or by a direct
-			// (Root-dispatched) `one_fewer_deciding` call.
-			DecidingCount::<T, I>::mutate(track, |x| x.saturating_dec());
+			// V12 audit #162455/#161395: the deferred `one_fewer_deciding` could not be scheduled
+			// even after sliding forward. Never lose the accounting nor a freed slot: run the
+			// promotion inline so a queued referendum is begun (or the slot released when the
+			// queue is empty), rather than leaving freed capacity dormant until an unrelated
+			// referendum happens to enter and leave deciding.
+			match T::Tracks::info(track) {
+				Some(track_info) => {
+					let _ = Self::one_fewer_deciding_now(track, &track_info);
+				},
+				None => {
+					log::error!(
+						target: "runtime::referenda",
+						"no track info for {:?}; releasing deciding slot without promotion",
+						track,
+					);
+					DecidingCount::<T, I>::mutate(track, |x| x.saturating_dec());
+				},
+			}
 		}
 	}
 
@@ -1157,8 +1259,9 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		alarm: BlockNumberFor<T, I>,
 	) -> bool {
 		if status.alarm.as_ref().map_or(true, |&(when, _)| when != alarm) {
-			// Either no alarm or one that was different
-			Self::ensure_no_alarm(status);
+			// Either no alarm or one that was different. #161347: schedule the replacement
+			// BEFORE cancelling the existing alarm, so a scheduling failure cannot strand the
+			// referendum by destroying a working alarm. On failure keep the existing alarm.
 			let call =
 				match T::Preimages::bound(CallOf::<T, I>::from(Call::nudge_referendum { index })) {
 					Ok(c) => c,
@@ -1170,13 +1273,13 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 						return false
 					},
 				};
-			status.alarm = Self::set_alarm(call, alarm);
-			// A referendum with no alarm is not serviced (#91210) and nothing here can
-			// recover from that, so flag it loudly under debug.
-			debug_assert!(
-				status.alarm.is_some(),
-				"unable to schedule the referendum's service alarm",
-			);
+			let Some(new_alarm) = Self::set_alarm(call, alarm) else {
+				// `set_alarm` already logged the failure; the existing alarm (if any) is kept.
+				return false
+			};
+			if let Some((_, old_alarm)) = status.alarm.replace(new_alarm) {
+				let _ = T::Scheduler::cancel(old_alarm);
+			}
 			true
 		} else {
 			false
@@ -1218,6 +1321,8 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		// Default the alarm to the end of the world.
 		let timeout = status.submitted + T::UndecidingTimeout::get();
 		let mut alarm = BlockNumberFor::<T, I>::max_value();
+		// #160560: when enactment scheduling fails, the block to retry it at.
+		let mut enactment_retry: Option<BlockNumberFor<T, I>> = None;
 		let branch;
 		match &mut status.deciding {
 			None => {
@@ -1228,9 +1333,15 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 					let mut queue = TrackQueue::<T, I>::get(status.track);
 					let maybe_old_pos = queue.iter().position(|(x, _)| *x == index);
 					let new_pos = queue.binary_search_by_key(&ayes, |x| x.1).unwrap_or_else(|x| x);
+					let mut requeue_evicted: Option<ReferendumIndex> = None;
 					branch = if maybe_old_pos.is_none() && new_pos > 0 {
-						// Just insert.
-						let _ = queue.force_insert_keep_right(new_pos, (index, ayes));
+						// Just insert. #161743: capture any referendum this displaces from the full
+						// queue so it can be repaired instead of left ghost-queued.
+						if let Ok(Some((evicted_index, _))) =
+							queue.force_insert_keep_right(new_pos, (index, ayes))
+						{
+							requeue_evicted = Some(evicted_index);
+						}
 						ServiceBranch::RequeuedInsertion
 					} else if let Some(old_pos) = maybe_old_pos {
 						// We were in the queue - slide into the correct position.
@@ -1252,6 +1363,9 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 						ServiceBranch::NotQueued
 					};
 					TrackQueue::<T, I>::insert(status.track, queue);
+					if let Some(evicted_index) = requeue_evicted {
+						Self::repair_evicted_referendum(evicted_index, now);
+					}
 				} else {
 					// Are we ready for deciding?
 					branch = if status.decision_deposit.is_some() {
@@ -1301,24 +1415,39 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 				branch = if is_passing {
 					match deciding.confirming {
 						Some(t) if now >= t => {
-							// Passed!
-							Self::ensure_no_alarm(&mut status);
-							Self::note_one_fewer_deciding(status.track);
-							let (desired, call) = (status.enactment, status.proposal);
-							Self::schedule_enactment(index, &track, desired, status.origin, call);
-							Self::deposit_event(Event::<T, I>::Confirmed {
+							// Passed! #160560: only commit the terminal `Approved` record once the
+							// enactment call is actually scheduled. If the agendas are full, keep
+							// the referendum confirming and retry on a later alarm instead
+							// of discarding the call/origin that `Approved` does not retain.
+							match Self::schedule_enactment(
 								index,
-								tally: status.tally,
-							});
-							return (
-								ReferendumInfo::Approved(
-									now,
-									Some(status.submission_deposit),
-									status.decision_deposit,
-								),
-								true,
-								ServiceBranch::Approved,
-							)
+								&track,
+								status.enactment.clone(),
+								status.origin.clone(),
+								status.proposal.clone(),
+							) {
+								Ok(()) => {
+									Self::ensure_no_alarm(&mut status);
+									Self::note_one_fewer_deciding(status.track);
+									Self::deposit_event(Event::<T, I>::Confirmed {
+										index,
+										tally: status.tally,
+									});
+									return (
+										ReferendumInfo::Approved(
+											now,
+											Some(status.submission_deposit),
+											status.decision_deposit,
+										),
+										true,
+										ServiceBranch::Approved,
+									)
+								},
+								Err(retry_at) => {
+									enactment_retry = Some(retry_at);
+									ServiceBranch::ContinueConfirming
+								},
+							}
 						},
 						Some(_) => ServiceBranch::ContinueConfirming,
 						None => {
@@ -1356,15 +1485,37 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 					}
 				};
 				alarm = Self::decision_time(deciding, &status.tally, status.track, &track);
+				// #160560: a failed enactment scheduling overrides the deciding alarm with a
+				// (guaranteed future) retry block, so the confirmed referendum is re-serviced and
+				// retries enactment instead of looping on a past confirm-end block.
+				if let Some(retry_at) = enactment_retry {
+					alarm = retry_at;
+				}
 			},
 		}
 
-		let dirty_alarm = if alarm < BlockNumberFor::<T, I>::max_value() {
-			Self::ensure_alarm_at(&mut status, index, alarm)
+		if alarm < BlockNumberFor::<T, I>::max_value() {
+			let dirty_alarm = Self::ensure_alarm_at(&mut status, index, alarm);
+			// #161395: a deciding referendum left with no scheduler alarm (agendas exhausted)
+			// would hold its bounded deciding slot with nothing to service it. Release the slot
+			// so the track keeps progressing and drop the referendum back to a serviceable,
+			// timeout-armed non-deciding state that can retry or time out.
+			if status.deciding.is_some() && status.alarm.is_none() {
+				Self::note_one_fewer_deciding(status.track);
+				status.deciding = None;
+				status.in_queue = false;
+				let _ = Self::ensure_alarm_at(
+					&mut status,
+					index,
+					timeout.max(now.saturating_add(One::one())),
+				);
+				return (ReferendumInfo::Ongoing(status), true, branch)
+			}
+			(ReferendumInfo::Ongoing(status), dirty_alarm || dirty, branch)
 		} else {
-			Self::ensure_no_alarm(&mut status)
-		};
-		(ReferendumInfo::Ongoing(status), dirty_alarm || dirty, branch)
+			let dirty_alarm = Self::ensure_no_alarm(&mut status);
+			(ReferendumInfo::Ongoing(status), dirty_alarm || dirty, branch)
+		}
 	}
 
 	/// Determine the point at which a referendum will be accepted, move into confirmation with the

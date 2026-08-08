@@ -381,6 +381,21 @@ fn recover_funds_cancels_across_distinct_agenda_buckets() {
 	});
 }
 
+/// Genesis must enforce the same `guardian != who` invariant as the signed
+/// `set_high_security` path. A self-guardian row silently voids all guardian
+/// protection, so genesis construction must fail rather than admit it.
+#[test]
+#[should_panic(expected = "cannot be its own guardian")]
+fn genesis_rejects_self_guardian() {
+	use sp_runtime::BuildStorage;
+	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+	crate::GenesisConfig::<Test> {
+		initial_high_security_accounts: vec![(account_id(1), account_id(1), 10)],
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
+}
+
 #[test]
 fn recover_funds_weight_charges_agenda_per_pending_transfer() {
 	use crate::weights::WeightInfo;

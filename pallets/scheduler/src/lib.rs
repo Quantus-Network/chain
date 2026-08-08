@@ -169,7 +169,9 @@ pub(crate) trait MarginalWeightInfo: WeightInfo {
 		let base = Self::service_task_base();
 		let mut total = match maybe_lookup_len {
 			None => base,
-			Some(l) => Self::service_task_fetched(l as u32),
+			// V12 audit #181227: `service_task_fetched` omits the unconditional `Retries` take
+			// charged in `service_task_base`; compose base so the lookup branch meters it too.
+			Some(l) => base.saturating_add(Self::service_task_fetched(l as u32)),
 		};
 		if named {
 			total.saturating_accrue(Self::service_task_named().saturating_sub(base));
@@ -1235,7 +1237,13 @@ impl<T: Config> Pallet<T> {
 			agenda[agenda_index as usize] = match result {
 				// Preimage unavailable or permanently overweight -- task is removed (None).
 				// Not counted as postponed since re-processing this block won't help.
-				Err((Unavailable, slot)) => slot,
+				// V12 audit #181231: still counts as serviced work so its charged weight cannot
+				// cause a later task to be misclassified as permanently overweight against a
+				// fresh scheduler meter next block.
+				Err((Unavailable, slot)) => {
+					*executed += 1;
+					slot
+				},
 				// Too heavy for this block but may fit next block.
 				Err((Overweight, slot)) => {
 					postponed += 1;

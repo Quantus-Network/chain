@@ -5,7 +5,7 @@ use frame_support::{
 	traits::{fungible::InspectHold, Time},
 };
 use pallet_scheduler::Agenda;
-use qp_scheduler::BlockNumberOrTimestamp;
+use qp_scheduler::{BlockNumberOrTimestamp, ScheduleNamed};
 use sp_core::H256;
 use sp_runtime::traits::{BadOrigin, BlakeTwo256, Hash};
 
@@ -670,6 +670,58 @@ fn no_volume_fee_for_regular_reversible_accounts() {
 
 		// Should still have TransactionCancelled event
 		System::assert_has_event(Event::TransactionCancelled { who: user, tx_id }.into());
+	});
+}
+
+/// A failed scheduled execution makes the scheduler terminally drop the named task while the
+/// pending transfer and its hold survive (the failing dispatch is rolled back). Cancelling
+/// afterwards must still release the held funds: the best-effort `cancel_named` must not
+/// propagate its `NotFound` and roll back the release, which would permanently freeze the funds.
+#[test]
+fn cancel_releases_funds_when_scheduled_task_already_gone() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let user = charlie(); // regular one-time-delay account (guardian == user)
+		let recipient = dave();
+		let amount = 10_000u128;
+
+		let initial_user_balance = Balances::free_balance(&user);
+		let call = transfer_call(recipient.clone(), amount);
+		let tx_id = calculate_tx_id::<Test>(user.clone(), &call);
+
+		assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+			RuntimeOrigin::signed(user.clone()),
+			recipient.clone(),
+			amount,
+			BlockNumberOrTimestamp::BlockNumber(5),
+		));
+		assert_eq!(
+			Balances::balance_on_hold(
+				&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+				&user
+			),
+			amount
+		);
+
+		// Simulate the scheduler terminally removing the named task (as it does on a failed
+		// dispatch): the pending transfer and hold survive, but `cancel_named` now returns
+		// NotFound.
+		let schedule_id = ReversibleTransfers::make_schedule_id(&tx_id).unwrap();
+		assert_ok!(<Scheduler as ScheduleNamed<_, _, _, _>>::cancel_named(schedule_id));
+
+		// Cancelling must still succeed and release the held funds despite the missing task.
+		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(user.clone()), tx_id));
+
+		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
+		assert_eq!(
+			Balances::balance_on_hold(
+				&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+				&user
+			),
+			0,
+			"held funds must be released, not frozen, when the scheduled task is already gone"
+		);
+		assert_eq!(Balances::free_balance(&user), initial_user_balance);
 	});
 }
 
