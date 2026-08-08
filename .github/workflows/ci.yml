@@ -73,9 +73,10 @@ jobs:
         uses: taiki-e/install-action@nextest
       # Feature-gate only: catch runtime-benchmarks/try-runtime breakages without a
       # full build. Tests use different features (fast-governance), so a prior
-      # `cargo build` was mostly thrown away. WASM is exercised in release CI.
+      # `cargo build` was mostly thrown away. Leave WASM enabled here so PR/main
+      # still exercises runtime wasm via build.rs; tests keep SKIP_WASM_BUILD=1.
       - name: check feature gates
-        run: SKIP_WASM_BUILD=1 cargo check --locked --workspace --features runtime-benchmarks,try-runtime
+        run: cargo check --locked --workspace --features runtime-benchmarks,try-runtime
       - name: test
         run: SKIP_WASM_BUILD=1 cargo nextest run --locked --workspace --features quantus-runtime/fast-governance
       - name: doctest
