@@ -41,4 +41,5 @@ frame_benchmarking::define_benchmarks!(
 	[pallet_recovery, Recovery]
 	[pallet_qpow, QPoW]
 	[pallet_wormhole, Wormhole]
+	[pallet_vesting, Vesting]
 );

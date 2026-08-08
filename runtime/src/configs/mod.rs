@@ -33,7 +33,10 @@ use crate::{
 };
 use frame_support::{
 	derive_impl, parameter_types,
-	traits::{ConstU128, ConstU16, ConstU32, ConstU8, NeverEnsureOrigin, VariantCountOf},
+	traits::{
+		ConstU128, ConstU16, ConstU32, ConstU8, EitherOfDiverse, EnsureOrigin, Get,
+		NeverEnsureOrigin, VariantCountOf,
+	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
 		IdentityFee, Weight, WeightToFeeCoefficient, WeightToFeeCoefficients,
@@ -524,6 +527,68 @@ impl pallet_treasury::Config for Runtime {
 	type WeightInfo = pallet_treasury::weights::SubstrateWeight<Runtime>;
 }
 
+parameter_types! {
+	pub const VestingPalletId: PalletId = PalletId(*b"qvesting");
+	/// Vesting payouts are rounded down to multiples of the wormhole leaf quantum
+	/// (`SCALE_DOWN_FACTOR`): a sub-quantum transfer would be committed as a
+	/// zero-value leaf, stranding funds paid to keyless beneficiaries.
+	pub const VestingPayoutQuantum: Balance = pallet_wormhole::SCALE_DOWN_FACTOR;
+	/// One QUAN keeps every payout above the existential deposit and the Wormhole
+	/// circuit's fee-consuming minimum.
+	pub const VestingMinimumPayout: Balance = UNIT;
+	pub const VestingMinClaimInterval: u64 = 24 * 60 * 60 * 1000;
+}
+
+/// The configured treasury account as an `Option` — unlike
+/// `pallet_treasury::Pallet::account_id()`, this never panics on a chain whose
+/// genesis omitted the treasury; vesting admin calls fail with an explicit error instead.
+pub struct TreasuryAccountOption;
+impl Get<Option<AccountId>> for TreasuryAccountOption {
+	fn get() -> Option<AccountId> {
+		pallet_treasury::Pallet::<Runtime>::treasury_account()
+	}
+}
+
+/// `Signed(who)` where `who` is the configured treasury account.
+///
+/// The treasury is a multisig in real deployments; the multisig pallet dispatches
+/// approved proposals as `RawOrigin::Signed(multisig_address)`, so a plain
+/// signed-origin check covers it.
+pub struct EnsureTreasury;
+impl EnsureOrigin<RuntimeOrigin> for EnsureTreasury {
+	type Success = AccountId;
+	fn try_origin(o: RuntimeOrigin) -> Result<Self::Success, RuntimeOrigin> {
+		match (o.clone().into(), pallet_treasury::Pallet::<Runtime>::treasury_account()) {
+			(Ok(frame_system::RawOrigin::Signed(who)), Some(treasury)) if who == treasury =>
+				Ok(who),
+			_ => Err(o),
+		}
+	}
+	#[cfg(feature = "runtime-benchmarks")]
+	fn try_successful_origin() -> Result<RuntimeOrigin, ()> {
+		pallet_treasury::Pallet::<Runtime>::treasury_account()
+			.map(RuntimeOrigin::signed)
+			.ok_or(())
+	}
+}
+
+impl pallet_vesting::Config for Runtime {
+	type Currency = Balances;
+	type TimeProvider = Timestamp;
+	type PalletId = VestingPalletId;
+	type AdminOrigin = EitherOfDiverse<EnsureRoot<AccountId>, EnsureTreasury>;
+	type TreasuryAccount = TreasuryAccountOption;
+	type AssetId = AssetId;
+	// The pallet records its payouts itself so Root calls enacted by the scheduler
+	// (invisible to the event-scanning extension) still create ZK-tree leaves; the
+	// extension skips pot-sourced events to avoid double-recording signed paths.
+	type ProofRecorder = Wormhole;
+	type PayoutQuantum = VestingPayoutQuantum;
+	type MinimumPayout = VestingMinimumPayout;
+	type MinClaimInterval = VestingMinClaimInterval;
+	type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
+}
+
 // Multisig configuration
 parameter_types! {
 	pub const MultisigPalletId: PalletId = PalletId(*b"py/mltsg");
@@ -550,10 +615,12 @@ parameter_types! {
 /// - Multisig pallet: validates calls in `propose()` extrinsic
 /// - Transaction extensions: validates calls for high-security EOAs
 ///
-/// Whitelist includes only delayed, reversible operations:
+/// Whitelist includes only delayed, reversible operations plus vesting claims:
 /// - `schedule_transfer`: Schedule delayed native token transfer
 /// - `cancel`: Cancel pending delayed transfer
 /// - `recover_funds`: Guardian-initiated recovery
+/// - `Vesting::claim`: safe because the payout goes to the schedule's stored beneficiary, never to
+///   the caller
 pub struct HighSecurityConfig;
 
 impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSecurityConfig {
@@ -570,7 +637,7 @@ impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSec
 			) | RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. }) |
 				RuntimeCall::ReversibleTransfers(
 					pallet_reversible_transfers::Call::recover_funds { .. }
-				)
+				) | RuntimeCall::Vesting(pallet_vesting::Call::claim { .. })
 		)
 	}
 

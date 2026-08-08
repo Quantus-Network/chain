@@ -6236,6 +6236,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-vesting"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "pallet-timestamp",
+ "pallet-zk-tree",
+ "parity-scale-codec",
+ "qp-wormhole",
+ "scale-info",
+ "sp-arithmetic",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-wormhole"
 version = "0.1.0"
 dependencies = [
@@ -7812,6 +7831,7 @@ dependencies = [
  "pallet-transaction-payment-rpc-runtime-api",
  "pallet-treasury",
  "pallet-utility",
+ "pallet-vesting",
  "pallet-wormhole",
  "pallet-zk-tree",
  "parity-scale-codec",
