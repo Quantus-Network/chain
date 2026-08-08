@@ -173,11 +173,10 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 		// Proof Size summary in bytes:
 		//  Measured:  `638`
 		//  Estimated: `8619` + tree
-		let depth = pallet_zk_tree::Pallet::<T>::depth();
 		execute_transfer_weight(
 			T::DbWeight::get(),
-			pallet_zk_tree::insert_leaf_db_ops_at_depth(depth),
-			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(depth),
+			pallet_zk_tree::INSERT_LEAF_DB_OPS,
+			pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
 		)
 	}
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
@@ -296,16 +295,15 @@ impl WeightInfo for () {
 	/// Proof: `ZkTree::Root` (`max_values`: Some(1), `max_size`: Some(32), added: 527, mode: `MaxEncodedLen`)
 	/// Storage: `ZkTree::Nodes` (r:3·depth w:depth)
 	///
-	/// Tree component priced at `MAX_TREE_DEPTH` (no runtime type to read live depth),
-	/// so this is a worst-case bound on `SubstrateWeight::execute_transfer`.
+	/// Tree component flat-priced at [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`].
 	fn execute_transfer() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `638`
 		//  Estimated: `8619` + tree
 		execute_transfer_weight(
 			RocksDbWeight::get(),
-			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
-			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
+			pallet_zk_tree::INSERT_LEAF_DB_OPS,
+			pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
 		)
 	}
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
@@ -345,61 +343,15 @@ mod tests {
 	use super::*;
 	use crate::tests::mock::Test;
 
-	/// `execute_transfer` records a wormhole transfer proof, which inserts a ZK-tree
-	/// leaf; the leaf insert walks the tree leaf-to-root, so its real DB work grows
-	/// with the live tree depth. The declared weight must track that growth — a flat
-	/// weight lets deep-tree executions do far more storage I/O than the block weight
-	/// model charges (throughput DoS). The mock's `DbWeight` is zero, so depth
-	/// sensitivity is observed through the PoV component.
+	/// `execute_transfer` records a wormhole transfer proof; the Poseidon term of
+	/// the leaf insert must be present in `ref_time` (easy to omit from composition).
 	#[test]
-	fn execute_transfer_weight_scales_with_live_tree_depth() {
+	fn execute_transfer_charges_tree_hash_compute() {
 		crate::tests::mock::new_test_ext().execute_with(|| {
-			type W = SubstrateWeight<Test>;
-			pallet_zk_tree::Depth::<Test>::put(1);
-			let shallow = W::execute_transfer();
-			pallet_zk_tree::Depth::<Test>::put(pallet_zk_tree::MAX_TREE_DEPTH);
-			let deep = W::execute_transfer();
 			assert!(
-				deep.proof_size() > shallow.proof_size(),
-				"execute_transfer weight must grow with ZK-tree depth (shallow: {:?}, deep: {:?})",
-				shallow,
-				deep,
-			);
-			// The per-level Poseidon hashing of `insert_leaf` must also be priced, so
-			// ref-time grows with depth even when `DbWeight` is zero.
-			assert!(
-				deep.ref_time() > shallow.ref_time(),
-				"execute_transfer ref-time must grow with ZK-tree depth (shallow: {:?}, deep: {:?})",
-				shallow,
-				deep,
-			);
-			// The depth-blind `()` impl prices at `MAX_TREE_DEPTH` and must never
-			// charge less than `SubstrateWeight` at any live depth.
-			assert!(
-				<() as WeightInfo>::execute_transfer().all_gte(deep),
-				"() impl must be a worst-case bound for SubstrateWeight",
-			);
-		});
-	}
-
-	/// The leaf insert also computes one Poseidon hash per tree level; that compute
-	/// must be charged in `ref_time` on top of the DB ops. The mock's `DbWeight` is
-	/// zero, so any depth-driven `ref_time` growth must come from the hashing term.
-	#[test]
-	fn execute_transfer_ref_time_includes_tree_hash_compute() {
-		crate::tests::mock::new_test_ext().execute_with(|| {
-			type W = SubstrateWeight<Test>;
-			pallet_zk_tree::Depth::<Test>::put(1);
-			let shallow = W::execute_transfer();
-			pallet_zk_tree::Depth::<Test>::put(pallet_zk_tree::MAX_TREE_DEPTH);
-			let deep = W::execute_transfer();
-			assert!(
-				deep.ref_time() >
-					shallow.ref_time(),
-				"execute_transfer ref_time must grow with tree depth (Poseidon hashing per level); \
-				 shallow: {:?}, deep: {:?}",
-				shallow,
-				deep,
+				SubstrateWeight::<Test>::execute_transfer().ref_time() >=
+					pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
+				"execute_transfer must charge the leaf insert's Poseidon hashing"
 			);
 		});
 	}

@@ -45,8 +45,8 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 			<generated::SubstrateWeight<T> as generated::WeightInfo>::claim(),
 			T::DbWeight::get(),
 			CLAIM_BENCHMARK_TREE_WRITES,
-			pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops(),
-			pallet_zk_tree::Pallet::<T>::insert_leaf_hash_ref_time(),
+			pallet_zk_tree::INSERT_LEAF_DB_OPS,
+			pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
 		)
 	}
 
@@ -59,8 +59,8 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 			<generated::SubstrateWeight<T> as generated::WeightInfo>::end_schedule(),
 			T::DbWeight::get(),
 			BENCHMARK_TREE_WRITES,
-			pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops(),
-			pallet_zk_tree::Pallet::<T>::insert_leaf_hash_ref_time(),
+			pallet_zk_tree::INSERT_LEAF_DB_OPS,
+			pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
 		)
 	}
 
@@ -69,8 +69,8 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 			<generated::SubstrateWeight<T> as generated::WeightInfo>::retarget_schedule(),
 			T::DbWeight::get(),
 			BENCHMARK_TREE_WRITES,
-			pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops(),
-			pallet_zk_tree::Pallet::<T>::insert_leaf_hash_ref_time(),
+			pallet_zk_tree::INSERT_LEAF_DB_OPS,
+			pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
 		)
 	}
 }
@@ -81,8 +81,8 @@ impl WeightInfo for () {
 			<() as generated::WeightInfo>::claim(),
 			RocksDbWeight::get(),
 			CLAIM_BENCHMARK_TREE_WRITES,
-			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
-			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
+			pallet_zk_tree::INSERT_LEAF_DB_OPS,
+			pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
 		)
 	}
 
@@ -95,8 +95,8 @@ impl WeightInfo for () {
 			<() as generated::WeightInfo>::end_schedule(),
 			RocksDbWeight::get(),
 			BENCHMARK_TREE_WRITES,
-			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
-			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
+			pallet_zk_tree::INSERT_LEAF_DB_OPS,
+			pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
 		)
 	}
 
@@ -105,36 +105,9 @@ impl WeightInfo for () {
 			<() as generated::WeightInfo>::retarget_schedule(),
 			RocksDbWeight::get(),
 			BENCHMARK_TREE_WRITES,
-			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
-			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
+			pallet_zk_tree::INSERT_LEAF_DB_OPS,
+			pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
 		)
 	}
 }
 
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn payout_ref_time_grows_with_tree_depth() {
-		let db = RuntimeDbWeight { read: 0, write: 0 };
-		let base = Weight::zero();
-		let shallow = payout_weight(
-			base,
-			db,
-			BENCHMARK_TREE_WRITES,
-			pallet_zk_tree::insert_leaf_db_ops_at_depth(1),
-			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(1),
-		);
-		let deep = payout_weight(
-			base,
-			db,
-			BENCHMARK_TREE_WRITES,
-			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
-			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
-		);
-
-		assert!(deep.ref_time() > shallow.ref_time());
-		assert!(deep.proof_size() > shallow.proof_size());
-	}
-}

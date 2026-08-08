@@ -133,13 +133,13 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	/// Weight charged per recorded transfer proof.
 	///
 	/// Per recorded transfer, `record_transfer` touches one `TransferCount` read and one
-	/// write, plus the ZK-tree leaf insert, whose path update walks the tree leaf-to-root
-	/// and therefore costs reads/writes *and* one Poseidon hash per level, both
-	/// proportional to the *current* tree depth (read from storage here, so the charge
-	/// tracks the tree as it deepens over the chain's life).
+	/// write, plus the ZK-tree leaf insert. The insert price is FLAT at the circuit
+	/// depth ceiling (see [`pallet_zk_tree::INSERT_LEAF_DB_OPS`]), so multiplying this
+	/// single price by a transfer count is sound even for multi-transfer calls that
+	/// cross capacity boundaries.
 	fn per_transfer_weight() -> Weight {
-		let (tree_reads, tree_writes) = pallet_zk_tree::Pallet::<Runtime>::insert_leaf_db_ops();
-		let hash_time = pallet_zk_tree::Pallet::<Runtime>::insert_leaf_hash_ref_time();
+		let (tree_reads, tree_writes) = pallet_zk_tree::INSERT_LEAF_DB_OPS;
+		let hash_time = pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS;
 		T::DbWeight::get()
 			.reads_writes(1u64.saturating_add(tree_reads), 1u64.saturating_add(tree_writes))
 			.saturating_add(Weight::from_parts(hash_time, 0))
@@ -306,7 +306,8 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 {
 	/// `(event_count_snapshot, statically_charged_transfer_count)`. The snapshot bounds the
 	/// event scan in `post_dispatch`; the charged count lets `post_dispatch` reconcile actual
-	/// proof-recording work against the weight reserved by `weight()`.
+	/// proof-recording work against the weight reserved by `weight()`. A count is sufficient
+	/// because the per-transfer price is flat (see [`Self::per_transfer_weight`]).
 	type Pre = (u32, u64);
 	type Val = ();
 	type Implicit = ();
@@ -376,7 +377,8 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 			// 2. Recording shortfall: wrappers that dispatch inner calls stored on-chain
 			//    (`Multisig::execute`, `ReversibleTransfers::recover_funds`, ...) can emit transfer
 			//    events the static `count_transfers` matcher cannot see, so the proof-recording
-			//    work above may exceed the weight reserved by `weight()`.
+			//    work above may exceed the weight reserved by `weight()`. The flat per-transfer
+			//    price times the count difference covers it.
 			let mut extra = Self::event_scan_weight(events_at_scan);
 			if recorded > charged_transfers {
 				extra = extra.saturating_add(
@@ -925,40 +927,18 @@ mod tests {
 	#[test]
 	fn per_transfer_weight_includes_tree_hash_compute() {
 		new_test_ext().execute_with(|| {
-			// Recording a transfer inserts a ZK-tree leaf; the path update computes one
-			// Poseidon hash per tree level. That compute must be charged on top of the
-			// DB ops, otherwise every recorded transfer under-declares execution work
-			// by an amount that grows with the tree depth.
-			pallet_zk_tree::Depth::<Runtime>::put(20);
+			// Recording a transfer inserts a ZK-tree leaf; the path update's Poseidon
+			// hashing must be charged on top of the DB ops.
 			let weight = WormholeProofRecorderExtension::<Runtime>::per_transfer_weight();
 
-			let (tree_reads, tree_writes) = pallet_zk_tree::insert_leaf_db_ops_at_depth(20);
+			let (tree_reads, tree_writes) = pallet_zk_tree::INSERT_LEAF_DB_OPS;
 			let db_time = <Runtime as frame_system::Config>::DbWeight::get()
 				.reads_writes(1u64.saturating_add(tree_reads), 1u64.saturating_add(tree_writes))
 				.ref_time();
 			assert!(
-				weight.ref_time() >=
-					db_time + pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(20),
+				weight.ref_time() >= db_time + pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
 				"per-transfer weight must charge the leaf insert's Poseidon hashing \
 				 on top of its DB ops"
-			);
-		});
-	}
-
-	#[test]
-	fn per_transfer_weight_scales_with_tree_depth() {
-		new_test_ext().execute_with(|| {
-			// Recording a transfer inserts a ZK-tree leaf, and the path update walks the
-			// tree leaf-to-root — the charged weight must track the live tree depth.
-			pallet_zk_tree::Depth::<Runtime>::put(1);
-			let shallow = WormholeProofRecorderExtension::<Runtime>::per_transfer_weight();
-
-			pallet_zk_tree::Depth::<Runtime>::put(20);
-			let deep = WormholeProofRecorderExtension::<Runtime>::per_transfer_weight();
-
-			assert!(
-				deep.ref_time() > shallow.ref_time(),
-				"per-transfer weight must grow with ZK-tree depth"
 			);
 		});
 	}
