@@ -201,9 +201,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.100"
+version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "approx"
@@ -7450,9 +7450,9 @@ dependencies = [
 
 [[package]]
 name = "qp-plonky2"
-version = "1.5.4"
+version = "1.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff530eb14bc9389c7c5dad8fc3b1a90a6a5784f34daf74a34b963a562b73b0d0"
+checksum = "8fd331d489a309f88e2d0e35a2b996932c7d92038b91ccc656a0a8e6b11b6977"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -7478,9 +7478,9 @@ dependencies = [
 
 [[package]]
 name = "qp-plonky2-core"
-version = "1.5.4"
+version = "1.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7da3052436ca37dbb0540280e37846da1e826bd026745798853b6ffbb3b5e798"
+checksum = "b81a3a9fce99f7bd45b8578f8d9b6a33507d34c2eb2c47c969b464db1ad601d3"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -7499,9 +7499,9 @@ dependencies = [
 
 [[package]]
 name = "qp-plonky2-field"
-version = "1.5.4"
+version = "1.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "518a71f954222caa0d87fd331254a1651b5ee09d8e21881899478b0a1c2cc42e"
+checksum = "1630d418ddce9feba18d3364596711d07074851757301350de313eef0a31af4f"
 dependencies = [
  "anyhow",
  "itertools 0.13.0",
@@ -7516,9 +7516,9 @@ dependencies = [
 
 [[package]]
 name = "qp-plonky2-verifier"
-version = "1.5.4"
+version = "1.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4d3c30ed97690849cf92eb0fdd1d4e6765ecc9e6be6b0a0e9b4dc4accb5145f"
+checksum = "944da5dec21ee476d561f6c38caddf45e829f3cc5fccbc76f6ece03660378dbe"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -7553,24 +7553,24 @@ dependencies = [
 
 [[package]]
 name = "qp-poseidon-core"
-version = "3.0.2"
+version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55e32db7b3a5d70086f82f198ecfc021f17cb7ec70a416512dba3488f4a116c1"
+checksum = "5872607e25ea4ee5fb37e64bf1462168e1a36a4e719cdc8a105533c708253918"
 
 [[package]]
 name = "qp-rusty-crystals-dilithium"
-version = "4.0.0"
+version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0799fbe9bf179087eae23c9ba89c1f6c62228a4afdb999c5c0975a0f17c3c5bf"
+checksum = "2facf5349ce149731e6d21dc338f847c78e4a3a65e92e086e2cee244e7cf0457"
 dependencies = [
  "zeroize",
 ]
 
 [[package]]
 name = "qp-rusty-crystals-hdwallet"
-version = "4.0.0"
+version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6865ff92884da31f4a6a38751f393f24107b72a8610e61e26cda8add47479520"
+checksum = "40119eb0c9a085722330c15ce17b71ca3aaecf5fa5a44891a47c1c9ec2c3109c"
 dependencies = [
  "bip39",
  "getrandom 0.2.17",
@@ -7609,9 +7609,8 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-aggregator"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6c3fb3ef7ce2fe519cab6f10e206bbbace8e3c7739318e1cfbe1eb16779a51d"
+version = "4.1.0"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=chore%2Fbump-crypto-deps-2026-08#14d81950e4c091fc9a27781b4c3414150a619a93"
 dependencies = [
  "anyhow",
  "hex",
@@ -7627,22 +7626,21 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da895295e488eae1d5fbf63a94ccf388e580595b5607ef51b3e057ac0bef0539"
+version = "4.1.0"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=chore%2Fbump-crypto-deps-2026-08#14d81950e4c091fc9a27781b4c3414150a619a93"
 dependencies = [
  "anyhow",
  "hex",
  "qp-plonky2",
  "qp-wormhole-inputs",
  "qp-zk-circuits-common",
+ "zeroize",
 ]
 
 [[package]]
 name = "qp-wormhole-circuit-builder"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a65d2f36b1f6903679180d0a2cfb5a4147960229b8b74034779f0a9f4644930d"
+version = "4.1.0"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=chore%2Fbump-crypto-deps-2026-08#14d81950e4c091fc9a27781b4c3414150a619a93"
 dependencies = [
  "anyhow",
  "clap",
@@ -7650,22 +7648,21 @@ dependencies = [
  "qp-wormhole-aggregator",
  "qp-wormhole-circuit",
  "qp-zk-circuits-common",
+ "rand 0.8.6",
 ]
 
 [[package]]
 name = "qp-wormhole-inputs"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06b7675995701fc2c229846055fcfdb860ea1118c46437357f3cf6f7c15b73aa"
+version = "4.1.0"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=chore%2Fbump-crypto-deps-2026-08#14d81950e4c091fc9a27781b4c3414150a619a93"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "qp-wormhole-prover"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f105bc62dbab0b4573ef43d4a7c87e6482ea2b7c8b99f18a1b3240c22956fb7f"
+version = "4.1.0"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=chore%2Fbump-crypto-deps-2026-08#14d81950e4c091fc9a27781b4c3414150a619a93"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -7675,9 +7672,8 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-verifier"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "474cfd8ae4cd3f76d23867378723f642844368f9d6e0812b3b1df66aa247e24c"
+version = "4.1.0"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=chore%2Fbump-crypto-deps-2026-08#14d81950e4c091fc9a27781b4c3414150a619a93"
 dependencies = [
  "anyhow",
  "qp-plonky2-verifier",
@@ -7687,9 +7683,8 @@ dependencies = [
 
 [[package]]
 name = "qp-zk-circuits-common"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ac5d2eb980e702b7db1458601fbb7a2d5fc86c6713c5c324ecc0e28061fa955"
+version = "4.1.0"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=chore%2Fbump-crypto-deps-2026-08#14d81950e4c091fc9a27781b4c3414150a619a93"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -7698,6 +7693,7 @@ dependencies = [
  "qp-wormhole-inputs",
  "rand 0.8.6",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
