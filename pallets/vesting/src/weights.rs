@@ -16,15 +16,17 @@ pub trait WeightInfo {
 
 const BENCHMARK_TREE_READS: u64 = 5;
 const BENCHMARK_TREE_WRITES: u64 = 4;
+const CLAIM_BENCHMARK_TREE_WRITES: u64 = 3;
 
 fn payout_weight(
 	base: Weight,
 	db: RuntimeDbWeight,
+	benchmark_tree_writes: u64,
 	(tree_reads, tree_writes): (u64, u64),
 	tree_hash_time: u64,
 ) -> Weight {
 	base.saturating_sub(db.reads(BENCHMARK_TREE_READS))
-		.saturating_sub(db.writes(BENCHMARK_TREE_WRITES))
+		.saturating_sub(db.writes(benchmark_tree_writes))
 		.saturating_add(Weight::from_parts(
 			tree_hash_time,
 			tree_reads
@@ -42,6 +44,7 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 		payout_weight(
 			<generated::SubstrateWeight<T> as generated::WeightInfo>::claim(),
 			T::DbWeight::get(),
+			CLAIM_BENCHMARK_TREE_WRITES,
 			pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops(),
 			pallet_zk_tree::Pallet::<T>::insert_leaf_hash_ref_time(),
 		)
@@ -55,6 +58,7 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 		payout_weight(
 			<generated::SubstrateWeight<T> as generated::WeightInfo>::end_schedule(),
 			T::DbWeight::get(),
+			BENCHMARK_TREE_WRITES,
 			pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops(),
 			pallet_zk_tree::Pallet::<T>::insert_leaf_hash_ref_time(),
 		)
@@ -64,6 +68,7 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 		payout_weight(
 			<generated::SubstrateWeight<T> as generated::WeightInfo>::retarget_schedule(),
 			T::DbWeight::get(),
+			BENCHMARK_TREE_WRITES,
 			pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops(),
 			pallet_zk_tree::Pallet::<T>::insert_leaf_hash_ref_time(),
 		)
@@ -75,6 +80,7 @@ impl WeightInfo for () {
 		payout_weight(
 			<() as generated::WeightInfo>::claim(),
 			RocksDbWeight::get(),
+			CLAIM_BENCHMARK_TREE_WRITES,
 			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
 			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
 		)
@@ -88,6 +94,7 @@ impl WeightInfo for () {
 		payout_weight(
 			<() as generated::WeightInfo>::end_schedule(),
 			RocksDbWeight::get(),
+			BENCHMARK_TREE_WRITES,
 			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
 			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
 		)
@@ -97,6 +104,7 @@ impl WeightInfo for () {
 		payout_weight(
 			<() as generated::WeightInfo>::retarget_schedule(),
 			RocksDbWeight::get(),
+			BENCHMARK_TREE_WRITES,
 			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
 			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
 		)
@@ -114,12 +122,14 @@ mod tests {
 		let shallow = payout_weight(
 			base,
 			db,
+			BENCHMARK_TREE_WRITES,
 			pallet_zk_tree::insert_leaf_db_ops_at_depth(1),
 			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(1),
 		);
 		let deep = payout_weight(
 			base,
 			db,
+			BENCHMARK_TREE_WRITES,
 			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
 			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
 		);

@@ -221,7 +221,7 @@ pub mod pallet {
 		ClaimWouldLeaveDust,
 		/// Ending now would emit a non-zero beneficiary payout below the minimum.
 		PayoutBelowMinimum,
-		/// The treasury account is not configured on this chain.
+		/// The treasury account is not configured or aliases the vesting pot.
 		TreasuryNotConfigured,
 		/// The pot does not hold its existential-deposit buffer; endow it first.
 		PotUnderfunded,
@@ -361,13 +361,9 @@ pub mod pallet {
 			total: BalanceOf<T>,
 		) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
-			let treasury = T::TreasuryAccount::get().ok_or(Error::<T>::TreasuryNotConfigured)?;
-			let pot = Self::pot_account_id();
+			let (treasury, pot) = Self::treasury_and_pot()?;
 			ensure!(Self::schedule_is_valid(start, cliff, end, total), Error::<T>::InvalidSchedule);
 			ensure!(beneficiary != pot, Error::<T>::InvalidBeneficiary);
-			// A treasury misconfigured to be the pot itself would record an obligation
-			// without funding it, silently corrupting the pot's accounting invariant.
-			ensure!(treasury != pot, Error::<T>::TreasuryNotConfigured);
 			// The pot's ED buffer is what lets keep-alive payouts always clear; a chain
 			// launched without genesis schedules must endow the pot before creating any.
 			ensure!(
@@ -412,9 +408,8 @@ pub mod pallet {
 		#[pallet::weight(T::WeightInfo::end_schedule())]
 		pub fn end_schedule(origin: OriginFor<T>, schedule_id: u64) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
-			let treasury = T::TreasuryAccount::get().ok_or(Error::<T>::TreasuryNotConfigured)?;
+			let (treasury, pot) = Self::treasury_and_pot()?;
 			let schedule = Schedules::<T>::get(schedule_id).ok_or(Error::<T>::NoSchedule)?;
-			let pot = Self::pot_account_id();
 			let vested = Self::vested_amount(&schedule, T::TimeProvider::now());
 			let unpaid_vested =
 				vested.checked_sub(&schedule.claimed).ok_or(ArithmeticError::Underflow)?;
@@ -490,6 +485,13 @@ pub mod pallet {
 		/// The pot: the pallet's sovereign account holding all unclaimed vesting funds.
 		pub fn pot_account_id() -> T::AccountId {
 			T::PalletId::get().into_account_truncating()
+		}
+
+		fn treasury_and_pot() -> Result<(T::AccountId, T::AccountId), Error<T>> {
+			let treasury = T::TreasuryAccount::get().ok_or(Error::<T>::TreasuryNotConfigured)?;
+			let pot = Self::pot_account_id();
+			ensure!(treasury != pot, Error::<T>::TreasuryNotConfigured);
+			Ok((treasury, pot))
 		}
 
 		/// Amount vested at `now`: 0 before the cliff, `total` from `end`, linear in
@@ -587,14 +589,16 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Invariant: the pot covers all outstanding obligations plus its ED buffer, and
-		/// every stored schedule is internally consistent.
+		/// Invariant: when schedules exist, the pot covers all outstanding obligations
+		/// plus its ED buffer, and every stored schedule is internally consistent.
 		#[cfg(any(feature = "try-runtime", test))]
 		pub fn do_try_state() -> Result<(), sp_runtime::TryRuntimeError> {
 			let pot = Self::pot_account_id();
 			let next_id = NextScheduleId::<T>::get();
 			let mut outstanding: BalanceOf<T> = Zero::zero();
+			let mut has_schedules = false;
 			for (id, schedule) in Schedules::<T>::iter() {
+				has_schedules = true;
 				frame_support::ensure!(
 					id < next_id,
 					sp_runtime::TryRuntimeError::Other("schedule id >= NextScheduleId")
@@ -634,9 +638,13 @@ pub mod pallet {
 					sp_runtime::TryRuntimeError::Other("outstanding obligations overflow"),
 				)?;
 			}
-			let required = outstanding
-				.checked_add(&T::Currency::minimum_balance())
-				.ok_or(sp_runtime::TryRuntimeError::Other("required pot balance overflows"))?;
+			let required = if has_schedules {
+				outstanding
+					.checked_add(&T::Currency::minimum_balance())
+					.ok_or(sp_runtime::TryRuntimeError::Other("required pot balance overflows"))?
+			} else {
+				Zero::zero()
+			};
 			frame_support::ensure!(
 				T::Currency::total_balance(&pot) >= required,
 				sp_runtime::TryRuntimeError::Other("pot does not cover outstanding obligations")

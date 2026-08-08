@@ -38,7 +38,7 @@ fn treasury<T: Config>() -> Result<T::AccountId, BenchmarkError> {
 }
 
 /// Insert a schedule directly, with the pot funded to cover it plus its ED buffer.
-fn seed_schedule<T: Config>(beneficiary: T::AccountId, total: BalanceOf<T>) -> u64 {
+fn seed_schedule<T: Config>(beneficiary: T::AccountId, total: BalanceOf<T>, end: u64) -> u64 {
 	let schedule_id = NextScheduleId::<T>::get();
 	NextScheduleId::<T>::put(schedule_id + 1);
 	Schedules::<T>::insert(
@@ -47,7 +47,7 @@ fn seed_schedule<T: Config>(beneficiary: T::AccountId, total: BalanceOf<T>) -> u
 			beneficiary,
 			start: START,
 			cliff: CLIFF,
-			end: END,
+			end,
 			total,
 			claimed: Zero::zero(),
 			last_claim_at: None,
@@ -68,14 +68,28 @@ mod benchmarks {
 	fn claim() -> Result<(), BenchmarkError> {
 		let beneficiary: T::AccountId = account("beneficiary", 0, 0);
 		let total = benchmark_total::<T>();
-		let schedule_id = seed_schedule::<T>(beneficiary.clone(), total);
-		set_time::<T>(END);
 		let caller: T::AccountId = whitelisted_caller();
+		let interval = T::MinClaimInterval::get();
+		let now = interval
+			.checked_mul(2)
+			.ok_or(BenchmarkError::Stop("claim benchmark time overflow"))?;
+		let end = interval
+			.checked_mul(4)
+			.ok_or(BenchmarkError::Stop("claim benchmark end overflow"))?;
+		let schedule_id = seed_schedule::<T>(beneficiary.clone(), total, end);
+		set_time::<T>(interval);
+		Vesting::<T>::claim(RawOrigin::Signed(caller.clone()).into(), schedule_id)
+			.map_err(|_| BenchmarkError::Stop("claim benchmark setup failed"))?;
+		let claimed_before = Schedules::<T>::get(schedule_id).expect("schedule exists").claimed;
+		set_time::<T>(now);
 
 		#[extrinsic_call]
 		_(RawOrigin::Signed(caller), schedule_id);
 
-		assert_eq!(T::Currency::balance(&beneficiary), total);
+		let schedule = Schedules::<T>::get(schedule_id).expect("schedule persists");
+		assert!(schedule.claimed > claimed_before);
+		assert!(schedule.claimed < total);
+		assert_eq!(schedule.last_claim_at, Some(now));
 		Ok(())
 	}
 
@@ -103,7 +117,7 @@ mod benchmarks {
 		fund::<T>(&treasury, T::Currency::minimum_balance());
 		let beneficiary: T::AccountId = account("beneficiary", 0, 0);
 		let total = benchmark_total::<T>();
-		let schedule_id = seed_schedule::<T>(beneficiary.clone(), total);
+		let schedule_id = seed_schedule::<T>(beneficiary.clone(), total, END);
 		// Mid-vesting: both the beneficiary payout and the treasury refund execute.
 		set_time::<T>(END / 2);
 
@@ -121,7 +135,7 @@ mod benchmarks {
 		let beneficiary: T::AccountId = account("beneficiary", 0, 0);
 		let new_beneficiary: T::AccountId = account("new-beneficiary", 0, 0);
 		let total = benchmark_total::<T>();
-		let schedule_id = seed_schedule::<T>(beneficiary, total);
+		let schedule_id = seed_schedule::<T>(beneficiary, total, END);
 		set_time::<T>(END / 2);
 
 		#[extrinsic_call]

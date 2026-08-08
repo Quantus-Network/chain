@@ -567,6 +567,23 @@ mod end_schedule {
 	}
 
 	#[test]
+	fn rejects_the_pot_as_treasury_without_removing_the_schedule() {
+		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
+			let pot_before = free(&pot());
+			TreasuryAccount::set(Some(pot()));
+			set_time(300_000);
+			assert_noop!(
+				Vesting::end_schedule(RuntimeOrigin::root(), 0),
+				Error::<Test>::TreasuryNotConfigured
+			);
+			assert!(Schedules::<Test>::contains_key(0));
+			assert_eq!(free(&BOB), 0);
+			assert_eq!(free(&pot()), pot_before);
+			TreasuryAccount::set(Some(TREASURY));
+		});
+	}
+
+	#[test]
 	fn freed_ids_are_never_reused() {
 		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
 			assert_ok!(Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), 0));
@@ -683,9 +700,10 @@ mod genesis {
 
 	#[test]
 	fn empty_is_a_noop() {
-		new_test_ext(vec![]).execute_with(|| {
+		new_test_ext_with_pot_balance(vec![], 0).execute_with(|| {
 			assert_eq!(NextScheduleId::<Test>::get(), 0);
 			assert_eq!(Schedules::<Test>::iter().count(), 0);
+			assert_eq!(free(&pot()), 0);
 			assert_ok!(Vesting::do_try_state());
 		});
 	}

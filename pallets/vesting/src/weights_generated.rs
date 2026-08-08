@@ -28,7 +28,7 @@
 // /Users/nikolaus/play/quantus-network/chain/target/release/quantus-node
 // benchmark
 // pallet
-// --runtime=target/debug/wbuild/quantus-runtime/quantus_runtime.wasm
+// --runtime=/Users/nikolaus/play/quantus-network/chain-pr646-fix/target/release/wbuild/quantus-runtime/quantus_runtime.wasm
 // --genesis-builder=runtime
 // --pallet=pallet_vesting
 // --extrinsic=*
@@ -36,7 +36,7 @@
 // --repeat=20
 // --wasm-execution=compiled
 // --heap-pages=4096
-// --template=.maintain/frame-weight-template.hbs
+// --template=./.maintain/frame-weight-template.hbs
 // --output=./pallets/vesting/src/weights_generated.rs
 
 #![cfg_attr(rustfmt, rustfmt_skip)]
@@ -69,7 +69,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Wormhole::TransferCount` (`max_values`: None, `max_size`: Some(56), added: 2531, mode: `MaxEncodedLen`)
 	/// Storage: `ZkTree::LeafCount` (r:1 w:1)
 	/// Proof: `ZkTree::LeafCount` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `ZkTree::Depth` (r:1 w:1)
+	/// Storage: `ZkTree::Depth` (r:1 w:0)
 	/// Proof: `ZkTree::Depth` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `ZkTree::Leaves` (r:3 w:1)
 	/// Proof: `ZkTree::Leaves` (`max_values`: None, `max_size`: Some(68), added: 2543, mode: `MaxEncodedLen`)
@@ -77,12 +77,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `ZkTree::Root` (`max_values`: Some(1), `max_size`: Some(32), added: 527, mode: `MaxEncodedLen`)
 	fn claim() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `621`
+		//  Measured:  `977`
 		//  Estimated: `8619`
-		// Minimum execution time: 74_000_000 picoseconds.
-		Weight::from_parts(74_000_000, 8619)
+		// Minimum execution time: 81_000_000 picoseconds.
+		Weight::from_parts(83_000_000, 8619)
 			.saturating_add(T::DbWeight::get().reads(10_u64))
-			.saturating_add(T::DbWeight::get().writes(8_u64))
+			.saturating_add(T::DbWeight::get().writes(7_u64))
 	}
 	/// Storage: `TreasuryPallet::TreasuryAccount` (r:1 w:0)
 	/// Proof: `TreasuryPallet::TreasuryAccount` (`max_values`: Some(1), `max_size`: Some(32), added: 527, mode: `MaxEncodedLen`)
@@ -96,8 +96,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `474`
 		//  Estimated: `6196`
-		// Minimum execution time: 38_000_000 picoseconds.
-		Weight::from_parts(39_000_000, 6196)
+		// Minimum execution time: 39_000_000 picoseconds.
+		Weight::from_parts(40_000_000, 6196)
 			.saturating_add(T::DbWeight::get().reads(4_u64))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
 	}
@@ -123,8 +123,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `845`
 		//  Estimated: `8799`
-		// Minimum execution time: 104_000_000 picoseconds.
-		Weight::from_parts(105_000_000, 8799)
+		// Minimum execution time: 103_000_000 picoseconds.
+		Weight::from_parts(104_000_000, 8799)
 			.saturating_add(T::DbWeight::get().reads(12_u64))
 			.saturating_add(T::DbWeight::get().writes(9_u64))
 	}
@@ -169,7 +169,7 @@ impl WeightInfo for () {
 	/// Proof: `Wormhole::TransferCount` (`max_values`: None, `max_size`: Some(56), added: 2531, mode: `MaxEncodedLen`)
 	/// Storage: `ZkTree::LeafCount` (r:1 w:1)
 	/// Proof: `ZkTree::LeafCount` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `ZkTree::Depth` (r:1 w:1)
+	/// Storage: `ZkTree::Depth` (r:1 w:0)
 	/// Proof: `ZkTree::Depth` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `ZkTree::Leaves` (r:3 w:1)
 	/// Proof: `ZkTree::Leaves` (`max_values`: None, `max_size`: Some(68), added: 2543, mode: `MaxEncodedLen`)
@@ -177,12 +177,12 @@ impl WeightInfo for () {
 	/// Proof: `ZkTree::Root` (`max_values`: Some(1), `max_size`: Some(32), added: 527, mode: `MaxEncodedLen`)
 	fn claim() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `621`
+		//  Measured:  `977`
 		//  Estimated: `8619`
-		// Minimum execution time: 74_000_000 picoseconds.
-		Weight::from_parts(74_000_000, 8619)
+		// Minimum execution time: 81_000_000 picoseconds.
+		Weight::from_parts(83_000_000, 8619)
 			.saturating_add(RocksDbWeight::get().reads(10_u64))
-			.saturating_add(RocksDbWeight::get().writes(8_u64))
+			.saturating_add(RocksDbWeight::get().writes(7_u64))
 	}
 	/// Storage: `TreasuryPallet::TreasuryAccount` (r:1 w:0)
 	/// Proof: `TreasuryPallet::TreasuryAccount` (`max_values`: Some(1), `max_size`: Some(32), added: 527, mode: `MaxEncodedLen`)
@@ -196,8 +196,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `474`
 		//  Estimated: `6196`
-		// Minimum execution time: 38_000_000 picoseconds.
-		Weight::from_parts(39_000_000, 6196)
+		// Minimum execution time: 39_000_000 picoseconds.
+		Weight::from_parts(40_000_000, 6196)
 			.saturating_add(RocksDbWeight::get().reads(4_u64))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
 	}
@@ -223,8 +223,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `845`
 		//  Estimated: `8799`
-		// Minimum execution time: 104_000_000 picoseconds.
-		Weight::from_parts(105_000_000, 8799)
+		// Minimum execution time: 103_000_000 picoseconds.
+		Weight::from_parts(104_000_000, 8799)
 			.saturating_add(RocksDbWeight::get().reads(12_u64))
 			.saturating_add(RocksDbWeight::get().writes(9_u64))
 	}
