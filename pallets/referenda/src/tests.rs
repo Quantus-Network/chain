@@ -1042,6 +1042,91 @@ fn detects_incorrect_len() {
 	});
 }
 
+#[test]
+fn submit_requires_and_requests_lookup_preimage() {
+	ExtBuilder::default().build_and_execute(|| {
+		// A lookup proposal whose preimage was never noted must be rejected: otherwise the
+		// scheduler drops the enactment as terminal (`CallUnavailable`) after approval.
+		let missing =
+			<<Test as frame_system::Config>::Hashing as sp_runtime::traits::Hash>::hash(
+				b"no such preimage",
+			);
+		assert_noop!(
+			Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				frame_support::traits::Bounded::Lookup { hash: missing, len: 1 },
+				DispatchTime::At(10),
+			),
+			Error::<Test>::PreimageNotExist
+		);
+
+		// A noted preimage is requested (pinned) by submission, so unnoting cannot delete
+		// the bytes while the referendum is ongoing.
+		let hash = note_preimage(1);
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			frame_support::traits::Bounded::Lookup { hash, len: 1 },
+			DispatchTime::At(10),
+		));
+		assert!(Preimage::is_requested(&hash));
+	});
+}
+
+#[test]
+fn timed_out_referendum_releases_preimage_request() {
+	ExtBuilder::default().build_and_execute(|| {
+		let hash = note_preimage(1);
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			frame_support::traits::Bounded::Lookup { hash, len: 1 },
+			DispatchTime::At(30),
+		));
+		assert!(Preimage::is_requested(&hash));
+		run_to(21);
+		assert_matches!(ReferendumInfoFor::<Test>::get(0), Some(ReferendumInfo::TimedOut(..)));
+		assert!(!Preimage::is_requested(&hash));
+	});
+}
+
+#[test]
+fn rejected_referendum_releases_preimage_request() {
+	ExtBuilder::default().build_and_execute(|| {
+		let hash = note_preimage(1);
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			frame_support::traits::Bounded::Lookup { hash, len: 1 },
+			DispatchTime::At(30),
+		));
+		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(2), 0));
+		assert!(Preimage::is_requested(&hash));
+		// No votes: deciding starts after the prepare period (4) and fails at the end of the
+		// decision period (4).
+		run_to(12);
+		assert_matches!(ReferendumInfoFor::<Test>::get(0), Some(ReferendumInfo::Rejected(..)));
+		assert!(!Preimage::is_requested(&hash));
+	});
+}
+
+#[test]
+fn killed_referendum_releases_preimage_request() {
+	ExtBuilder::default().build_and_execute(|| {
+		let hash = note_preimage(1);
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			frame_support::traits::Bounded::Lookup { hash, len: 1 },
+			DispatchTime::At(30),
+		));
+		assert!(Preimage::is_requested(&hash));
+		assert_ok!(Referenda::kill(RuntimeOrigin::root(), 0));
+		assert!(!Preimage::is_requested(&hash));
+	});
+}
+
 /// Ensures that `DispatchTime::After(0)` plus `min_enactment_period = 0` works.
 #[test]
 fn zero_enactment_delay_executes_proposal_at_next_block() {

@@ -486,14 +486,26 @@ pub mod pallet {
 			let proposal_origin = *proposal_origin;
 			let who = T::SubmitOrigin::ensure_origin(origin, &proposal_origin)?;
 
-			// If the pre-image is already stored, ensure that it has the same length as given in
-			// `proposal`.
-			if let (Some(preimage_len), Some(proposal_len)) =
-				(proposal.lookup_hash().and_then(|h| T::Preimages::len(&h)), proposal.lookup_len())
-			{
-				if preimage_len != proposal_len {
-					return Err(Error::<T, I>::PreimageStoredWithDifferentLength.into())
+			// V12 audit: a lookup proposal whose preimage is missing at enactment is
+			// dropped by the scheduler as terminal (`CallUnavailable`) after the referendum
+			// record has already been replaced with `Approved`, which retains neither the call
+			// nor a retry path — the voted proposal silently disappears. Close both holes:
+			// (a) the preimage must exist (with the claimed length) at submission, and
+			// (b) it is `request`ed here, which makes `pallet_preimage` retain the bytes even
+			//     if the noter reclaims their deposit via `unnote_preimage`.
+			// The request is dropped again on every terminal transition (approve/reject/
+			// timeout/cancel/kill); on approval the scheduler holds its own request from
+			// `schedule_named` until dispatch, so the bytes stay pinned through enactment.
+			if let Some(hash) = proposal.lookup_hash() {
+				let preimage_len =
+					T::Preimages::len(&hash).ok_or(Error::<T, I>::PreimageNotExist)?;
+				if let Some(proposal_len) = proposal.lookup_len() {
+					ensure!(
+						preimage_len == proposal_len,
+						Error::<T, I>::PreimageStoredWithDifferentLength
+					);
 				}
+				T::Preimages::request(&hash);
 			}
 
 			let track =
@@ -622,6 +634,8 @@ pub mod pallet {
 			if status.in_queue {
 				Self::remove_from_track_queue(status.track, index);
 			}
+			// Release the preimage request taken in `submit`.
+			T::Preimages::drop(&status.proposal);
 			Self::deposit_event(Event::<T, I>::Cancelled { index, tally: status.tally });
 			let info = ReferendumInfo::Cancelled(
 				T::BlockNumberProvider::current_block_number(),
@@ -658,6 +672,8 @@ pub mod pallet {
 			if status.in_queue {
 				Self::remove_from_track_queue(status.track, index);
 			}
+			// Release the preimage request taken in `submit`.
+			T::Preimages::drop(&status.proposal);
 			Self::deposit_event(Event::<T, I>::Killed { index, tally: status.tally });
 			Self::slash_deposit(Some(status.submission_deposit.clone()));
 			Self::slash_deposit(status.decision_deposit.clone());
@@ -1391,6 +1407,8 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 				if status.deciding.is_none() && now >= timeout && !status.in_queue {
 					// Too long without being decided - end it.
 					Self::ensure_no_alarm(&mut status);
+					// Release the preimage request taken in `submit`.
+					T::Preimages::drop(&status.proposal);
 					Self::deposit_event(Event::<T, I>::TimedOut { index, tally: status.tally });
 					return (
 						ReferendumInfo::TimedOut(
@@ -1429,6 +1447,11 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 								Ok(()) => {
 									Self::ensure_no_alarm(&mut status);
 									Self::note_one_fewer_deciding(status.track);
+									// Release the preimage request taken in `submit`. The
+									// scheduler has just taken its own request for the
+									// enactment call in `schedule_named`, so the bytes stay
+									// pinned until dispatch.
+									T::Preimages::drop(&status.proposal);
 									Self::deposit_event(Event::<T, I>::Confirmed {
 										index,
 										tally: status.tally,
@@ -1463,6 +1486,8 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 						// Failed!
 						Self::ensure_no_alarm(&mut status);
 						Self::note_one_fewer_deciding(status.track);
+						// Release the preimage request taken in `submit`.
+						T::Preimages::drop(&status.proposal);
 						Self::deposit_event(Event::<T, I>::Rejected { index, tally: status.tally });
 						return (
 							ReferendumInfo::Rejected(
