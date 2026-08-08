@@ -25,13 +25,13 @@
 //! WASM-EXECUTION: `Compiled`, CHAIN: `None`, DB CACHE: `1024`
 
 // Executed Command:
-// /Users/nikolaus/play/quantus-network/chain/target/release/quantus-node
+// ./target/release/quantus-node
 // benchmark
 // pallet
 // --pallet=pallet_treasury
 // --steps=50
 // --repeat=20
-// --runtime=/Users/nikolaus/play/quantus-network/chain/target/release/wbuild/quantus-runtime/quantus_runtime.wasm
+// --runtime=./target/release/wbuild/quantus-runtime/quantus_runtime.wasm
 // --genesis-builder=runtime
 // --extrinsic=*
 // --wasm-execution=compiled

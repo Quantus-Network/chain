@@ -109,7 +109,7 @@ jobs:
         shell: bash
         run: |
           set -eo pipefail
-          cargo build --release --package quantus-node --target ${{ matrix.target }}
+          cargo build --locked --release --package quantus-node --target ${{ matrix.target }}
 
       - name: Prepare Release Assets
         id: prepare_assets

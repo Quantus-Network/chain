@@ -101,7 +101,7 @@ jobs:
   publish-miner-api-to-crates:
     name: 📦 Publish to crates.io
     needs: [create-miner-api-tag, build-and-test-miner-api]
-    if: always() && needs.create-miner-api-tag.outputs.is_draft == 'false'
+    if: needs.create-miner-api-tag.result == 'success' && needs.build-and-test-miner-api.result == 'success' && needs.create-miner-api-tag.outputs.is_draft == 'false'
     runs-on: ubuntu-latest
     environment: release
     permissions:
