@@ -196,20 +196,38 @@ mod tests {
 	}
 
 	#[test]
-	fn claim_records_exactly_one_wormhole_leaf_for_the_beneficiary() {
+	fn one_quan_schedule_claims_exactly_once_and_records_one_wormhole_leaf() {
 		new_test_ext(Some(account(4))).execute_with(|| {
 			Balances::make_free_balance_be(&account(4), 1000 * UNIT);
+			let minimum = VestingMinimumPayout::get();
+			assert_eq!(minimum, UNIT);
 			// The beneficiary never signs anything — exactly like a wormhole address.
 			let beneficiary = account(9);
 			let pot = Vesting::pot_account_id();
+			assert_noop!(
+				Vesting::create_schedule(
+					RuntimeOrigin::root(),
+					beneficiary.clone(),
+					0,
+					0,
+					END_MS,
+					minimum - VestingPayoutQuantum::get(),
+				),
+				pallet_vesting::Error::<Runtime>::InvalidSchedule
+			);
 			assert_ok!(Vesting::create_schedule(
 				RuntimeOrigin::root(),
 				beneficiary.clone(),
 				0,
 				0,
 				END_MS,
-				GRANT,
+				minimum,
 			));
+			set_time(END_MS - 1);
+			assert_noop!(
+				Vesting::claim(RuntimeOrigin::signed(account(1)), 0),
+				pallet_vesting::Error::<Runtime>::NothingToClaim
+			);
 			set_time(END_MS);
 			System::reset_events();
 			let count_before = Wormhole::transfer_count(&beneficiary);
@@ -234,7 +252,16 @@ mod tests {
 					_ => None,
 				})
 				.expect("claim must emit a plain Transfer event from the pot");
-			assert_eq!(payout, GRANT);
+			assert_eq!(payout, UNIT);
+			assert_eq!(Balances::total_balance(&beneficiary), UNIT);
+			assert_eq!(Balances::total_balance(&pot), EXISTENTIAL_DEPOSIT);
+			let schedule = pallet_vesting::Schedules::<Runtime>::get(0).unwrap();
+			assert_eq!(schedule.total, UNIT);
+			assert_eq!(schedule.claimed, UNIT);
+			assert_noop!(
+				Vesting::claim(RuntimeOrigin::signed(account(1)), 0),
+				pallet_vesting::Error::<Runtime>::NothingToClaim
+			);
 		});
 	}
 
