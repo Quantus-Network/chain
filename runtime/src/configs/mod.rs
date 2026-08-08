@@ -26,8 +26,8 @@
 // Substrate and Polkadot dependencies
 use crate::{
 	governance::definitions::{
-		GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
-		RootOrMemberForTechReferendaOrigin, TechCollectiveTracksInfo,
+		EnsureRootRemoveKeepsMemberFloor, GlobalMaxMembers, MinRankOfClassConverter,
+		PreimageDeposit, RootOrMemberForTechReferendaOrigin, TechCollectiveTracksInfo,
 	},
 	MILLI_UNIT,
 };
@@ -244,9 +244,11 @@ impl pallet_ranked_collective::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	// #91267: membership changes go through Root only (i.e. a passed TechReferenda vote), so no
 	// single member can unilaterally add/remove others or stuff the collective. Root operates at
-	// rank 0, matching the flat collective.
+	// rank 0, matching the flat collective. Removals are additionally gated on the
+	// MIN_TECH_COLLECTIVE_MEMBERS floor: shrinking below it would collapse the tech-referenda
+	// vote thresholds or (at zero members) deadlock the lane entirely.
 	type AddOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>;
-	type RemoveOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>;
+	type RemoveOrigin = EnsureRootRemoveKeepsMemberFloor;
 	type PromoteOrigin = NeverEnsureOrigin<u16>;
 	type DemoteOrigin = NeverEnsureOrigin<u16>;
 	type ExchangeOrigin = NeverEnsureOrigin<u16>;

@@ -7,8 +7,8 @@ use frame_support::traits::Currency;
 use frame_support::{
 	pallet_prelude::TypeInfo,
 	traits::{
-		CallerTrait, Consideration, EnsureOriginWithArg, Footprint, Get, OriginTrait,
-		ReservableCurrency,
+		CallerTrait, Consideration, EnsureOrigin, EnsureOriginWithArg, Footprint, Get,
+		OriginTrait, ReservableCurrency,
 	},
 };
 use lazy_static::lazy_static;
@@ -102,10 +102,9 @@ impl TechCollectiveTracksInfo {
 		//
 		// These curves assume at least 5 members: every shipped preset seeds >= 5 and
 		// `genesis_config_presets::seed_tech_collective` rejects a smaller non-empty seed
-		// (see `MIN_TECH_COLLECTIVE_MEMBERS`). NOTE: `RemoveOrigin` is Root, so a passed
-		// Root referendum can still shrink the collective below 5; there is no in-pallet
-		// membership floor on the removal path (that would require a `pallet_ranked_collective`
-		// change), so removals must preserve this minimum by convention.
+		// (see `MIN_TECH_COLLECTIVE_MEMBERS`). The same floor is enforced on the removal
+		// path: `RemoveOrigin` is `EnsureRootRemoveKeepsMemberFloor`, which rejects any
+		// removal that would leave the collective smaller than the floor.
 		let info = pallet_referenda::TrackInfo {
 			name: str_array("tech_collective_members"),
 			max_deciding: 1,
@@ -229,3 +228,45 @@ where
 }
 
 pub type RootOrMemberForTechReferendaOrigin = RootOrMemberForTechReferendaOriginImpl<Runtime, ()>;
+
+/// `RemoveOrigin` for the tech collective: Root (i.e. a passed tech referendum), but only while
+/// the removal leaves at least [`MIN_TECH_COLLECTIVE_MEMBERS`] members.
+///
+/// The tech-referenda approval/support curves (see [`TechCollectiveTracksInfo`]) are designed
+/// for a collective of >= 5 members and `SubmitOrigin` only accepts current members. Without
+/// this floor a passed Root referendum could shrink the collective to one member (who could
+/// then authorize Root unilaterally) or to zero members (permanently deadlocking the only
+/// governance lane, since nobody could submit a new referendum). Genesis seeding enforces the
+/// same floor via `genesis_config_presets::seed_tech_collective`.
+///
+/// Membership replacement remains possible: add the new member first (`MaxMemberCount` is 13),
+/// then remove the old one.
+pub struct EnsureRootRemoveKeepsMemberFloor;
+
+impl EnsureOrigin<RuntimeOrigin> for EnsureRootRemoveKeepsMemberFloor {
+	/// The rank returned on success, matching `EnsureRootWithSuccess<_, ConstU16<0>>`: Root
+	/// operates at rank 0, the only rank in this flat collective.
+	type Success = u16;
+
+	fn try_origin(o: RuntimeOrigin) -> Result<Self::Success, RuntimeOrigin> {
+		if !o.caller().is_root() {
+			return Err(o);
+		}
+		// The benchmark for `remove_member` only seeds two members, so the floor check is
+		// compiled out for benchmark runs (the origin gate itself is what is being weighed).
+		#[cfg(not(feature = "runtime-benchmarks"))]
+		{
+			let members = pallet_ranked_collective::MemberCount::<Runtime, ()>::get(0);
+			let floor = crate::genesis_config_presets::MIN_TECH_COLLECTIVE_MEMBERS as u32;
+			if members <= floor {
+				return Err(o);
+			}
+		}
+		Ok(0)
+	}
+
+	#[cfg(feature = "runtime-benchmarks")]
+	fn try_successful_origin() -> Result<RuntimeOrigin, ()> {
+		Ok(RuntimeOrigin::root())
+	}
+}

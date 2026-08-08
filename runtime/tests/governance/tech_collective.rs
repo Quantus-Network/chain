@@ -348,7 +348,14 @@ mod tests {
 				"Non-member should not be able to join collective"
 			);
 
-			// VERIFY 4: Root can remove members
+			// VERIFY 4: Root can remove members. Removal is only allowed while it leaves at
+			// least MIN_TECH_COLLECTIVE_MEMBERS (5) members, so pad the collective to 6 first.
+			for filler in 6..=8u8 {
+				assert_ok!(TechCollective::add_member(
+					RuntimeOrigin::root(),
+					MultiAddress::from(TestCommons::account_id(filler))
+				));
+			}
 			assert_ok!(TechCollective::remove_member(
 				RuntimeOrigin::root(),
 				MultiAddress::from(member_to_remove.clone()),
@@ -391,6 +398,68 @@ mod tests {
 				pallet_ranked_collective::Members::<Runtime, ()>::contains_key(&existing_member),
 				"Member should not be removed by non-member attempt"
 			);
+		});
+	}
+
+	/// Security: the tech-referenda approval/support curves are designed for a collective of
+	/// at least `MIN_TECH_COLLECTIVE_MEMBERS` (5). A Root-enacted `remove_member` must not be
+	/// able to shrink the collective below that floor: doing so would either collapse the
+	/// voting thresholds (a single remaining member could authorize Root alone) or, by
+	/// removing the final member, permanently deadlock the only governance lane.
+	#[test]
+	fn root_cannot_shrink_tech_collective_below_member_floor() {
+		TestCommons::new_fast_governance_test_ext().execute_with(|| {
+			let member_count =
+				|| pallet_ranked_collective::MemberCount::<Runtime, ()>::get(0) as usize;
+			let floor = quantus_runtime::genesis_config_presets::MIN_TECH_COLLECTIVE_MEMBERS;
+
+			// Seed exactly the floor-sized collective (5 members).
+			for i in 1..=floor as u8 {
+				assert_ok!(TechCollective::add_member(
+					RuntimeOrigin::root(),
+					MultiAddress::from(TestCommons::account_id(i))
+				));
+			}
+			assert_eq!(member_count(), floor);
+
+			// Removing from a floor-sized collective must fail and leave membership intact.
+			assert!(
+				TechCollective::remove_member(
+					RuntimeOrigin::root(),
+					MultiAddress::from(TestCommons::account_id(1)),
+					0
+				)
+				.is_err(),
+				"Root must not be able to shrink the collective below {floor} members"
+			);
+			assert_eq!(member_count(), floor);
+			assert!(pallet_ranked_collective::Members::<Runtime, ()>::contains_key(
+				&TestCommons::account_id(1)
+			));
+
+			// With one member above the floor, removal is allowed again (member replacement
+			// stays possible: add first, then remove).
+			let extra = TestCommons::account_id(floor as u8 + 1);
+			assert_ok!(TechCollective::add_member(
+				RuntimeOrigin::root(),
+				MultiAddress::from(extra.clone())
+			));
+			assert_eq!(member_count(), floor + 1);
+			assert_ok!(TechCollective::remove_member(
+				RuntimeOrigin::root(),
+				MultiAddress::from(extra),
+				0
+			));
+			assert_eq!(member_count(), floor);
+
+			// And now that we are back at the floor, removals are blocked again.
+			assert!(TechCollective::remove_member(
+				RuntimeOrigin::root(),
+				MultiAddress::from(TestCommons::account_id(2)),
+				0
+			)
+			.is_err());
+			assert_eq!(member_count(), floor);
 		});
 	}
 
