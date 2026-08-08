@@ -71,8 +71,11 @@ jobs:
           shared-key: "build-${{ matrix.os == 'Large-Linux-x64-Runner' && 'ubuntu' || matrix.os }}"
       - name: Install nextest
         uses: taiki-e/install-action@nextest
-      - name: compile
-        run: cargo build --locked --workspace --features runtime-benchmarks,try-runtime
+      # Feature-gate only: catch runtime-benchmarks/try-runtime breakages without a
+      # full build. Tests use different features (fast-governance), so a prior
+      # `cargo build` was mostly thrown away. WASM is exercised in release CI.
+      - name: check feature gates
+        run: SKIP_WASM_BUILD=1 cargo check --locked --workspace --features runtime-benchmarks,try-runtime
       - name: test
         run: SKIP_WASM_BUILD=1 cargo nextest run --locked --workspace --features quantus-runtime/fast-governance
       - name: doctest
