@@ -34,18 +34,25 @@ pub const PINGER: AccountId32 = AccountId32::new([8u8; 32]);
 pub const TREASURY: AccountId32 = AccountId32::new([9u8; 32]);
 pub const TREASURY_FUNDS: Balance = 1_000_000 * UNIT;
 
+/// Defaults of the `static` config values below. Named so the per-test reset in
+/// [`reset_thread_local_state`] restores exactly what a fresh thread would start with.
+const DEFAULT_EXISTENTIAL_DEPOSIT: Balance = 1_000;
+const DEFAULT_PAYOUT_QUANTUM: Balance = 1_000;
+const DEFAULT_MINIMUM_PAYOUT: Balance = 10_000;
+const DEFAULT_MIN_CLAIM_INTERVAL: u64 = 100_000;
+
 parameter_types! {
 	pub const BlockHashCount: u64 = 250;
 	/// `static` so individual tests can vary it via `ExistentialDeposit::set`.
-	pub static ExistentialDeposit: Balance = 1_000;
+	pub static ExistentialDeposit: Balance = DEFAULT_EXISTENTIAL_DEPOSIT;
 	pub const VestingPalletId: PalletId = PalletId(*b"qvesting");
 	/// `static` so tests can unset it to exercise `TreasuryNotConfigured`.
 	pub static TreasuryAccount: Option<AccountId32> = Some(TREASURY);
 	/// `static` so tests can vary the wormhole leaf quantum (e.g. make it coarser than
 	/// the ED to exercise sub-quantum rounding, or finer to exercise below-ED payouts).
-	pub static PayoutQuantum: Balance = 1_000;
-	pub static MinimumPayout: Balance = 10_000;
-	pub static MinClaimInterval: u64 = 100_000;
+	pub static PayoutQuantum: Balance = DEFAULT_PAYOUT_QUANTUM;
+	pub static MinimumPayout: Balance = DEFAULT_MINIMUM_PAYOUT;
+	pub static MinClaimInterval: u64 = DEFAULT_MIN_CLAIM_INTERVAL;
 }
 
 impl frame_system::Config for Test {
@@ -137,6 +144,10 @@ impl MockProofRecorder {
 	pub fn recorded() -> Vec<RecordedProof> {
 		RECORDED_PROOFS.with(|proofs| proofs.borrow().clone())
 	}
+
+	fn clear() {
+		RECORDED_PROOFS.with(|proofs| proofs.borrow_mut().clear());
+	}
 }
 
 impl qp_wormhole::TransferProofRecorder<AccountId32, u32, Balance> for MockProofRecorder {
@@ -176,16 +187,34 @@ pub fn set_time(now_ms: u64) {
 
 pub type ScheduleTuple = (AccountId32, u64, u64, u64, u128);
 
-/// Pot endowed with exactly `sum(totals) + ED` — the valid genesis shape.
+/// Pot endowed with exactly `sum(totals) + ED` — the valid genesis shape. The ED comes
+/// from the const rather than the `static`: the builder resets the statics anyway, so
+/// reading the live value here would only be a chance to read a leaked one.
 pub fn new_test_ext(schedules: Vec<ScheduleTuple>) -> sp_io::TestExternalities {
 	let sum: u128 = schedules.iter().map(|(_, _, _, _, total)| total).sum();
-	new_test_ext_with_pot_balance(schedules, sum + ExistentialDeposit::get())
+	new_test_ext_with_pot_balance(schedules, sum + DEFAULT_EXISTENTIAL_DEPOSIT)
+}
+
+/// The `pub static` config values and `RECORDED_PROOFS` live in thread-local storage,
+/// and the test harness reuses worker threads across tests: without this, a value a
+/// test sets (`PayoutQuantum::set(3_000)`, `TreasuryAccount::set(None)`, …) leaks into
+/// whichever test the same worker runs next, and recorded-proof assertions see earlier
+/// tests' entries. Every test builds its externalities through here, so resetting at
+/// build time makes each one start from the documented defaults.
+fn reset_thread_local_state() {
+	ExistentialDeposit::set(DEFAULT_EXISTENTIAL_DEPOSIT);
+	TreasuryAccount::set(Some(TREASURY));
+	PayoutQuantum::set(DEFAULT_PAYOUT_QUANTUM);
+	MinimumPayout::set(DEFAULT_MINIMUM_PAYOUT);
+	MinClaimInterval::set(DEFAULT_MIN_CLAIM_INTERVAL);
+	MockProofRecorder::clear();
 }
 
 pub fn new_test_ext_with_pot_balance(
 	schedules: Vec<ScheduleTuple>,
 	pot_balance: Balance,
 ) -> sp_io::TestExternalities {
+	reset_thread_local_state();
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
 	let mut balances = vec![(TREASURY, TREASURY_FUNDS), (PINGER, UNIT)];

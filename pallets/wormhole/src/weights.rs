@@ -166,11 +166,13 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 	/// body), each charged in full (compute + DB + PoV), plus exit-processing storage
 	/// and the per-exit ZK-tree Poseidon hashing (one hash per tree level per insert).
 	fn verify_private_batch() -> Weight {
-		let tree_ops = pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops();
+		// Read the live depth once: both tree terms below are derived from it.
+		let depth = pallet_zk_tree::Depth::<T>::get();
+		let tree_ops = pallet_zk_tree::insert_leaf_db_ops_at_depth(depth);
 		let (reads, writes, proof_size) =
 			storage_tail(private_batch_max_exits(), false, tree_ops);
 		let hash_time = private_batch_max_exits()
-			.saturating_mul(pallet_zk_tree::Pallet::<T>::insert_leaf_hash_ref_time());
+			.saturating_mul(pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(depth));
 		Weight::from_parts(
 			PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS.saturating_add(hash_time),
 			proof_size,
@@ -183,10 +185,12 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 	/// Same double-prevalidation shape as [`Self::verify_private_batch`], scaled
 	/// across all inner segments plus the aggregator rebate.
 	fn verify_public_batch() -> Weight {
-		let tree_ops = pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops();
+		// Read the live depth once: both tree terms below are derived from it.
+		let depth = pallet_zk_tree::Depth::<T>::get();
+		let tree_ops = pallet_zk_tree::insert_leaf_db_ops_at_depth(depth);
 		let (reads, writes, proof_size) = storage_tail(public_batch_max_exits(), true, tree_ops);
 		let hash_time = public_batch_max_exits()
-			.saturating_mul(pallet_zk_tree::Pallet::<T>::insert_leaf_hash_ref_time());
+			.saturating_mul(pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(depth));
 		Weight::from_parts(
 			PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS.saturating_add(hash_time),
 			proof_size,

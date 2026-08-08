@@ -133,16 +133,15 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	/// Weight charged per recorded transfer proof.
 	///
 	/// Per recorded transfer, `record_transfer` touches one `TransferCount` read and one
-	/// write, plus the ZK-tree leaf insert, whose path update walks the tree leaf-to-root
-	/// and therefore costs reads/writes *and* one Poseidon hash per level, both
-	/// proportional to the *current* tree depth (read from storage here, so the charge
-	/// tracks the tree as it deepens over the chain's life).
+	/// write, plus the ZK-tree leaf insert. The insert is priced by
+	/// `pallet_zk_tree::insert_leaf_weight`, the single cost model every leaf-inserting
+	/// call site shares: it charges the depth-proportional DB ops, the per-level
+	/// Poseidon hashing and the per-key PoV from one `Depth` read, so the charge tracks
+	/// the tree as it deepens over the chain's life.
 	fn per_transfer_weight() -> Weight {
-		let (tree_reads, tree_writes) = pallet_zk_tree::Pallet::<Runtime>::insert_leaf_db_ops();
-		let hash_time = pallet_zk_tree::Pallet::<Runtime>::insert_leaf_hash_ref_time();
-		T::DbWeight::get()
-			.reads_writes(1u64.saturating_add(tree_reads), 1u64.saturating_add(tree_writes))
-			.saturating_add(Weight::from_parts(hash_time, 0))
+		T::DbWeight::get().reads_writes(1, 1).saturating_add(
+			pallet_zk_tree::Pallet::<Runtime>::insert_leaf_weight(T::DbWeight::get()),
+		)
 	}
 
 	/// Worst-case `ref_time` (picoseconds) to stream-decode one `EventRecord` in
@@ -209,6 +208,13 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			// and carries the recording cost in its own benchmarked weights, while the
 			// event scan below skips every pot-touching transfer. Counting them here
 			// would charge twice for work this extension never performs.
+			//
+			// The converse — a plain `Balances` transfer whose *destination* is the
+			// vesting pot (endowing it with its existential-deposit buffer) — is
+			// charged for a leaf insert the scan then skips. That overcharge is
+			// accepted: resolving the destination here would mean a `Lookup` on the
+			// hottest call in the runtime to spare a handful of one-off bootstrap
+			// transfers, and the direction is conservative.
 			_ => 0,
 		}
 	}
@@ -237,7 +243,10 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		// inbound/refund legs (treasury <-> pot) need no leaves — the pot is a keyless
 		// pallet account and the treasury spends by signature, so neither can ever
 		// exit through the wormhole.
-		let vesting_pot = pallet_vesting::Pallet::<Runtime>::pot_account_id();
+		//
+		// Derived lazily: it costs a Blake2b hash and the overwhelming majority of
+		// extrinsics emit no `Transfer` event at all.
+		let mut vesting_pot: Option<AccountId> = None;
 
 		// Collect transfers to record - (asset_id, from, to, amount)
 		let transfers_to_record: alloc::vec::Vec<(Option<AssetId>, AccountId, AccountId, Balance)> =
@@ -250,7 +259,12 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 							from,
 							to,
 							amount,
-						}) if from != vesting_pot && to != vesting_pot => Some((None, from, to, amount)),
+						}) => {
+							let pot = vesting_pot.get_or_insert_with(
+								pallet_vesting::Pallet::<Runtime>::pot_account_id,
+							);
+							(&from != pot && &to != pot).then_some((None, from, to, amount))
+						},
 						// Native balance mints
 						RuntimeEvent::Balances(pallet_balances::Event::Minted { who, amount }) => {
 							let minting_account = crate::configs::MintingAccount::get();
@@ -941,6 +955,14 @@ mod tests {
 					db_time + pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(20),
 				"per-transfer weight must charge the leaf insert's Poseidon hashing \
 				 on top of its DB ops"
+			);
+			// The leaf insert's path update also puts every tree key it reads into the
+			// PoV; a recorded transfer that declares no proof size lets deep-tree
+			// blocks exceed the PoV budget validators re-execute against.
+			assert_eq!(
+				weight.proof_size(),
+				tree_reads.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
+				"per-transfer weight must charge PoV for the tree keys the insert reads"
 			);
 		});
 	}

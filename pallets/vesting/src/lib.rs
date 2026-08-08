@@ -335,10 +335,7 @@ pub mod pallet {
 					ClaimPlan::TooSoon => return Err(Error::<T>::ClaimTooSoon.into()),
 					ClaimPlan::WouldLeaveDust => return Err(Error::<T>::ClaimWouldLeaveDust.into()),
 				};
-				Self::pay_out(&Self::pot_account_id(), &schedule.beneficiary, payable)?;
-				schedule.claimed =
-					schedule.claimed.checked_add(&payable).ok_or(ArithmeticError::Overflow)?;
-				schedule.last_claim_at = Some(now);
+				Self::settle(schedule, payable, now)?;
 				Self::deposit_event(Event::Claimed {
 					schedule_id,
 					beneficiary: schedule.beneficiary.clone(),
@@ -457,12 +454,7 @@ pub mod pallet {
 				let now = T::TimeProvider::now();
 				let vested_paid = match Self::claim_plan(schedule, now)? {
 					ClaimPlan::Pay(amount) => {
-						Self::pay_out(&Self::pot_account_id(), &schedule.beneficiary, amount)?;
-						schedule.claimed = schedule
-							.claimed
-							.checked_add(&amount)
-							.ok_or(ArithmeticError::Overflow)?;
-						schedule.last_claim_at = Some(now);
+						Self::settle(schedule, amount, now)?;
 						amount
 					},
 					ClaimPlan::NothingToClaim | ClaimPlan::TooSoon | ClaimPlan::WouldLeaveDust =>
@@ -567,6 +559,22 @@ pub mod pallet {
 		fn quantize_down(amount: BalanceOf<T>) -> BalanceOf<T> {
 			let remainder = amount % T::PayoutQuantum::get();
 			amount.checked_sub(&remainder).expect("remainder never exceeds the dividend")
+		}
+
+		/// Pay `amount` to the schedule's beneficiary and advance the schedule to match:
+		/// the single place a claimable payout is settled, shared by `claim` and
+		/// `retarget_schedule` so the two can never drift on what a payout does to
+		/// `claimed` and `last_claim_at`.
+		fn settle(
+			schedule: &mut VestingScheduleOf<T>,
+			amount: BalanceOf<T>,
+			now: Moment,
+		) -> DispatchResult {
+			Self::pay_out(&Self::pot_account_id(), &schedule.beneficiary, amount)?;
+			schedule.claimed =
+				schedule.claimed.checked_add(&amount).ok_or(ArithmeticError::Overflow)?;
+			schedule.last_claim_at = Some(now);
+			Ok(())
 		}
 
 		/// Move a payout out of the pot AND record it as a wormhole transfer proof —

@@ -7,7 +7,7 @@ the runtime, their dispatchable calls, the runtime APIs, transaction extensions,
 genesis logic, and the workspace primitive crates pulled in.
 
 - **Crate:** `quantus-runtime` (`runtime/`), version `0.7.1-q-day-2`
-- **Spec:** `spec_name = quantus-runtime`, `spec_version = 142`, `transaction_version = 3`, `authoring_version = 1`
+- **Spec:** `spec_name = quantus-runtime`, `spec_version = 143`, `transaction_version = 3`, `authoring_version = 1`
 - **Build:** `no_std` WASM via `substrate-wasm-builder` (`runtime/build.rs`); native `std` build for the node/client
 - **Block time target:** 12s (`TARGET_BLOCK_TIME_MS = 12_000`)
 - **Consensus:** QPoW (quantum-resistant Proof of Work, Poseidon2-based)
@@ -223,7 +223,7 @@ Signed-extension pipeline applied to every extrinsic, in order:
 8. `pallet_transaction_payment::ChargeTransactionPayment`
 9. `frame_metadata_hash_extension::CheckMetadataHash`
 10. `transaction_extensions::ReversibleTransactionExtension` — **custom**: blocks non-whitelisted calls from high-security accounts.
-11. `transaction_extensions::WormholeProofRecorderExtension` — **custom**: in `post_dispatch`, scans emitted native `Balances::Transfer` / `Balances::Minted` events and records transfer proofs into the ZK tree (event-based, covers direct/batch/multisig/recovery native transfers). Statically pre-charged calls (`count_transfers`): `Balances` transfers and `Utility` wrappers; uncounted paths are reconciled via `register_extra_weight_unchecked`. Transfers touching the **vesting pot** are skipped: the vesting pallet records its own payouts (covering scheduler-enacted Root calls the extension never sees) and carries that cost in its benchmarked weights.
+11. `transaction_extensions::WormholeProofRecorderExtension` — **custom**: in `post_dispatch`, scans emitted native `Balances::Transfer` / `Balances::Minted` events and records transfer proofs into the ZK tree (event-based, covers direct/batch/multisig/recovery native transfers). Statically pre-charged calls (`count_transfers`): `Balances` transfers and `Utility` wrappers; uncounted paths are reconciled via `register_extra_weight_unchecked`. Transfers touching the **vesting pot** are skipped: the vesting pallet records its own payouts (covering scheduler-enacted Root calls the extension never sees) and carries that cost in its benchmarked weights. A statically-counted transfer *into* the pot is charged for a leaf insert the scan then skips — an accepted overcharge on a rare bootstrap operation. Per-transfer recording weight comes from `pallet_zk_tree::insert_leaf_weight`, the one cost model shared by every leaf-inserting call site (depth-scaled DB ops, Poseidon path hashing, and per-key PoV).
 
 The high-security whitelist (`HighSecurityConfig::is_whitelisted`, extension 10) admits `ReversibleTransfers::{schedule_transfer, cancel, recover_funds}` and `Vesting::claim` (safe: the payout target is fixed by storage, never the caller).
 

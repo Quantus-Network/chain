@@ -65,22 +65,13 @@ const EXECUTE_TRANSFER_BASE_WRITES: u64 = 5;
 
 /// `execute_transfer`'s weight: the benchmarked base (compute + non-tree storage)
 /// plus the depth-dependent ZK-tree leaf insert performed by the wormhole proof
-/// recorder. `insert_leaf` walks the tree leaf-to-root, so DB ops and PoV scale
-/// with `tree_ops` via [`pallet_zk_tree::TREE_KEY_POV`], and the path update also
-/// computes one Poseidon hash per level (`tree_hash_time`).
-fn execute_transfer_weight(
-	db: RuntimeDbWeight,
-	(tree_reads, tree_writes): (u64, u64),
-	tree_hash_time: u64,
-) -> Weight {
+/// recorder, priced by [`pallet_zk_tree::insert_leaf_weight_at_depth`].
+fn execute_transfer_weight(db: RuntimeDbWeight, insert_leaf: Weight) -> Weight {
 	// Minimum execution time: 105_000_000 picoseconds.
-	Weight::from_parts(110_000_000_u64.saturating_add(tree_hash_time), 8619)
-		.saturating_add(Weight::from_parts(
-			0,
-			tree_reads.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
-		))
-		.saturating_add(db.reads(EXECUTE_TRANSFER_BASE_READS.saturating_add(tree_reads)))
-		.saturating_add(db.writes(EXECUTE_TRANSFER_BASE_WRITES.saturating_add(tree_writes)))
+	Weight::from_parts(110_000_000, 8619)
+		.saturating_add(db.reads(EXECUTE_TRANSFER_BASE_READS))
+		.saturating_add(db.writes(EXECUTE_TRANSFER_BASE_WRITES))
+		.saturating_add(insert_leaf)
 }
 
 /// Weights for `pallet_reversible_transfers` using the Substrate node and recommended hardware.
@@ -182,8 +173,7 @@ impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateW
 		//  Estimated: `8619` + tree
 		execute_transfer_weight(
 			T::DbWeight::get(),
-			pallet_zk_tree::Pallet::<T>::insert_leaf_db_ops(),
-			pallet_zk_tree::Pallet::<T>::insert_leaf_hash_ref_time(),
+			pallet_zk_tree::Pallet::<T>::insert_leaf_weight(T::DbWeight::get()),
 		)
 	}
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
@@ -316,8 +306,10 @@ impl WeightInfo for () {
 		//  Estimated: `8619` + tree
 		execute_transfer_weight(
 			RocksDbWeight::get(),
-			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
-			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
+			pallet_zk_tree::insert_leaf_weight_at_depth(
+				RocksDbWeight::get(),
+				pallet_zk_tree::MAX_TREE_DEPTH,
+			),
 		)
 	}
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
