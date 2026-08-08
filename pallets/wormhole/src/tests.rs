@@ -1237,7 +1237,7 @@ mod fixture_gen {
 				block_number,
 			},
 			private: PrivateCircuitInputs {
-				secret,
+				secret: secret.into(),
 				transfer_count,
 				unspendable_account,
 				parent_hash: BytesDigest::new_unchecked(parent_hash),

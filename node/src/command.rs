@@ -944,13 +944,13 @@ mod tests {
 		let path = format!("m/44'/{QUANTUS_WORMHOLE_CHAIN_ID}/0'/0'/0'");
 		let pair = derive_wormhole_from_mnemonic(TEST_MNEMONIC, None, &path).unwrap();
 
-		let wormhole_address = WormholeAddress(H256::from(pair.address));
+		let wormhole_address = WormholeAddress(H256::from(*pair.address()));
 		let account_id = wormhole_address.into_account();
 
 		assert_eq!(
 			account_id.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
 			TEST_WORMHOLE_ADDRESS
 		);
-		assert_eq!(hex::encode(pair.first_hash), TEST_WORMHOLE_PREIMAGE);
+		assert_eq!(hex::encode(pair.first_hash()), TEST_WORMHOLE_PREIMAGE);
 	}
 }
