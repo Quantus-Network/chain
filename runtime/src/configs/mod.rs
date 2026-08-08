@@ -533,6 +533,10 @@ parameter_types! {
 	/// (`SCALE_DOWN_FACTOR`): a sub-quantum transfer would be committed as a
 	/// zero-value leaf, stranding funds paid to keyless beneficiaries.
 	pub const VestingPayoutQuantum: Balance = pallet_wormhole::SCALE_DOWN_FACTOR;
+	/// One QUAN keeps every payout above the existential deposit and the Wormhole
+	/// circuit's fee-consuming minimum.
+	pub const VestingMinimumPayout: Balance = UNIT;
+	pub const VestingMinClaimInterval: u64 = 24 * 60 * 60 * 1000;
 }
 
 /// The configured treasury account as an `Option` — unlike
@@ -580,6 +584,8 @@ impl pallet_vesting::Config for Runtime {
 	// extension skips pot-sourced events to avoid double-recording signed paths.
 	type ProofRecorder = Wormhole;
 	type PayoutQuantum = VestingPayoutQuantum;
+	type MinimumPayout = VestingMinimumPayout;
+	type MinClaimInterval = VestingMinClaimInterval;
 	type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
 }
 

@@ -18,7 +18,8 @@
 //! The admin origin (the treasury account, with Root as break-glass) can create schedules
 //! (funded from the treasury in the same call), end them early (vested part to the
 //! beneficiary, unvested remainder back to the treasury), and retarget a schedule's
-//! beneficiary (lost-key remedy).
+//! beneficiary after settling any payout a permissionless claim could force (lost-key
+//! remedy).
 
 extern crate alloc;
 
@@ -33,6 +34,7 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 pub mod weights;
+mod weights_generated;
 pub use weights::*;
 
 #[frame_support::pallet]
@@ -52,7 +54,7 @@ pub mod pallet {
 	use qp_wormhole::TransferProofRecorder;
 	use sp_arithmetic::{helpers_128bit::multiply_by_rational_with_rounding, Rounding};
 	use sp_runtime::{
-		traits::{AccountIdConversion, CheckedAdd, Saturating, Zero},
+		traits::{AccountIdConversion, CheckedAdd, CheckedSub, Zero},
 		ArithmeticError, SaturatedConversion,
 	};
 
@@ -80,6 +82,15 @@ pub mod pallet {
 		pub total: Balance,
 		/// Already paid out.
 		pub claimed: Balance,
+		/// Timestamp of the last successful beneficiary payout.
+		pub last_claim_at: Option<Moment>,
+	}
+
+	enum ClaimPlan<Balance> {
+		Pay(Balance),
+		NothingToClaim,
+		TooSoon,
+		WouldLeaveDust,
 	}
 
 	/// The in-code storage version.
@@ -140,6 +151,15 @@ pub mod pallet {
 		#[pallet::constant]
 		type PayoutQuantum: Get<BalanceOf<Self>>;
 
+		/// Smallest beneficiary payout. Must be quantum-aligned, at least two quanta,
+		/// and larger than the existential deposit.
+		#[pallet::constant]
+		type MinimumPayout: Get<BalanceOf<Self>>;
+
+		/// Minimum elapsed milliseconds between successful claims on one schedule.
+		#[pallet::constant]
+		type MinClaimInterval: Get<Moment>;
+
 		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
 	}
@@ -174,11 +194,12 @@ pub mod pallet {
 			vested_paid: BalanceOf<T>,
 			unvested_returned: BalanceOf<T>,
 		},
-		/// A schedule's beneficiary was changed.
+		/// A schedule's beneficiary was changed after settling any currently claimable payout.
 		ScheduleRetargeted {
 			schedule_id: u64,
 			old_beneficiary: T::AccountId,
 			new_beneficiary: T::AccountId,
+			vested_paid: BalanceOf<T>,
 		},
 	}
 
@@ -187,12 +208,19 @@ pub mod pallet {
 		/// No schedule exists under this id.
 		NoSchedule,
 		/// Schedule parameters violate `start <= cliff <= end`, `start < end`,
-		/// `total >= existential deposit`, or `total` is not a multiple of the payout
+		/// `total >= MinimumPayout`, or `total` is not a multiple of the payout
 		/// quantum.
 		InvalidSchedule,
 		/// Nothing is claimable right now (before the cliff, already fully claimed, or
-		/// less than one payout quantum accrued).
+		/// less than the minimum payout accrued).
 		NothingToClaim,
+		/// This schedule has already paid out within the minimum claim interval.
+		ClaimTooSoon,
+		/// Paying now would leave a remainder below the minimum payout; wait until the
+		/// entire remainder has vested.
+		ClaimWouldLeaveDust,
+		/// Ending now would emit a non-zero beneficiary payout below the minimum.
+		PayoutBelowMinimum,
 		/// The treasury account is not configured on this chain.
 		TreasuryNotConfigured,
 		/// The pot does not hold its existential-deposit buffer; endow it first.
@@ -244,12 +272,16 @@ pub mod pallet {
 						end: *end,
 						total,
 						claimed: Zero::zero(),
+						last_claim_at: None,
 					},
 				);
 			}
 			NextScheduleId::<T>::put(self.schedules.len() as u64);
+			let required = sum
+				.checked_add(&ed)
+				.expect("vesting genesis: obligations plus existential deposit overflow Balance");
 			assert!(
-				T::Currency::total_balance(&pot) == sum.saturating_add(ed),
+				T::Currency::total_balance(&pot) == required,
 				"vesting genesis: pot balance must equal sum of schedule totals plus the \
 				 existential deposit"
 			);
@@ -259,10 +291,19 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn integrity_test() {
+			let quantum = T::PayoutQuantum::get();
+			let minimum = T::MinimumPayout::get();
+			assert!(!quantum.is_zero(), "PayoutQuantum must be non-zero (it is a divisor)");
 			assert!(
-				!T::PayoutQuantum::get().is_zero(),
-				"PayoutQuantum must be non-zero (it is a divisor)"
+				minimum > T::Currency::minimum_balance(),
+				"MinimumPayout must exceed the existential deposit"
 			);
+			assert!((minimum % quantum).is_zero(), "MinimumPayout must be quantum-aligned");
+			let two_quanta = quantum
+				.checked_add(&quantum)
+				.expect("two payout quanta must fit the balance type");
+			assert!(minimum >= two_quanta, "MinimumPayout must contain at least two quanta");
+			assert!(!T::MinClaimInterval::get().is_zero(), "MinClaimInterval must be non-zero");
 		}
 
 		#[cfg(feature = "try-runtime")]
@@ -273,10 +314,10 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Pay out everything currently claimable on `schedule_id` to its beneficiary,
-		/// rounded down to a multiple of [`Config::PayoutQuantum`] (sub-quantum payouts
-		/// would create zero-value wormhole leaves and strand funds on keyless
-		/// beneficiaries).
+		/// Pay the largest valid claim on `schedule_id` to its beneficiary. Payouts are
+		/// rounded down to [`Config::PayoutQuantum`], must meet [`Config::MinimumPayout`],
+		/// and reserve at least one minimum-sized final claim unless the schedule is fully
+		/// vested.
 		///
 		/// Permissionless: any signed account may call this for any schedule; the payout
 		/// always goes to the stored beneficiary. This is the only claim path for
@@ -287,15 +328,17 @@ pub mod pallet {
 			ensure_signed(origin)?;
 			Schedules::<T>::try_mutate(schedule_id, |maybe_schedule| {
 				let schedule = maybe_schedule.as_mut().ok_or(Error::<T>::NoSchedule)?;
-				let vested = Self::vested_amount(schedule, T::TimeProvider::now());
-				let owed = vested.saturating_sub(schedule.claimed);
-				let payable = Self::quantize_down(owed);
-				ensure!(!payable.is_zero(), Error::<T>::NothingToClaim);
+				let now = T::TimeProvider::now();
+				let payable = match Self::claim_plan(schedule, now)? {
+					ClaimPlan::Pay(amount) => amount,
+					ClaimPlan::NothingToClaim => return Err(Error::<T>::NothingToClaim.into()),
+					ClaimPlan::TooSoon => return Err(Error::<T>::ClaimTooSoon.into()),
+					ClaimPlan::WouldLeaveDust => return Err(Error::<T>::ClaimWouldLeaveDust.into()),
+				};
 				Self::pay_out(&Self::pot_account_id(), &schedule.beneficiary, payable)?;
-				// `claimed` advances only by the transferred amount, so it stays
-				// quantum-aligned; totals are quantum-aligned too, hence the final claim
-				// at `end` pays out exactly and no dust is ever left behind.
-				schedule.claimed = schedule.claimed.saturating_add(payable);
+				schedule.claimed =
+					schedule.claimed.checked_add(&payable).ok_or(ArithmeticError::Overflow)?;
+				schedule.last_claim_at = Some(now);
 				Self::deposit_event(Event::Claimed {
 					schedule_id,
 					beneficiary: schedule.beneficiary.clone(),
@@ -344,6 +387,7 @@ pub mod pallet {
 					end,
 					total,
 					claimed: Zero::zero(),
+					last_claim_at: None,
 				},
 			);
 			Self::deposit_event(Event::ScheduleCreated {
@@ -362,7 +406,8 @@ pub mod pallet {
 		/// this schedule still holds — the unvested remainder plus any sub-quantum
 		/// vested dust — returns to the treasury, and the schedule is removed. The
 		/// treasury is signature-controlled and needs no wormhole leaf, so dust is safe
-		/// there but would be stranded on a keyless beneficiary.
+		/// there but would be stranded on a keyless beneficiary. A non-zero beneficiary
+		/// payout below [`Config::MinimumPayout`] is rejected without ending the schedule.
 		#[pallet::call_index(2)]
 		#[pallet::weight(T::WeightInfo::end_schedule())]
 		pub fn end_schedule(origin: OriginFor<T>, schedule_id: u64) -> DispatchResult {
@@ -371,9 +416,19 @@ pub mod pallet {
 			let schedule = Schedules::<T>::get(schedule_id).ok_or(Error::<T>::NoSchedule)?;
 			let pot = Self::pot_account_id();
 			let vested = Self::vested_amount(&schedule, T::TimeProvider::now());
-			let vested_paid = Self::quantize_down(vested.saturating_sub(schedule.claimed));
+			let unpaid_vested =
+				vested.checked_sub(&schedule.claimed).ok_or(ArithmeticError::Underflow)?;
+			let vested_paid = Self::quantize_down(unpaid_vested);
+			ensure!(
+				vested_paid.is_zero() || vested_paid >= T::MinimumPayout::get(),
+				Error::<T>::PayoutBelowMinimum
+			);
+			let remaining = schedule
+				.total
+				.checked_sub(&schedule.claimed)
+				.ok_or(ArithmeticError::Underflow)?;
 			let unvested_returned =
-				schedule.total.saturating_sub(schedule.claimed).saturating_sub(vested_paid);
+				remaining.checked_sub(&vested_paid).ok_or(ArithmeticError::Underflow)?;
 			if !vested_paid.is_zero() {
 				Self::pay_out(&pot, &schedule.beneficiary, vested_paid)?;
 			}
@@ -390,8 +445,8 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Change a schedule's beneficiary; everything else, including `claimed`, is
-		/// untouched. Remedy for a lost key or migration to a multisig.
+		/// Settle any payout a permissionless claim could currently force, then change the
+		/// beneficiary. This makes retargeting independent of claim transaction ordering.
 		#[pallet::call_index(3)]
 		#[pallet::weight(T::WeightInfo::retarget_schedule())]
 		pub fn retarget_schedule(
@@ -404,12 +459,27 @@ pub mod pallet {
 			Schedules::<T>::try_mutate(schedule_id, |maybe_schedule| {
 				let schedule = maybe_schedule.as_mut().ok_or(Error::<T>::NoSchedule)?;
 				ensure!(new_beneficiary != schedule.beneficiary, Error::<T>::InvalidBeneficiary);
+				let now = T::TimeProvider::now();
+				let vested_paid = match Self::claim_plan(schedule, now)? {
+					ClaimPlan::Pay(amount) => {
+						Self::pay_out(&Self::pot_account_id(), &schedule.beneficiary, amount)?;
+						schedule.claimed = schedule
+							.claimed
+							.checked_add(&amount)
+							.ok_or(ArithmeticError::Overflow)?;
+						schedule.last_claim_at = Some(now);
+						amount
+					},
+					ClaimPlan::NothingToClaim | ClaimPlan::TooSoon | ClaimPlan::WouldLeaveDust =>
+						Zero::zero(),
+				};
 				let old_beneficiary =
 					core::mem::replace(&mut schedule.beneficiary, new_beneficiary.clone());
 				Self::deposit_event(Event::ScheduleRetargeted {
 					schedule_id,
 					old_beneficiary,
 					new_beneficiary,
+					vested_paid,
 				});
 				Ok(())
 			})
@@ -441,7 +511,7 @@ pub mod pallet {
 			// zero divisor, which the branches above rule out.
 			let vested =
 				multiply_by_rational_with_rounding(total, elapsed, duration, Rounding::Down)
-					.unwrap_or(total);
+					.expect("validated schedule duration is non-zero");
 			vested.saturated_into()
 		}
 
@@ -453,13 +523,48 @@ pub mod pallet {
 		) -> bool {
 			start <= cliff &&
 				cliff <= end && start < end &&
-				total >= T::Currency::minimum_balance() &&
+				total >= T::MinimumPayout::get() &&
 				(total % T::PayoutQuantum::get()).is_zero()
+		}
+
+		fn claim_plan(
+			schedule: &VestingScheduleOf<T>,
+			now: Moment,
+		) -> Result<ClaimPlan<BalanceOf<T>>, ArithmeticError> {
+			let remaining = schedule
+				.total
+				.checked_sub(&schedule.claimed)
+				.ok_or(ArithmeticError::Underflow)?;
+			let vested = Self::vested_amount(schedule, now);
+			let owed = vested.checked_sub(&schedule.claimed).ok_or(ArithmeticError::Underflow)?;
+			let candidate = Self::quantize_down(owed);
+			let minimum = T::MinimumPayout::get();
+			if candidate < minimum {
+				return Ok(ClaimPlan::NothingToClaim);
+			}
+			let payable = if candidate == remaining {
+				candidate
+			} else {
+				let max_non_final =
+					remaining.checked_sub(&minimum).ok_or(ArithmeticError::Underflow)?;
+				if max_non_final < minimum {
+					return Ok(ClaimPlan::WouldLeaveDust);
+				}
+				candidate.min(max_non_final)
+			};
+			if let Some(last) = schedule.last_claim_at {
+				let elapsed = now.checked_sub(last).ok_or(ArithmeticError::Underflow)?;
+				if elapsed < T::MinClaimInterval::get() {
+					return Ok(ClaimPlan::TooSoon);
+				}
+			}
+			Ok(ClaimPlan::Pay(payable))
 		}
 
 		/// Round down to a multiple of the payout quantum.
 		fn quantize_down(amount: BalanceOf<T>) -> BalanceOf<T> {
-			amount.saturating_sub(amount % T::PayoutQuantum::get())
+			let remainder = amount % T::PayoutQuantum::get();
+			amount.checked_sub(&remainder).expect("remainder never exceeds the dividend")
 		}
 
 		/// Move a payout out of the pot AND record it as a wormhole transfer proof —
@@ -511,16 +616,29 @@ pub mod pallet {
 					(schedule.claimed % T::PayoutQuantum::get()).is_zero(),
 					sp_runtime::TryRuntimeError::Other("claimed is not quantum-aligned")
 				);
+				let remaining = schedule
+					.total
+					.checked_sub(&schedule.claimed)
+					.ok_or(sp_runtime::TryRuntimeError::Other("claimed exceeds total"))?;
+				frame_support::ensure!(
+					remaining.is_zero() || remaining >= T::MinimumPayout::get(),
+					sp_runtime::TryRuntimeError::Other(
+						"remaining obligation is below MinimumPayout"
+					)
+				);
 				frame_support::ensure!(
 					schedule.beneficiary != pot,
 					sp_runtime::TryRuntimeError::Other("pot is a beneficiary")
 				);
-				outstanding =
-					outstanding.saturating_add(schedule.total.saturating_sub(schedule.claimed));
+				outstanding = outstanding.checked_add(&remaining).ok_or(
+					sp_runtime::TryRuntimeError::Other("outstanding obligations overflow"),
+				)?;
 			}
+			let required = outstanding
+				.checked_add(&T::Currency::minimum_balance())
+				.ok_or(sp_runtime::TryRuntimeError::Other("required pot balance overflows"))?;
 			frame_support::ensure!(
-				T::Currency::total_balance(&pot) >=
-					outstanding.saturating_add(T::Currency::minimum_balance()),
+				T::Currency::total_balance(&pot) >= required,
 				sp_runtime::TryRuntimeError::Other("pot does not cover outstanding obligations")
 			);
 			Ok(())

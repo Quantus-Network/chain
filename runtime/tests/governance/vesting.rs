@@ -8,6 +8,9 @@ mod tests {
 	use frame_support::{assert_noop, assert_ok, traits::Currency};
 	use pallet_multisig::BoundedCallOf;
 	use quantus_runtime::{
+		configs::{
+			VestingMinClaimInterval, VestingMinimumPayout, VestingPayoutQuantum, VolumeFeeRateBps,
+		},
 		AccountId, Balance, Balances, Multisig, Runtime, RuntimeCall, RuntimeEvent, RuntimeOrigin,
 		System, Vesting, Wormhole, EXISTENTIAL_DEPOSIT, UNIT,
 	};
@@ -71,6 +74,22 @@ mod tests {
 			encoded,
 		));
 		assert_ok!(Multisig::execute(RuntimeOrigin::signed(account(3)), treasury, proposal_id));
+	}
+
+	#[test]
+	fn payout_policy_covers_account_and_wormhole_minimums() {
+		let quantum = VestingPayoutQuantum::get();
+		let minimum = VestingMinimumPayout::get();
+		let quantized_minimum = minimum / quantum;
+		let max_quantized_output =
+			quantized_minimum * (10_000 - VolumeFeeRateBps::get() as u128) / 10_000;
+
+		assert!(minimum > EXISTENTIAL_DEPOSIT);
+		assert!(minimum >= 2 * quantum);
+		assert_eq!(minimum % quantum, 0);
+		assert!(max_quantized_output > 0);
+		assert!(max_quantized_output < quantized_minimum);
+		assert_eq!(VestingMinClaimInterval::get(), 24 * 60 * 60 * 1000);
 	}
 
 	#[test]

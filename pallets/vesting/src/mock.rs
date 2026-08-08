@@ -44,6 +44,8 @@ parameter_types! {
 	/// `static` so tests can vary the wormhole leaf quantum (e.g. make it coarser than
 	/// the ED to exercise sub-quantum rounding, or finer to exercise below-ED payouts).
 	pub static PayoutQuantum: Balance = 1_000;
+	pub static MinimumPayout: Balance = 10_000;
+	pub static MinClaimInterval: u64 = 100_000;
 }
 
 impl frame_system::Config for Test {
@@ -159,6 +161,8 @@ impl pallet_vesting::Config for Test {
 	type AssetId = u32;
 	type ProofRecorder = MockProofRecorder;
 	type PayoutQuantum = PayoutQuantum;
+	type MinimumPayout = MinimumPayout;
+	type MinClaimInterval = MinClaimInterval;
 	type WeightInfo = ();
 }
 

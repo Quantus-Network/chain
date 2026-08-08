@@ -4,8 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-NODE="./target/release/quantus-node"
-RUNTIME="./target/release/wbuild/quantus-runtime/quantus_runtime.wasm"
+TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
+NODE="$TARGET_DIR/release/quantus-node"
+RUNTIME="$TARGET_DIR/release/wbuild/quantus-runtime/quantus_runtime.wasm"
 TEMPLATE="./.maintain/frame-weight-template.hbs"
 
 # pallet_name:output_path:steps:repeat
@@ -16,7 +17,7 @@ PALLETS=(
   "pallet_scheduler:pallets/scheduler/src/weights.rs:50:20"
   "pallet_mining_rewards:pallets/mining-rewards/src/weights.rs:50:20"
   "pallet_treasury:pallets/treasury/src/weights.rs:50:20"
-  "pallet_vesting:pallets/vesting/src/weights.rs:50:20"
+  "pallet_vesting:pallets/vesting/src/weights_generated.rs:50:20"
 )
 
 COMMON_ARGS=(
