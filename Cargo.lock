@@ -7295,7 +7295,7 @@ dependencies = [
 
 [[package]]
 name = "qp-dilithium-crypto"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "env_logger",
  "log",
