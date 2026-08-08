@@ -74,6 +74,73 @@ fn basic_happy_path_works() {
 	});
 }
 
+#[test]
+fn submission_bounded_by_max_active() {
+	ExtBuilder::default().build_and_execute(|| {
+		MaxActive::set(2);
+		for _ in 0..2 {
+			assert_ok!(Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				set_balance_proposal_bounded(1),
+				DispatchTime::At(10),
+			));
+		}
+		// The global bound is reached: further submissions are rejected, even though
+		// neither referendum occupies a deciding slot or `TrackQueue` entry (no decision
+		// deposit was placed).
+		assert_noop!(
+			Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				set_balance_proposal_bounded(1),
+				DispatchTime::At(10),
+			),
+			Error::<Test>::TooManyActive
+		);
+		// Concluding an ongoing referendum frees a slot again.
+		assert_ok!(Referenda::cancel(RuntimeOrigin::signed(4), 0));
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(10),
+		));
+	});
+}
+
+#[test]
+fn timed_out_referendum_frees_active_slot() {
+	ExtBuilder::default().build_and_execute(|| {
+		MaxActive::set(1);
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(10),
+		));
+		assert_noop!(
+			Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				set_balance_proposal_bounded(1),
+				DispatchTime::At(10),
+			),
+			Error::<Test>::TooManyActive
+		);
+		// Without a decision deposit the referendum times out after `UndecidingTimeout`,
+		// which must free its active slot.
+		run_to(22);
+		assert_matches!(ReferendumInfoFor::<Test>::get(0), Some(ReferendumInfo::TimedOut(..)));
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(30),
+		));
+	});
+}
+
 /// If the preferred enactment block's agenda is already full of mid-priority
 /// tasks (which the LOWEST_PRIORITY reservation does not hold back), enactment
 /// must slide forward to a free block instead of dropping the approved call.

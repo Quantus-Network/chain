@@ -198,6 +198,19 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxQueued: Get<u32>;
 
+		/// Maximum number of referenda that may be `Ongoing` at once, across all tracks.
+		///
+		/// This is a global admission bound enforced in `submit`. It also covers referenda
+		/// that never receive a decision deposit and therefore occupy neither a deciding
+		/// slot nor a `TrackQueue` entry, yet hold storage and a scheduler agenda slot
+		/// until the `UndecidingTimeout`.
+		///
+		/// Must be at least `MaxQueued` plus the sum of all tracks' `max_deciding` plus one,
+		/// so that the deciding slots and track queues remain fully utilizable (checked by
+		/// `integrity_test`).
+		#[pallet::constant]
+		type MaxActive: Get<u32>;
+
 		/// The number of blocks after submission that a referendum must begin being decided by.
 		/// Once this passes, then anyone may cancel the referendum.
 		#[pallet::constant]
@@ -259,6 +272,14 @@ pub mod pallet {
 	/// The next free referendum index, aka the number of referenda started so far.
 	#[pallet::storage]
 	pub type ReferendumCount<T, I = ()> = StorageValue<_, ReferendumIndex, ValueQuery>;
+
+	/// The number of referenda currently in the `Ongoing` state, across all tracks.
+	///
+	/// Incremented on `submit` and decremented whenever a referendum reaches a terminal
+	/// state (approved, rejected, timed out, cancelled or killed). Bounds admissions at
+	/// [`Config::MaxActive`].
+	#[pallet::storage]
+	pub type ActiveReferendaCount<T, I = ()> = StorageValue<_, u32, ValueQuery>;
 
 	/// Information concerning any given referendum.
 	#[pallet::storage]
@@ -446,6 +467,8 @@ pub mod pallet {
 		PreimageStoredWithDifferentLength,
 		/// The referendum's wake-up alarm could not be scheduled.
 		AlarmSchedulingFailed,
+		/// There are already the maximum number of ongoing referenda.
+		TooManyActive,
 	}
 
 	#[pallet::hooks]
@@ -459,6 +482,16 @@ pub mod pallet {
 		#[cfg(any(feature = "std", test))]
 		fn integrity_test() {
 			T::Tracks::check_integrity().expect("Static tracks configuration is valid.");
+			// The global active bound must leave the deciding slots and track queues fully
+			// utilizable (plus one submission that routes through a full queue).
+			let total_max_deciding = T::Tracks::tracks()
+				.map(|t| t.info.max_deciding)
+				.fold(0u32, |a, b| a.saturating_add(b));
+			assert!(
+				T::MaxActive::get() >=
+					T::MaxQueued::get().saturating_add(total_max_deciding).saturating_add(1),
+				"`MaxActive` must be at least `MaxQueued` + total `max_deciding` + 1.",
+			);
 		}
 	}
 
@@ -475,8 +508,10 @@ pub mod pallet {
 		/// Emits `Submitted`.
 		#[pallet::call_index(0)]
 		// `submit` schedules the undeciding-timeout alarm, bearing the worst-case
-		// `set_alarm` retry overhead.
-		#[pallet::weight(T::WeightInfo::submit().saturating_add(alarm_retry_weight::<T, I>()))]
+		// `set_alarm` retry overhead; plus one read/write for `ActiveReferendaCount`.
+		#[pallet::weight(T::WeightInfo::submit()
+			.saturating_add(alarm_retry_weight::<T, I>())
+			.saturating_add(T::DbWeight::get().reads_writes(1, 1)))]
 		pub fn submit(
 			origin: OriginFor<T>,
 			proposal_origin: Box<PalletsOriginOf<T>>,
@@ -510,6 +545,16 @@ pub mod pallet {
 
 			let track =
 				T::Tracks::track_for(&proposal_origin).map_err(|_| Error::<T, I>::NoTrack)?;
+
+			// Global admission bound: `MaxQueued` only limits the per-track deciding queue,
+			// so without this check submissions that never receive a decision deposit would
+			// accumulate without limit until the `UndecidingTimeout`, each one consuming
+			// referendum storage and a scheduler agenda slot for its timeout alarm.
+			ensure!(
+				ActiveReferendaCount::<T, I>::get() < T::MaxActive::get(),
+				Error::<T, I>::TooManyActive
+			);
+
 			let submission_deposit = Self::take_deposit(who, T::SubmissionDeposit::get())?;
 			let index = ReferendumCount::<T, I>::mutate(|x| {
 				let r = *x;
@@ -539,6 +584,7 @@ pub mod pallet {
 				alarm: Some(alarm),
 			};
 			ReferendumInfoFor::<T, I>::insert(index, ReferendumInfo::Ongoing(status));
+			ActiveReferendaCount::<T, I>::mutate(|x| *x = x.saturating_add(1));
 
 			Self::deposit_event(Event::<T, I>::Submitted { index, track, proposal });
 			Ok(())
@@ -636,6 +682,7 @@ pub mod pallet {
 			}
 			// Release the preimage request taken in `submit`.
 			T::Preimages::drop(&status.proposal);
+			Self::note_one_fewer_active();
 			Self::deposit_event(Event::<T, I>::Cancelled { index, tally: status.tally });
 			let info = ReferendumInfo::Cancelled(
 				T::BlockNumberProvider::current_block_number(),
@@ -674,6 +721,7 @@ pub mod pallet {
 			}
 			// Release the preimage request taken in `submit`.
 			T::Preimages::drop(&status.proposal);
+			Self::note_one_fewer_active();
 			Self::deposit_event(Event::<T, I>::Killed { index, tally: status.tally });
 			Self::slash_deposit(Some(status.submission_deposit.clone()));
 			Self::slash_deposit(status.decision_deposit.clone());
@@ -882,6 +930,7 @@ impl<T: Config<I>, I: 'static> Polling<T::Tally> for Pallet<T, I> {
 
 		Self::ensure_alarm_at(&mut status, index, sp_runtime::traits::Bounded::max_value());
 		ReferendumInfoFor::<T, I>::insert(index, ReferendumInfo::Ongoing(status));
+		ActiveReferendaCount::<T, I>::mutate(|x| *x = x.saturating_add(1));
 		Ok(index)
 	}
 
@@ -890,6 +939,7 @@ impl<T: Config<I>, I: 'static> Polling<T::Tally> for Pallet<T, I> {
 		let mut status = Self::ensure_ongoing(index).map_err(|_| ())?;
 		Self::ensure_no_alarm(&mut status);
 		Self::note_one_fewer_deciding(status.track);
+		Self::note_one_fewer_active();
 		let now = T::BlockNumberProvider::current_block_number();
 		let info = if approved {
 			ReferendumInfo::Approved(now, Some(status.submission_deposit), status.decision_deposit)
@@ -1405,11 +1455,12 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 				}
 				// If we didn't move into being decided, then check the timeout.
 				if status.deciding.is_none() && now >= timeout && !status.in_queue {
-					// Too long without being decided - end it.
-					Self::ensure_no_alarm(&mut status);
-					// Release the preimage request taken in `submit`.
-					T::Preimages::drop(&status.proposal);
-					Self::deposit_event(Event::<T, I>::TimedOut { index, tally: status.tally });
+				// Too long without being decided - end it.
+				Self::ensure_no_alarm(&mut status);
+				// Release the preimage request taken in `submit`.
+				T::Preimages::drop(&status.proposal);
+				Self::note_one_fewer_active();
+				Self::deposit_event(Event::<T, I>::TimedOut { index, tally: status.tally });
 					return (
 						ReferendumInfo::TimedOut(
 							now,
@@ -1452,6 +1503,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 									// enactment call in `schedule_named`, so the bytes stay
 									// pinned until dispatch.
 									T::Preimages::drop(&status.proposal);
+									Self::note_one_fewer_active();
 									Self::deposit_event(Event::<T, I>::Confirmed {
 										index,
 										tally: status.tally,
@@ -1488,6 +1540,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 						Self::note_one_fewer_deciding(status.track);
 						// Release the preimage request taken in `submit`.
 						T::Preimages::drop(&status.proposal);
+						Self::note_one_fewer_active();
 						Self::deposit_event(Event::<T, I>::Rejected { index, tally: status.tally });
 						return (
 							ReferendumInfo::Rejected(
@@ -1560,6 +1613,14 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 			let offset = until_support.max(until_approval);
 			deciding.since.saturating_add(offset.mul_ceil(track.decision_period))
 		})
+	}
+
+	/// Note that one referendum has left the `Ongoing` state.
+	///
+	/// Must accompany every transition of a referendum out of `ReferendumInfo::Ongoing`, so
+	/// that `ActiveReferendaCount` (which bounds admissions in `submit`) stays accurate.
+	fn note_one_fewer_active() {
+		ActiveReferendaCount::<T, I>::mutate(|x| *x = x.saturating_sub(1));
 	}
 
 	/// Cancel the alarm in `status`, if one exists.
@@ -1635,6 +1696,14 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 			ReferendumCount::<T, I>::get() as usize ==
 				ReferendumInfoFor::<T, I>::iter_keys().count(),
 			"Number of referenda in `ReferendumInfoFor` is different than `ReferendumCount`"
+		);
+
+		ensure!(
+			ActiveReferendaCount::<T, I>::get() as usize ==
+				ReferendumInfoFor::<T, I>::iter_values()
+					.filter(|info| matches!(info, ReferendumInfo::Ongoing(_)))
+					.count(),
+			"`ActiveReferendaCount` must match the number of `Ongoing` referenda"
 		);
 
 		MetadataOf::<T, I>::iter_keys().try_for_each(|referendum_index| -> DispatchResult {

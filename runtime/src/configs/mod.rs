@@ -222,8 +222,15 @@ parameter_types! {
 	pub const ReferendumDefaultVotingPeriod: BlockNumber = 28 * DAYS;
 	// Minimum time before a successful referendum can be enacted (4 days)
 	pub const ReferendumMinEnactmentPeriod: BlockNumber = 4 * DAYS;
-	// Maximum number of active referenda
+	// Maximum number of referenda queued for deciding on a single track (`MaxQueued`).
 	pub const ReferendumMaxProposals: u32 = 100;
+	// Global cap on `Ongoing` referenda, enforced at submission. `MaxQueued` only bounds the
+	// per-track deciding queue: without this cap, submissions that never receive a decision
+	// deposit would accumulate without limit until the 45-day undeciding timeout, each one
+	// consuming referendum storage and a scheduler agenda slot for its timeout alarm. Must be
+	// at least `MaxQueued` + total `max_deciding` + 1 (checked by the pallet's
+	// `integrity_test`; benchmarks fill a track's queue and deciding slots completely).
+	pub const MaxActiveReferenda: u32 = 128;
 	// Submission deposit for referenda
 	pub const ReferendumSubmissionDeposit: Balance = 100 * UNIT;
 	// Undeciding timeout (45 days): a submitted referendum that is NOT in the track queue —
@@ -294,8 +301,10 @@ impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
 	type Tally = pallet_ranked_collective::TallyOf<Runtime>;
 	/// The deposit required to submit a referendum proposal.
 	type SubmissionDeposit = ReferendumSubmissionDeposit;
-	/// Maximum number of referenda that can be in the deciding phase simultaneously.
+	/// Maximum number of referenda that can be queued for deciding on the track.
 	type MaxQueued = ReferendumMaxProposals;
+	/// Global admission bound on `Ongoing` referenda, enforced in `submit`.
+	type MaxActive = MaxActiveReferenda;
 	/// Time period after which an undecided referendum will be automatically rejected.
 	type UndecidingTimeout = UndecidingTimeout;
 	/// The frequency at which the pallet checks for expired or ready-to-timeout referenda.

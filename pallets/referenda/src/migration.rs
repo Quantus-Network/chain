@@ -343,6 +343,7 @@ pub mod test {
 			let status_v0 = create_status_v0();
 			let ongoing_v0 = v0::ReferendumInfoOf::<T, ()>::Ongoing(status_v0.clone());
 			ReferendumCount::<T, ()>::mutate(|x| x.saturating_inc());
+			ActiveReferendaCount::<T, ()>::mutate(|x| x.saturating_inc());
 			v0::ReferendumInfoFor::<T, ()>::insert(2, ongoing_v0);
 			// create and insert into the storage an approved referendum v0.
 			let approved_v0 = v0::ReferendumInfoOf::<T, ()>::Approved(
@@ -390,6 +391,7 @@ pub mod test {
 			);
 
 			ReferendumCount::<T, ()>::mutate(|x| x.saturating_inc());
+			ActiveReferendaCount::<T, ()>::mutate(|x| x.saturating_inc());
 			v1::ReferendumInfoFor::<T, ()>::insert(1, referendum_ongoing);
 
 			ReferendumCount::<T, ()>::mutate(|x| x.saturating_inc());
