@@ -76,7 +76,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	//   `spec_version`, and `authoring_version` are the same between Wasm and native.
 	// This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
 	//   the compatible custom types.
-	spec_version: 142,
+	spec_version: 143,
 	impl_version: 1,
 	apis: apis::RUNTIME_API_VERSIONS,
 	transaction_version: 3,
@@ -100,6 +100,13 @@ pub const MICRO_UNIT: Balance = 1_000_000;
 
 /// Existential deposit.
 pub const EXISTENTIAL_DEPOSIT: Balance = MILLI_UNIT;
+
+/// Hard cap on total issuance; mining emissions stop here.
+pub const MAX_SUPPLY: Balance = 21_000_000 * UNIT;
+
+/// Wall-clock day in milliseconds — the unit vesting schedules and claim cadence are
+/// expressed in (`pallet_timestamp` moments, not block numbers).
+pub const MILLIS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 // pub type Signature = MultiSignature;

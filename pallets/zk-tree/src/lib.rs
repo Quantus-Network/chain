@@ -29,6 +29,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+use frame_support::weights::{RuntimeDbWeight, Weight};
 
 pub use pallet::*;
 
@@ -105,6 +106,23 @@ pub fn insert_leaf_hash_ref_time_at_depth(depth: u8) -> u64 {
 /// Callers that scale insert weight with [`insert_leaf_db_ops_at_depth`] should
 /// use this for the proof-size term so all pallets share one assumption.
 pub const TREE_KEY_POV: u64 = 2600;
+
+/// Complete worst-case weight of one [`Pallet::insert_leaf`] at `depth`: the storage
+/// I/O ([`insert_leaf_db_ops_at_depth`]), the per-level Poseidon path hashing
+/// ([`insert_leaf_hash_ref_time_at_depth`]) and the per-key PoV ([`TREE_KEY_POV`]).
+///
+/// Everything that prices a leaf insert must compose it through here so one change to
+/// the cost model reaches every caller — pricing an insert by hand risks charging the
+/// DB ops while silently dropping the hashing or the proof size.
+pub fn insert_leaf_weight_at_depth(db: RuntimeDbWeight, depth: u8) -> Weight {
+	let (reads, writes) = insert_leaf_db_ops_at_depth(depth);
+	Weight::from_parts(
+		insert_leaf_hash_ref_time_at_depth(depth),
+		reads.saturating_mul(TREE_KEY_POV),
+	)
+	.saturating_add(db.reads(reads))
+	.saturating_add(db.writes(writes))
+}
 
 /// Branching factor of the tree.
 pub const ARITY: usize = 4;
@@ -252,6 +270,14 @@ pub mod pallet {
 		/// path update also computes one Poseidon hash per tree level.
 		pub fn insert_leaf_hash_ref_time() -> u64 {
 			crate::insert_leaf_hash_ref_time_at_depth(Depth::<T>::get())
+		}
+
+		/// [`insert_leaf_weight_at_depth`] at the tree's *current* depth, reading
+		/// `Depth` once. Prefer this over composing the parts by hand: each part
+		/// reads `Depth` again, and weight functions run on every dispatch-info
+		/// evaluation.
+		pub fn insert_leaf_weight(db: crate::RuntimeDbWeight) -> crate::Weight {
+			crate::insert_leaf_weight_at_depth(db, Depth::<T>::get())
 		}
 	}
 

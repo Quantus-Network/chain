@@ -64,7 +64,8 @@ use super::{
 	AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
 	PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
 	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Wormhole, ZkTree,
-	DAYS, EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
+	DAYS, EXISTENTIAL_DEPOSIT, MAX_SUPPLY, MICRO_UNIT, MILLIS_PER_DAY, TARGET_BLOCK_TIME_MS, UNIT,
+	VERSION,
 };
 use sp_core::U512;
 
@@ -139,7 +140,7 @@ impl pallet_mining_rewards::Config for Runtime {
 	type AssetId = AssetId;
 	type ProofRecorder = Wormhole;
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
-	type MaxSupply = ConstU128<{ 21_000_000 * UNIT }>; // 21 million tokens
+	type MaxSupply = ConstU128<{ MAX_SUPPLY }>;
 	type EmissionDivisor = ConstU128<15_163_560>; // Divide remaining supply by this amount
 	type Treasury = pallet_treasury::Pallet<Runtime>;
 	type MintingAccount = MintingAccount;
@@ -536,8 +537,27 @@ parameter_types! {
 	/// One QUAN keeps every payout above the existential deposit and the Wormhole
 	/// circuit's fee-consuming minimum.
 	pub const VestingMinimumPayout: Balance = UNIT;
-	pub const VestingMinClaimInterval: u64 = 24 * 60 * 60 * 1000;
+	pub const VestingMinClaimInterval: u64 = MILLIS_PER_DAY;
 }
+
+/// The quantum above is anchored to the wormhole pallet's constant, but the value that
+/// actually decides whether a leaf is non-zero is the ZK tree's. They are the same
+/// number today; if they ever diverge, sub-quantum payouts would round to zero-value
+/// leaves and strand funds on keyless beneficiaries.
+const _: () = assert!(
+	pallet_wormhole::SCALE_DOWN_FACTOR == pallet_zk_tree::tree::AMOUNT_SCALE_DOWN_FACTOR,
+	"vesting payout quantum must match the ZK tree's leaf amount scale factor"
+);
+
+/// A ZK leaf commits `amount / AMOUNT_SCALE_DOWN_FACTOR` as a `u32`, saturating at
+/// `u32::MAX`. A payout past that ceiling would move real funds while committing a
+/// clamped leaf, leaving the excess unexitable for a keyless beneficiary. Nothing in
+/// the runtime bounds a single vesting payout below the ceiling — total issuance does:
+/// no payout can exceed the maximum supply.
+const _: () = assert!(
+	MAX_SUPPLY < (u32::MAX as Balance) * pallet_zk_tree::tree::AMOUNT_SCALE_DOWN_FACTOR,
+	"a single payout could exceed the ZK leaf's u32 amount ceiling"
+);
 
 /// The configured treasury account as an `Option` — unlike
 /// `pallet_treasury::Pallet::account_id()`, this never panics on a chain whose
