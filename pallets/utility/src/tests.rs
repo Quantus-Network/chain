@@ -84,6 +84,17 @@ pub mod example {
 		pub fn big_variant(_origin: OriginFor<T>, _arg: [u8; 400]) -> DispatchResult {
 			Ok(())
 		}
+
+		/// Enroll the caller into high-security at dispatch time, mirroring the real
+		/// `reversible_transfers::set_high_security`. Used by tests to reproduce a child call
+		/// that mutates the caller's high-security classification mid-batch.
+		#[pallet::call_index(3)]
+		#[pallet::weight(0)]
+		pub fn enroll_high_security(origin: OriginFor<T>) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			qp_high_security::testing::set_high_security(&who);
+			Ok(())
+		}
 	}
 }
 
@@ -269,6 +280,13 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 fn call_transfer(dest: u64, value: u64) -> RuntimeCall {
 	RuntimeCall::Balances(BalancesCall::transfer_allow_death { dest, value })
+}
+
+/// Weight of the `n` live high-security classification reads charged by the composite
+/// dispatchables (`batch`/`batch_all`/`force_batch`/`if_else`), one per nested child dispatched
+/// under a signed origin.
+fn policy_reads(n: u64) -> Weight {
+	<Test as frame_system::Config>::DbWeight::get().reads(n)
 }
 
 fn call_foobar(err: bool, start_weight: Weight, end_weight: Option<Weight>) -> RuntimeCall {
@@ -586,8 +604,8 @@ fn batch_handles_weight_refund() {
 		);
 		assert_eq!(
 			extract_actual_weight(&result, &info),
-			// Real weight is 2 calls at end_weight
-			<Test as Config>::WeightInfo::batch(2) + end_weight * 2,
+			// Real weight is 2 calls at end_weight, plus one policy read per processed child.
+			<Test as Config>::WeightInfo::batch(2) + end_weight * 2 + policy_reads(2),
 		);
 	});
 }
@@ -622,7 +640,8 @@ fn batch_all_revert() {
 			DispatchErrorWithPostInfo {
 				post_info: PostDispatchInfo {
 					actual_weight: Some(
-						<Test as Config>::WeightInfo::batch_all(2) + info.call_weight * 2
+						<Test as Config>::WeightInfo::batch_all(2) + info.call_weight * 2 +
+							policy_reads(2)
 					),
 					pays_fee: Pays::Yes
 				},
@@ -693,8 +712,8 @@ fn batch_all_handles_weight_refund() {
 		assert_err_ignore_postinfo!(result, "The cake is a lie.");
 		assert_eq!(
 			extract_actual_weight(&result, &info),
-			// Real weight is 2 calls at end_weight
-			<Test as Config>::WeightInfo::batch_all(2) + end_weight * 2,
+			// Real weight is 2 calls at end_weight, plus one policy read per processed child.
+			<Test as Config>::WeightInfo::batch_all(2) + end_weight * 2 + policy_reads(2),
 		);
 	});
 }
@@ -716,7 +735,8 @@ fn batch_all_does_not_nest() {
 			DispatchErrorWithPostInfo {
 				post_info: PostDispatchInfo {
 					actual_weight: Some(
-						<Test as Config>::WeightInfo::batch_all(1) + info.call_weight
+						<Test as Config>::WeightInfo::batch_all(1) + info.call_weight +
+							policy_reads(1)
 					),
 					pays_fee: Pays::Yes
 				},
@@ -1221,5 +1241,136 @@ fn as_derivative_non_high_security_derivative_is_unaffected() {
 		qp_high_security::testing::reset();
 		// Account 6's index-1 derivative is not high-security, so the check is a no-op.
 		assert_ok!(Utility::as_derivative(RuntimeOrigin::signed(6), 1, Box::new(remark_call())));
+	});
+}
+
+// =========================================================================
+// Composite dispatch (`batch`, `batch_all`, `force_batch`, `if_else`) must
+// re-evaluate the high-security policy against *live* state before every
+// nested same-origin child dispatch. A child that enrolls the caller into
+// high-security must not enable a later non-whitelisted child in the same
+// call to slip through the single outer-extrinsic check.
+// =========================================================================
+
+fn enroll_call() -> RuntimeCall {
+	RuntimeCall::Example(ExampleCall::enroll_high_security {})
+}
+
+#[test]
+fn batch_rechecks_high_security_after_child_enrollment() {
+	use qp_high_security::HighSecurityInspector;
+	new_test_ext().execute_with(|| {
+		qp_high_security::testing::reset();
+		assert_eq!(Balances::free_balance(1), 10);
+		assert_eq!(Balances::free_balance(2), 10);
+
+		// Child 0 enrolls account 1 into high-security; child 1 is a non-whitelisted transfer
+		// that used to slip through because the policy was only checked on the outer call.
+		assert_ok!(Utility::batch(
+			RuntimeOrigin::signed(1),
+			vec![enroll_call(), call_transfer(2, 5)],
+		));
+
+		// The enrollment committed (batch is best-effort, not atomic) ...
+		assert!(<Test as Config>::HighSecurity::is_high_security(&1u64));
+		// ... but the later, non-whitelisted transfer was rejected, not executed.
+		assert_eq!(Balances::free_balance(1), 10);
+		assert_eq!(Balances::free_balance(2), 10);
+		System::assert_last_event(
+			utility::Event::BatchInterrupted {
+				index: 1,
+				error: Error::<Test>::CallNotAllowedForHighSecurity.into(),
+			}
+			.into(),
+		);
+		qp_high_security::testing::reset();
+	});
+}
+
+#[test]
+fn batch_allows_whitelisted_child_after_enrollment() {
+	new_test_ext().execute_with(|| {
+		qp_high_security::testing::reset();
+		// After enrollment, a *whitelisted* later child (remark) must still be permitted.
+		assert_ok!(Utility::batch(RuntimeOrigin::signed(1), vec![enroll_call(), remark_call()]));
+		System::assert_last_event(utility::Event::BatchCompleted.into());
+		qp_high_security::testing::reset();
+	});
+}
+
+#[test]
+fn batch_all_reverts_when_enrollment_forbids_later_child() {
+	new_test_ext().execute_with(|| {
+		qp_high_security::testing::reset();
+		assert_eq!(Balances::free_balance(2), 10);
+
+		// The atomic batch must fail wholesale: enrolling then draining in one atomic call
+		// cannot bypass the whitelist.
+		assert_err_ignore_postinfo!(
+			Utility::batch_all(RuntimeOrigin::signed(1), vec![enroll_call(), call_transfer(2, 5)]),
+			Error::<Test>::CallNotAllowedForHighSecurity
+		);
+		// Storage reverted: the transfer never happened.
+		assert_eq!(Balances::free_balance(1), 10);
+		assert_eq!(Balances::free_balance(2), 10);
+		qp_high_security::testing::reset();
+	});
+}
+
+#[test]
+fn force_batch_skips_non_whitelisted_child_after_enrollment() {
+	new_test_ext().execute_with(|| {
+		qp_high_security::testing::reset();
+		assert_eq!(Balances::free_balance(2), 10);
+
+		// force_batch continues past failures: enrollment (0) and the whitelisted remark (2)
+		// succeed, while the non-whitelisted transfer (1) is rejected instead of executed.
+		assert_ok!(Utility::force_batch(
+			RuntimeOrigin::signed(1),
+			vec![enroll_call(), call_transfer(2, 5), remark_call()],
+		));
+		assert_eq!(Balances::free_balance(1), 10);
+		assert_eq!(Balances::free_balance(2), 10);
+		System::assert_has_event(
+			utility::Event::ItemFailed {
+				error: Error::<Test>::CallNotAllowedForHighSecurity.into(),
+			}
+			.into(),
+		);
+		System::assert_last_event(utility::Event::BatchCompletedWithErrors.into());
+		qp_high_security::testing::reset();
+	});
+}
+
+#[test]
+fn if_else_rechecks_high_security_on_both_branches() {
+	new_test_ext().execute_with(|| {
+		qp_high_security::testing::reset();
+		qp_high_security::testing::set_high_security(&1u64);
+
+		// A high-security account may dispatch neither a non-whitelisted main nor fallback: the
+		// blocked main routes to the fallback, which is itself blocked, so the whole call fails.
+		assert_err_ignore_postinfo!(
+			Utility::if_else(
+				RuntimeOrigin::signed(1),
+				Box::new(call_transfer(2, 5)),
+				Box::new(call_transfer(3, 5)),
+			),
+			Error::<Test>::CallNotAllowedForHighSecurity
+		);
+		assert_eq!(Balances::free_balance(1), 10);
+		assert_eq!(Balances::free_balance(2), 10);
+		assert_eq!(Balances::free_balance(3), 10);
+
+		// When the non-whitelisted main is blocked, a whitelisted fallback is still reached.
+		assert_ok!(Utility::if_else(
+			RuntimeOrigin::signed(1),
+			Box::new(call_transfer(2, 5)),
+			Box::new(remark_call()),
+		));
+		// The main transfer never executed.
+		assert_eq!(Balances::free_balance(1), 10);
+		assert_eq!(Balances::free_balance(2), 10);
+		qp_high_security::testing::reset();
 	});
 }
