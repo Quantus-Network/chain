@@ -168,12 +168,12 @@ pub fn generate_quantus_key(
 					eprintln!("Error generating new words: {:?}", e);
 					sc_cli::Error::Input("Failed to generate new words".into())
 				})?;
-				words_to_print = Some(new_words.clone());
+				words_to_print = Some(new_words.to_string());
 
 				if no_derivation {
 					// Get raw seed from mnemonic (writes into `seed64`, which zeroizes on drop).
 					let mut seed64 = SensitiveBytes64::zeroed();
-					mnemonic_to_seed(new_words, None, &mut seed64).map_err(|e| {
+					mnemonic_to_seed(new_words.to_string(), None, &mut seed64).map_err(|e| {
 						eprintln!("Error converting mnemonic to seed: {:?}", e);
 						sc_cli::Error::Input("Failed to convert mnemonic to seed".into())
 					})?;
@@ -185,8 +185,7 @@ pub fn generate_quantus_key(
 							eprintln!("Error deriving from mnemonic: {:?}", e);
 							sc_cli::Error::Input("Failed to derive from mnemonic".into())
 						})?;
-					let mut new_words = new_words;
-					new_words.zeroize();
+					drop(new_words);
 					let dilithium_pair = Dilithium87Pair::from_keypair(keypair);
 					let account_id = AccountId32::from(dilithium_pair.public());
 					return Ok(QuantusKeyDetails {
@@ -238,8 +237,8 @@ pub fn generate_quantus_key(
 					eprintln!("Error generating new words: {:?}", e);
 					sc_cli::Error::Input("Failed to generate new words".into())
 				})?;
-				words_to_print = Some(new_words.clone());
-				Zeroizing::new(new_words)
+				words_to_print = Some(new_words.to_string());
+				new_words
 			};
 
 			let wormhole_pair = if no_derivation {
@@ -261,17 +260,17 @@ pub fn generate_quantus_key(
 			};
 			// `words_phrase` zeroizes on drop here.
 
-			let wormhole_address = WormholeAddress(H256::from(wormhole_pair.address));
+			let wormhole_address = WormholeAddress(H256::from(*wormhole_pair.address()));
 			let account_id = wormhole_address.into_account();
 
 			Ok(QuantusKeyDetails {
 				address: account_id.to_ss58check(),
 				raw_address: format!("0x{}", hex::encode(account_id)),
-				public_key_hex: format!("0x{}", hex::encode(wormhole_pair.address)),
-				secret_key_hex: format!("0x{}", hex::encode(wormhole_pair.secret.as_bytes())),
+				public_key_hex: format!("0x{}", hex::encode(wormhole_pair.address())),
+				secret_key_hex: format!("0x{}", hex::encode(wormhole_pair.secret().as_bytes())),
 				seed_hex: "N/A (Wormhole)".to_string(),
 				secret_phrase: words_to_print,
-				inner_hash: Some(hex::encode(wormhole_pair.first_hash)),
+				inner_hash: Some(hex::encode(wormhole_pair.first_hash())),
 			})
 		},
 	}
