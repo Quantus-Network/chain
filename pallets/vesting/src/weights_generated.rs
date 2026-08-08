@@ -28,12 +28,12 @@
 // /Users/nikolaus/play/quantus-network/chain/target/release/quantus-node
 // benchmark
 // pallet
-// --runtime=/Users/nikolaus/play/quantus-network/chain-pr646-fix/target/release/wbuild/quantus-runtime/quantus_runtime.wasm
-// --genesis-builder=runtime
 // --pallet=pallet_vesting
-// --extrinsic=*
 // --steps=50
 // --repeat=20
+// --runtime=/Users/nikolaus/play/quantus-network/chain/target/release/wbuild/quantus-runtime/quantus_runtime.wasm
+// --genesis-builder=runtime
+// --extrinsic=*
 // --wasm-execution=compiled
 // --heap-pages=4096
 // --template=./.maintain/frame-weight-template.hbs
@@ -79,7 +79,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `977`
 		//  Estimated: `8619`
-		// Minimum execution time: 81_000_000 picoseconds.
+		// Minimum execution time: 82_000_000 picoseconds.
 		Weight::from_parts(83_000_000, 8619)
 			.saturating_add(T::DbWeight::get().reads(10_u64))
 			.saturating_add(T::DbWeight::get().writes(7_u64))
@@ -124,7 +124,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Measured:  `845`
 		//  Estimated: `8799`
 		// Minimum execution time: 103_000_000 picoseconds.
-		Weight::from_parts(104_000_000, 8799)
+		Weight::from_parts(105_000_000, 8799)
 			.saturating_add(T::DbWeight::get().reads(12_u64))
 			.saturating_add(T::DbWeight::get().writes(9_u64))
 	}
@@ -179,7 +179,7 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `977`
 		//  Estimated: `8619`
-		// Minimum execution time: 81_000_000 picoseconds.
+		// Minimum execution time: 82_000_000 picoseconds.
 		Weight::from_parts(83_000_000, 8619)
 			.saturating_add(RocksDbWeight::get().reads(10_u64))
 			.saturating_add(RocksDbWeight::get().writes(7_u64))
@@ -224,7 +224,7 @@ impl WeightInfo for () {
 		//  Measured:  `845`
 		//  Estimated: `8799`
 		// Minimum execution time: 103_000_000 picoseconds.
-		Weight::from_parts(104_000_000, 8799)
+		Weight::from_parts(105_000_000, 8799)
 			.saturating_add(RocksDbWeight::get().reads(12_u64))
 			.saturating_add(RocksDbWeight::get().writes(9_u64))
 	}
