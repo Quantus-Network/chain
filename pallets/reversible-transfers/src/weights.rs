@@ -65,16 +65,16 @@ const EXECUTE_TRANSFER_BASE_WRITES: u64 = 5;
 
 /// `execute_transfer`'s weight: the benchmarked base (compute + non-tree storage)
 /// plus the depth-dependent ZK-tree leaf insert performed by the wormhole proof
-/// recorder. `insert_leaf` walks the tree leaf-to-root, so hash compute, DB ops,
-/// and PoV all scale with the current depth.
+/// recorder. `insert_leaf` walks the tree leaf-to-root, so DB ops and PoV scale
+/// with `tree_ops` via [`pallet_zk_tree::TREE_KEY_POV`], and the path update also
+/// computes one Poseidon hash per level (`tree_hash_time`).
 fn execute_transfer_weight(
 	db: RuntimeDbWeight,
 	(tree_reads, tree_writes): (u64, u64),
-	tree_hash_ref_time: u64,
+	tree_hash_time: u64,
 ) -> Weight {
 	// Minimum execution time: 105_000_000 picoseconds.
-	Weight::from_parts(110_000_000, 8619)
-		.saturating_add(Weight::from_parts(tree_hash_ref_time, 0))
+	Weight::from_parts(110_000_000_u64.saturating_add(tree_hash_time), 8619)
 		.saturating_add(Weight::from_parts(
 			0,
 			tree_reads.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
@@ -396,6 +396,28 @@ mod tests {
 			assert!(
 				<() as WeightInfo>::execute_transfer().all_gte(deep),
 				"() impl must be a worst-case bound for SubstrateWeight",
+			);
+		});
+	}
+
+	/// The leaf insert also computes one Poseidon hash per tree level; that compute
+	/// must be charged in `ref_time` on top of the DB ops. The mock's `DbWeight` is
+	/// zero, so any depth-driven `ref_time` growth must come from the hashing term.
+	#[test]
+	fn execute_transfer_ref_time_includes_tree_hash_compute() {
+		crate::tests::mock::new_test_ext().execute_with(|| {
+			type W = SubstrateWeight<Test>;
+			pallet_zk_tree::Depth::<Test>::put(1);
+			let shallow = W::execute_transfer();
+			pallet_zk_tree::Depth::<Test>::put(pallet_zk_tree::MAX_TREE_DEPTH);
+			let deep = W::execute_transfer();
+			assert!(
+				deep.ref_time() >
+					shallow.ref_time(),
+				"execute_transfer ref_time must grow with tree depth (Poseidon hashing per level); \
+				 shallow: {:?}, deep: {:?}",
+				shallow,
+				deep,
 			);
 		});
 	}

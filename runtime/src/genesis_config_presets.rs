@@ -182,10 +182,11 @@ fn planck_tech_collective_seed() -> Vec<AccountId> {
 
 /// Returns the genesis config populated with given parameters. Treasury is per-profile.
 ///
-/// All endowed addresses automatically get transfer proofs recorded, enabling them to
-/// spend their funds via ZK proofs. The chain doesn't distinguish between "wormhole
-/// addresses" and regular addresses - any address can spend via ZK proofs if they
-/// know the corresponding secret.
+/// All endowed addresses automatically get transfer proofs recorded at block 1 (the
+/// wormhole pallet derives them from the genesis balances — there is no separate
+/// endowment list), enabling them to spend their funds via ZK proofs. The chain doesn't
+/// distinguish between "wormhole addresses" and regular addresses - any address can
+/// spend via ZK proofs if they know the corresponding secret.
 fn genesis_template(
 	endowed_accounts: Vec<AccountId>,
 	treasury: TreasuryGenesis,
@@ -204,15 +205,10 @@ fn genesis_template(
 	// mining rewards. It is intentionally NOT added to `balances`.
 
 	let config = RuntimeGenesisConfig {
-		balances: BalancesConfig { balances: balances.clone(), dev_accounts: None },
+		balances: BalancesConfig { balances, dev_accounts: None },
 		treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
 			treasury_account: Some(treasury.account),
 			treasury_portion: Some(treasury.portion),
-		},
-		wormhole: pallet_wormhole::GenesisConfig::<crate::Runtime> {
-			// Record transfer proofs for ALL endowed addresses, enabling ZK spending.
-			// Events are emitted in on_initialize at block 1 for indexer compatibility.
-			endowed_addresses: balances,
 		},
 		..Default::default()
 	};
@@ -354,6 +350,26 @@ fn planck_treasury_account() -> AccountId {
 /// Parses genesis JSON, removes [`TECH_COLLECTIVE_SEED_MEMBERS_KEY`] if present, and returns
 /// serialized config for [`frame_support::genesis_builder_helper::build_state`] plus the optional
 /// member list.
+///
+/// # Trust model (deliberately no size limits)
+///
+/// This runs inside the `GenesisBuilder` runtime API, which is only invoked by the node
+/// operator's own tooling (chain-spec building / genesis initialization) with the chain
+/// spec that operator chose to launch. It is not reachable by network peers or on a
+/// running chain. Whoever supplies this JSON already controls *everything* about the
+/// chain being built — balances, keys, code — so input-size bounds here would not
+/// protect anyone: an oversized or hostile genesis can only stall the chain of the
+/// operator who supplied it. This matches upstream Substrate, whose `build_state`
+/// helper deserializes the full unbounded config the same way.
+///
+/// The same reasoning covers failure semantics: semantically invalid genesis data
+/// (duplicate balance entries, sub-ED endowments, ...) *panics* inside the pallets'
+/// `BuildGenesisConfig::build` rather than returning `Err`. That is FRAME's design —
+/// `build` returns `()` and has no error channel; only JSON deserialization (which runs
+/// before the trait) can return `Err`. The panics are inherited verbatim from upstream
+/// Substrate and are the intended fail-fast: they abort the operator's own chain-spec
+/// build with the assertion message, and the failed build's candidate storage is
+/// discarded, so nothing half-built can persist.
 pub fn prepare_genesis_build_input(
 	config: Vec<u8>,
 ) -> Result<(Vec<u8>, Option<Vec<AccountId>>), String> {
@@ -482,6 +498,7 @@ pub fn preset_names() -> Vec<PresetId> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use sp_runtime::BuildStorage;
 
 	#[test]
 	fn seed_tech_collective_rejects_undersized_seed() {
@@ -501,6 +518,24 @@ mod tests {
 			planck_tech_collective_seed(),
 		] {
 			assert!(seed.len() >= MIN_TECH_COLLECTIVE_MEMBERS);
+		}
+	}
+
+	/// Every shipped preset must actually build genesis storage, i.e. pass every pallet's
+	/// genesis-build invariants. (Wormhole transfer proofs need no preset entry at all:
+	/// they are derived from these genesis balances at block 1, so they cannot disagree
+	/// with the value actually issued.)
+	#[test]
+	fn all_presets_build_genesis_storage() {
+		for id in preset_names() {
+			let bytes = get_preset(&id).expect("listed preset must resolve");
+			let (config_bytes, _members) = prepare_genesis_build_input(bytes)
+				.unwrap_or_else(|e| panic!("preset {:?}: invalid genesis JSON: {e}", id));
+			let config: crate::RuntimeGenesisConfig = serde_json::from_slice(&config_bytes)
+				.unwrap_or_else(|e| panic!("preset {:?} must deserialize: {e}", id));
+			config
+				.build_storage()
+				.unwrap_or_else(|e| panic!("preset {:?} must build genesis storage: {e:?}", id));
 		}
 	}
 }
