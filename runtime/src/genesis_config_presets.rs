@@ -18,7 +18,9 @@
 // this module is used by the client, so it's ok to panic/unwrap here
 #![allow(clippy::expect_used)]
 
-use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, EXISTENTIAL_DEPOSIT, UNIT};
+use crate::{
+	AccountId, BalancesConfig, RuntimeGenesisConfig, EXISTENTIAL_DEPOSIT, MILLIS_PER_DAY, UNIT,
+};
 use alloc::{
 	string::{String, ToString},
 	vec,
@@ -69,8 +71,6 @@ type VestingMoment = u64;
 
 /// One vesting genesis entry: `(beneficiary, start_ms, cliff_ms, end_ms, total)`.
 type VestingScheduleTuple = (AccountId, VestingMoment, VestingMoment, VestingMoment, u128);
-
-const MILLIS_PER_DAY: VestingMoment = 24 * 60 * 60 * 1000;
 
 const fn days_ms(days: u64) -> VestingMoment {
 	days * MILLIS_PER_DAY
