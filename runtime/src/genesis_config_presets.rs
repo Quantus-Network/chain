@@ -688,27 +688,50 @@ mod tests {
 		assert_eq!(pot_balance, schedule_sum + EXISTENTIAL_DEPOSIT);
 	}
 
-	/// Every advertised vesting schedule must lock for the published 90-day cliff.
-	/// Regression: Bob's second testnet schedule shipped with the start timestamp in
-	/// its cliff field, so it accrued linearly from day 0 in both `dev` and
-	/// `heisenberg` instead of honoring the 90-day lock.
+	/// Pin the known testnet/dev vesting tables (and their schedule counts) to the
+	/// published cliff constants. Regression: Bob's second schedule shipped with the
+	/// start timestamp in its cliff field, so it accrued linearly from day 0 in both
+	/// `dev` and `heisenberg` instead of honoring the 90-day lock.
+	///
+	/// Counts are exact per preset: a `>= 4` floor would let a heisenberg drop slip
+	/// through because `dev` alone contributes 4. The 90-day pin applies only to
+	/// schedules that use [`GENESIS_VESTING_START_MS`]; a future allocation table
+	/// that ships a different start/cliff pair is checked only for structural
+	/// validity (`start <= cliff < end`).
 	#[test]
 	fn preset_vesting_schedules_enforce_the_published_cliff() {
-		let mut checked = 0usize;
-		for id in preset_names() {
+		let expected: &[(&str, usize)] = &[
+			(sp_genesis_builder::DEV_RUNTIME_PRESET, 4),
+			(HEISENBERG_RUNTIME_PRESET, 3),
+			(PLANCK_RUNTIME_PRESET, 0),
+		];
+		let mut total = 0usize;
+		for &(name, expected_count) in expected {
+			let id = PresetId::from(name);
 			let raw = get_preset(&id).expect("listed preset must resolve");
 			let (json, _) = prepare_genesis_build_input(raw).expect("well-formed");
 			let config: RuntimeGenesisConfig = serde_json::from_slice(&json).expect("deserializes");
+			assert_eq!(
+				config.vesting.schedules.len(),
+				expected_count,
+				"preset {id:?}: unexpected vesting schedule count"
+			);
 			for (who, start, cliff, end, _) in &config.vesting.schedules {
-				assert_eq!(
-					*cliff,
-					start + days_ms(90),
-					"preset {id:?}: schedule for {who:?} must lock for the 90-day cliff"
+				assert!(
+					start <= cliff,
+					"preset {id:?}: schedule for {who:?} must not cliff before it starts"
 				);
 				assert!(cliff < end, "preset {id:?}: cliff must precede the vesting end");
-				checked += 1;
+				if *start == GENESIS_VESTING_START_MS {
+					assert_eq!(
+						*cliff, GENESIS_VESTING_CLIFF_MS,
+						"preset {id:?}: schedule for {who:?} using the published start \
+						 must lock until GENESIS_VESTING_CLIFF_MS (start + 90 days)"
+					);
+				}
 			}
+			total += config.vesting.schedules.len();
 		}
-		assert!(checked >= 4, "dev and heisenberg must carry the example vesting schedules");
+		assert_eq!(total, 7, "dev (4) + heisenberg (3) + planck (0) must sum to 7");
 	}
 }
