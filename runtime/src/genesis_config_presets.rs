@@ -284,7 +284,7 @@ fn testnet_vesting_schedules() -> Vec<VestingScheduleTuple> {
 		(
 			accounts[1].clone(),
 			GENESIS_VESTING_START_MS,
-			GENESIS_VESTING_START_MS,
+			GENESIS_VESTING_CLIFF_MS,
 			GENESIS_VESTING_END_MS,
 			GENESIS_VESTING_TOTAL,
 		),
@@ -686,5 +686,30 @@ mod tests {
 		let schedule_sum: u128 =
 			config.vesting.schedules.iter().map(|(_, _, _, _, total)| *total).sum();
 		assert_eq!(pot_balance, schedule_sum + EXISTENTIAL_DEPOSIT);
+	}
+
+	/// Every advertised vesting schedule must lock for the published 90-day cliff.
+	/// Regression: Bob's second testnet schedule shipped with the start timestamp in
+	/// its cliff field, so it accrued linearly from day 0 in both `dev` and
+	/// `heisenberg` instead of honoring the 90-day lock.
+	#[test]
+	fn preset_vesting_schedules_enforce_the_published_cliff() {
+		let mut checked = 0usize;
+		for id in preset_names() {
+			let raw = get_preset(&id).expect("listed preset must resolve");
+			let (json, _) = prepare_genesis_build_input(raw).expect("well-formed");
+			let config: RuntimeGenesisConfig =
+				serde_json::from_slice(&json).expect("deserializes");
+			for (who, start, cliff, end, _) in &config.vesting.schedules {
+				assert_eq!(
+					*cliff,
+					start + days_ms(90),
+					"preset {id:?}: schedule for {who:?} must lock for the 90-day cliff"
+				);
+				assert!(cliff < end, "preset {id:?}: cliff must precede the vesting end");
+				checked += 1;
+			}
+		}
+		assert!(checked >= 4, "dev and heisenberg must carry the example vesting schedules");
 	}
 }
