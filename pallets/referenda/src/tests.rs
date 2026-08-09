@@ -109,6 +109,30 @@ fn basic_happy_path_works() {
 	});
 }
 
+/// `parameter_types! { pub static ... }` values live in thread-local storage. A
+/// mutation in one test must not leak into the next: `ExtBuilder::build` resets
+/// them, matching the vesting mock's `reset_thread_local_state` pattern.
+#[test]
+fn ext_builder_resets_thread_local_parameter_statics() {
+	// Contaminate the worker thread the way a preceding bound-/interval-test would.
+	MaxActive::set(1);
+	MaxActivePerAccount::set(1);
+	AlarmInterval::set(99);
+	assert_eq!(MaxActive::get(), 1);
+	assert_eq!(MaxActivePerAccount::get(), 1);
+	assert_eq!(AlarmInterval::get(), 99);
+
+	ExtBuilder::default().build_and_execute(|| {
+		assert_eq!(MaxActive::get(), 100, "MaxActive must be restored by ExtBuilder::build");
+		assert_eq!(
+			MaxActivePerAccount::get(),
+			100,
+			"MaxActivePerAccount must be restored by ExtBuilder::build"
+		);
+		assert_eq!(AlarmInterval::get(), 1, "AlarmInterval must be restored by ExtBuilder::build");
+	});
+}
+
 #[test]
 fn submission_bounded_by_max_active() {
 	ExtBuilder::default().build_and_execute(|| {
