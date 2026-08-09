@@ -102,6 +102,9 @@ pub struct PowBlockImport<B: BlockT<Hash = H256>, I, C, CIDP, BE, const LOGGING_
 	client: Arc<C>,
 	create_inherent_data_providers: Arc<CIDP>,
 	check_inherents_after: <<B as BlockT>::Header as HeaderT>::Number,
+	// Serializes the best-work read, fork-choice decision and inner import so
+	// concurrent imports cannot race on a stale best. Shared across clones.
+	import_lock: Arc<futures::lock::Mutex<()>>,
 	_backend: PhantomData<BE>,
 }
 
@@ -120,6 +123,7 @@ impl<
 			client: self.client.clone(),
 			create_inherent_data_providers: self.create_inherent_data_providers.clone(),
 			check_inherents_after: self.check_inherents_after,
+			import_lock: self.import_lock.clone(),
 			_backend: PhantomData,
 		}
 	}
@@ -156,6 +160,7 @@ where
 			client,
 			check_inherents_after,
 			create_inherent_data_providers: Arc::new(create_inherent_data_providers),
+			import_lock: Arc::new(futures::lock::Mutex::new(())),
 			_backend: PhantomData,
 		}
 	}
@@ -290,21 +295,20 @@ where
 			return Err(Error::<B>::InvalidSeal.into());
 		}
 
-		// Get parent's cumulative achieved work from aux storage
-		let parent_work = get_chain_work::<B, C>(&*self.client, parent_hash).unwrap_or_else(|e| {
-			log::warn!(target: LOG_TARGET, "Failed to get parent achieved work for {parent_hash:?}: {e:?}");
-			U512::zero()
-		});
+		// Get parent's cumulative achieved work from aux storage. A backend/decode
+		// failure must fail the import, not silently seed fork choice with zero.
+		let parent_work = get_chain_work::<B, C>(&*self.client, parent_hash)?;
 
 		// Calculate new cumulative achieved work
 		let new_work = parent_work.saturating_add(achieved_difficulty);
 
+		// Serialize the best-work read, fork-choice decision and inner import so a
+		// concurrent import cannot commit a new best between our read and our commit
+		// and let a weaker block win fork choice. Held until the end of the import.
+		let _import_guard = self.import_lock.lock().await;
+
 		let info = self.client.info();
-		let current_best_work = get_chain_work::<B, C>(&*self.client, info.best_hash)
-			.unwrap_or_else(|e| {
-				log::warn!(target: LOG_TARGET, "Failed to get best chain achieved work for {:?}: {e:?}", info.best_hash);
-				U512::zero()
-			});
+		let current_best_work = get_chain_work::<B, C>(&*self.client, info.best_hash)?;
 
 		let is_best = is_heavier(
 			new_work,
@@ -374,11 +378,16 @@ where
 			},
 		};
 
-		// Finalization prunes competing forks that are beyond max_reorg_depth.
+		// Finalization prunes competing forks that are beyond max_reorg_depth. A
+		// failure must be surfaced (error log with block context) but must NOT gate
+		// block import: finalization is retried on every subsequent import, and
+		// halting on a transient error would harm liveness.
 		if let Err(e) = finalize_canonical_at_depth::<B, C, BE>(&*self.client) {
-			log::warn!(
+			log::error!(
 				target: LOG_TARGET,
-				"Failed to finalize after block import: {:?}",
+				"Failed to finalize after importing block #{} ({:?}): {:?} (import not gated; will retry on next import)",
+				block_number_u64,
+				block_hash,
 				e
 			);
 		}
@@ -516,14 +525,21 @@ where
 		tx_notifications,
 		MIN_INTERVAL_BETWEEN_TX_REBUILDS,
 	);
-	let worker = MiningHandle::new(client.clone(), block_import, justification_sync_link);
-	let worker_ret = worker.clone();
-
 	// Latest build request - overwrites previous if builder is slow.
 	// Uses a Mutex<Option> for the value + a channel for wake notification.
 	let pending_build: Arc<parking_lot::Mutex<Option<Block::Hash>>> =
 		Arc::new(parking_lot::Mutex::new(None));
 	let (notify_tx, mut notify_rx) = futures::channel::mpsc::channel::<()>(1);
+
+	let worker = MiningHandle::new(
+		client.clone(),
+		block_import,
+		justification_sync_link,
+		sync_oracle.clone(),
+		pending_build.clone(),
+		notify_tx.clone(),
+	);
+	let worker_ret = worker.clone();
 
 	// Task 1: Convert triggers into build requests
 	let trigger_task = {

@@ -178,6 +178,8 @@ pub type Migrations = (
 	pallet_wormhole::migrations::MigrateV1ToV2<Runtime>,
 	// v0 -> v1: set the treasury portion to 50% (50/50 treasury/miner reward split).
 	pallet_treasury::migrations::MigrateV0ToV1<Runtime>,
+	// v0 -> v1: drop the removed `call_weight` field from stored multisig proposals.
+	pallet_multisig::migrations::MigrateV0ToV1<Runtime>,
 );
 
 /// Executive: handles dispatch to the various modules.

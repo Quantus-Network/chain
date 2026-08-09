@@ -244,8 +244,10 @@ async fn handle_local_mining(
 		(),
 	>,
 ) -> Option<Vec<u8>> {
-	let metadata = worker_handle.metadata()?;
+	// Read the version BEFORE snapshotting metadata so any concurrent rebuild
+	// between the two reads is caught by the post-search version check below.
 	let version = worker_handle.version();
+	let metadata = worker_handle.metadata()?;
 	let block_hash = metadata.pre_hash.0;
 	let difficulty = client.runtime_api().get_difficulty(metadata.best_hash).unwrap_or_else(|e| {
 		log::warn!("API error getting difficulty: {:?}", e);
@@ -378,9 +380,13 @@ async fn mining_loop(
 			offline_since = None;
 		}
 
-		// Wait for mining metadata to be available
+		// Wait for mining metadata to be available. We are past the sync check,
+		// so if there is no candidate (e.g. it was cleared during a completed
+		// sync, or a submitted block failed to import) request a rebuild so
+		// mining resumes without waiting for an external block/tx trigger.
 		if worker_handle.metadata().is_none() {
-			log::debug!(target: "pow", "No mining metadata available");
+			log::debug!(target: "pow", "No mining metadata available, requesting rebuild");
+			worker_handle.request_rebuild();
 			tokio::select! {
 				_ = tokio::time::sleep(Duration::from_millis(250)) => {}
 				_ = cancellation_token.cancelled() => continue

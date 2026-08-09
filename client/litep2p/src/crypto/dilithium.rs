@@ -112,9 +112,10 @@ impl Keypair {
 		// Sign without context, with hedged randomness for side-channel protection
 		let mut hedge = [0u8; 32];
 		rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut hedge);
+		let hedge = SensitiveBytes32::from(&mut hedge);
 
 		internal_kp
-			.sign(msg, None, Some(hedge))
+			.sign(msg, None, Some(&hedge))
 			.map(|sig| sig.to_vec())
 			.map_err(|e| SignError(format!("{:?}", e)))
 	}

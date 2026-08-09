@@ -129,7 +129,14 @@ impl<T: Config<I>, I: 'static, M: GetMaxVoters<Class = ClassOf<T, I>>>
 		self.bare_ayes
 	}
 	fn support(&self, class: ClassOf<T, I>) -> Perbill {
-		Perbill::from_rational(self.bare_ayes, M::get_max_voters(class))
+		let max_voters = M::get_max_voters(class);
+		if max_voters == 0 {
+			// No eligible voters: support is zero, not a degenerate 100%.
+			Perbill::zero()
+		} else {
+			// Clamp so a shrunken electorate cannot exceed 100%.
+			Perbill::from_rational(self.bare_ayes.min(max_voters), max_voters)
+		}
 	}
 	fn approval(&self, _: ClassOf<T, I>) -> Perbill {
 		Perbill::from_rational(self.ayes, 1.max(self.ayes + self.nays))

@@ -611,6 +611,19 @@ fn tally_support_correct() {
 }
 
 #[test]
+fn tally_support_zero_when_electorate_empty() {
+	ExtBuilder::default().build_and_execute(|| {
+		// No members: max_voters == 0, so support is zero, not a degenerate 100%.
+		let tally: TallyOf<Test> = Tally::from_parts(3, 3, 0);
+		assert_eq!(tally.support(3), Perbill::zero());
+
+		// Shrunken electorate: bare_ayes (3) exceeds max_voters (1), clamped to 100%.
+		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));
+		assert_eq!(tally.support(0), Perbill::from_percent(100));
+	});
+}
+
+#[test]
 fn exchange_member_works() {
 	ExtBuilder::default().build_and_execute(|| {
 		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));

@@ -99,6 +99,13 @@ impl TechCollectiveTracksInfo {
 		// (3 ayes / 2 nays = 60% approval < 61%). Constant curves: thresholds don't
 		// decay over the decision period. The 24h confirm period guarantees nays can
 		// arrive for a full day before any approval; enactment is delayed another 24h.
+		//
+		// These curves assume at least 5 members: every shipped preset seeds >= 5 and
+		// `genesis_config_presets::seed_tech_collective` rejects a smaller non-empty seed
+		// (see `MIN_TECH_COLLECTIVE_MEMBERS`). NOTE: `RemoveOrigin` is Root, so a passed
+		// Root referendum can still shrink the collective below 5; there is no in-pallet
+		// membership floor on the removal path (that would require a `pallet_ranked_collective`
+		// change), so removals must preserve this minimum by convention.
 		let info = pallet_referenda::TrackInfo {
 			name: str_array("tech_collective_members"),
 			max_deciding: 1,

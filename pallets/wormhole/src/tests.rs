@@ -597,7 +597,7 @@ mod private_batch_proof_tests {
 
 		// Verify basic structure
 		assert_eq!(inputs.asset_id, 0, "Asset ID should be native (0)");
-		assert_eq!(inputs.volume_fee_bps, 10, "Volume fee should be 10 bps");
+		assert_eq!(inputs.volume_fee_bps, 4, "Volume fee should be 4 bps");
 		assert!(!inputs.nullifiers.is_empty(), "Should have nullifiers");
 		assert!(!inputs.account_data.is_empty(), "Should have account data");
 
@@ -1047,14 +1047,15 @@ mod private_batch_proof_tests {
 
 			// Expected miner fee from the proof's public inputs:
 			// fee = exit * bps / (10000 - bps); miner gets fee minus the 50% burn
-			// (mock: VolumeFeeRateBps = 10, VolumeFeesBurnRate = 50%).
+			// (mock: VolumeFeesBurnRate = 50%).
 			let expected_exit: u128 = inputs
 				.account_data
 				.iter()
 				.filter(|a| a.summed_output_amount > 0)
 				.map(|a| (a.summed_output_amount as u128) * crate::SCALE_DOWN_FACTOR)
 				.sum();
-			let total_fee = expected_exit * 10 / (10000 - 10);
+			let fee_bps = VolumeFeeRateBps::get() as u128;
+			let total_fee = expected_exit * fee_bps / (10_000 - fee_bps);
 			let expected_miner_fee = total_fee - total_fee / 2;
 			assert!(expected_miner_fee > 0, "fixture should produce a non-zero miner fee");
 
@@ -1229,7 +1230,7 @@ mod fixture_gen {
 				asset_id: 0u32,
 				output_amount_1: output_amount,
 				output_amount_2: 0u32,
-				volume_fee_bps: 10,
+				volume_fee_bps: 4,
 				nullifier,
 				exit_account_1: exit_account,
 				exit_account_2: BytesDigest::default(),
@@ -1237,7 +1238,7 @@ mod fixture_gen {
 				block_number,
 			},
 			private: PrivateCircuitInputs {
-				secret,
+				secret: secret.into(),
 				transfer_count,
 				unspendable_account,
 				parent_hash: BytesDigest::new_unchecked(parent_hash),
@@ -1876,7 +1877,7 @@ mod public_batch_proof_tests {
 		let inputs = parse_test_inputs();
 
 		assert_eq!(inputs.asset_id, 0, "Asset ID should be native (0)");
-		assert_eq!(inputs.volume_fee_bps, 10, "Volume fee should be 10 bps");
+		assert_eq!(inputs.volume_fee_bps, 4, "Volume fee should be 4 bps");
 		assert_eq!(
 			inputs.aggregator_address.as_ref(),
 			&AGGREGATOR_ADDRESS,

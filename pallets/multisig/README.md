@@ -316,7 +316,6 @@ Stores proposal data indexed by (multisig_address, proposal_id):
 ProposalData {
     proposer: AccountId,                // Who proposed (receives deposit back)
     call: BoundedVec<u8>,               // Encoded RuntimeCall to execute
-    call_weight: Weight,                // Declared inner-call weight captured at propose time
     expiry: BlockNumber,                // Deadline for approvals
     approvals: BoundedVec<AccountId>,   // List of signers who approved
     deposit: Balance,                   // Reserved deposit (refundable)
@@ -486,8 +485,8 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 - **No global limits:** Only per-multisig limits (decentralized resistance)
 
 ### Call Execution
-- Calls are decoded and validated at `propose()` time, then stored as bounded call bytes with the declared `call_weight`
-- Calls are decoded again at `execute()` time before dispatch
+- Calls are decoded and validated at `propose()` time (including an inner-call weight check against `MaxInnerCallWeight`), then stored as bounded call bytes
+- Calls are decoded again at `execute()` time before dispatch, and the inner-call weight is recomputed then (it is not stored)
 - High-security whitelist enforcement runs at proposal creation for currently high-security multisigs and again at execution time
 - Allowed calls execute with multisig_address as origin
 - Standard multisigs can call any pallet (including recursive multisig calls) as long as the call fits size and weight limits
@@ -646,9 +645,9 @@ Normal multisigs automatically get refunded for unused high-security overhead.
 
 **Weight calculation:**
 - `propose()` charges upfront for the current worst-case proposal path used by the implementation: `propose_high_security(call.len())`. Actual weight is refunded based on path: `propose(call_size)` for normal multisigs, `propose_high_security(call_size)` for high-security multisigs. No cleanup runs in propose.
-- `propose()` rejects calls whose declared `call_weight` exceeds `MaxInnerCallWeight`.
+- `propose()` rejects calls whose inner-call weight (from `get_dispatch_info()`) exceeds `MaxInnerCallWeight`.
 - `execute()` charges upfront for bookkeeping worst-case plus the maximum allowed inner-call weight: `WeightInfo::execute(T::MaxCallSize::get()) + T::MaxInnerCallWeight::get()`.
-- `execute()` returns actual weight as bookkeeping for the stored call size plus the inner call's post-dispatch weight, using the stored `call_weight` as fallback when the inner call does not report actual weight.
+- `execute()` returns actual weight as bookkeeping for the stored call size plus the inner call's post-dispatch weight, using the inner-call weight recomputed at execute time as fallback when the inner call does not report actual weight.
 - `claim_deposits()` charges upfront for worst-case iteration and cleanup; actual weight based on proposals iterated and cleaned (dynamic refund).
 
 **Security notes:**
