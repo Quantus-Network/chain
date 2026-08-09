@@ -16,10 +16,21 @@ pub trait WeightInfo {
 	fn retarget_schedule() -> Weight;
 }
 
+/// ZK-tree storage ops the benchmark itself performed, per the storage tables in
+/// [`crate::weights_generated`]: `LeafCount` + `Depth` + 3×`Leaves` reads (= 5), and
+/// `LeafCount` + `Leaves` + `Root` writes (= 3); `Depth` is written too once the insert
+/// grows the tree, which the shallow benchmark tree does for `end_schedule` /
+/// `retarget_schedule` (= 4) but not for `claim` (= 3). They are subtracted back out so
+/// the flat circuit-depth insert cost can replace them;
+/// [`tests::payout_weight_never_undercharges_the_benchmarked_base`] pins that the
+/// replacement never under-charges the measured base.
 const BENCHMARK_TREE_READS: u64 = 5;
 const BENCHMARK_TREE_WRITES: u64 = 4;
 const CLAIM_BENCHMARK_TREE_WRITES: u64 = 3;
 
+/// Benchmarked base with its benchmark-depth tree ops swapped for the flat
+/// circuit-depth insert cost — DB ops, Poseidon path hashing and PoV all priced by
+/// [`pallet_zk_tree::INSERT_LEAF_*`] at [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`].
 fn payout_weight(
 	base: Weight,
 	db: RuntimeDbWeight,
@@ -110,5 +121,44 @@ impl WeightInfo for () {
 			pallet_zk_tree::INSERT_LEAF_DB_OPS,
 			pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
 		)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// Every payout call, paired with the benchmark tree writes `payout_weight`
+	/// subtracts back out for it.
+	fn payout_bases() -> [(Weight, u64); 3] {
+		[
+			(<() as generated::WeightInfo>::claim(), CLAIM_BENCHMARK_TREE_WRITES),
+			(<() as generated::WeightInfo>::end_schedule(), BENCHMARK_TREE_WRITES),
+			(<() as generated::WeightInfo>::retarget_schedule(), BENCHMARK_TREE_WRITES),
+		]
+	}
+
+	/// The augmentation subtracts hand-maintained `BENCHMARK_TREE_*` counts from the
+	/// generated base and adds the flat circuit-depth insert back. If a zk-tree
+	/// cost-model change ever made that insert cheaper (in DB ops) than the
+	/// benchmark-time ops it replaces, the subtraction would silently under-charge —
+	/// no compile error, no failing benchmark. Pin it: the augmented weight must still
+	/// cover the measured base.
+	#[test]
+	fn payout_weight_never_undercharges_the_benchmarked_base() {
+		let db = RocksDbWeight::get();
+		for (base, benchmark_tree_writes) in payout_bases() {
+			let augmented = payout_weight(
+				base,
+				db,
+				benchmark_tree_writes,
+				pallet_zk_tree::INSERT_LEAF_DB_OPS,
+				pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
+			);
+			assert!(
+				augmented.all_gte(base),
+				"augmented {augmented:?} falls below benchmarked {base:?}"
+			);
+		}
 	}
 }
