@@ -94,7 +94,8 @@ mod types;
 pub mod weights;
 
 use self::branch::{
-	alarm_retry_weight, BeginDecidingBranch, OneFewerDecidingBranch, ServiceBranch,
+	alarm_retry_weight, terminal_transition_weight, BeginDecidingBranch, OneFewerDecidingBranch,
+	ServiceBranch,
 };
 pub use self::{
 	pallet::*,
@@ -698,10 +699,12 @@ pub mod pallet {
 		/// Emits `Cancelled`.
 		#[pallet::call_index(3)]
 		// May defer `one_fewer_deciding` via `set_alarm`, bearing its worst-case retry
-		// overhead; plus one read/write to drop a queued entry from `TrackQueue`.
+		// overhead; plus one read/write to drop a queued entry from `TrackQueue`; plus
+		// the terminal `Preimages::drop` / active-count bookkeeping.
 		#[pallet::weight(T::WeightInfo::cancel()
 			.saturating_add(alarm_retry_weight::<T, I>())
-			.saturating_add(T::DbWeight::get().reads_writes(1, 1)))]
+			.saturating_add(T::DbWeight::get().reads_writes(1, 1))
+			.saturating_add(terminal_transition_weight::<T, I>()))]
 		pub fn cancel(origin: OriginFor<T>, index: ReferendumIndex) -> DispatchResult {
 			T::CancelOrigin::ensure_origin(origin)?;
 			let status = Self::ensure_ongoing(index)?;
@@ -741,10 +744,12 @@ pub mod pallet {
 		/// Emits `Killed` and `DepositSlashed`.
 		#[pallet::call_index(4)]
 		// May defer `one_fewer_deciding` via `set_alarm`, bearing its worst-case retry
-		// overhead; plus one read/write to drop a queued entry from `TrackQueue`.
+		// overhead; plus one read/write to drop a queued entry from `TrackQueue`; plus
+		// the terminal `Preimages::drop` / active-count bookkeeping.
 		#[pallet::weight(T::WeightInfo::kill()
 			.saturating_add(alarm_retry_weight::<T, I>())
-			.saturating_add(T::DbWeight::get().reads_writes(1, 1)))]
+			.saturating_add(T::DbWeight::get().reads_writes(1, 1))
+			.saturating_add(terminal_transition_weight::<T, I>()))]
 		pub fn kill(origin: OriginFor<T>, index: ReferendumIndex) -> DispatchResult {
 			T::KillOrigin::ensure_origin(origin)?;
 			let status = Self::ensure_ongoing(index)?;

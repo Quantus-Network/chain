@@ -38,6 +38,36 @@ fn params_should_work() {
 	});
 }
 
+/// Terminal nudge branches gained `Preimages::drop` (up to a MAX_SIZE blob) and the
+/// active-count updates after the benchmarks were taken. Their weight — and the
+/// declared `max_weight_of_nudge` used by the scheduler hook — must cover that work.
+#[test]
+fn terminal_nudge_weights_cover_preimage_drop_and_active_counts() {
+	use crate::branch::{terminal_transition_weight, ServiceBranch};
+	use frame_support::traits::StorePreimage;
+
+	let terminal = terminal_transition_weight::<Test, ()>();
+	// Proof-size must cover a full PreimageFor blob; DbWeight covers the four keys.
+	assert!(terminal.proof_size() >= <Test as Config>::Preimages::MAX_LENGTH as u64);
+	assert!(!terminal.ref_time().is_zero());
+
+	for branch in [ServiceBranch::Approved, ServiceBranch::Rejected, ServiceBranch::TimedOut] {
+		let w = branch.weight_of_nudge::<Test, ()>();
+		assert!(
+			w.proof_size() >= terminal.proof_size(),
+			"terminal nudge weight must include the PreimageFor PoV"
+		);
+	}
+
+	// Non-terminal branches must not silently absorb the 4 MiB charge.
+	let preparing = ServiceBranch::Preparing.weight_of_nudge::<Test, ()>();
+	assert!(preparing.proof_size() < terminal.proof_size());
+
+	let max = ServiceBranch::max_weight_of_nudge::<Test, ()>();
+	assert!(max.proof_size() >= terminal.proof_size());
+	assert!(max.ref_time() >= ServiceBranch::Approved.weight_of_nudge::<Test, ()>().ref_time());
+}
+
 #[test]
 fn basic_happy_path_works() {
 	ExtBuilder::default().build_and_execute(|| {
