@@ -395,6 +395,28 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 			//    (`Multisig::execute`, `ReversibleTransfers::recover_funds`, ...) can emit transfer
 			//    events the static `count_transfers` matcher cannot see, so the proof-recording
 			//    work above may exceed the weight reserved by `weight()`.
+			//
+			// "Post-hoc and not fee-charged" is a deliberate, accepted trade-off, not an
+			// oversight (security review 2026-08):
+			//
+			// - It cannot be fee-charged: the scan cost depends on how many events EARLIER
+			//   transactions in the same block emitted, unknowable when the fee is computed.
+			//   `TransactionExtension::weight()` is static by design, and post-dispatch fee
+			//   correction only refunds downward — `actual_weight` is capped at the
+			//   pre-charged weight. The only alternative, reserving a worst-case whole-block
+			//   scan in every transaction upfront, would collapse throughput to insure
+			//   against microseconds of work.
+			//
+			// - Block capacity stays sound: `register_extra_weight_unchecked` accrues into
+			//   `BlockWeight` before the NEXT transaction's `CheckWeight` admission, so
+			//   later transactions are refused once the block fills. The worst case is a
+			//   bounded one-transaction overshoot at the block boundary (the same accepted
+			//   pattern FRAME uses for `on_initialize` overruns).
+			//
+			// - The economics don't invert: emitting events is fully fee-charged through the
+			//   emitting calls' benchmarked weights, and the uncharged decode here is
+			//   ~1µs/record + ~10ns/byte — orders of magnitude below what the attacker pays
+			//   to produce those events.
 			let mut extra = Self::event_scan_weight(events_at_scan, event_bytes_at_scan);
 			if recorded > charged_transfers {
 				extra = extra.saturating_add(
