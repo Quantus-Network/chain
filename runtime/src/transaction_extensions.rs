@@ -175,15 +175,39 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		// therefore never record.
 		//
 		// Wrappers whose inner call is stored on-chain rather than in the submitted call
-		// (`Multisig::execute`, `ReversibleTransfers::recover_funds`, ...) cannot be counted
-		// statically. Proof-recording work they trigger is reconciled in `post_dispatch`, which
-		// registers any weight shortfall against the block via
-		// `register_extra_weight_unchecked`.
+		// (`Multisig::execute`, ...) cannot be counted statically. Proof-recording work they
+		// trigger is reconciled in `post_dispatch`, which registers any weight shortfall
+		// against the block via `register_extra_weight_unchecked`.
 		match call {
 			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::force_transfer { .. }) => 1,
+
+			// A successful cancel releases the held funds to the recipient with
+			// `transfer_on_hold`, emitting exactly one `TransferOnHold` the scan records.
+			RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+				..
+			}) => 1,
+
+			// `recover_funds` seizes every pending hold to the guardian (one `TransferOnHold`
+			// each) and then sweeps the account with a dispatched `transfer_all` (one
+			// `Transfer`). How many holds are pending is on-chain state the submitted call
+			// does not reveal — and same-block calls could even grow it after this count is
+			// taken — so charge the static worst case. The overcharge on accounts with fewer
+			// pending transfers is accepted: this is a rare emergency path, and `weight()`
+			// must not depend on mutable state.
+			RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::recover_funds { .. },
+			) => u64::from(
+				<Runtime as pallet_reversible_transfers::Config>::MaxPendingPerAccount::get(),
+			)
+			.saturating_add(1),
+
+			// Closing a recovery repatriates the rescuer's reserved deposit to the caller,
+			// emitting exactly one `ReserveRepatriated` the scan records. (On the failure
+			// path the deposit is unreserved instead — an overcharge, never a shortfall.)
+			RuntimeCall::Recovery(pallet_recovery::Call::close_recovery { .. }) => 1,
 
 			RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
 			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
@@ -375,7 +399,7 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 			//    `event_scan_weight`.
 			//
 			// 2. Recording shortfall: wrappers that dispatch inner calls stored on-chain
-			//    (`Multisig::execute`, `ReversibleTransfers::recover_funds`, ...) can emit transfer
+			//    (`Multisig::execute`, ...) can emit transfer
 			//    events the static `count_transfers` matcher cannot see, so the proof-recording
 			//    work above may exceed the weight reserved by `weight()`. The flat per-transfer
 			//    price times the count difference covers it.
@@ -925,6 +949,108 @@ mod tests {
 	}
 
 	#[test]
+	fn wormhole_proof_recorder_counts_reversible_cancel_and_close_recovery() {
+		new_test_ext().execute_with(|| {
+			// `ReversibleTransfers::cancel` releases the held funds with `transfer_on_hold`,
+			// emitting exactly one `TransferOnHold` that the scanner turns into a proof. The
+			// call is statically visible, so the proof must be fee-charged, not just
+			// reconciled post-hoc against block capacity.
+			let cancel = RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::cancel { tx_id: Default::default() },
+			);
+			assert_eq!(
+				WormholeProofRecorderExtension::<Runtime>::count_transfers(&cancel),
+				1,
+				"cancel seizes held funds via transfer_on_hold and must be charged one proof"
+			);
+
+			// `Recovery::close_recovery` repatriates the rescuer's reserved deposit,
+			// emitting exactly one `ReserveRepatriated` that the scanner records.
+			let close = RuntimeCall::Recovery(pallet_recovery::Call::close_recovery {
+				rescuer: MultiAddress::Id(bob()),
+			});
+			assert_eq!(
+				WormholeProofRecorderExtension::<Runtime>::count_transfers(&close),
+				1,
+				"close_recovery repatriates the recovery deposit and must be charged one proof"
+			);
+		});
+	}
+
+	#[test]
+	fn wormhole_proof_recorder_counts_recover_funds_at_worst_case() {
+		new_test_ext().execute_with(|| {
+			// `recover_funds` seizes every pending hold to the guardian (one `TransferOnHold`
+			// each, up to `MaxPendingPerAccount`) and then sweeps the account with a
+			// dispatched `transfer_all` (one `Transfer`). The realized count depends on
+			// on-chain state, so the static charge must cover the worst case.
+			let call = RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::recover_funds { account: charlie() },
+			);
+			let max_pending = u64::from(
+				<Runtime as pallet_reversible_transfers::Config>::MaxPendingPerAccount::get(),
+			);
+			assert_eq!(
+				WormholeProofRecorderExtension::<Runtime>::count_transfers(&call),
+				max_pending + 1,
+				"recover_funds must be charged for up to MaxPendingPerAccount hold seizures \
+				 plus the transfer_all sweep"
+			);
+		});
+	}
+
+	#[test]
+	fn wormhole_proof_recorder_guardian_cancel_shortfall_is_fee_charged_not_block_only() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			// charlie is high-security (guardian = alice, from genesis). Schedule a
+			// transfer so there is a pending hold for the guardian to seize.
+			assert_ok!(ReversibleTransfers::schedule_transfer(
+				RuntimeOrigin::signed(charlie()),
+				MultiAddress::Id(bob()),
+				EXISTENTIAL_DEPOSIT * 10,
+			));
+			let tx_id =
+				pallet_reversible_transfers::PendingTransfersBySender::<Runtime>::get(charlie())[0];
+
+			let cancel = RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::cancel { tx_id },
+			);
+			let guardian = alice();
+			let count_before = Wormhole::transfer_count(&guardian);
+			let weight_before = frame_system::Pallet::<Runtime>::block_weight().total();
+
+			// Run the real guardian cancel through the extension lifecycle with the cancel
+			// call itself presented to weight()/prepare().
+			let scanned = core::cell::Cell::new(0u32);
+			run_lifecycle(&guardian, cancel, || {
+				assert_ok!(ReversibleTransfers::cancel(
+					RuntimeOrigin::signed(guardian.clone()),
+					tx_id
+				));
+				scanned.set(frame_system::Pallet::<Runtime>::event_count());
+			});
+			assert_eq!(
+				Wormhole::transfer_count(&guardian),
+				count_before + 1,
+				"the seizure must have been recorded as a proof"
+			);
+
+			// The recorded proof was statically charged by weight(), so post_dispatch must
+			// register ONLY the event-scan weight against the block — no proof-recording
+			// shortfall may be shifted from the transaction fee to block capacity.
+			let weight_after = frame_system::Pallet::<Runtime>::block_weight().total();
+			assert_eq!(
+				weight_after.saturating_sub(weight_before),
+				WormholeProofRecorderExtension::<Runtime>::event_scan_weight(scanned.get()),
+				"a statically visible cancel must have its proof insert fee-charged, \
+				 leaving no shortfall to register against the block"
+			);
+		});
+	}
+
+	#[test]
 	fn per_transfer_weight_includes_tree_hash_compute() {
 		new_test_ext().execute_with(|| {
 			// Recording a transfer inserts a ZK-tree leaf; the path update's Poseidon
@@ -948,9 +1074,9 @@ mod tests {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
 
-			// The presented call is opaque to the static matcher (like `Multisig::execute` or
-			// `ReversibleTransfers::recover_funds`, whose inner call lives on-chain), but the
-			// dispatch emits a real transfer event that post_dispatch must record.
+			// The presented call is opaque to the static matcher (like `Multisig::execute`,
+			// whose inner call lives on-chain), but the dispatch emits a real transfer
+			// event that post_dispatch must record.
 			let opaque_call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
 			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&opaque_call), 0);
 
