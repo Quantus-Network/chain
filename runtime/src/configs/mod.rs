@@ -232,6 +232,14 @@ parameter_types! {
 	// at least `MaxQueued` + total `max_deciding` + 1 (checked by the pallet's
 	// `integrity_test`; benchmarks fill a track's queue and deciding slots completely).
 	pub const MaxActiveReferenda: u32 = 128;
+	// Per-account bound on ongoing referenda. `MaxActiveReferenda` is a shared resource and
+	// `SubmitOrigin` is members-only, so without this cap a single member could fill all
+	// 128 slots with refundable-deposit referenda and freeze the chain's only governance
+	// lane — including the referendum needed to remove them — for the 45-day
+	// `UndecidingTimeout`, renewably. With at most `MaxMemberCount` (13) members at 8 slots
+	// each (104 < 128), the global bound is unreachable even if every member colludes, and
+	// 8 concurrent proposals per member is ample headroom for real use.
+	pub const MaxActiveReferendaPerAccount: u32 = 8;
 	// Submission deposit for referenda
 	pub const ReferendumSubmissionDeposit: Balance = 100 * UNIT;
 	// Undeciding timeout (45 days): a submitted referendum that is NOT in the track queue —
@@ -306,6 +314,8 @@ impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
 	type MaxQueued = ReferendumMaxProposals;
 	/// Global admission bound on `Ongoing` referenda, enforced in `submit`.
 	type MaxActive = MaxActiveReferenda;
+	/// Per-submitter admission bound, so no member coalition can exhaust `MaxActive`.
+	type MaxActivePerAccount = MaxActiveReferendaPerAccount;
 	/// Time period after which an undecided referendum will be automatically rejected.
 	type UndecidingTimeout = UndecidingTimeout;
 	/// The frequency at which the pallet checks for expired or ready-to-timeout referenda.

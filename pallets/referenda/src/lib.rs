@@ -211,6 +211,18 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxActive: Get<u32>;
 
+		/// The maximum number of referenda any one account may have in the `Ongoing` state
+		/// at once.
+		///
+		/// [`Config::MaxActive`] is a shared resource: without a per-account cap, any
+		/// single account passing `SubmitOrigin` could fill it with refundable-deposit
+		/// referenda and freeze submission for everyone — including the very referendum
+		/// needed to intervene — until the `UndecidingTimeout` (renewably). Size it so
+		/// that no plausible coalition of submitters can reach `MaxActive`:
+		/// `MaxActivePerAccount` × (maximum concurrent submitters) < `MaxActive`.
+		#[pallet::constant]
+		type MaxActivePerAccount: Get<u32>;
+
 		/// The number of blocks after submission that a referendum must begin being decided by.
 		/// Once this passes, then anyone may cancel the referendum.
 		#[pallet::constant]
@@ -280,6 +292,16 @@ pub mod pallet {
 	/// [`Config::MaxActive`].
 	#[pallet::storage]
 	pub type ActiveReferendaCount<T, I = ()> = StorageValue<_, u32, ValueQuery>;
+
+	/// The number of referenda currently in the `Ongoing` state per submitter.
+	///
+	/// Maintained alongside [`ActiveReferendaCount`] (incremented on `submit`, decremented
+	/// on every terminal transition) and bounds each account's admissions at
+	/// [`Config::MaxActivePerAccount`], so no single submitter can exhaust the shared
+	/// [`Config::MaxActive`] capacity.
+	#[pallet::storage]
+	pub type ActiveSubmissionCount<T: Config<I>, I: 'static = ()> =
+		StorageMap<_, Twox64Concat, T::AccountId, u32, ValueQuery>;
 
 	/// Information concerning any given referendum.
 	#[pallet::storage]
@@ -469,6 +491,8 @@ pub mod pallet {
 		AlarmSchedulingFailed,
 		/// There are already the maximum number of ongoing referenda.
 		TooManyActive,
+		/// The submitter already has the maximum number of ongoing referenda.
+		TooManyActiveBySubmitter,
 	}
 
 	#[pallet::hooks]
@@ -492,6 +516,10 @@ pub mod pallet {
 					T::MaxQueued::get().saturating_add(total_max_deciding).saturating_add(1),
 				"`MaxActive` must be at least `MaxQueued` + total `max_deciding` + 1.",
 			);
+			assert!(
+				T::MaxActivePerAccount::get() >= 1,
+				"`MaxActivePerAccount` must be at least 1 or nobody can submit.",
+			);
 		}
 	}
 
@@ -508,10 +536,11 @@ pub mod pallet {
 		/// Emits `Submitted`.
 		#[pallet::call_index(0)]
 		// `submit` schedules the undeciding-timeout alarm, bearing the worst-case
-		// `set_alarm` retry overhead; plus one read/write for `ActiveReferendaCount`.
+		// `set_alarm` retry overhead; plus one read/write each for `ActiveReferendaCount`
+		// and the submitter's `ActiveSubmissionCount`.
 		#[pallet::weight(T::WeightInfo::submit()
 			.saturating_add(alarm_retry_weight::<T, I>())
-			.saturating_add(T::DbWeight::get().reads_writes(1, 1)))]
+			.saturating_add(T::DbWeight::get().reads_writes(2, 2)))]
 		pub fn submit(
 			origin: OriginFor<T>,
 			proposal_origin: Box<PalletsOriginOf<T>>,
@@ -554,6 +583,17 @@ pub mod pallet {
 				ActiveReferendaCount::<T, I>::get() < T::MaxActive::get(),
 				Error::<T, I>::TooManyActive
 			);
+
+			// Per-account admission bound: the global cap above is a shared resource, and
+			// without this a single submitter could fill it with refundable-deposit
+			// referenda and freeze submission for everyone — including the referendum
+			// needed to intervene — until the `UndecidingTimeout`.
+			let submitted = ActiveSubmissionCount::<T, I>::get(&who);
+			ensure!(
+				submitted < T::MaxActivePerAccount::get(),
+				Error::<T, I>::TooManyActiveBySubmitter
+			);
+			ActiveSubmissionCount::<T, I>::insert(&who, submitted.saturating_add(1));
 
 			let submission_deposit = Self::take_deposit(who, T::SubmissionDeposit::get())?;
 			let index = ReferendumCount::<T, I>::mutate(|x| {
@@ -682,7 +722,7 @@ pub mod pallet {
 			}
 			// Release the preimage request taken in `submit`.
 			T::Preimages::drop(&status.proposal);
-			Self::note_one_fewer_active();
+			Self::note_one_fewer_active(&status.submission_deposit.who);
 			Self::deposit_event(Event::<T, I>::Cancelled { index, tally: status.tally });
 			let info = ReferendumInfo::Cancelled(
 				T::BlockNumberProvider::current_block_number(),
@@ -721,7 +761,7 @@ pub mod pallet {
 			}
 			// Release the preimage request taken in `submit`.
 			T::Preimages::drop(&status.proposal);
-			Self::note_one_fewer_active();
+			Self::note_one_fewer_active(&status.submission_deposit.who);
 			Self::deposit_event(Event::<T, I>::Killed { index, tally: status.tally });
 			Self::slash_deposit(Some(status.submission_deposit.clone()));
 			Self::slash_deposit(status.decision_deposit.clone());
@@ -929,6 +969,9 @@ impl<T: Config<I>, I: 'static> Polling<T::Tally> for Pallet<T, I> {
 		};
 
 		Self::ensure_alarm_at(&mut status, index, sp_runtime::traits::Bounded::max_value());
+		ActiveSubmissionCount::<T, I>::mutate(&status.submission_deposit.who, |x| {
+			*x = x.saturating_add(1)
+		});
 		ReferendumInfoFor::<T, I>::insert(index, ReferendumInfo::Ongoing(status));
 		ActiveReferendaCount::<T, I>::mutate(|x| *x = x.saturating_add(1));
 		Ok(index)
@@ -939,7 +982,7 @@ impl<T: Config<I>, I: 'static> Polling<T::Tally> for Pallet<T, I> {
 		let mut status = Self::ensure_ongoing(index).map_err(|_| ())?;
 		Self::ensure_no_alarm(&mut status);
 		Self::note_one_fewer_deciding(status.track);
-		Self::note_one_fewer_active();
+		Self::note_one_fewer_active(&status.submission_deposit.who);
 		let now = T::BlockNumberProvider::current_block_number();
 		let info = if approved {
 			ReferendumInfo::Approved(now, Some(status.submission_deposit), status.decision_deposit)
@@ -1459,7 +1502,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 					Self::ensure_no_alarm(&mut status);
 					// Release the preimage request taken in `submit`.
 					T::Preimages::drop(&status.proposal);
-					Self::note_one_fewer_active();
+					Self::note_one_fewer_active(&status.submission_deposit.who);
 					Self::deposit_event(Event::<T, I>::TimedOut { index, tally: status.tally });
 					return (
 						ReferendumInfo::TimedOut(
@@ -1503,7 +1546,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 									// enactment call in `schedule_named`, so the bytes stay
 									// pinned until dispatch.
 									T::Preimages::drop(&status.proposal);
-									Self::note_one_fewer_active();
+									Self::note_one_fewer_active(&status.submission_deposit.who);
 									Self::deposit_event(Event::<T, I>::Confirmed {
 										index,
 										tally: status.tally,
@@ -1540,7 +1583,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 						Self::note_one_fewer_deciding(status.track);
 						// Release the preimage request taken in `submit`.
 						T::Preimages::drop(&status.proposal);
-						Self::note_one_fewer_active();
+						Self::note_one_fewer_active(&status.submission_deposit.who);
 						Self::deposit_event(Event::<T, I>::Rejected { index, tally: status.tally });
 						return (
 							ReferendumInfo::Rejected(
@@ -1615,12 +1658,19 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		})
 	}
 
-	/// Note that one referendum has left the `Ongoing` state.
+	/// Note that one referendum submitted by `who` has left the `Ongoing` state.
 	///
 	/// Must accompany every transition of a referendum out of `ReferendumInfo::Ongoing`, so
-	/// that `ActiveReferendaCount` (which bounds admissions in `submit`) stays accurate.
-	fn note_one_fewer_active() {
+	/// that `ActiveReferendaCount` and the submitter's `ActiveSubmissionCount` (which bound
+	/// admissions in `submit`) stay accurate.
+	fn note_one_fewer_active(who: &T::AccountId) {
 		ActiveReferendaCount::<T, I>::mutate(|x| *x = x.saturating_sub(1));
+		ActiveSubmissionCount::<T, I>::mutate_exists(who, |maybe_count| {
+			*maybe_count = maybe_count.and_then(|count| {
+				let count = count.saturating_sub(1);
+				(count > 0).then_some(count)
+			});
+		});
 	}
 
 	/// Cancel the alarm in `status`, if one exists.
@@ -1704,6 +1754,18 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 					.filter(|info| matches!(info, ReferendumInfo::Ongoing(_)))
 					.count(),
 			"`ActiveReferendaCount` must match the number of `Ongoing` referenda"
+		);
+
+		let mut ongoing_by_submitter = alloc::collections::BTreeMap::<T::AccountId, u32>::new();
+		ReferendumInfoFor::<T, I>::iter_values().for_each(|info| {
+			if let ReferendumInfo::Ongoing(status) = info {
+				*ongoing_by_submitter.entry(status.submission_deposit.who).or_default() += 1;
+			}
+		});
+		ensure!(
+			ActiveSubmissionCount::<T, I>::iter().collect::<alloc::collections::BTreeMap<_, _>>() ==
+				ongoing_by_submitter,
+			"`ActiveSubmissionCount` must match each submitter's `Ongoing` referenda, with no stale zero entries"
 		);
 
 		MetadataOf::<T, I>::iter_keys().try_for_each(|referendum_index| -> DispatchResult {

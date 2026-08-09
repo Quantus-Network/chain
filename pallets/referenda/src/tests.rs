@@ -141,6 +141,79 @@ fn timed_out_referendum_frees_active_slot() {
 	});
 }
 
+#[test]
+fn one_submitter_cannot_exhaust_the_shared_active_capacity() {
+	ExtBuilder::default().build_and_execute(|| {
+		MaxActivePerAccount::set(2);
+		for _ in 0..2 {
+			assert_ok!(Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				set_balance_proposal_bounded(1),
+				DispatchTime::At(10),
+			));
+		}
+		// The spammer is stopped by their own cap, well before `MaxActive`...
+		assert_noop!(
+			Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				set_balance_proposal_bounded(1),
+				DispatchTime::At(10),
+			),
+			Error::<Test>::TooManyActiveBySubmitter
+		);
+		// ...so every other account can still submit: the lane is not frozen.
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(2),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(10),
+		));
+
+		// A concluded referendum frees its submitter's slot again.
+		assert_ok!(Referenda::cancel(RuntimeOrigin::signed(4), 0));
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(10),
+		));
+	});
+}
+
+#[test]
+fn timed_out_referendum_frees_the_submitters_slot() {
+	ExtBuilder::default().build_and_execute(|| {
+		MaxActivePerAccount::set(1);
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(10),
+		));
+		assert_noop!(
+			Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				set_balance_proposal_bounded(1),
+				DispatchTime::At(10),
+			),
+			Error::<Test>::TooManyActiveBySubmitter
+		);
+		// The undeciding timeout must release the per-submitter slot, exactly as it
+		// releases the global one.
+		run_to(22);
+		assert_matches!(ReferendumInfoFor::<Test>::get(0), Some(ReferendumInfo::TimedOut(..)));
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(30),
+		));
+	});
+}
+
 /// If the preferred enactment block's agenda is already full of mid-priority
 /// tasks (which the LOWEST_PRIORITY reservation does not hold back), enactment
 /// must slide forward to a free block instead of dropping the approved call.

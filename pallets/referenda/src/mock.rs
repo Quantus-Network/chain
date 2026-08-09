@@ -106,8 +106,9 @@ impl pallet_balances::Config for Test {
 }
 parameter_types! {
 	pub static AlarmInterval: u64 = 1;
-	// Generous default so only tests that explicitly lower it exercise the bound.
+	// Generous defaults so only tests that explicitly lower them exercise the bounds.
 	pub static MaxActive: u32 = 100;
+	pub static MaxActivePerAccount: u32 = 100;
 }
 ord_parameter_types! {
 	pub const One: u64 = 1;
@@ -223,6 +224,7 @@ impl Config for Test {
 	type SubmissionDeposit = ConstU64<2>;
 	type MaxQueued = ConstU32<3>;
 	type MaxActive = MaxActive;
+	type MaxActivePerAccount = MaxActivePerAccount;
 	type UndecidingTimeout = ConstU64<20>;
 	type AlarmInterval = AlarmInterval;
 	type Tracks = TestTracksInfo;

@@ -16,6 +16,22 @@ mod tests {
 
 	const TRACK_ID: u16 = 0;
 
+	/// `SubmitOrigin` is members-only, so the worst case for ongoing-referenda pressure is
+	/// every member sitting at their per-account cap. That must stay short of the global
+	/// `MaxActive` bound: otherwise a single spamming member (or colluding subset) could
+	/// pin `submit` at `TooManyActive` for everyone — including the referendum needed to
+	/// remove them — until the 45-day undeciding timeout, renewably.
+	#[test]
+	fn member_collusion_cannot_reach_the_global_referenda_bound() {
+		use quantus_runtime::configs::{
+			MaxActiveReferenda, MaxActiveReferendaPerAccount, MaxMemberCount,
+		};
+		use sp_core::Get;
+		let worst_case =
+			u64::from(MaxMemberCount::get()) * u64::from(MaxActiveReferendaPerAccount::get());
+		assert!(worst_case < u64::from(MaxActiveReferenda::get()));
+	}
+
 	/// Fast test example demonstrating the solution - this test uses the improved 2-block periods
 	/// instead of the original slow periods that were causing performance issues
 	#[test]
