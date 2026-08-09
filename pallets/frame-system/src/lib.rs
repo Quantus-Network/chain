@@ -2185,6 +2185,16 @@ impl<T: Config> Pallet<T> {
 		Events::<T>::stream_iter()
 	}
 
+	/// Encoded byte length of the `Events` storage value, without decoding (or copying)
+	/// it: `sp_io::storage::read` with an empty buffer returns the value's total length.
+	///
+	/// Lets size-aware consumers of [`Self::read_events_no_consensus`] (which
+	/// stream-decodes every record present, including arbitrarily large ones) price the
+	/// decode work by payload size rather than record count alone.
+	pub fn event_bytes() -> u32 {
+		sp_io::storage::read(&Events::<T>::hashed_key(), &mut [], 0).unwrap_or(0)
+	}
+
 	/// Read and return the events of a specific pallet, as denoted by `E`.
 	///
 	/// This is useful for a pallet that wishes to read only the events it has deposited into
