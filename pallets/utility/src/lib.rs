@@ -406,6 +406,11 @@ pub mod pallet {
 			let dispatch_info = call.get_dispatch_info();
 			(
 				T::WeightInfo::dispatch_as()
+					// High-security policy check on a signed effective origin
+					// (`is_call_allowed` → one classification read in the runtime
+					// inspector); the benchmarked base runs with the no-op inspector
+					// and does not include it.
+					.saturating_add(T::DbWeight::get().reads(1))
 					.saturating_add(dispatch_info.call_weight),
 				dispatch_info.class,
 			)
@@ -645,6 +650,8 @@ pub mod pallet {
 			let dispatch_info = call.get_dispatch_info();
 			(
 				T::WeightInfo::dispatch_as_fallible()
+					// Same high-security policy read as `dispatch_as`.
+					.saturating_add(T::DbWeight::get().reads(1))
 					.saturating_add(dispatch_info.call_weight),
 				dispatch_info.class,
 			)

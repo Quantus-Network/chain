@@ -421,6 +421,44 @@ fn as_derivative_weight_charges_high_security_policy_read() {
 	});
 }
 
+/// `dispatch_as` and `dispatch_as_fallible` run the same `is_call_allowed` check as
+/// `as_derivative` when the effective origin is signed (one classification read in the
+/// runtime inspector), so their declared weights must charge that read too.
+#[test]
+fn dispatch_as_weights_charge_high_security_policy_read() {
+	new_test_ext().execute_with(|| {
+		let db = <Test as frame_system::Config>::DbWeight::get();
+		let inner = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+		let inner_weight = inner.get_dispatch_info().call_weight;
+
+		let call = RuntimeCall::Utility(UtilityCall::dispatch_as {
+			as_origin: Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(1))),
+			call: Box::new(inner.clone()),
+		});
+		let without_policy_read =
+			<Test as Config>::WeightInfo::dispatch_as().saturating_add(inner_weight);
+		assert!(
+			call.get_dispatch_info()
+				.call_weight
+				.all_gte(without_policy_read.saturating_add(db.reads(1))),
+			"declared dispatch_as weight must include the high-security policy read"
+		);
+
+		let call = RuntimeCall::Utility(UtilityCall::dispatch_as_fallible {
+			as_origin: Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(1))),
+			call: Box::new(inner),
+		});
+		let without_policy_read =
+			<Test as Config>::WeightInfo::dispatch_as_fallible().saturating_add(inner_weight);
+		assert!(
+			call.get_dispatch_info()
+				.call_weight
+				.all_gte(without_policy_read.saturating_add(db.reads(1))),
+			"declared dispatch_as_fallible weight must include the high-security policy read"
+		);
+	});
+}
+
 #[test]
 fn as_derivative_filters() {
 	new_test_ext().execute_with(|| {
