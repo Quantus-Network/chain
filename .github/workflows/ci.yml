@@ -99,5 +99,11 @@ jobs:
         run: rustup component add rust-src clippy
       - name: Run clippy
         run: SKIP_WASM_BUILD=1 cargo clippy --locked --workspace
+      # Match crates.io publish workflows (`-D warnings`). Workspace-wide deny is
+      # not feasible yet (~1.6k existing lints); keep published crates strict.
+      - name: Run clippy on published crates
+        run: |
+          cargo clippy --locked --package qp-dilithium-crypto --no-deps -- -D warnings
+          cargo clippy --locked --package quantus-miner-api --no-deps -- -D warnings
       - name: Run doc
         run: SKIP_WASM_BUILD=1 cargo doc --locked --workspace --no-deps
