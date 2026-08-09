@@ -139,7 +139,9 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	/// cross capacity boundaries. The path update also puts every tree key it reads
 	/// into the PoV ([`pallet_zk_tree::TREE_KEY_POV`] each); omitting that proof-size
 	/// term would let deep-tree blocks exceed the PoV budget validators re-execute
-	/// against.
+	/// against. Recording finally deposits [`Self::EVENTS_PER_RECORDED_PROOF`] events;
+	/// those land after the scan snapshot, so this reservation is the only place their
+	/// System work can be charged.
 	fn per_transfer_weight() -> Weight {
 		let (tree_reads, tree_writes) = pallet_zk_tree::INSERT_LEAF_DB_OPS;
 		let hash_time = pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS;
@@ -149,6 +151,23 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 				hash_time,
 				tree_reads.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
 			))
+			.saturating_add(Self::event_deposit_weight(Self::EVENTS_PER_RECORDED_PROOF))
+	}
+
+	/// Events deposited by one successfully recorded proof: `ZkTree::LeafInserted`
+	/// plus the wormhole's `NativeTransferred` / `AssetTransferred`. (`TreeGrew` is
+	/// deliberately not modeled: the tree grows at most [`pallet_zk_tree::MAX_TREE_DEPTH`]
+	/// times over the chain's entire life, and the flat depth-ceiling insert pricing
+	/// already carries margin for young trees.)
+	const EVENTS_PER_RECORDED_PROOF: u64 = 2;
+
+	/// Weight of depositing `events` records from proof recording. Each
+	/// `frame_system::deposit_event` reads and writes `EventCount` and appends the
+	/// encoded record to `Events`. These deposits happen after the scan snapshot is
+	/// taken, so no scan charge can cover them — they must be part of the static
+	/// per-transfer reservation.
+	fn event_deposit_weight(events: u64) -> Weight {
+		T::DbWeight::get().reads_writes(events, events.saturating_mul(2))
 	}
 
 	/// Worst-case `ref_time` (picoseconds) to stream-decode one `EventRecord` in
@@ -1097,6 +1116,58 @@ mod tests {
 				weight.proof_size(),
 				tree_reads.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
 				"per-transfer weight must charge PoV for the tree keys the insert reads"
+			);
+			// Recording also deposits events (LeafInserted + NativeTransferred), each an
+			// `EventCount` read/write and an `Events` append. Those deposits happen after
+			// the scan snapshot, so nothing downstream can charge them: the static
+			// reservation must.
+			let event_deposits = WormholeProofRecorderExtension::<Runtime>::event_deposit_weight(
+				WormholeProofRecorderExtension::<Runtime>::EVENTS_PER_RECORDED_PROOF,
+			);
+			assert!(
+				weight.ref_time() >=
+					db_time +
+						pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS +
+						event_deposits.ref_time(),
+				"per-transfer weight must charge the event deposits proof recording performs"
+			);
+		});
+	}
+
+	/// Pins the multiplier behind the modeled event-deposit charge: one recorded proof
+	/// deposits exactly `EVENTS_PER_RECORDED_PROOF` events. If recording ever starts
+	/// emitting more, the static reservation must be updated with it. (Capacity-boundary
+	/// inserts additionally emit `TreeGrew`, deliberately unmodeled: it happens at most
+	/// `MAX_TREE_DEPTH` times over the chain's whole life — the warm-up insert below
+	/// steps the fresh test tree past the first boundary.)
+	#[test]
+	fn recording_one_proof_deposits_exactly_the_modeled_events() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let record_one_transfer = || {
+				System::deposit_event(RuntimeEvent::Balances(pallet_balances::Event::Transfer {
+					from: alice(),
+					to: bob(),
+					amount: EXISTENTIAL_DEPOSIT * 50,
+				}));
+				let scan_from = System::event_count() - 1;
+				let events_before = System::event_count();
+				let recorded =
+					WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(
+						scan_from,
+					);
+				assert_eq!(recorded, 1);
+				u64::from(System::event_count() - events_before)
+			};
+
+			// Warm-up: the very first insert grows the empty tree and emits `TreeGrew`.
+			record_one_transfer();
+
+			assert_eq!(
+				record_one_transfer(),
+				WormholeProofRecorderExtension::<Runtime>::EVENTS_PER_RECORDED_PROOF,
+				"the modeled events-per-proof multiplier must match what recording deposits"
 			);
 		});
 	}
