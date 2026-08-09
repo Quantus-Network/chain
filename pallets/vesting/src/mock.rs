@@ -1,6 +1,6 @@
 use crate as pallet_vesting;
 
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use frame_support::{
 	parameter_types,
 	traits::{ConstU32, ConstU64, EitherOfDiverse, EnsureOrigin, Everything},
@@ -128,6 +128,7 @@ pub type RecordedProof = (AccountId32, AccountId32, Balance);
 
 thread_local! {
 	static RECORDED_PROOFS: RefCell<Vec<RecordedProof>> = const { RefCell::new(Vec::new()) };
+	static DROP_CREDITS: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Captures every payout the pallet records, for test assertions.
@@ -136,6 +137,12 @@ pub struct MockProofRecorder;
 impl MockProofRecorder {
 	pub fn recorded() -> Vec<RecordedProof> {
 		RECORDED_PROOFS.with(|proofs| proofs.borrow().clone())
+	}
+
+	/// Make the recorder report every subsequent credit as deliberately dropped
+	/// (the `false` branch the `TransferProofRecorder` contract permits).
+	pub fn set_drop_credits(drop: bool) {
+		DROP_CREDITS.with(|flag| flag.set(drop));
 	}
 }
 
@@ -147,6 +154,9 @@ impl qp_wormhole::TransferProofRecorder<AccountId32, u32, Balance> for MockProof
 		amount: Balance,
 	) -> bool {
 		assert!(asset_id.is_none(), "vesting payouts are always native");
+		if DROP_CREDITS.with(|flag| flag.get()) {
+			return false;
+		}
 		RECORDED_PROOFS.with(|proofs| proofs.borrow_mut().push((from, to, amount)));
 		true
 	}

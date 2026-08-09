@@ -227,6 +227,10 @@ pub mod pallet {
 		PotUnderfunded,
 		/// The beneficiary must not be the pot, and retargeting must change the account.
 		InvalidBeneficiary,
+		/// The proof recorder reported the payout credit as dropped: no wormhole leaf
+		/// was created, so the payout is rolled back rather than finalized without the
+		/// proof material a keyless beneficiary needs to exit.
+		PayoutProofNotRecorded,
 	}
 
 	#[pallet::genesis_config]
@@ -579,13 +583,30 @@ pub mod pallet {
 		/// the scheduler run outside the signed-extrinsic lifecycle and the extension
 		/// never sees them. The extension in turn skips pot-sourced transfer events, so
 		/// signed paths are not double-recorded.
+		///
+		/// The recorder contract permits `false` for a deliberately dropped credit.
+		/// That must be treated as failure here: were the payout finalized anyway, the
+		/// caller would advance `claimed` (or remove the schedule), making the missing
+		/// proof unrecoverable — the payout could never be retried. The storage layer
+		/// rolls the transfer back, so the schedule stays intact and retryable. (The
+		/// runtime's Wormhole recorder always records nonzero native credits, so this
+		/// guards the generic recorder boundary rather than a reachable runtime path.)
+		#[frame_support::transactional]
 		fn pay_out(
 			pot: &T::AccountId,
 			beneficiary: &T::AccountId,
 			amount: BalanceOf<T>,
 		) -> DispatchResult {
 			T::Currency::transfer(pot, beneficiary, amount, Preservation::Preserve)?;
-			T::ProofRecorder::record_transfer_proof(None, pot.clone(), beneficiary.clone(), amount);
+			ensure!(
+				T::ProofRecorder::record_transfer_proof(
+					None,
+					pot.clone(),
+					beneficiary.clone(),
+					amount
+				),
+				Error::<T>::PayoutProofNotRecorded
+			);
 			Ok(())
 		}
 
