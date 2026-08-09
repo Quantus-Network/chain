@@ -1749,8 +1749,7 @@ mod exit_bundle_tests {
 
 			let fee_bps = VolumeFeeRateBps::get() as u128;
 			let fee_minted = super::ceil_volume_fee(AMOUNT_B as u128, fee_bps);
-			let fee_attempted =
-				super::ceil_volume_fee((AMOUNT_A + AMOUNT_B) as u128, fee_bps);
+			let fee_attempted = super::ceil_volume_fee((AMOUNT_A + AMOUNT_B) as u128, fee_bps);
 			assert_ne!(fee_minted, fee_attempted);
 
 			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();

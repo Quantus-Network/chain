@@ -177,8 +177,7 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			Self::EVENT_SCAN_DECODE_REF_TIME_PS
 				.saturating_mul(u64::from(events))
 				.saturating_add(
-					Self::EVENT_SCAN_DECODE_BYTE_REF_TIME_PS
-						.saturating_mul(u64::from(event_bytes)),
+					Self::EVENT_SCAN_DECODE_BYTE_REF_TIME_PS.saturating_mul(u64::from(event_bytes)),
 				),
 			0,
 		))
@@ -402,21 +401,21 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 			// - It cannot be fee-charged: the scan cost depends on how many events EARLIER
 			//   transactions in the same block emitted, unknowable when the fee is computed.
 			//   `TransactionExtension::weight()` is static by design, and post-dispatch fee
-			//   correction only refunds downward — `actual_weight` is capped at the
-			//   pre-charged weight. The only alternative, reserving a worst-case whole-block
-			//   scan in every transaction upfront, would collapse throughput to insure
-			//   against microseconds of work.
+			//   correction only refunds downward — `actual_weight` is capped at the pre-charged
+			//   weight. The only alternative, reserving a worst-case whole-block scan in every
+			//   transaction upfront, would collapse throughput to insure against microseconds of
+			//   work.
 			//
 			// - Block capacity stays sound: `register_extra_weight_unchecked` accrues into
-			//   `BlockWeight` before the NEXT transaction's `CheckWeight` admission, so
-			//   later transactions are refused once the block fills. The worst case is a
-			//   bounded one-transaction overshoot at the block boundary (the same accepted
-			//   pattern FRAME uses for `on_initialize` overruns).
+			//   `BlockWeight` before the NEXT transaction's `CheckWeight` admission, so later
+			//   transactions are refused once the block fills. The worst case is a bounded
+			//   one-transaction overshoot at the block boundary (the same accepted pattern FRAME
+			//   uses for `on_initialize` overruns).
 			//
 			// - The economics don't invert: emitting events is fully fee-charged through the
-			//   emitting calls' benchmarked weights, and the uncharged decode here is
-			//   ~1µs/record + ~10ns/byte — orders of magnitude below what the attacker pays
-			//   to produce those events.
+			//   emitting calls' benchmarked weights, and the uncharged decode here is ~1µs/record +
+			//   ~10ns/byte — orders of magnitude below what the attacker pays to produce those
+			//   events.
 			let mut extra = Self::event_scan_weight(events_at_scan, event_bytes_at_scan);
 			if recorded > charged_transfers {
 				extra = extra.saturating_add(
