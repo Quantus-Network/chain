@@ -49,6 +49,7 @@ fn signed_transfer(
 		frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(false),
 		ReversibleTransactionExtension::<Runtime>::new(),
 		WormholeProofRecorderExtension::<Runtime>::new(),
+		frame_system::WeightReclaim::<Runtime>::new(),
 	);
 
 	let raw_payload = SignedPayload::from_raw(
@@ -64,6 +65,7 @@ fn signed_transfer(
 			(),
 			(),
 			None,
+			(),
 			(),
 			(),
 		),

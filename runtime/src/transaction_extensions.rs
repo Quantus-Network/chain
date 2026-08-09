@@ -372,9 +372,11 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 	for WormholeProofRecorderExtension<T>
 {
 	/// `(event_count_snapshot, statically_charged_transfer_count)`. The snapshot bounds the
-	/// event scan in `post_dispatch`; the charged count lets `post_dispatch` reconcile actual
-	/// proof-recording work against the weight reserved by `weight()`. A count is sufficient
-	/// because the per-transfer price is flat (see [`Self::per_transfer_weight`]).
+	/// event scan in `post_dispatch_details`; the charged count lets it reconcile actual
+	/// proof-recording work against the weight reserved by `weight()` — registering any
+	/// shortfall against the block and refunding any overcharge as unspent weight. A count
+	/// is sufficient because the per-transfer price is flat (see
+	/// [`Self::per_transfer_weight`]).
 	type Pre = (u32, u64);
 	type Val = ();
 	type Implicit = ();
@@ -417,48 +419,58 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		Ok((ValidTransaction::default(), (), origin))
 	}
 
-	fn post_dispatch(
+	fn post_dispatch_details(
 		pre: Self::Pre,
 		info: &DispatchInfoOf<RuntimeCall>,
-		_post_info: &mut PostDispatchInfoOf<RuntimeCall>,
+		_post_info: &PostDispatchInfoOf<RuntimeCall>,
 		_len: usize,
 		result: &DispatchResult,
-	) -> Result<(), TransactionValidityError> {
-		// Only record proofs if the transaction succeeded.
-		// Use the event count snapshot from prepare() to avoid duplicate recording.
-		if result.is_ok() {
-			let (event_count_before, charged_transfers) = pre;
-			// Captured BEFORE recording deposits new events: this is exactly the number
-			// of records the scan below decodes.
-			let events_at_scan = frame_system::Pallet::<Runtime>::event_count();
-			let recorded = Self::record_proofs_from_events_since(event_count_before);
+	) -> Result<Weight, TransactionValidityError> {
+		let (event_count_before, charged_transfers) = pre;
 
-			// Two pieces of caller-influenced work here are invisible to the static
-			// `weight()` and are therefore registered against the block post-hoc (this
-			// keeps block-capacity accounting sound; it is not fee-charged):
-			//
-			// 1. The event scan itself: any call can emit events the scan must decode (e.g. batched
-			//    `remark_with_event`), and the decode cost is per record present at scan time — see
-			//    `event_scan_weight`.
-			//
-			// 2. Recording shortfall: wrappers that dispatch inner calls stored on-chain
-			//    (`Multisig::execute`, ...) can emit transfer events the static `count_transfers`
-			//    matcher cannot see, so the proof-recording work above may exceed the weight
-			//    reserved by `weight()`. The flat per-transfer price times the count difference
-			//    covers it.
-			let mut extra = Self::event_scan_weight(events_at_scan);
-			if recorded > charged_transfers {
-				extra = extra.saturating_add(
-					Self::per_transfer_weight()
-						.saturating_mul(recorded.saturating_sub(charged_transfers)),
-				);
-			}
-			if extra != Weight::zero() {
-				frame_system::Pallet::<Runtime>::register_extra_weight_unchecked(extra, info.class);
-			}
+		// A failed dispatch rolled back its events: nothing is scanned and nothing is
+		// recorded, so the entire static per-transfer reservation is unspent. Returning
+		// it lets the pipeline refund it (see `TxExtension`'s trailing `WeightReclaim`).
+		if result.is_err() {
+			return Ok(Self::per_transfer_weight().saturating_mul(charged_transfers));
 		}
 
-		Ok(())
+		// Captured BEFORE recording deposits new events: this is exactly the number
+		// of records the scan below decodes.
+		let events_at_scan = frame_system::Pallet::<Runtime>::event_count();
+		let recorded = Self::record_proofs_from_events_since(event_count_before);
+
+		// Two pieces of caller-influenced work here are invisible to the static
+		// `weight()` and are therefore registered against the block post-hoc (this
+		// keeps block-capacity accounting sound; it is not fee-charged):
+		//
+		// 1. The event scan itself: any call can emit events the scan must decode (e.g. batched
+		//    `remark_with_event`), and the decode cost is per record present at scan time — see
+		//    `event_scan_weight`.
+		//
+		// 2. Recording shortfall: wrappers that dispatch inner calls stored on-chain
+		//    (`Multisig::execute`, ...) can emit transfer events the static `count_transfers`
+		//    matcher cannot see, so the proof-recording work above may exceed the weight reserved
+		//    by `weight()`. The flat per-transfer price times the count difference covers it.
+		let mut extra = Self::event_scan_weight(events_at_scan);
+		if recorded > charged_transfers {
+			extra = extra.saturating_add(
+				Self::per_transfer_weight()
+					.saturating_mul(recorded.saturating_sub(charged_transfers)),
+			);
+		}
+		if extra != Weight::zero() {
+			frame_system::Pallet::<Runtime>::register_extra_weight_unchecked(extra, info.class);
+		}
+
+		// The converse of the shortfall: `weight()` reserves the worst case, and any
+		// statically over-charged transfers are unspent — `recover_funds` is charged
+		// `MaxPendingPerAccount + 1` regardless of how many holds were pending, `if_else`
+		// is charged its heavier branch, and a short-circuited `batch` never executes its
+		// remaining children. The per-transfer price is flat, so the unspent amount is
+		// exactly the count difference times that price (and by construction never exceeds
+		// this extension's declared weight).
+		Ok(Self::per_transfer_weight().saturating_mul(charged_transfers.saturating_sub(recorded)))
 	}
 }
 
@@ -1244,6 +1256,167 @@ mod tests {
 		});
 	}
 
+	/// `weight()` reserves the static worst case, so a dispatch that performs fewer
+	/// proof inserts than charged (short-circuited `batch`, `if_else`'s lighter branch,
+	/// `recover_funds` with fewer pending holds than `MaxPendingPerAccount`) must have
+	/// the difference refunded via `post_dispatch_details`, not kept forever.
+	#[test]
+	fn statically_overcharged_transfers_are_refunded_post_dispatch() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			// A batch of two transfers is charged two per-transfer reservations, but a
+			// short-circuiting `batch` stops at the first failure: simulate a dispatch
+			// that only completed the first transfer.
+			let call = RuntimeCall::Utility(pallet_utility::Call::batch {
+				calls: vec![non_whitelisted_transfer(), non_whitelisted_transfer()],
+			});
+			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&call), 2);
+
+			let (info, post_info) = run_lifecycle_with_result(&alice(), call, Ok(()), || {
+				assert_ok!(Balances::transfer_keep_alive(
+					RuntimeOrigin::signed(alice()),
+					MultiAddress::Id(bob()),
+					EXISTENTIAL_DEPOSIT * 50,
+				));
+			});
+
+			let per_transfer = WormholeProofRecorderExtension::<Runtime>::per_transfer_weight();
+			assert_eq!(
+				post_info.actual_weight,
+				Some(info.total_weight().saturating_sub(per_transfer)),
+				"the unused second per-transfer reservation must be refunded"
+			);
+		});
+	}
+
+	/// A failed dispatch rolls back its events: nothing is scanned or recorded, so the
+	/// entire static per-transfer reservation is unspent and must be refunded.
+	#[test]
+	fn failed_dispatch_refunds_the_entire_static_transfer_charge() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+				dest: MultiAddress::Id(bob()),
+				value: EXISTENTIAL_DEPOSIT * 50,
+			});
+			let count_before = Wormhole::transfer_count(&bob());
+			let weight_before = frame_system::Pallet::<Runtime>::block_weight().total();
+
+			let (info, post_info) = run_lifecycle_with_result(
+				&alice(),
+				call,
+				Err(sp_runtime::DispatchError::BadOrigin),
+				|| {},
+			);
+
+			let per_transfer = WormholeProofRecorderExtension::<Runtime>::per_transfer_weight();
+			assert_eq!(
+				post_info.actual_weight,
+				Some(info.total_weight().saturating_sub(per_transfer)),
+				"a failed dispatch records nothing, so its full static charge is unspent"
+			);
+			assert_eq!(Wormhole::transfer_count(&bob()), count_before, "nothing recorded");
+			assert_eq!(
+				frame_system::Pallet::<Runtime>::block_weight().total(),
+				weight_before,
+				"no scan runs on failure, so no extra weight is registered"
+			);
+		});
+	}
+
+	/// Pins the pipeline mechanics the refund depends on: `CheckWeight` reclaims block
+	/// weight BEFORE this extension's refund exists, so the trailing
+	/// `frame_system::WeightReclaim` in `TxExtension` is what actually returns the
+	/// refund to block capacity (idempotently, via `ExtrinsicWeightReclaimed`).
+	#[test]
+	fn trailing_weight_reclaim_returns_the_refund_to_block_capacity() {
+		use frame_system::{CheckWeight, WeightReclaim};
+		use sp_runtime::traits::{ExtensionPostDispatchWeightHandler, TxBaseImplication};
+
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			// Presented call is charged one per-transfer reservation; the dispatch
+			// performs no transfer, so the whole reservation is unspent.
+			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+				dest: MultiAddress::Id(bob()),
+				value: EXISTENTIAL_DEPOSIT * 50,
+			});
+			let ext = WormholeProofRecorderExtension::<Runtime>::new();
+			let ext_weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
+				RuntimeCall,
+			>>::weight(&ext, &call);
+			let info = frame_support::dispatch::DispatchInfo {
+				call_weight: Weight::from_parts(1_000_000, 0),
+				extension_weight: ext_weight,
+				..Default::default()
+			};
+
+			// Admission: CheckWeight accrues the full declared weight.
+			let (_, next_len) = CheckWeight::<Runtime>::do_validate(&info, 0).unwrap();
+			assert_ok!(CheckWeight::<Runtime>::do_prepare(&info, 0, next_len));
+			let admitted = frame_system::Pallet::<Runtime>::block_weight().total();
+
+			let origin = RuntimeOrigin::signed(alice());
+			let (_, val, _) = ext
+				.validate(
+					origin.clone(),
+					&call,
+					&info,
+					0,
+					(),
+					&TxBaseImplication::<()>(()),
+					frame_support::pallet_prelude::TransactionSource::External,
+				)
+				.expect("validate should succeed");
+			let pre = ext
+				.clone()
+				.prepare(val, &origin, &call, &info, 0)
+				.expect("prepare should succeed");
+
+			// (dispatch performs no transfer)
+
+			// Post-dispatch in real pipeline order.
+			let mut post_info = frame_support::dispatch::PostDispatchInfo::default();
+			post_info.set_extension_weight(&info);
+			let events_at_scan = frame_system::Pallet::<Runtime>::event_count();
+			assert_ok!(CheckWeight::<Runtime>::post_dispatch_details(
+				(),
+				&info,
+				&post_info,
+				0,
+				&Ok(())
+			));
+			<WormholeProofRecorderExtension<Runtime> as TransactionExtension<RuntimeCall>>::post_dispatch(
+				pre,
+				&info,
+				&mut post_info,
+				0,
+				&Ok(()),
+			)
+			.expect("post_dispatch should succeed");
+			assert_ok!(WeightReclaim::<Runtime>::post_dispatch_details(
+				(),
+				&info,
+				&post_info,
+				0,
+				&Ok(())
+			));
+
+			// The refunded per-transfer reservation left block capacity; the (post-hoc)
+			// event-scan registration is the only addition.
+			let per_transfer = WormholeProofRecorderExtension::<Runtime>::per_transfer_weight();
+			let scan = WormholeProofRecorderExtension::<Runtime>::event_scan_weight(events_at_scan);
+			assert_eq!(
+				frame_system::Pallet::<Runtime>::block_weight().total(),
+				admitted.saturating_sub(per_transfer).saturating_add(scan),
+				"the trailing WeightReclaim must return the wormhole refund to block capacity"
+			);
+		});
+	}
+
 	#[test]
 	fn wormhole_proof_recorder_extension_prepare_succeeds() {
 		new_test_ext().execute_with(|| {
@@ -1715,6 +1888,60 @@ mod tests {
 				"Transfer count should increment for multisig transfer"
 			);
 		});
+	}
+
+	/// Like [`run_lifecycle`], but mirrors the pipeline's post-dispatch weight handling:
+	/// `post_info.set_extension_weight` runs before `post_dispatch` (as
+	/// `dispatch_transaction` does), so refunds made by the extension are visible in the
+	/// returned `PostDispatchInfo`. `result` is the dispatch result presented to
+	/// `post_dispatch`.
+	fn run_lifecycle_with_result(
+		from: &AccountId,
+		call: RuntimeCall,
+		result: DispatchResult,
+		dispatch: impl FnOnce(),
+	) -> (frame_support::dispatch::DispatchInfo, frame_support::dispatch::PostDispatchInfo) {
+		use sp_runtime::traits::{ExtensionPostDispatchWeightHandler, TxBaseImplication};
+
+		let ext = WormholeProofRecorderExtension::<Runtime>::new();
+		let info = frame_support::dispatch::DispatchInfo {
+			call_weight: Weight::from_parts(1_000_000, 0),
+			extension_weight: <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
+				RuntimeCall,
+			>>::weight(&ext, &call),
+			..Default::default()
+		};
+		let origin = RuntimeOrigin::signed(from.clone());
+
+		let (_, val, _) = ext
+			.validate(
+				origin.clone(),
+				&call,
+				&info,
+				0,
+				(),
+				&TxBaseImplication::<()>(()),
+				frame_support::pallet_prelude::TransactionSource::External,
+			)
+			.expect("validate should succeed");
+		let pre = ext
+			.clone()
+			.prepare(val, &origin, &call, &info, 0)
+			.expect("prepare should succeed");
+
+		dispatch();
+
+		let mut post_info = frame_support::dispatch::PostDispatchInfo::default();
+		post_info.set_extension_weight(&info);
+		<WormholeProofRecorderExtension<Runtime> as TransactionExtension<RuntimeCall>>::post_dispatch(
+			pre,
+			&info,
+			&mut post_info,
+			0,
+			&result,
+		)
+		.expect("post_dispatch should succeed");
+		(info, post_info)
 	}
 
 	/// Run a full transaction (whatever `dispatch` performs) through the extension lifecycle.

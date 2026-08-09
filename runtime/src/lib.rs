@@ -163,6 +163,12 @@ pub type TxExtension = (
 	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
 	transaction_extensions::ReversibleTransactionExtension<Runtime>,
 	transaction_extensions::WormholeProofRecorderExtension<Runtime>,
+	// Must stay last: re-runs the block-weight reclaim so that refunds made by the
+	// extensions above (e.g. the wormhole recorder returning statically over-charged
+	// per-transfer weight) are returned to block capacity. `CheckWeight`'s own reclaim
+	// runs before those refunds exist; `reclaim_weight` is idempotent via
+	// `ExtrinsicWeightReclaimed`, so running it twice never double-counts.
+	frame_system::WeightReclaim<Runtime>,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
