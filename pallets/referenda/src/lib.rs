@@ -1455,12 +1455,12 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 				}
 				// If we didn't move into being decided, then check the timeout.
 				if status.deciding.is_none() && now >= timeout && !status.in_queue {
-				// Too long without being decided - end it.
-				Self::ensure_no_alarm(&mut status);
-				// Release the preimage request taken in `submit`.
-				T::Preimages::drop(&status.proposal);
-				Self::note_one_fewer_active();
-				Self::deposit_event(Event::<T, I>::TimedOut { index, tally: status.tally });
+					// Too long without being decided - end it.
+					Self::ensure_no_alarm(&mut status);
+					// Release the preimage request taken in `submit`.
+					T::Preimages::drop(&status.proposal);
+					Self::note_one_fewer_active();
+					Self::deposit_event(Event::<T, I>::TimedOut { index, tally: status.tally });
 					return (
 						ReferendumInfo::TimedOut(
 							now,

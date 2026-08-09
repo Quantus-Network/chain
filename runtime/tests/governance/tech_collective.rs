@@ -477,9 +477,8 @@ mod tests {
 				MultiAddress::from(proposer.clone())
 			));
 
-			let call = RuntimeCall::System(frame_system::Call::remark {
-				remark: b"never noted".to_vec(),
-			});
+			let call =
+				RuntimeCall::System(frame_system::Call::remark { remark: b"never noted".to_vec() });
 			let encoded = call.encode();
 			let hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded);
 			// Deliberately do NOT note the preimage.

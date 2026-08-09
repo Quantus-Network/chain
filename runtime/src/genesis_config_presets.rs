@@ -698,8 +698,7 @@ mod tests {
 		for id in preset_names() {
 			let raw = get_preset(&id).expect("listed preset must resolve");
 			let (json, _) = prepare_genesis_build_input(raw).expect("well-formed");
-			let config: RuntimeGenesisConfig =
-				serde_json::from_slice(&json).expect("deserializes");
+			let config: RuntimeGenesisConfig = serde_json::from_slice(&json).expect("deserializes");
 			for (who, start, cliff, end, _) in &config.vesting.schedules {
 				assert_eq!(
 					*cliff,

@@ -442,10 +442,10 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 			//    `event_scan_weight`.
 			//
 			// 2. Recording shortfall: wrappers that dispatch inner calls stored on-chain
-			//    (`Multisig::execute`, ...) can emit transfer
-			//    events the static `count_transfers` matcher cannot see, so the proof-recording
-			//    work above may exceed the weight reserved by `weight()`. The flat per-transfer
-			//    price times the count difference covers it.
+			//    (`Multisig::execute`, ...) can emit transfer events the static `count_transfers`
+			//    matcher cannot see, so the proof-recording work above may exceed the weight
+			//    reserved by `weight()`. The flat per-transfer price times the count difference
+			//    covers it.
 			let mut extra = Self::event_scan_weight(events_at_scan);
 			if recorded > charged_transfers {
 				extra = extra.saturating_add(
@@ -998,9 +998,10 @@ mod tests {
 			// emitting exactly one `TransferOnHold` that the scanner turns into a proof. The
 			// call is statically visible, so the proof must be fee-charged, not just
 			// reconciled post-hoc against block capacity.
-			let cancel = RuntimeCall::ReversibleTransfers(
-				pallet_reversible_transfers::Call::cancel { tx_id: Default::default() },
-			);
+			let cancel =
+				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+					tx_id: Default::default(),
+				});
 			assert_eq!(
 				WormholeProofRecorderExtension::<Runtime>::count_transfers(&cancel),
 				1,
@@ -1057,9 +1058,10 @@ mod tests {
 			let tx_id =
 				pallet_reversible_transfers::PendingTransfersBySender::<Runtime>::get(charlie())[0];
 
-			let cancel = RuntimeCall::ReversibleTransfers(
-				pallet_reversible_transfers::Call::cancel { tx_id },
-			);
+			let cancel =
+				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+					tx_id,
+				});
 			let guardian = alice();
 			let count_before = Wormhole::transfer_count(&guardian);
 			let weight_before = frame_system::Pallet::<Runtime>::block_weight().total();

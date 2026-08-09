@@ -2636,4 +2636,3 @@ fn execute_rejects_call_when_max_weight_lowered_after_propose() {
 		reset_max_inner_call_weight();
 	});
 }
-

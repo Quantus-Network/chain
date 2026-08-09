@@ -687,9 +687,7 @@ fn exchange_member_reconciles_votes() {
 fn demotion_out_of_collective_reconciles_votes() {
 	ExtBuilder::default().build_and_execute(|| {
 		// A class-0 poll which rank-0 members may vote on.
-		Polls::set(
-			vec![(9, Ongoing(Tally::from_parts(0, 0, 0), 0))].into_iter().collect(),
-		);
+		Polls::set(vec![(9, Ongoing(Tally::from_parts(0, 0, 0), 0))].into_iter().collect());
 		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));
 		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 9, true));
 		assert_eq!(tally(9), Tally::from_parts(1, 1, 0));

@@ -640,8 +640,8 @@ fn batch_all_revert() {
 			DispatchErrorWithPostInfo {
 				post_info: PostDispatchInfo {
 					actual_weight: Some(
-						<Test as Config>::WeightInfo::batch_all(2) + info.call_weight * 2 +
-							policy_reads(2)
+						<Test as Config>::WeightInfo::batch_all(2) +
+							info.call_weight * 2 + policy_reads(2)
 					),
 					pays_fee: Pays::Yes
 				},
@@ -735,8 +735,8 @@ fn batch_all_does_not_nest() {
 			DispatchErrorWithPostInfo {
 				post_info: PostDispatchInfo {
 					actual_weight: Some(
-						<Test as Config>::WeightInfo::batch_all(1) + info.call_weight +
-							policy_reads(1)
+						<Test as Config>::WeightInfo::batch_all(1) +
+							info.call_weight + policy_reads(1)
 					),
 					pays_fee: Pays::Yes
 				},

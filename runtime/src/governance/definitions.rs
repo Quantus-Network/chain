@@ -7,8 +7,8 @@ use frame_support::traits::Currency;
 use frame_support::{
 	pallet_prelude::TypeInfo,
 	traits::{
-		CallerTrait, Consideration, EnsureOrigin, EnsureOriginWithArg, Footprint, Get,
-		OriginTrait, ReservableCurrency,
+		CallerTrait, Consideration, EnsureOrigin, EnsureOriginWithArg, Footprint, Get, OriginTrait,
+		ReservableCurrency,
 	},
 };
 use lazy_static::lazy_static;

@@ -1114,10 +1114,9 @@ fn submit_requires_and_requests_lookup_preimage() {
 	ExtBuilder::default().build_and_execute(|| {
 		// A lookup proposal whose preimage was never noted must be rejected: otherwise the
 		// scheduler drops the enactment as terminal (`CallUnavailable`) after approval.
-		let missing =
-			<<Test as frame_system::Config>::Hashing as sp_runtime::traits::Hash>::hash(
-				b"no such preimage",
-			);
+		let missing = <<Test as frame_system::Config>::Hashing as sp_runtime::traits::Hash>::hash(
+			b"no such preimage",
+		);
 		assert_noop!(
 			Referenda::submit(
 				RuntimeOrigin::signed(1),

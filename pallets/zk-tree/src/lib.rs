@@ -81,8 +81,8 @@ pub const POSEIDON_EVAL_REF_TIME_PS: u64 = 50_000_000;
 /// limits); the trade-off is a modest overcharge while the tree is young. At
 /// `d = CIRCUIT_MAX_TREE_DEPTH`:
 /// - reads: `LeafCount` + `Depth` (twice) + `grow_tree`'s `Root` + `3·d` siblings
-/// - writes: `Leaves` + `LeafCount` + `Root` + `d − 1` internal nodes, plus
-///   `grow_tree`'s `Nodes`/`Root`/`Depth` writes
+/// - writes: `Leaves` + `LeafCount` + `Root` + `d − 1` internal nodes, plus `grow_tree`'s
+///   `Nodes`/`Root`/`Depth` writes
 ///
 /// Charge together with [`INSERT_LEAF_HASH_REF_TIME_PS`].
 pub const INSERT_LEAF_DB_OPS: (u64, u64) = {
