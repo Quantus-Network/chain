@@ -1,3 +1,15 @@
+/// Expected volume fee in base units for a quantized exit total.
+///
+/// Independent re-derivation of the quantized-ceiling fee rule the circuit
+/// enforces (`out · 10000 ≤ input · (10000 − bps)` over quantized u32 amounts):
+/// `fee_quanta = ceil(exit_quanta · bps / (10000 − bps))`, so any nonzero exit
+/// pays at least one full quantum. Kept separate from the pallet's own
+/// computation so fee assertions don't just mirror the code under test.
+#[cfg(test)]
+fn ceil_volume_fee(exit_quanta: u128, fee_bps: u128) -> u128 {
+	exit_quanta.saturating_mul(fee_bps).div_ceil(10_000 - fee_bps) * crate::SCALE_DOWN_FACTOR
+}
+
 #[cfg(test)]
 mod wormhole_tests {
 	use crate::mock::*;
@@ -1045,17 +1057,17 @@ mod private_batch_proof_tests {
 					.expect("test preimage limbs are canonical"),
 			);
 
-			// Expected miner fee from the proof's public inputs:
-			// fee = exit * bps / (10000 - bps); miner gets fee minus the 50% burn
-			// (mock: VolumeFeesBurnRate = 50%).
-			let expected_exit: u128 = inputs
+			// Expected miner fee from the proof's public inputs: the quantized-ceiling
+			// volume fee; miner gets fee minus the 50% burn (mock: VolumeFeesBurnRate
+			// = 50%).
+			let exit_quanta: u128 = inputs
 				.account_data
 				.iter()
 				.filter(|a| a.summed_output_amount > 0)
-				.map(|a| (a.summed_output_amount as u128) * crate::SCALE_DOWN_FACTOR)
+				.map(|a| a.summed_output_amount as u128)
 				.sum();
 			let fee_bps = VolumeFeeRateBps::get() as u128;
-			let total_fee = expected_exit * fee_bps / (10_000 - fee_bps);
+			let total_fee = super::ceil_volume_fee(exit_quanta, fee_bps);
 			let expected_miner_fee = total_fee - total_fee / 2;
 			assert!(expected_miner_fee > 0, "fixture should produce a non-zero miner fee");
 
@@ -1614,12 +1626,12 @@ mod exit_bundle_tests {
 			);
 			assert_ok!(Wormhole::process_exit_bundle(b));
 
-			// Fee math mirrors the pallet: fee = exit * bps / (10000 - bps), computed
-			// on the total that EXCLUDES the denied segment's value.
+			// The quantized-ceiling volume fee, computed on the total that EXCLUDES
+			// the denied segment's value.
 			let fee_bps = VolumeFeeRateBps::get() as u128;
-			let fee = scaled(AMOUNT_A) * fee_bps / (10_000 - fee_bps);
+			let fee = super::ceil_volume_fee(AMOUNT_A as u128, fee_bps);
 			let fee_if_denied_included =
-				(scaled(AMOUNT_A) + scaled(AMOUNT_B)) * fee_bps / (10_000 - fee_bps);
+				super::ceil_volume_fee((AMOUNT_A + AMOUNT_B) as u128, fee_bps);
 			assert_ne!(fee, fee_if_denied_included, "test must distinguish the two totals");
 
 			let burn_bucket = Permill::from_percent(50) * fee;
@@ -1676,8 +1688,7 @@ mod exit_bundle_tests {
 
 			// Raise the ED so a small exit to a fresh account cannot be minted, while a
 			// larger co-bundled exit clears it. AMOUNT_A (20 QUAN) stays below the ED;
-			// AMOUNT_B (30 QUAN) is above it. The bundle total still clears the 10 QUAN
-			// MinimumTransferAmount.
+			// AMOUNT_B (30 QUAN) is above it.
 			ExistentialDeposit::set(scaled(2500));
 
 			let dust_exit = AccountId32::new([10u8; 32]);
@@ -1737,9 +1748,9 @@ mod exit_bundle_tests {
 			assert_ok!(Wormhole::process_exit_bundle(b));
 
 			let fee_bps = VolumeFeeRateBps::get() as u128;
-			let fee_minted = scaled(AMOUNT_B) * fee_bps / (10_000 - fee_bps);
+			let fee_minted = super::ceil_volume_fee(AMOUNT_B as u128, fee_bps);
 			let fee_attempted =
-				(scaled(AMOUNT_A) + scaled(AMOUNT_B)) * fee_bps / (10_000 - fee_bps);
+				super::ceil_volume_fee((AMOUNT_A + AMOUNT_B) as u128, fee_bps);
 			assert_ne!(fee_minted, fee_attempted);
 
 			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();
@@ -1750,6 +1761,62 @@ mod exit_bundle_tests {
 					nullifiers: vec![nullifier_bytes(1), nullifier_bytes(2)],
 				}
 				.into(),
+			);
+		});
+	}
+
+	#[test]
+	fn process_exit_bundle_settles_the_one_quantum_minimum_fee() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			// Seed issuance so the burn is observable (set_total_issuance saturates at 0).
+			assert_ok!(Balances::mint_into(&account_id(999), 1_000 * UNIT));
+			let issuance_before = <Balances as Inspect<AccountId>>::total_issuance();
+
+			// Smallest valid exit: one quantum (0.01 QUAN). The circuit's integer fee
+			// relation `out · 10000 ≤ input · (10000 − bps)` forces `input ≥ 2` quanta
+			// here, i.e. the proof locked a full one-quantum fee. Settlement must
+			// collect that quantum, not the ~0.04% of it (10^10 · 4 / 9996 = 4_001_600
+			// base units) that truncating base-unit division yields.
+			assert_ok!(Wormhole::process_exit_bundle(bundle(
+				vec![segment(&[1], &[(10, 1)])],
+				None
+			)));
+
+			// No aggregator and no block author, so the entire fee is burned.
+			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();
+			assert_eq!(
+				issuance_before - issuance_after,
+				crate::SCALE_DOWN_FACTOR,
+				"a one-quantum exit must settle the full one-quantum minimum fee"
+			);
+		});
+	}
+
+	#[test]
+	fn process_exit_bundle_rounds_the_volume_fee_up_to_whole_quanta() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			// Seed issuance so the burn is observable.
+			assert_ok!(Balances::mint_into(&account_id(999), 1_000 * UNIT));
+			let issuance_before = <Balances as Inspect<AccountId>>::total_issuance();
+
+			// 5000 quanta at 4 bps: 5000 · 4 / 9996 = 2.0008… quanta, which the
+			// quantized-ceiling rule settles as 3 whole quanta. Base-unit floor
+			// division would settle 20_008_003_201 instead.
+			let exit_quanta = 5_000u32;
+			assert_ok!(Wormhole::process_exit_bundle(bundle(
+				vec![segment(&[1], &[(10, exit_quanta)])],
+				None
+			)));
+
+			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();
+			assert_eq!(
+				issuance_before - issuance_after,
+				3 * crate::SCALE_DOWN_FACTOR,
+				"the volume fee must be rounded up to whole quanta"
 			);
 		});
 	}
@@ -1786,7 +1853,7 @@ mod exit_bundle_tests {
 			// The whole fee is burned: the rebate fell back into the burn bucket and
 			// the miner share is burned too (no block author in tests).
 			let fee_bps = VolumeFeeRateBps::get() as u128;
-			let fee = scaled(amount) * fee_bps / (10_000 - fee_bps);
+			let fee = super::ceil_volume_fee(amount as u128, fee_bps);
 			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();
 			assert_eq!(
 				issuance_before - issuance_after,
@@ -1940,12 +2007,13 @@ mod public_batch_proof_tests {
 			let aggregator = AccountId32::new(AGGREGATOR_ADDRESS);
 			assert_eq!(Balances::balance(&aggregator), 0);
 
-			// Expected exit total from the proof's public inputs (dummy slots are zero).
-			let expected_exit: u128 = inputs
+			// Expected exit total (in quanta) from the proof's public inputs (dummy
+			// slots are zero).
+			let exit_quanta: u128 = inputs
 				.account_data
 				.iter()
 				.filter(|a| a.summed_output_amount > 0)
-				.map(|a| (a.summed_output_amount as u128) * crate::SCALE_DOWN_FACTOR)
+				.map(|a| a.summed_output_amount as u128)
 				.sum();
 
 			assert_ok!(Wormhole::verify_public_batch(
@@ -1966,10 +2034,10 @@ mod public_batch_proof_tests {
 				"Zero nullifiers from dummy padding must not be stored"
 			);
 
-			// Aggregator rebate: fee = exit * bps / (10000 - bps), burn bucket = 50% of
+			// Aggregator rebate: quantized-ceiling volume fee, burn bucket = 50% of
 			// fee, and VolumeFeesAggregatorRate (50%) of that goes to the aggregator.
 			let fee_bps = VolumeFeeRateBps::get() as u128;
-			let total_fee = expected_exit * fee_bps / (10_000u128 - fee_bps);
+			let total_fee = super::ceil_volume_fee(exit_quanta, fee_bps);
 			let burn_bucket = Permill::from_percent(50) * total_fee;
 			let expected_rebate = Permill::from_percent(50) * burn_bucket;
 			assert!(expected_rebate > 0, "Fixture fee should produce a nonzero rebate");
