@@ -108,10 +108,9 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 ///   - mining rewards and the treasury share record theirs in `on_finalize`
 ///     (`pallet_mining_rewards`). Those credits use `mint_into`, which *does* emit
 ///     `Balances::Minted` (the same event this scanner records); they are safe from
-///     double-recording only because distribution runs in `on_finalize`, outside every
-///     extrinsic's scan window. Moving that distribution into `on_initialize` or a
-///     signed path without also suppressing the scan (or the explicit record) would
-///     inflate wormhole exit capacity.
+///     double-recording only because distribution runs in `on_finalize`, outside every extrinsic's
+///     scan window. Moving that distribution into `on_initialize` or a signed path without also
+///     suppressing the scan (or the explicit record) would inflate wormhole exit capacity.
 ///
 /// The one remaining hook-context path is a governance-enacted call: referenda enactment
 /// dispatches the approved call via the scheduler in `on_initialize` (e.g. a Root
