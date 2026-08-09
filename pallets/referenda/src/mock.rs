@@ -225,6 +225,9 @@ impl Config for Test {
 	type MaxQueued = ConstU32<3>;
 	type MaxActive = MaxActive;
 	type MaxActivePerAccount = MaxActivePerAccount;
+	// Small enough that oversized-lookup tests can note a few bytes over the cap without
+	// allocating megabytes; generous enough for the tiny proposals the suite submits.
+	type MaxProposalSize = ConstU32<1024>;
 	type UndecidingTimeout = ConstU64<20>;
 	type AlarmInterval = AlarmInterval;
 	type Tracks = TestTracksInfo;

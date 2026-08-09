@@ -22,12 +22,17 @@ use crate::mock::{RefState::*, *};
 use assert_matches::assert_matches;
 use codec::Decode;
 use frame_support::{
-	assert_err, assert_noop, assert_ok, dispatch::RawOrigin, storage::with_storage_layer,
-	traits::Contains,
+	assert_err, assert_noop, assert_ok,
+	dispatch::RawOrigin,
+	storage::with_storage_layer,
+	traits::{Contains, Get, QueryPreimage},
 };
 use pallet_balances::Error as BalancesError;
 use qp_scheduler::BlockNumberOrTimestamp;
-use sp_runtime::DispatchError::BadOrigin;
+use sp_runtime::{
+	traits::{BlakeTwo256, Hash},
+	DispatchError::BadOrigin,
+};
 
 #[test]
 fn params_should_work() {
@@ -1231,7 +1236,7 @@ fn submit_requires_and_requests_lookup_preimage() {
 		);
 
 		// A noted preimage is requested (pinned) by submission, so unnoting cannot delete
-		// the bytes while the referendum is ongoing.
+		// the bytes while the referendum is ongoing — but can reclaim the storage deposit.
 		let hash = note_preimage(1);
 		assert_ok!(Referenda::submit(
 			RuntimeOrigin::signed(1),
@@ -1240,7 +1245,63 @@ fn submit_requires_and_requests_lookup_preimage() {
 			DispatchTime::At(10),
 		));
 		assert!(Preimage::is_requested(&hash));
+		assert_ok!(Preimage::unnote_preimage(RuntimeOrigin::signed(1), hash));
+		assert!(Preimage::len(&hash).is_some());
 	});
+}
+
+#[test]
+fn submit_rejects_lookup_preimages_above_max_proposal_size() {
+	ExtBuilder::default().build_and_execute(|| {
+		// Without a size bound, submit's request + a later unnote would pin up to
+		// MaxActive × 4 MiB of deposit-free state against only the refundable
+		// submission deposit. Oversized lookups must be refused at admission.
+		let max = <<Test as Config>::MaxProposalSize as Get<u32>>::get() as usize;
+		let oversized = vec![7u8; max + 1];
+		assert_ok!(Preimage::note_preimage(RuntimeOrigin::signed(1), oversized.clone()));
+		let hash = BlakeTwo256::hash(&oversized);
+		assert_noop!(
+			Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				frame_support::traits::Bounded::Lookup { hash, len: (max + 1) as u32 },
+				DispatchTime::At(10),
+			),
+			Error::<Test>::PreimageTooBig
+		);
+
+		// Exactly at the cap is accepted and pinned.
+		let capped = vec![8u8; max];
+		assert_ok!(Preimage::note_preimage(RuntimeOrigin::signed(1), capped.clone()));
+		let hash = BlakeTwo256::hash(&capped);
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			frame_support::traits::Bounded::Lookup { hash, len: max as u32 },
+			DispatchTime::At(10),
+		));
+		assert!(Preimage::is_requested(&hash));
+	});
+}
+
+#[test]
+fn submit_weight_covers_lookup_preimage_request() {
+	use crate::branch::alarm_retry_weight;
+	use frame_support::{dispatch::GetDispatchInfo, weights::RuntimeDbWeight};
+	let info = Call::<Test>::submit {
+		proposal_origin: Box::new(RawOrigin::Root.into()),
+		proposal: set_balance_proposal_bounded(1),
+		enactment_moment: DispatchTime::At(10),
+	}
+	.get_dispatch_info();
+	// Declared weight = benchmarked base + alarm-retry + active-count (2,2) +
+	// Lookup len/request (2,1). Pin the formula so the request term cannot be dropped.
+	let db: RuntimeDbWeight = <<Test as frame_system::Config>::DbWeight as Get<_>>::get();
+	let expected = <Test as Config>::WeightInfo::submit()
+		.saturating_add(alarm_retry_weight::<Test, ()>())
+		.saturating_add(db.reads_writes(2, 2))
+		.saturating_add(db.reads_writes(2, 1));
+	assert_eq!(info.call_weight, expected);
 }
 
 #[test]

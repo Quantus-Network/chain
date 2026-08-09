@@ -224,6 +224,18 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxActivePerAccount: Get<u32>;
 
+		/// Maximum encoded length of a `Lookup` proposal accepted by `submit`.
+		///
+		/// `submit` `request`s the preimage so a later `unnote_preimage` cannot delete the
+		/// bytes before enactment; that request also lets the noter reclaim their storage
+		/// deposit while the bytes stay pinned until the referendum ends. Without a size
+		/// bound, `MaxActive` × 4 MiB of deposit-free state can accumulate against only
+		/// the refundable [`Config::SubmissionDeposit`]. Size this so that the preimage
+		/// deposit for a max-sized blob does not exceed `SubmissionDeposit` — then even
+		/// after `unnote` the submission deposit still collateralizes the held bytes.
+		#[pallet::constant]
+		type MaxProposalSize: Get<u32>;
+
 		/// The number of blocks after submission that a referendum must begin being decided by.
 		/// Once this passes, then anyone may cancel the referendum.
 		#[pallet::constant]
@@ -494,6 +506,8 @@ pub mod pallet {
 		TooManyActive,
 		/// The submitter already has the maximum number of ongoing referenda.
 		TooManyActiveBySubmitter,
+		/// The proposal's preimage is larger than [`Config::MaxProposalSize`].
+		PreimageTooBig,
 	}
 
 	#[pallet::hooks]
@@ -521,6 +535,10 @@ pub mod pallet {
 				T::MaxActivePerAccount::get() >= 1,
 				"`MaxActivePerAccount` must be at least 1 or nobody can submit.",
 			);
+			assert!(
+				T::MaxProposalSize::get() >= 1,
+				"`MaxProposalSize` must be at least 1 or no Lookup proposal can be submitted.",
+			);
 		}
 	}
 
@@ -538,10 +556,12 @@ pub mod pallet {
 		#[pallet::call_index(0)]
 		// `submit` schedules the undeciding-timeout alarm, bearing the worst-case
 		// `set_alarm` retry overhead; plus one read/write each for `ActiveReferendaCount`
-		// and the submitter's `ActiveSubmissionCount`.
+		// and the submitter's `ActiveSubmissionCount`; plus the Lookup preimage `len` /
+		// `request` (StatusFor read + RequestStatusFor read/write).
 		#[pallet::weight(T::WeightInfo::submit()
 			.saturating_add(alarm_retry_weight::<T, I>())
-			.saturating_add(T::DbWeight::get().reads_writes(2, 2)))]
+			.saturating_add(T::DbWeight::get().reads_writes(2, 2))
+			.saturating_add(T::DbWeight::get().reads_writes(2, 1)))]
 		pub fn submit(
 			origin: OriginFor<T>,
 			proposal_origin: Box<PalletsOriginOf<T>>,
@@ -561,9 +581,13 @@ pub mod pallet {
 			// The request is dropped again on every terminal transition (approve/reject/
 			// timeout/cancel/kill); on approval the scheduler holds its own request from
 			// `schedule_named` until dispatch, so the bytes stay pinned through enactment.
+			// Bound the pinned size at `MaxProposalSize` so that reclaiming the preimage
+			// deposit cannot leave up to `MaxActive` × 4 MiB held against only the
+			// refundable submission deposit.
 			if let Some(hash) = proposal.lookup_hash() {
 				let preimage_len =
 					T::Preimages::len(&hash).ok_or(Error::<T, I>::PreimageNotExist)?;
+				ensure!(preimage_len <= T::MaxProposalSize::get(), Error::<T, I>::PreimageTooBig);
 				if let Some(proposal_len) = proposal.lookup_len() {
 					ensure!(
 						preimage_len == proposal_len,

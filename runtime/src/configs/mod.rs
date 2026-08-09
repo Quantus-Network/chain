@@ -240,6 +240,14 @@ parameter_types! {
 	// each (104 < 128), the global bound is unreachable even if every member colludes, and
 	// 8 concurrent proposals per member is ample headroom for real use.
 	pub const MaxActiveReferendaPerAccount: u32 = 8;
+	// Max encoded length of a Lookup proposal. `submit` requests the preimage so `unnote`
+	// cannot delete it before enactment — which also lets the noter reclaim the preimage
+	// deposit while the bytes stay pinned. Cap the blob so that (a) `MaxActive` × size
+	// cannot approach hundreds of MiB of deposit-free state, and (b) the preimage deposit
+	// for a max-sized blob (0.1 UNIT + 0.0001 UNIT/byte ≈ 6.6 UNIT) stays well under the
+	// 100 UNIT submission deposit, so the held bytes remain collateralized even after
+	// `unnote`. 64 KiB is ample for any tech-collective call.
+	pub const MaxReferendaProposalSize: u32 = 64 * 1024;
 	// Submission deposit for referenda
 	pub const ReferendumSubmissionDeposit: Balance = 100 * UNIT;
 	// Undeciding timeout (45 days): a submitted referendum that is NOT in the track queue —
@@ -316,6 +324,8 @@ impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
 	type MaxActive = MaxActiveReferenda;
 	/// Per-submitter admission bound, so no member coalition can exhaust `MaxActive`.
 	type MaxActivePerAccount = MaxActiveReferendaPerAccount;
+	/// Max Lookup proposal size; keeps requested-but-unnoted preimages collateralized.
+	type MaxProposalSize = MaxReferendaProposalSize;
 	/// Time period after which an undecided referendum will be automatically rejected.
 	type UndecidingTimeout = UndecidingTimeout;
 	/// The frequency at which the pallet checks for expired or ready-to-timeout referenda.

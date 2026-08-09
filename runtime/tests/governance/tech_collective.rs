@@ -32,6 +32,22 @@ mod tests {
 		assert!(worst_case < u64::from(MaxActiveReferenda::get()));
 	}
 
+	/// `submit` requests Lookup preimages, so a later `unnote` reclaims the preimage
+	/// deposit while the bytes stay pinned. The max proposal size must keep that
+	/// deposit-free hold collateralized by the refundable submission deposit
+	/// (PreimageDeposit: 0.1 UNIT + 0.0001 UNIT/byte).
+	#[test]
+	fn max_proposal_size_stays_within_submission_deposit() {
+		use quantus_runtime::{
+			configs::{MaxReferendaProposalSize, ReferendumSubmissionDeposit},
+			UNIT,
+		};
+		use sp_core::Get;
+		let preimage_deposit = UNIT / 10 +
+			(UNIT / 10_000).saturating_mul(u128::from(MaxReferendaProposalSize::get()) + 1);
+		assert!(preimage_deposit <= ReferendumSubmissionDeposit::get());
+	}
+
 	/// Fast test example demonstrating the solution - this test uses the improved 2-block periods
 	/// instead of the original slow periods that were causing performance issues
 	#[test]
