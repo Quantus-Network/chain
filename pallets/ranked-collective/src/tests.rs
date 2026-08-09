@@ -20,7 +20,9 @@
 use std::collections::BTreeMap;
 
 use frame_support::{
-	assert_noop, assert_ok, derive_impl, parameter_types,
+	assert_noop, assert_ok, derive_impl,
+	pallet_prelude::Pays,
+	parameter_types,
 	traits::{ConstU16, EitherOf, MapSuccess, Polling},
 };
 use sp_core::Get;
@@ -624,7 +626,7 @@ fn tally_support_zero_when_electorate_empty() {
 }
 
 #[test]
-fn removed_member_votes_are_reconciled() {
+fn anyone_can_remove_a_removed_members_vote() {
 	ExtBuilder::default().build_and_execute(|| {
 		// Three rank-1 members, all eligible for poll 3 (class 1).
 		for who in 1..=3 {
@@ -635,20 +637,27 @@ fn removed_member_votes_are_reconciled() {
 		assert_ok!(Club::vote(RuntimeOrigin::signed(2), 3, false));
 		assert_eq!(tally(3), Tally::from_parts(1, 1, 1));
 
-		// Removing the aye voter must remove their tally contribution and stored vote.
+		// Removal itself leaves the vote in place (it does no `Voting` scan)...
 		assert_ok!(Club::remove_member(RuntimeOrigin::root(), 1, 1));
+		assert_eq!(tally(3), Tally::from_parts(1, 1, 1));
+
+		// ...but any signed account can now withdraw it, fee-free, reconciling the tally.
+		let post = Club::remove_ineligible_vote(RuntimeOrigin::signed(4), 1, 3).unwrap();
+		assert_eq!(post.pays_fee, Pays::No);
 		assert_eq!(tally(3), Tally::from_parts(0, 0, 1));
 		assert_eq!(Voting::<Test>::get(3, 1), None);
+		System::assert_last_event(Event::IneligibleVoteRemoved { who: 1, poll: 3 }.into());
 
-		// Removing the nay voter too: the tally is back to zero.
+		// Also for the nay voter: the tally is back to zero.
 		assert_ok!(Club::remove_member(RuntimeOrigin::root(), 2, 1));
+		assert_ok!(Club::remove_ineligible_vote(RuntimeOrigin::signed(4), 2, 3));
 		assert_eq!(tally(3), Tally::from_parts(0, 0, 0));
 		assert_eq!(Voting::<Test>::get(3, 2), None);
 	});
 }
 
 #[test]
-fn removing_members_cannot_inflate_support() {
+fn support_inflation_from_removal_is_cleared_by_vote_removal() {
 	ExtBuilder::default().build_and_execute(|| {
 		// Three rank-1 members; only account 1 votes aye: support is 1/3.
 		for who in 1..=3 {
@@ -658,23 +667,27 @@ fn removing_members_cannot_inflate_support() {
 		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, true));
 		assert_eq!(tally(3).support(1), Perbill::from_rational(1u32, 3));
 
-		// Removing the aye voter must drop support to 0/2, not raise it to 1/2.
+		// Until the stale vote is withdrawn, the shrunken electorate inflates support to
+		// 1/2 — which is why removal proposals should batch `remove_ineligible_vote`.
 		assert_ok!(Club::remove_member(RuntimeOrigin::root(), 1, 1));
+		assert_eq!(tally(3).support(1), Perbill::from_rational(1u32, 2));
+		assert_ok!(Club::remove_ineligible_vote(RuntimeOrigin::signed(4), 1, 3));
 		assert_eq!(tally(3).support(1), Perbill::zero());
 	});
 }
 
 #[test]
-fn exchange_member_reconciles_votes() {
+fn exchanged_members_stale_vote_is_removable() {
 	ExtBuilder::default().build_and_execute(|| {
 		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));
 		assert_ok!(Club::promote_member(RuntimeOrigin::root(), 1));
 		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, true));
 		assert_eq!(tally(3), Tally::from_parts(1, 1, 0));
 
-		// The outgoing account's vote must not survive the exchange; the incoming
-		// account votes for itself.
+		// The outgoing account is no longer a member after the exchange, so its vote is
+		// removable; the incoming account votes for itself.
 		assert_ok!(Club::exchange_member(RuntimeOrigin::root(), 1, 9));
+		assert_ok!(Club::remove_ineligible_vote(RuntimeOrigin::signed(4), 1, 3));
 		assert_eq!(tally(3), Tally::from_parts(0, 0, 0));
 		assert_eq!(Voting::<Test>::get(3, 1), None);
 
@@ -684,18 +697,64 @@ fn exchange_member_reconciles_votes() {
 }
 
 #[test]
-fn demotion_out_of_collective_reconciles_votes() {
+fn demoted_members_vote_above_their_rank_is_removable() {
 	ExtBuilder::default().build_and_execute(|| {
-		// A class-0 poll which rank-0 members may vote on.
-		Polls::set(vec![(9, Ongoing(Tally::from_parts(0, 0, 0), 0))].into_iter().collect());
+		// A rank-1 member votes on the class-1 poll, then is demoted to rank 0: still a
+		// member, but no longer eligible for the poll — and unable to change the vote.
 		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));
-		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 9, true));
-		assert_eq!(tally(9), Tally::from_parts(1, 1, 0));
-
-		// Demoting a rank-0 member removes them entirely; their vote must go too.
+		assert_ok!(Club::promote_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, true));
 		assert_ok!(Club::demote_member(RuntimeOrigin::root(), 1));
-		assert_eq!(tally(9), Tally::from_parts(0, 0, 0));
-		assert_eq!(Voting::<Test>::get(9, 1), None);
+		assert_noop!(Club::vote(RuntimeOrigin::signed(1), 3, false), Error::<Test>::RankTooLow);
+
+		assert_ok!(Club::remove_ineligible_vote(RuntimeOrigin::signed(4), 1, 3));
+		assert_eq!(tally(3), Tally::from_parts(0, 0, 0));
+		assert_eq!(Voting::<Test>::get(3, 1), None);
+	});
+}
+
+#[test]
+fn eligible_votes_cannot_be_removed() {
+	ExtBuilder::default().build_and_execute(|| {
+		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::promote_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, true));
+
+		// A sitting member of sufficient rank keeps their vote — even against themselves.
+		assert_noop!(
+			Club::remove_ineligible_vote(RuntimeOrigin::signed(4), 1, 3),
+			Error::<Test>::StillEligible
+		);
+		assert_noop!(
+			Club::remove_ineligible_vote(RuntimeOrigin::signed(1), 1, 3),
+			Error::<Test>::StillEligible
+		);
+		assert_eq!(tally(3), Tally::from_parts(1, 1, 0));
+	});
+}
+
+#[test]
+fn remove_ineligible_vote_needs_an_ongoing_poll_and_a_vote() {
+	ExtBuilder::default().build_and_execute(|| {
+		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::promote_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, true));
+		assert_ok!(Club::remove_member(RuntimeOrigin::root(), 1, 1));
+
+		// No vote on the poll by that account.
+		assert_noop!(
+			Club::remove_ineligible_vote(RuntimeOrigin::signed(4), 2, 3),
+			Error::<Test>::NotVoting
+		);
+		// Completed and unknown polls are out of scope (`cleanup_poll` handles the former).
+		assert_noop!(
+			Club::remove_ineligible_vote(RuntimeOrigin::signed(4), 1, 1),
+			Error::<Test>::NotPolling
+		);
+		assert_noop!(
+			Club::remove_ineligible_vote(RuntimeOrigin::signed(4), 1, 0),
+			Error::<Test>::NotPolling
+		);
 	});
 }
 
