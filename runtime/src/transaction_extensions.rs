@@ -245,7 +245,10 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			// charged for a leaf insert the scan then skips. That overcharge is
 			// accepted: resolving the destination here would mean a `Lookup` on the
 			// hottest call in the runtime to spare a handful of one-off bootstrap
-			// transfers, and the direction is conservative.
+			// transfers, and the direction is conservative. Pot-as-*source* needs no
+			// handling at all: the pot is a keyless pallet account, so no signed call
+			// this extension weighs can move funds out of it (`force_transfer` from it
+			// is Root-only, enacted by the scheduler outside this pipeline).
 			_ => 0,
 		}
 	}
