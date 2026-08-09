@@ -2185,14 +2185,54 @@ impl<T: Config> Pallet<T> {
 		Events::<T>::stream_iter()
 	}
 
-	/// Encoded byte length of the `Events` storage value, without decoding (or copying)
-	/// it: `sp_io::storage::read` with an empty buffer returns the value's total length.
+	/// Encoded byte length of the `Events` storage value, without decoding it or copying
+	/// it into the runtime: `sp_io::storage::read` with an empty buffer returns the
+	/// value's total length. (The host side still materializes the overlay value once to
+	/// serve the call, so this is O(len) — call it sparingly.)
 	///
-	/// Lets size-aware consumers of [`Self::read_events_no_consensus`] (which
-	/// stream-decodes every record present, including arbitrarily large ones) price the
-	/// decode work by payload size rather than record count alone.
+	/// Lets size-aware consumers of the event stream price decode work by payload size
+	/// rather than record count alone.
 	pub fn event_bytes() -> u32 {
 		sp_io::storage::read(&Events::<T>::hashed_key(), &mut [], 0).unwrap_or(0)
+	}
+
+	/// Single-copy variant of [`Self::read_events_no_consensus`]: returns the encoded
+	/// size of the `Events` value alongside a lazily-decoding iterator over its records.
+	///
+	/// `Events::stream_iter()` refills a small (2 KiB) internal buffer through
+	/// `sp_io::storage::read`, and for an overlay-resident value — which `Events` always
+	/// is during block execution — every such host call materializes the *complete*
+	/// value before slicing out the requested window. Scanning a `B`-byte value end to
+	/// end that way copies O(B²) bytes. This accessor instead fetches the encoded value
+	/// exactly once and decodes records out of the in-memory buffer, so a full scan is
+	/// linear in the value's size.
+	///
+	/// Like [`Self::read_events_no_consensus`], only call this outside of consensus-
+	/// critical logic, and mind the PoV impact of reading the whole value.
+	pub fn read_events_no_consensus_single_copy(
+	) -> (u32, impl Iterator<Item = EventRecord<T::RuntimeEvent, T::Hash>>) {
+		let raw = sp_io::storage::get(&Events::<T>::hashed_key()).unwrap_or_default();
+		let size = raw.len() as u32;
+		// Leading `Compact<u32>` record count, then the records back to back. Any
+		// decode failure ends the iteration cleanly (same as `stream_iter`).
+		let (mut remaining, mut cursor) = {
+			let mut input = &raw[..];
+			match codec::Compact::<u32>::decode(&mut input) {
+				Ok(count) => (count.0, raw.len() - input.len()),
+				Err(_) => (0, 0),
+			}
+		};
+		let iter = core::iter::from_fn(move || {
+			if remaining == 0 {
+				return None;
+			}
+			remaining -= 1;
+			let mut input = &raw[cursor..];
+			let record = EventRecord::<T::RuntimeEvent, T::Hash>::decode(&mut input).ok()?;
+			cursor = raw.len() - input.len();
+			Some(record)
+		});
+		(size, iter)
 	}
 
 	/// Read and return the events of a specific pallet, as denoted by `E`.

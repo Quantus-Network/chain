@@ -145,11 +145,11 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			.saturating_add(Weight::from_parts(hash_time, 0))
 	}
 
-	/// Worst-case `ref_time` (picoseconds) of the *structural* work to stream-decode one
+	/// Worst-case `ref_time` (picoseconds) of the *structural* work to decode one
 	/// `EventRecord` in [`Self::record_proofs_from_events_since`]: phase + event enum
-	/// dispatch + topics + the record's `Box` allocation. Payload size is charged
-	/// separately per byte (see [`Self::EVENT_SCAN_DECODE_BYTE_REF_TIME_PS`]); 1µs is a
-	/// conservative ceiling for the fixed part.
+	/// dispatch + topics. Payload size is charged separately per byte (see
+	/// [`Self::EVENT_SCAN_DECODE_BYTE_REF_TIME_PS`]); 1µs is a conservative ceiling
+	/// for the fixed part.
 	const EVENT_SCAN_DECODE_REF_TIME_PS: u64 = 1_000_000;
 
 	/// Worst-case `ref_time` (picoseconds) to stream-decode one *byte* of the events
@@ -163,12 +163,14 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	const EVENT_SCAN_DECODE_BYTE_REF_TIME_PS: u64 = 10_000;
 
 	/// Weight of the post-dispatch event scan when `events` records totalling
-	/// `event_bytes` encoded bytes are present at scan time. `Events::stream_iter`
-	/// fetches the storage value (one read) and the scan then decodes EVERY record
-	/// present — `Iterator::skip` discards but still decodes the pre-snapshot prefix —
-	/// so the cost is per record *present*, not per record matched or recorded, and it
-	/// scales with the payload bytes those records carry (a single legitimate
-	/// `Multisig::ProposalExecuted` can be ~13 KiB).
+	/// `event_bytes` encoded bytes are present at scan time. The scan fetches the
+	/// encoded `Events` value exactly once (one read, one copy — see
+	/// `read_events_no_consensus_single_copy`; the 2 KiB-buffered `stream_iter` would
+	/// re-materialize the whole overlay value per refill, O(bytes²) for a full scan)
+	/// and then decodes EVERY record present — `Iterator::skip` discards but still
+	/// decodes the pre-snapshot prefix — so the cost is per record *present*, not per
+	/// record matched or recorded, and it scales with the payload bytes those records
+	/// carry (a single legitimate `Multisig::ProposalExecuted` can be ~13 KiB).
 	fn event_scan_weight(events: u32, event_bytes: u32) -> Weight {
 		if events == 0 {
 			return Weight::zero();
@@ -236,16 +238,19 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	/// `event_count_before` is the value from `frame_system::Pallet::event_count()`
 	/// captured in `prepare()`.
 	///
-	/// Returns the number of transfer proofs recorded, so callers can reconcile the actual
-	/// proof-recording work against the statically charged weight.
-	fn record_proofs_from_events_since(event_count_before: u32) -> u64 {
-		// IMPORTANT: We must collect all transfers FIRST before calling record_transfer_proof,
-		// because record_transfer_proof deposits new events which would invalidate the
-		// stream_iter iterator (causing "Corrupted state" errors).
-		//
-		// The iterator reads from Events storage using stream_iter, which caches data.
-		// If we modify Events storage during iteration (by depositing new events),
-		// the cached data becomes stale and decoding fails.
+	/// Returns the number of transfer proofs recorded (so callers can reconcile the
+	/// actual proof-recording work against the statically charged weight) and the
+	/// encoded byte size of the scanned `Events` value (the input to
+	/// [`Self::event_scan_weight`]'s per-byte term — taken from the very buffer the
+	/// scan decodes, so the charge and the work can't drift apart).
+	fn record_proofs_from_events_since(event_count_before: u32) -> (u64, u32) {
+		// The single-copy reader fetches the encoded `Events` value exactly once and
+		// decodes records from that in-memory snapshot, keeping the scan linear in the
+		// value's size (`stream_iter` would re-materialize the whole overlay value on
+		// every 2 KiB buffer refill — O(bytes²) for a full scan, superlinear work the
+		// linear `event_scan_weight` charge could never bound). The snapshot also means
+		// depositing events while iterating cannot corrupt the stream; we still collect
+		// all transfers before recording (which deposits new events) for clarity.
 
 		// The vesting pot's flows are excluded: the vesting pallet records its own
 		// pot -> beneficiary payouts (also for scheduler-enacted Root calls this
@@ -255,9 +260,12 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		// exit through the wormhole.
 		let vesting_pot = pallet_vesting::Pallet::<Runtime>::pot_account_id();
 
+		let (event_bytes, events) =
+			frame_system::Pallet::<Runtime>::read_events_no_consensus_single_copy();
+
 		// Collect transfers to record - (asset_id, from, to, amount)
 		let transfers_to_record: alloc::vec::Vec<(Option<AssetId>, AccountId, AccountId, Balance)> =
-			frame_system::Pallet::<Runtime>::read_events_no_consensus()
+			events
 				.skip(event_count_before as usize)
 				.filter_map(|event_record| {
 					match event_record.event {
@@ -313,7 +321,7 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 				recorded = recorded.saturating_add(1);
 			}
 		}
-		recorded
+		(recorded, event_bytes)
 	}
 }
 
@@ -377,10 +385,11 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		if result.is_ok() {
 			let (event_count_before, charged_transfers) = pre;
 			// Captured BEFORE recording deposits new events: this is exactly the number
-			// of records (and their encoded size) the scan below decodes.
+			// of records the scan below decodes. The scanned byte size comes back from
+			// the scan itself — measured on the very buffer it decoded.
 			let events_at_scan = frame_system::Pallet::<Runtime>::event_count();
-			let event_bytes_at_scan = frame_system::Pallet::<Runtime>::event_bytes();
-			let recorded = Self::record_proofs_from_events_since(event_count_before);
+			let (recorded, event_bytes_at_scan) =
+				Self::record_proofs_from_events_since(event_count_before);
 
 			// Two pieces of caller-influenced work here are invisible to the static
 			// `weight()` and are therefore registered against the block post-hoc (this
@@ -1132,6 +1141,98 @@ mod tests {
 		});
 	}
 
+	/// The scan must decode exactly what the streaming reader would: the single-copy
+	/// reader exists purely to make the scan linear (one `storage::get` instead of
+	/// per-2-KiB refills that each re-materialize the whole overlay value), not to
+	/// change what is read.
+	#[test]
+	fn single_copy_event_reader_matches_the_streaming_reader() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			// A mixed stream: small records, a transfer, and an oversized record.
+			assert_ok!(System::remark_with_event(RuntimeOrigin::signed(alice()), vec![1]));
+			assert_ok!(Balances::transfer_keep_alive(
+				RuntimeOrigin::signed(alice()),
+				MultiAddress::Id(bob()),
+				EXISTENTIAL_DEPOSIT * 50,
+			));
+			System::deposit_event(RuntimeEvent::Multisig(
+				pallet_multisig::Event::ProposalExecuted {
+					multisig_address: alice(),
+					proposal_id: 0,
+					proposer: alice(),
+					call: vec![0u8; 10_240],
+					approvers: vec![alice(); 100],
+					result: Ok(()),
+				},
+			));
+
+			let streamed: alloc::vec::Vec<_> =
+				frame_system::Pallet::<Runtime>::read_events_no_consensus()
+					.map(|boxed| *boxed)
+					.collect();
+			let (bytes, single_copy) =
+				frame_system::Pallet::<Runtime>::read_events_no_consensus_single_copy();
+			let single_copy: alloc::vec::Vec<_> = single_copy.collect();
+
+			assert!(!streamed.is_empty(), "the fixture must have produced events");
+			assert_eq!(
+				streamed, single_copy,
+				"the single-copy reader must decode the identical records"
+			);
+			assert_eq!(
+				bytes,
+				frame_system::Pallet::<Runtime>::event_bytes(),
+				"the returned size must be the encoded length of the Events value"
+			);
+		});
+	}
+
+	/// `stream_iter()` refills its 2 KiB buffer via `sp_io::storage::read`, and each
+	/// such host call materializes the complete overlay-resident `Events` value before
+	/// slicing out the window — O(bytes²) total copying for a full scan, which the
+	/// linear per-byte charge can never bound (review measured 16× bytes → ~69× time on
+	/// that path). The scan therefore reads the value once and decodes in memory; this
+	/// pins the linear charge against the many-small-record workload (e.g. nested
+	/// batches of `remark_with_event`) that made the quadratic path reachable.
+	#[test]
+	fn wormhole_proof_recorder_scan_of_many_small_records_registers_formula_weight() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
+			let weight_before = frame_system::Pallet::<Runtime>::block_weight().total();
+
+			let scanned = core::cell::Cell::new(0u32);
+			let scanned_bytes = core::cell::Cell::new(0u32);
+			run_lifecycle(&alice(), call, || {
+				for _ in 0..20_000u32 {
+					System::deposit_event(RuntimeEvent::System(frame_system::Event::Remarked {
+						sender: alice(),
+						hash: Default::default(),
+					}));
+				}
+				scanned.set(frame_system::Pallet::<Runtime>::event_count());
+				scanned_bytes.set(frame_system::Pallet::<Runtime>::event_bytes());
+			});
+			assert!(scanned.get() >= 20_000, "the deposits must be in the scanned stream");
+
+			let registered = frame_system::Pallet::<Runtime>::block_weight()
+				.total()
+				.saturating_sub(weight_before);
+			assert_eq!(
+				registered,
+				WormholeProofRecorderExtension::<Runtime>::event_scan_weight(
+					scanned.get(),
+					scanned_bytes.get()
+				),
+				"a scan across tens of thousands of small records must register exactly \
+				 the per-record + per-byte formula weight"
+			);
+		});
+	}
+
 	#[test]
 	fn wormhole_proof_recorder_extension_prepare_succeeds() {
 		new_test_ext().execute_with(|| {
@@ -1323,7 +1424,7 @@ mod tests {
 			let events_before = frame_system::Pallet::<Runtime>::event_count();
 			assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(guardian.clone()), tx_id));
 
-			let recorded =
+			let (recorded, _) =
 				WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(
 					events_before,
 				);
@@ -1367,7 +1468,7 @@ mod tests {
 				MultiAddress::Id(bob()),
 			));
 
-			let recorded =
+			let (recorded, _) =
 				WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(
 					events_before,
 				);
