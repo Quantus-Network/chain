@@ -105,6 +105,17 @@ impl<T: Config<I>, I: 'static, M: GetMaxVoters> Tally<T, I, M> {
 	pub fn from_parts(bare_ayes: MemberIndex, ayes: Votes, nays: Votes) -> Self {
 		Tally { bare_ayes, ayes, nays, dummy: PhantomData }
 	}
+
+	/// Remove a previously recorded vote from this tally.
+	fn withdraw(&mut self, record: &VoteRecord) {
+		match *record {
+			VoteRecord::Aye(votes) => {
+				self.bare_ayes.saturating_dec();
+				self.ayes.saturating_reduce(votes);
+			},
+			VoteRecord::Nay(votes) => self.nays.saturating_reduce(votes),
+		}
+	}
 }
 
 // Use (non-rank-weighted) ayes for calculating support.
@@ -651,7 +662,6 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			let who = ensure_signed(origin)?;
 			let record = Self::ensure_member(&who)?;
-			use VoteRecord::*;
 			let mut pays = Pays::Yes;
 
 			let (tally, vote) = T::Polls::try_access_poll(
@@ -662,11 +672,7 @@ pub mod pallet {
 							Err(Error::<T, I>::NotPolling)?,
 						PollStatus::Ongoing(ref mut tally, class) => {
 							match Voting::<T, I>::get(&poll, &who) {
-								Some(Aye(votes)) => {
-									tally.bare_ayes.saturating_dec();
-									tally.ayes.saturating_reduce(votes);
-								},
-								Some(Nay(votes)) => tally.nays.saturating_reduce(votes),
+								Some(ref prior) => tally.withdraw(prior),
 								None => pays = Pays::No,
 							}
 							let min_rank = T::MinRankOfClass::convert(class);
@@ -776,8 +782,8 @@ pub mod pallet {
 		///
 		/// - `origin`: Must be `Signed` by any account.
 		/// - `who`: The account whose vote should be removed.
-		/// - `poll_index`: Index of an ongoing poll `who` has voted on but is not eligible
-		///   to vote on.
+		/// - `poll_index`: Index of an ongoing poll `who` has voted on but is not eligible to vote
+		///   on.
 		///
 		/// Transaction fees are waived if the vote is successfully removed.
 		///
@@ -794,7 +800,6 @@ pub mod pallet {
 			who: AccountIdLookupOf<T>,
 			poll_index: PollIndexOf<T, I>,
 		) -> DispatchResultWithPostInfo {
-			use VoteRecord::*;
 			ensure_signed(origin)?;
 			let who = T::Lookup::lookup(who)?;
 
@@ -809,13 +814,7 @@ pub mod pallet {
 					.is_some_and(|MemberRecord { rank, .. }| rank >= min_rank);
 				ensure!(!eligible, Error::<T, I>::StillEligible);
 
-				match record {
-					Aye(votes) => {
-						tally.bare_ayes.saturating_dec();
-						tally.ayes.saturating_reduce(votes);
-					},
-					Nay(votes) => tally.nays.saturating_reduce(votes),
-				}
+				tally.withdraw(&record);
 				Voting::<T, I>::remove(&poll_index, &who);
 				Ok(())
 			})?;

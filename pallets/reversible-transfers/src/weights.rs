@@ -85,11 +85,11 @@ fn execute_transfer_weight(
 
 /// Weights for `pallet_reversible_transfers` using the Substrate node and recommended hardware.
 ///
-/// Bounded on `pallet_zk_tree::Config` because `execute_transfer`'s weight reads the
-/// current tree depth: executing a transfer records a wormhole proof, which inserts a
-/// ZK-tree leaf whose storage cost grows with depth.
+/// `execute_transfer` records a wormhole proof (ZK-tree leaf insert); that component is
+/// flat-priced at [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`] via
+/// [`pallet_zk_tree::INSERT_LEAF_*`].
 pub struct SubstrateWeight<T>(PhantomData<T>);
-impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateWeight<T> {
+impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:1)
 	/// Proof: `ReversibleTransfers::HighSecurityAccounts` (`max_values`: None, `max_size`: Some(89), added: 2564, mode: `MaxEncodedLen`)
 	/// Storage: `ReversibleTransfers::GuardianIndex` (r:1 w:1)

@@ -426,12 +426,7 @@ pub mod pallet {
 			// whitelist for it — mirroring `as_derivative` — so Root cannot rewrite the origin to
 			// dispatch a non-whitelisted call as a high-security account.
 			let as_origin: T::RuntimeOrigin = (*as_origin).into();
-			if let Some(who) = as_origin.as_signer() {
-				ensure!(
-					T::HighSecurity::is_call_allowed(who, &call),
-					Error::<T>::CallNotAllowedForHighSecurity
-				);
-			}
+			Self::ensure_nested_call_allowed(&as_origin, &call)?;
 			let res = call.dispatch_bypass_filter(as_origin);
 
 			Self::deposit_event(Event::DispatchedAs {
@@ -666,12 +661,7 @@ pub mod pallet {
 			// Same high-security guard as `dispatch_as`: a signed effective origin is restricted to
 			// its whitelisted calls.
 			let as_origin: T::RuntimeOrigin = (*as_origin).into();
-			if let Some(who) = as_origin.as_signer() {
-				ensure!(
-					T::HighSecurity::is_call_allowed(who, &call),
-					Error::<T>::CallNotAllowedForHighSecurity
-				);
-			}
+			Self::ensure_nested_call_allowed(&as_origin, &call)?;
 			call.dispatch_bypass_filter(as_origin).map_err(|e| e.error)?;
 
 			Self::deposit_event(Event::DispatchedAs { result: Ok(()) });

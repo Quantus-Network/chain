@@ -1,4 +1,6 @@
-//! Depth-aware weights for `pallet_vesting`.
+//! Weights for `pallet_vesting`. Payout paths replace the benchmarked tree component
+//! with flat [`pallet_zk_tree::INSERT_LEAF_*`] pricing at
+//! [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`].
 
 use crate::weights_generated as generated;
 use core::marker::PhantomData;
@@ -39,7 +41,7 @@ fn payout_weight(
 
 pub struct SubstrateWeight<T>(PhantomData<T>);
 
-impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateWeight<T> {
+impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	fn claim() -> Weight {
 		payout_weight(
 			<generated::SubstrateWeight<T> as generated::WeightInfo>::claim(),

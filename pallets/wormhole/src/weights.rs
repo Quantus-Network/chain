@@ -133,11 +133,10 @@ fn storage_tail(
 
 /// Weights for `pallet_wormhole` using the Substrate node and recommended hardware.
 ///
-/// Bounded on `pallet_zk_tree::Config` because the exit-verification weights read the
-/// current tree depth: every processed exit inserts a ZK-tree leaf, whose storage cost
-/// grows with depth.
+/// Every processed exit inserts a ZK-tree leaf; that component is flat-priced at
+/// [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`] via [`pallet_zk_tree::INSERT_LEAF_*`].
 pub struct SubstrateWeight<T>(PhantomData<T>);
-impl<T: frame_system::Config + pallet_zk_tree::Config> WeightInfo for SubstrateWeight<T> {
+impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `System::BlockHash` (r:1 w:0)
 	/// Proof: `System::BlockHash` (`max_values`: None, `max_size`: Some(44), added: 2519, mode: `MaxEncodedLen`)
 	/// Storage: `Wormhole::UsedNullifiers` (r:NUM_LEAF_PROOFS w:0)

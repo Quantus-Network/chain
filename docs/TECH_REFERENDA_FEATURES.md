@@ -42,11 +42,13 @@ Referenda's `Tally = pallet_ranked_collective::TallyOf<Runtime>` and
 ### `TechCollective` (ranked-collective)
 | Call | Origin in this runtime | Notes |
 |---|---|---|
-| `add_member` / `remove_member` | `EnsureRootWithSuccess` (Root only, #91267) | Add/remove at rank 0; requires a passed referendum |
+| `add_member` | `EnsureRootWithSuccess` (Root only, #91267) | Add at rank 0; requires a passed referendum |
+| `remove_member` | `EnsureRootRemoveKeepsMemberFloor` (Root + member-floor gate) | Remove at rank 0; refuses removals that would drop below `MIN_TECH_COLLECTIVE_MEMBERS` |
 | `promote_member` / `demote_member` | `NeverEnsureOrigin` → **disabled** | Rank changes frozen post-genesis |
 | `exchange_member` | `NeverEnsureOrigin` → **disabled** | Account swap unreachable |
 | `vote(poll, aye)` | member | Rank-weighted aye/nay; re-votable while Ongoing |
 | `cleanup_poll` | signed | GC vote records after a poll ends |
+| `remove_ineligible_vote` | signed (permissionless) | Withdraw a stale vote once the voter is no longer eligible |
 
 ### `TechReferenda` (referenda `Instance1`)
 | Call | Origin | Notes |

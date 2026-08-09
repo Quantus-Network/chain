@@ -599,7 +599,9 @@ pub mod pallet {
 		/// rolls the transfer back, so the schedule stays intact and retryable. (The
 		/// runtime's Wormhole recorder always records nonzero native credits, so this
 		/// guards the generic recorder boundary rather than a reachable runtime path.)
-		#[frame_support::transactional]
+		///
+		/// No nested `#[transactional]`: every caller is a dispatchable whose storage
+		/// layer already rolls back on `Err`, so a failed record undoes the transfer.
 		fn pay_out(
 			pot: &T::AccountId,
 			beneficiary: &T::AccountId,

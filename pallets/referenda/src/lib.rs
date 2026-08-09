@@ -747,9 +747,7 @@ pub mod pallet {
 			if status.in_queue {
 				Self::remove_from_track_queue(status.track, index);
 			}
-			// Release the preimage request taken in `submit`.
-			T::Preimages::drop(&status.proposal);
-			Self::note_one_fewer_active(&status.submission_deposit.who);
+			Self::conclude_ongoing(&status.proposal, &status.submission_deposit.who);
 			Self::deposit_event(Event::<T, I>::Cancelled { index, tally: status.tally });
 			let info = ReferendumInfo::Cancelled(
 				T::BlockNumberProvider::current_block_number(),
@@ -788,9 +786,7 @@ pub mod pallet {
 			if status.in_queue {
 				Self::remove_from_track_queue(status.track, index);
 			}
-			// Release the preimage request taken in `submit`.
-			T::Preimages::drop(&status.proposal);
-			Self::note_one_fewer_active(&status.submission_deposit.who);
+			Self::conclude_ongoing(&status.proposal, &status.submission_deposit.who);
 			Self::deposit_event(Event::<T, I>::Killed { index, tally: status.tally });
 			Self::slash_deposit(Some(status.submission_deposit.clone()));
 			Self::slash_deposit(status.decision_deposit.clone());
@@ -1011,7 +1007,10 @@ impl<T: Config<I>, I: 'static> Polling<T::Tally> for Pallet<T, I> {
 		let mut status = Self::ensure_ongoing(index).map_err(|_| ())?;
 		Self::ensure_no_alarm(&mut status);
 		Self::note_one_fewer_deciding(status.track);
-		Self::note_one_fewer_active(&status.submission_deposit.who);
+		// Same terminal bookkeeping as cancel/kill/nudge: release the submit-time
+		// preimage request and free the active slot. Skipping `Preimages::drop` here
+		// previously drifted from the production path.
+		Self::conclude_ongoing(&status.proposal, &status.submission_deposit.who);
 		let now = T::BlockNumberProvider::current_block_number();
 		let info = if approved {
 			ReferendumInfo::Approved(now, Some(status.submission_deposit), status.decision_deposit)
@@ -1529,9 +1528,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 				if status.deciding.is_none() && now >= timeout && !status.in_queue {
 					// Too long without being decided - end it.
 					Self::ensure_no_alarm(&mut status);
-					// Release the preimage request taken in `submit`.
-					T::Preimages::drop(&status.proposal);
-					Self::note_one_fewer_active(&status.submission_deposit.who);
+					Self::conclude_ongoing(&status.proposal, &status.submission_deposit.who);
 					Self::deposit_event(Event::<T, I>::TimedOut { index, tally: status.tally });
 					return (
 						ReferendumInfo::TimedOut(
@@ -1570,12 +1567,13 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 								Ok(()) => {
 									Self::ensure_no_alarm(&mut status);
 									Self::note_one_fewer_deciding(status.track);
-									// Release the preimage request taken in `submit`. The
-									// scheduler has just taken its own request for the
-									// enactment call in `schedule_named`, so the bytes stay
-									// pinned until dispatch.
-									T::Preimages::drop(&status.proposal);
-									Self::note_one_fewer_active(&status.submission_deposit.who);
+									// The scheduler has just taken its own request for the
+									// enactment call in `schedule_named`, so after we drop the
+									// submit-time request the bytes stay pinned until dispatch.
+									Self::conclude_ongoing(
+										&status.proposal,
+										&status.submission_deposit.who,
+									);
 									Self::deposit_event(Event::<T, I>::Confirmed {
 										index,
 										tally: status.tally,
@@ -1610,9 +1608,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 						// Failed!
 						Self::ensure_no_alarm(&mut status);
 						Self::note_one_fewer_deciding(status.track);
-						// Release the preimage request taken in `submit`.
-						T::Preimages::drop(&status.proposal);
-						Self::note_one_fewer_active(&status.submission_deposit.who);
+						Self::conclude_ongoing(&status.proposal, &status.submission_deposit.who);
 						Self::deposit_event(Event::<T, I>::Rejected { index, tally: status.tally });
 						return (
 							ReferendumInfo::Rejected(
@@ -1700,6 +1696,15 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 				(count > 0).then_some(count)
 			});
 		});
+	}
+
+	/// Shared bookkeeping for every transition out of `ReferendumInfo::Ongoing`: release
+	/// the preimage request taken in `submit`, and free the global/per-submitter active
+	/// slots. Keeping these two steps in one helper stops the benchmark-only path from
+	/// drifting (it previously decremented the counters without dropping the preimage).
+	fn conclude_ongoing(proposal: &BoundedCallOf<T, I>, who: &T::AccountId) {
+		T::Preimages::drop(proposal);
+		Self::note_one_fewer_active(who);
 	}
 
 	/// Cancel the alarm in `status`, if one exists.
