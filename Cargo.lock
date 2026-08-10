@@ -7601,7 +7601,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-miner-api"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
