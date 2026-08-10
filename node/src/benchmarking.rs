@@ -122,14 +122,14 @@ pub fn create_benchmark_extrinsic(
 			)),
 			frame_system::CheckNonce::<runtime::Runtime>::from(nonce),
 			frame_system::CheckWeight::<runtime::Runtime>::new(),
-			pallet_transaction_payment::ChargeTransactionPayment::<runtime::Runtime>::from(0),
-			frame_metadata_hash_extension::CheckMetadataHash::<runtime::Runtime>::new(false),
 			quantus_runtime::transaction_extensions::ReversibleTransactionExtension::<
 				runtime::Runtime,
 			>::new(),
 			quantus_runtime::transaction_extensions::WormholeProofRecorderExtension::<
 				runtime::Runtime,
 			>::new(),
+			pallet_transaction_payment::ChargeTransactionPayment::<runtime::Runtime>::from(0),
+			frame_metadata_hash_extension::CheckMetadataHash::<runtime::Runtime>::new(false),
 			frame_system::WeightReclaim::<runtime::Runtime>::new(),
 		);
 
@@ -145,9 +145,9 @@ pub fn create_benchmark_extrinsic(
 			(),
 			(),
 			(),
+			(),
+			(),
 			None,
-			(),
-			(),
 			(),
 		),
 	);

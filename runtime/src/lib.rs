@@ -159,10 +159,14 @@ pub type TxExtension = (
 	frame_system::CheckEra<Runtime>,
 	frame_system::CheckNonce<Runtime>,
 	frame_system::CheckWeight<Runtime>,
+	transaction_extensions::ReversibleTransactionExtension<Runtime>,
+	// Must run before `ChargeTransactionPayment`: post-dispatch hooks execute
+	// left-to-right, and payment finalizes the fee from `PostDispatchInfo` at its
+	// turn — the wormhole recorder's refund of statically over-charged per-transfer
+	// weight only reaches the payer's fee if it lands first.
+	transaction_extensions::WormholeProofRecorderExtension<Runtime>,
 	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
 	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
-	transaction_extensions::ReversibleTransactionExtension<Runtime>,
-	transaction_extensions::WormholeProofRecorderExtension<Runtime>,
 	// Must stay last: re-runs the block-weight reclaim so that refunds made by the
 	// extensions above (e.g. the wormhole recorder returning statically over-charged
 	// per-transfer weight) are returned to block capacity. `CheckWeight`'s own reclaim

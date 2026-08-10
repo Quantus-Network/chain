@@ -434,7 +434,9 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 
 		// A failed dispatch rolled back its events: nothing is scanned and nothing is
 		// recorded, so the entire static per-transfer reservation is unspent. Returning
-		// it lets the pipeline refund it (see `TxExtension`'s trailing `WeightReclaim`).
+		// it refunds both the fee (this extension precedes `ChargeTransactionPayment`
+		// in `TxExtension`, so payment sees the corrected weight) and block capacity
+		// (via the trailing `WeightReclaim`).
 		if result.is_err() {
 			return Ok(Self::per_transfer_weight().saturating_mul(charged_transfers));
 		}
