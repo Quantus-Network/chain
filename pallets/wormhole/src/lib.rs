@@ -864,16 +864,12 @@ pub mod pallet {
 				nullifiers: nullifier_list,
 			});
 
-			// fee = minted_output * volume_fee_bps / (10000 - volume_fee_bps)
-			let fee_bps = T::VolumeFeeRateBps::get() as u128;
 			let total_exit_u128: u128 = minted_exit_amount.try_into().map_err(|_| {
 				log::error!("Failed to convert minted_exit_amount to u128");
 				Error::<T>::InvalidProofPublicInputs
 			})?;
-			let total_fee_u128 = total_exit_u128
-				.saturating_mul(fee_bps)
-				.checked_div(10000u128.saturating_sub(fee_bps))
-				.unwrap_or(0);
+			let total_fee_u128 =
+				Self::volume_fee_for_exit(total_exit_u128, T::VolumeFeeRateBps::get());
 
 			// Fee distribution: configurable portion burned, remainder to miner
 			//
@@ -1067,6 +1063,34 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+		/// Volume fee owed on `minted_exit` base units at `fee_bps`, in base units.
+		///
+		/// Mirrors the circuit's integer fee relation over QUANTIZED amounts
+		/// (`out · 10000 ≤ input · (10000 − bps)`, see `docs/wormhole-zk.md`):
+		/// `fee_quanta = ceil(exit_quanta · bps / (10000 − bps))`, which is exactly
+		/// the minimum fee gap the proofs lock. In particular the smallest valid
+		/// exit (one quantum out forces `input ≥ 2` quanta) settles a full
+		/// one-quantum fee, where truncating base-unit division would settle only
+		/// `bps / (10000 − bps)` of a quantum. Computed over the bundle's minted
+		/// total, the result never exceeds what the individual proofs locked
+		/// (ceil of a sum ≤ sum of ceils).
+		///
+		/// `minted_exit` is always a whole number of quanta: every exit balance is
+		/// a quantized `u32` output times [`SCALE_DOWN_FACTOR`], so the quantum
+		/// division below is exact. A degenerate `fee_bps >= 10000` yields a zero
+		/// fee, matching the previous `checked_div(..).unwrap_or(0)` behaviour.
+		pub(crate) fn volume_fee_for_exit(minted_exit: u128, fee_bps: u32) -> u128 {
+			let fee_bps = fee_bps as u128;
+			let denominator = 10_000u128.saturating_sub(fee_bps);
+			if denominator == 0 {
+				return 0;
+			}
+			(minted_exit / crate::SCALE_DOWN_FACTOR)
+				.saturating_mul(fee_bps)
+				.div_ceil(denominator)
+				.saturating_mul(crate::SCALE_DOWN_FACTOR)
+		}
+
 		/// Shared cheap checks for any exit bundle (asset, fee, block, segment validity).
 		pub(crate) fn validate_exit_bundle_common(
 			bundle: &ExitBundle,
