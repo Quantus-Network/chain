@@ -88,7 +88,9 @@ be zero).
 4. Mint `sum · 10^10` (circuit uses 2dp `u32`, chain uses 12dp `u128`) to each
    surviving exit; record each transfer in `pallet-zk-tree` so the new mint
    becomes a fresh leaf available for future wormhole exits.
-5. Fee handling: `fee = total_output · bps / (10000 − bps)`. Split per
+5. Fee handling: `fee = ceil(total_output_quanta · bps / (10000 − bps))`
+   quanta, mirroring the circuit's integer fee relation over quantized
+   amounts — the smallest nonzero exit pays a full one-quantum fee. Split per
    `VolumeFeesBurnRate`: burn portion reduces `total_issuance`, miner portion
    minted to the QPoW block author from the pre‑runtime digest. If no author
    is found, the miner portion is burned instead.
