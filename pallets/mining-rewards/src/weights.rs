@@ -79,16 +79,13 @@ const BASE_KEY_POV: u64 = 2700;
 /// Weights for `pallet_mining_rewards` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
-	/// Reserved in `on_initialize` before extrinsics can grow the tree, so leaf
-	/// inserts are priced at `MAX_TREE_DEPTH`: DB ops, Poseidon hashing, and PoV
-	/// all scale with depth (`update_path` hashes and reads siblings per level).
+	/// Reserved in `on_initialize` before extrinsics run. Leaf inserts are flat-
+	/// priced at [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`].
 	fn on_finalize_rewarded_miner() -> Weight {
 		// Minimum execution time: 150_000_000 picoseconds.
-		let (tree_reads, tree_writes) =
-			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
-		let hash_time = MAX_LEAF_INSERTS.saturating_mul(
-			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
-		);
+		let (tree_reads, tree_writes) = pallet_zk_tree::INSERT_LEAF_DB_OPS;
+		let hash_time =
+			MAX_LEAF_INSERTS.saturating_mul(pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS);
 		let proof_size = BASE_READS.saturating_mul(BASE_KEY_POV).saturating_add(
 			MAX_LEAF_INSERTS
 				.saturating_mul(tree_reads)
@@ -106,15 +103,13 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 // For backwards compatibility and tests.
 impl WeightInfo for () {
-	/// Same worst-case (`MAX_TREE_DEPTH`) pricing as `SubstrateWeight`, with
-	/// `RocksDbWeight` in place of the runtime's configured `DbWeight`.
+	/// Same flat circuit-depth pricing as `SubstrateWeight`, with `RocksDbWeight`
+	/// in place of the runtime's configured `DbWeight`.
 	fn on_finalize_rewarded_miner() -> Weight {
 		// Minimum execution time: 150_000_000 picoseconds.
-		let (tree_reads, tree_writes) =
-			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
-		let hash_time = MAX_LEAF_INSERTS.saturating_mul(
-			pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(pallet_zk_tree::MAX_TREE_DEPTH),
-		);
+		let (tree_reads, tree_writes) = pallet_zk_tree::INSERT_LEAF_DB_OPS;
+		let hash_time =
+			MAX_LEAF_INSERTS.saturating_mul(pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS);
 		let proof_size = BASE_READS.saturating_mul(BASE_KEY_POV).saturating_add(
 			MAX_LEAF_INSERTS
 				.saturating_mul(tree_reads)
@@ -134,63 +129,16 @@ impl WeightInfo for () {
 mod tests {
 	use super::*;
 
-	/// Finalize cost at a given tree depth (DB ops + hashing + PoV).
-	fn finalize_cost_at_depth(depth: u8) -> Weight {
-		let (tree_reads, tree_writes) = pallet_zk_tree::insert_leaf_db_ops_at_depth(depth);
-		let hash_time = MAX_LEAF_INSERTS
-			.saturating_mul(pallet_zk_tree::insert_leaf_hash_ref_time_at_depth(depth));
-		let proof_size = BASE_READS.saturating_mul(BASE_KEY_POV).saturating_add(
-			MAX_LEAF_INSERTS
-				.saturating_mul(tree_reads)
-				.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
-		);
-		Weight::from_parts(162_000_000_u64.saturating_add(hash_time), proof_size)
-			.saturating_add(RocksDbWeight::get().reads(
-				BASE_READS.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_reads)),
-			))
-			.saturating_add(RocksDbWeight::get().writes(
-				BASE_WRITES.saturating_add(MAX_LEAF_INSERTS.saturating_mul(tree_writes)),
-			))
-	}
-
-	/// Reserved weight must cover finalize at every reachable end-of-block depth.
 	#[test]
-	fn reserved_weight_covers_any_end_of_block_depth() {
+	fn proof_size_covers_base_and_tree_path_keys() {
 		let reserved = <() as WeightInfo>::on_finalize_rewarded_miner();
-
-		for end_depth in 0..=pallet_zk_tree::MAX_TREE_DEPTH {
-			let cost = finalize_cost_at_depth(end_depth);
-			assert!(
-				reserved.all_gte(cost),
-				"reserved weight {reserved:?} must cover finalize at depth {end_depth} ({cost:?})"
-			);
-		}
-	}
-
-	#[test]
-	fn weight_is_priced_at_max_tree_depth() {
-		let expected = finalize_cost_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
-		assert_eq!(<() as WeightInfo>::on_finalize_rewarded_miner(), expected);
-	}
-
-	/// PoV must grow with tree depth and cover every base + path key at max depth.
-	#[test]
-	fn proof_size_scales_with_depth_and_covers_base_keys() {
-		let shallow = finalize_cost_at_depth(1);
-		let deep = finalize_cost_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
-		assert!(
-			deep.proof_size() > shallow.proof_size(),
-			"finalize PoV must grow with tree depth"
-		);
-
-		let reserved = <() as WeightInfo>::on_finalize_rewarded_miner();
-		let (tree_reads, _) =
-			pallet_zk_tree::insert_leaf_db_ops_at_depth(pallet_zk_tree::MAX_TREE_DEPTH);
+		let (tree_reads, _) = pallet_zk_tree::INSERT_LEAF_DB_OPS;
 		assert!(
 			reserved.proof_size() >=
 				BASE_READS * BASE_KEY_POV +
 					MAX_LEAF_INSERTS * tree_reads * pallet_zk_tree::TREE_KEY_POV,
-			"reserved PoV must cover every base key plus all tree path keys at MAX_TREE_DEPTH"
+			"reserved PoV must cover every base key plus all tree path keys at \
+			 CIRCUIT_MAX_TREE_DEPTH"
 		);
 	}
 

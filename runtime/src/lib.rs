@@ -76,7 +76,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	//   `spec_version`, and `authoring_version` are the same between Wasm and native.
 	// This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
 	//   the compatible custom types.
-	spec_version: 142,
+	spec_version: 143,
 	impl_version: 1,
 	apis: apis::RUNTIME_API_VERSIONS,
 	transaction_version: 3,
@@ -100,6 +100,13 @@ pub const MICRO_UNIT: Balance = 1_000_000;
 
 /// Existential deposit.
 pub const EXISTENTIAL_DEPOSIT: Balance = MILLI_UNIT;
+
+/// Hard cap on total issuance; mining emissions stop here.
+pub const MAX_SUPPLY: Balance = 21_000_000 * UNIT;
+
+/// Wall-clock day in milliseconds — the unit vesting schedules and claim cadence are
+/// expressed in (`pallet_timestamp` moments, not block numbers).
+pub const MILLIS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 // pub type Signature = MultiSignature;
@@ -152,10 +159,20 @@ pub type TxExtension = (
 	frame_system::CheckEra<Runtime>,
 	frame_system::CheckNonce<Runtime>,
 	frame_system::CheckWeight<Runtime>,
+	transaction_extensions::ReversibleTransactionExtension<Runtime>,
+	// Must run before `ChargeTransactionPayment`: post-dispatch hooks execute
+	// left-to-right, and payment finalizes the fee from `PostDispatchInfo` at its
+	// turn — the wormhole recorder's refund of statically over-charged per-transfer
+	// weight only reaches the payer's fee if it lands first.
+	transaction_extensions::WormholeProofRecorderExtension<Runtime>,
 	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
 	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
-	transaction_extensions::ReversibleTransactionExtension<Runtime>,
-	transaction_extensions::WormholeProofRecorderExtension<Runtime>,
+	// Must stay last: re-runs the block-weight reclaim so that refunds made by the
+	// extensions above (e.g. the wormhole recorder returning statically over-charged
+	// per-transfer weight) are returned to block capacity. `CheckWeight`'s own reclaim
+	// runs before those refunds exist; `reclaim_weight` is idempotent via
+	// `ExtrinsicWeightReclaimed`, so running it twice never double-counts.
+	frame_system::WeightReclaim<Runtime>,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
@@ -171,8 +188,6 @@ pub type Migrations = (
 	pallet_wormhole::migrations::MigrateV1ToV2<Runtime>,
 	// v0 -> v1: set the treasury portion to 50% (50/50 treasury/miner reward split).
 	pallet_treasury::migrations::MigrateV0ToV1<Runtime>,
-	// v0 -> v1: drop the removed `call_weight` field from stored multisig proposals.
-	pallet_multisig::migrations::MigrateV0ToV1<Runtime>,
 );
 
 /// Executive: handles dispatch to the various modules.

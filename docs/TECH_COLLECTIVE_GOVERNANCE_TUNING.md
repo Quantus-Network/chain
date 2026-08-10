@@ -119,13 +119,13 @@ type KillOrigin = EnsureRoot<AccountId>;
 
 Both are Root-only. Root is only reachable via a passed referendum, so cancelling a malicious tech referendum requires winning *another* referendum on the same track before the first one enacts — a chicken-and-egg problem, made worse by `max_deciding: 1` (`definitions.rs:172`): a second referendum cannot even enter deciding until the first leaves it. During an attack the practical defense is votes (2 honest nays), not cancellation. Recommendation: give `CancelOrigin` to a smaller quorum (e.g. `EnsureRoot` OR a 2-of-5 ranked-collective origin via `EitherOf<EnsureRoot<...>, EnsureRankedMember<...>>`-style construct, or a dedicated fast cancel track), keep `kill` Root-only.
 
-Member removal mid-flight: `remove_member` (`pallet-ranked-collective/src/lib.rs:600-617`) requires `RemoveOrigin`, which this runtime now sets to `EnsureRootWithSuccess<AccountId, ConstU16<0>>` (`configs/mod.rs`) — **Root only**; `AddOrigin` is the same (#91267 fixed). Membership changes therefore require a passed referendum: a single member can no longer unilaterally remove the others or stuff the collective up to `MaxMemberCount = 13`. (Genesis seeding bypasses the origin via `do_add_member_to_rank`, as before.)
+Member removal mid-flight: `remove_member` requires `RemoveOrigin`, which this runtime sets to `EnsureRootRemoveKeepsMemberFloor` (`governance/definitions.rs`, wired in `configs/mod.rs`) — **Root only**, and only while the removal leaves at least `MIN_TECH_COLLECTIVE_MEMBERS` members. That floor is load-bearing: shrinking below it would collapse the tech-referenda curves or (at zero members) deadlock the only governance lane. `AddOrigin` remains `EnsureRootWithSuccess<AccountId, ConstU16<0>>` (#91267). Membership changes therefore require a passed referendum: a single member can no longer unilaterally remove the others or stuff the collective up to `MaxMemberCount = 13`. (Genesis seeding bypasses the origin via `do_add_member_to_rank`, as before.)
 
-Removal does **not** touch ongoing tallies: `do_remove_member_from_rank` (lib.rs:886-892) clears member indices only — cast votes stay counted, but the support denominator `MemberCount[0]` shrinks immediately, *raising* the support percentage of remaining ayes (e.g. after removing 2 of 5 members, 3 ayes = 100% support). Membership changes during a live referendum therefore shift its outcome.
+Removal intentionally does not reconcile ongoing tallies — this matches upstream `pallet-ranked-collective` (eager reconciliation would be an unbounded `Voting` scan inside a scheduler-enacted dispatch). A removed member's already-cast votes keep counting until each poll ends, while the support denominator `MemberCount[0]` shrinks immediately; the tally's `support` clamps at 100%, so the distortion is bounded and expires with the poll (at most `decision_period` + `confirm_period`). Completed-poll vote records are swept permissionlessly via `cleanup_poll`.
 
 ## 5. Security summary (current 5-member config: approval 61%, support 60%)
 
-Assumes membership management is fixed to Root-only (see §4); with the current any-member `RemoveOrigin`, none of the rows below hold.
+Assumes membership management stays Root-only with the member-floor `RemoveOrigin` (see §4).
 
 | Compromised members | Can block upgrades? | Can force an upgrade? |
 |---|---|---|

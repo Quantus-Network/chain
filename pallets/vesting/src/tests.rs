@@ -867,6 +867,52 @@ mod proof_recording {
 			assert_eq!(MockProofRecorder::recorded(), vec![(pot(), BOB, TOTAL / 2)]);
 		});
 	}
+
+	/// The `TransferProofRecorder` contract permits `false` for a deliberately dropped
+	/// credit. A payout without its proof material must not be finalized: the funds
+	/// move but no wormhole leaf exists, and once `claimed` advances (or the schedule
+	/// is removed) the payout can never be retried to create the missing proof. Every
+	/// payout path must roll back completely and stay retryable.
+	#[test]
+	fn payout_paths_roll_back_when_the_recorder_drops_the_credit() {
+		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
+			MockProofRecorder::set_drop_credits(true);
+			set_time(300_000);
+
+			assert_noop!(
+				Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
+				Error::<Test>::PayoutProofNotRecorded
+			);
+			assert_eq!(stored(0).claimed, 0, "claim must not advance without a proof");
+			assert_eq!(free(&BOB), 0, "the payout transfer must be rolled back");
+
+			assert_noop!(
+				Vesting::end_schedule(RuntimeOrigin::root(), 0),
+				Error::<Test>::PayoutProofNotRecorded
+			);
+			assert!(
+				Schedules::<Test>::contains_key(0),
+				"the schedule must not be removed without a proof for its final payout"
+			);
+
+			assert_noop!(
+				Vesting::retarget_schedule(RuntimeOrigin::root(), 0, CHARLIE),
+				Error::<Test>::PayoutProofNotRecorded
+			);
+			assert_eq!(
+				stored(0).beneficiary,
+				BOB,
+				"retarget must not settle the old beneficiary without a proof"
+			);
+
+			// Once the recorder records again, the untouched schedule pays out normally.
+			MockProofRecorder::set_drop_credits(false);
+			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
+			assert_eq!(stored(0).claimed, TOTAL / 2);
+			assert_eq!(free(&BOB), TOTAL / 2);
+			assert_eq!(MockProofRecorder::recorded(), vec![(pot(), BOB, TOTAL / 2)]);
+		});
+	}
 }
 
 mod unfunded_pot_bootstrap {

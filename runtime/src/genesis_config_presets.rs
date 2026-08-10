@@ -18,7 +18,9 @@
 // this module is used by the client, so it's ok to panic/unwrap here
 #![allow(clippy::expect_used)]
 
-use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, EXISTENTIAL_DEPOSIT, UNIT};
+use crate::{
+	AccountId, BalancesConfig, RuntimeGenesisConfig, EXISTENTIAL_DEPOSIT, MILLIS_PER_DAY, UNIT,
+};
 use alloc::{
 	string::{String, ToString},
 	vec,
@@ -69,8 +71,6 @@ type VestingMoment = u64;
 
 /// One vesting genesis entry: `(beneficiary, start_ms, cliff_ms, end_ms, total)`.
 type VestingScheduleTuple = (AccountId, VestingMoment, VestingMoment, VestingMoment, u128);
-
-const MILLIS_PER_DAY: VestingMoment = 24 * 60 * 60 * 1000;
 
 const fn days_ms(days: u64) -> VestingMoment {
 	days * MILLIS_PER_DAY
@@ -284,7 +284,7 @@ fn testnet_vesting_schedules() -> Vec<VestingScheduleTuple> {
 		(
 			accounts[1].clone(),
 			GENESIS_VESTING_START_MS,
-			GENESIS_VESTING_START_MS,
+			GENESIS_VESTING_CLIFF_MS,
 			GENESIS_VESTING_END_MS,
 			GENESIS_VESTING_TOTAL,
 		),
@@ -686,5 +686,52 @@ mod tests {
 		let schedule_sum: u128 =
 			config.vesting.schedules.iter().map(|(_, _, _, _, total)| *total).sum();
 		assert_eq!(pot_balance, schedule_sum + EXISTENTIAL_DEPOSIT);
+	}
+
+	/// Pin the known testnet/dev vesting tables (and their schedule counts) to the
+	/// published cliff constants. Regression: Bob's second schedule shipped with the
+	/// start timestamp in its cliff field, so it accrued linearly from day 0 in both
+	/// `dev` and `heisenberg` instead of honoring the 90-day lock.
+	///
+	/// Counts are exact per preset: a `>= 4` floor would let a heisenberg drop slip
+	/// through because `dev` alone contributes 4. The 90-day pin applies only to
+	/// schedules that use [`GENESIS_VESTING_START_MS`]; a future allocation table
+	/// that ships a different start/cliff pair is checked only for structural
+	/// validity (`start <= cliff < end`).
+	#[test]
+	fn preset_vesting_schedules_enforce_the_published_cliff() {
+		let expected: &[(&str, usize)] = &[
+			(sp_genesis_builder::DEV_RUNTIME_PRESET, 4),
+			(HEISENBERG_RUNTIME_PRESET, 3),
+			(PLANCK_RUNTIME_PRESET, 0),
+		];
+		let mut total = 0usize;
+		for &(name, expected_count) in expected {
+			let id = PresetId::from(name);
+			let raw = get_preset(&id).expect("listed preset must resolve");
+			let (json, _) = prepare_genesis_build_input(raw).expect("well-formed");
+			let config: RuntimeGenesisConfig = serde_json::from_slice(&json).expect("deserializes");
+			assert_eq!(
+				config.vesting.schedules.len(),
+				expected_count,
+				"preset {id:?}: unexpected vesting schedule count"
+			);
+			for (who, start, cliff, end, _) in &config.vesting.schedules {
+				assert!(
+					start <= cliff,
+					"preset {id:?}: schedule for {who:?} must not cliff before it starts"
+				);
+				assert!(cliff < end, "preset {id:?}: cliff must precede the vesting end");
+				if *start == GENESIS_VESTING_START_MS {
+					assert_eq!(
+						*cliff, GENESIS_VESTING_CLIFF_MS,
+						"preset {id:?}: schedule for {who:?} using the published start \
+						 must lock until GENESIS_VESTING_CLIFF_MS (start + 90 days)"
+					);
+				}
+			}
+			total += config.vesting.schedules.len();
+		}
+		assert_eq!(total, 7, "dev (4) + heisenberg (3) + planck (0) must sum to 7");
 	}
 }

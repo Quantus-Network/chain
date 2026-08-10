@@ -343,6 +343,10 @@ pub mod test {
 			let status_v0 = create_status_v0();
 			let ongoing_v0 = v0::ReferendumInfoOf::<T, ()>::Ongoing(status_v0.clone());
 			ReferendumCount::<T, ()>::mutate(|x| x.saturating_inc());
+			ActiveReferendaCount::<T, ()>::mutate(|x| x.saturating_inc());
+			ActiveSubmissionCount::<T, ()>::mutate(status_v0.submission_deposit.who, |x| {
+				x.saturating_inc()
+			});
 			v0::ReferendumInfoFor::<T, ()>::insert(2, ongoing_v0);
 			// create and insert into the storage an approved referendum v0.
 			let approved_v0 = v0::ReferendumInfoOf::<T, ()>::Approved(
@@ -382,7 +386,8 @@ pub mod test {
 				}
 			}
 
-			let referendum_ongoing = v1::ReferendumInfoOf::<T, ()>::Ongoing(create_status_v0());
+			let status_v0 = create_status_v0();
+			let referendum_ongoing = v1::ReferendumInfoOf::<T, ()>::Ongoing(status_v0.clone());
 			let referendum_approved = v1::ReferendumInfoOf::<T, ()>::Approved(
 				50, //old block number
 				Some(Deposit { who: 1, amount: 10 }),
@@ -390,6 +395,10 @@ pub mod test {
 			);
 
 			ReferendumCount::<T, ()>::mutate(|x| x.saturating_inc());
+			ActiveReferendaCount::<T, ()>::mutate(|x| x.saturating_inc());
+			ActiveSubmissionCount::<T, ()>::mutate(status_v0.submission_deposit.who, |x| {
+				x.saturating_inc()
+			});
 			v1::ReferendumInfoFor::<T, ()>::insert(1, referendum_ongoing);
 
 			ReferendumCount::<T, ()>::mutate(|x| x.saturating_inc());

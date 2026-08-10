@@ -62,48 +62,47 @@ mod tests;
 ///   unaffected, so nothing can double-spend across the upgrade.
 pub const MAX_TREE_DEPTH: u8 = 32;
 
-/// Worst-case `(reads, writes)` storage-operation counts for one [`Pallet::insert_leaf`]
-/// call when the tree is currently at `depth`.
-///
-/// The insert is depth-dependent: `update_path` reads the 3 sibling hashes at every
-/// level and writes one internal node per level below the root. Costing is done at
-/// `depth + 1` (capped at [`MAX_TREE_DEPTH`]) so an insert that triggers tree growth is
-/// covered. At effective depth `d`:
-/// - reads: `LeafCount` + `Depth` (twice) + `grow_tree`'s `Root` + `3·d` siblings
-/// - writes: `Leaves` + `LeafCount` + `Root` + `d − 1` internal nodes, plus `grow_tree`'s
-///   `Nodes`/`Root`/`Depth` writes
-///
-/// Weight/fee metering for anything that inserts leaves must use this (via
-/// [`Pallet::insert_leaf_db_ops`]) rather than a flat constant, otherwise the declared
-/// weight silently falls behind the real database work as the tree deepens.
-pub fn insert_leaf_db_ops_at_depth(depth: u8) -> (u64, u64) {
-	let d = depth.saturating_add(1).min(MAX_TREE_DEPTH) as u64;
-	(3 * d + 4, d + 5)
-}
+/// The deepest tree the wormhole circuits accept (`qp-zk-circuits-common`,
+/// `zk_merkle::MAX_DEPTH`). All insert-cost metering below is a constant priced at
+/// this depth — see [`INSERT_LEAF_DB_OPS`].
+pub const CIRCUIT_MAX_TREE_DEPTH: u8 = 16;
 
 /// Worst-case `ref_time` (picoseconds) of one Poseidon evaluation
 /// ([`tree::hash_node`] / [`tree::hash_leaf`]). Padded for wasm / slower hardware.
 pub const POSEIDON_EVAL_REF_TIME_PS: u64 = 50_000_000;
 
-/// Poseidon evaluations for one [`Pallet::insert_leaf`] at `depth`
-/// (`hash_leaf` + per-level `hash_node` + grow). Costed at `depth + 1` like
-/// [`insert_leaf_db_ops_at_depth`].
-pub fn insert_leaf_poseidon_evals_at_depth(depth: u8) -> u64 {
-	let d = depth.saturating_add(1).min(MAX_TREE_DEPTH) as u64;
-	d + 2
-}
+/// Flat `(reads, writes)` for one [`Pallet::insert_leaf`], priced at
+/// [`CIRCUIT_MAX_TREE_DEPTH`].
+///
+/// The insert's *real* cost is depth-dependent (`update_path` reads 3 siblings and
+/// writes one internal node per level), but metering is deliberately FLAT at the
+/// circuit ceiling so `price × n` is sound for any multi-insert call. Out-deepening
+/// that ceiling would take ~3.2 billion inserts in one block (impossible under block
+/// limits); the trade-off is a modest overcharge while the tree is young. At
+/// `d = CIRCUIT_MAX_TREE_DEPTH`:
+/// - reads: `LeafCount` + `Depth` (twice) + `grow_tree`'s `Root` + `3·d` siblings
+/// - writes: `Leaves` + `LeafCount` + `Root` + `d − 1` internal nodes, plus `grow_tree`'s
+///   `Nodes`/`Root`/`Depth` writes
+///
+/// Charge together with [`INSERT_LEAF_HASH_REF_TIME_PS`].
+pub const INSERT_LEAF_DB_OPS: (u64, u64) = {
+	let d = CIRCUIT_MAX_TREE_DEPTH as u64;
+	(3 * d + 4, d + 5)
+};
 
-/// Depth-dependent insert compute (`ref_time`); scales with tree depth the same
-/// way as [`insert_leaf_db_ops_at_depth`].
-pub fn insert_leaf_hash_ref_time_at_depth(depth: u8) -> u64 {
-	insert_leaf_poseidon_evals_at_depth(depth).saturating_mul(POSEIDON_EVAL_REF_TIME_PS)
-}
+/// Flat Poseidon evaluations for one insert (`hash_leaf` + per-level `hash_node` +
+/// grow), priced at [`CIRCUIT_MAX_TREE_DEPTH`].
+pub const INSERT_LEAF_POSEIDON_EVALS: u64 = CIRCUIT_MAX_TREE_DEPTH as u64 + 2;
+
+/// Flat insert compute (`ref_time` picoseconds); priced at [`CIRCUIT_MAX_TREE_DEPTH`].
+pub const INSERT_LEAF_HASH_REF_TIME_PS: u64 =
+	INSERT_LEAF_POSEIDON_EVALS * POSEIDON_EVAL_REF_TIME_PS;
 
 /// Conservative PoV bound (bytes) per ZK-tree storage key touched during a path
 /// update. Tree entries are 32-byte hashes with small keys; comparable to the
 /// benchmarked `ZkTree::Leaves` / `UsedNullifiers` `added` figures (~2524–2543).
-/// Callers that scale insert weight with [`insert_leaf_db_ops_at_depth`] should
-/// use this for the proof-size term so all pallets share one assumption.
+/// Callers that scale insert weight with [`INSERT_LEAF_DB_OPS`] should use this
+/// for the proof-size term so all pallets share one assumption.
 pub const TREE_KEY_POV: u64 = 2600;
 
 /// Branching factor of the tree.
@@ -235,23 +234,6 @@ pub mod pallet {
 			// Set ZK Merkle tree root in frame_system for inclusion in block header
 			let root: Hash256 = Root::<T>::get();
 			<frame_system::Pallet<T>>::set_zk_tree_root(root.into());
-		}
-	}
-
-	impl<T: Config> Pallet<T> {
-		/// Worst-case `(reads, writes)` for one `insert_leaf` at the tree's *current*
-		/// depth. See [`insert_leaf_db_ops_at_depth`].
-		pub fn insert_leaf_db_ops() -> (u64, u64) {
-			crate::insert_leaf_db_ops_at_depth(Depth::<T>::get())
-		}
-
-		/// Worst-case Poseidon-hashing `ref_time` for one `insert_leaf` at the tree's
-		/// *current* depth. See [`insert_leaf_hash_ref_time_at_depth`]. Anything that
-		/// prices a leaf insert must charge this *in addition to*
-		/// [`Self::insert_leaf_db_ops`]: the DB ops cover storage I/O only, while the
-		/// path update also computes one Poseidon hash per tree level.
-		pub fn insert_leaf_hash_ref_time() -> u64 {
-			crate::insert_leaf_hash_ref_time_at_depth(Depth::<T>::get())
 		}
 	}
 

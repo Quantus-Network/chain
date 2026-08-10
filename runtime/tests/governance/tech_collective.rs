@@ -16,6 +16,38 @@ mod tests {
 
 	const TRACK_ID: u16 = 0;
 
+	/// `SubmitOrigin` is members-only, so the worst case for ongoing-referenda pressure is
+	/// every member sitting at their per-account cap. That must stay short of the global
+	/// `MaxActive` bound: otherwise a single spamming member (or colluding subset) could
+	/// pin `submit` at `TooManyActive` for everyone — including the referendum needed to
+	/// remove them — until the 45-day undeciding timeout, renewably.
+	#[test]
+	fn member_collusion_cannot_reach_the_global_referenda_bound() {
+		use quantus_runtime::configs::{
+			MaxActiveReferenda, MaxActiveReferendaPerAccount, MaxMemberCount,
+		};
+		use sp_core::Get;
+		let worst_case =
+			u64::from(MaxMemberCount::get()) * u64::from(MaxActiveReferendaPerAccount::get());
+		assert!(worst_case < u64::from(MaxActiveReferenda::get()));
+	}
+
+	/// `submit` requests Lookup preimages, so a later `unnote` reclaims the preimage
+	/// deposit while the bytes stay pinned. The max proposal size must keep that
+	/// deposit-free hold collateralized by the refundable submission deposit
+	/// (PreimageDeposit: 0.1 UNIT + 0.0001 UNIT/byte).
+	#[test]
+	fn max_proposal_size_stays_within_submission_deposit() {
+		use quantus_runtime::{
+			configs::{MaxReferendaProposalSize, ReferendumSubmissionDeposit},
+			UNIT,
+		};
+		use sp_core::Get;
+		let preimage_deposit = UNIT / 10 +
+			(UNIT / 10_000).saturating_mul(u128::from(MaxReferendaProposalSize::get()) + 1);
+		assert!(preimage_deposit <= ReferendumSubmissionDeposit::get());
+	}
+
 	/// Fast test example demonstrating the solution - this test uses the improved 2-block periods
 	/// instead of the original slow periods that were causing performance issues
 	#[test]
@@ -348,7 +380,14 @@ mod tests {
 				"Non-member should not be able to join collective"
 			);
 
-			// VERIFY 4: Root can remove members
+			// VERIFY 4: Root can remove members. Removal is only allowed while it leaves at
+			// least MIN_TECH_COLLECTIVE_MEMBERS (5) members, so pad the collective to 6 first.
+			for filler in 6..=8u8 {
+				assert_ok!(TechCollective::add_member(
+					RuntimeOrigin::root(),
+					MultiAddress::from(TestCommons::account_id(filler))
+				));
+			}
 			assert_ok!(TechCollective::remove_member(
 				RuntimeOrigin::root(),
 				MultiAddress::from(member_to_remove.clone()),
@@ -391,6 +430,264 @@ mod tests {
 				pallet_ranked_collective::Members::<Runtime, ()>::contains_key(&existing_member),
 				"Member should not be removed by non-member attempt"
 			);
+		});
+	}
+
+	/// Security: the tech-referenda approval/support curves are designed for a collective of
+	/// at least `MIN_TECH_COLLECTIVE_MEMBERS` (5). A Root-enacted `remove_member` must not be
+	/// able to shrink the collective below that floor: doing so would either collapse the
+	/// voting thresholds (a single remaining member could authorize Root alone) or, by
+	/// removing the final member, permanently deadlock the only governance lane.
+	#[test]
+	fn root_cannot_shrink_tech_collective_below_member_floor() {
+		TestCommons::new_fast_governance_test_ext().execute_with(|| {
+			let member_count =
+				|| pallet_ranked_collective::MemberCount::<Runtime, ()>::get(0) as usize;
+			let floor = quantus_runtime::genesis_config_presets::MIN_TECH_COLLECTIVE_MEMBERS;
+
+			// Seed exactly the floor-sized collective (5 members).
+			for i in 1..=floor as u8 {
+				assert_ok!(TechCollective::add_member(
+					RuntimeOrigin::root(),
+					MultiAddress::from(TestCommons::account_id(i))
+				));
+			}
+			assert_eq!(member_count(), floor);
+
+			// Removing from a floor-sized collective must fail and leave membership intact.
+			assert!(
+				TechCollective::remove_member(
+					RuntimeOrigin::root(),
+					MultiAddress::from(TestCommons::account_id(1)),
+					0
+				)
+				.is_err(),
+				"Root must not be able to shrink the collective below {floor} members"
+			);
+			assert_eq!(member_count(), floor);
+			assert!(pallet_ranked_collective::Members::<Runtime, ()>::contains_key(
+				&TestCommons::account_id(1)
+			));
+
+			// With one member above the floor, removal is allowed again (member replacement
+			// stays possible: add first, then remove).
+			let extra = TestCommons::account_id(floor as u8 + 1);
+			assert_ok!(TechCollective::add_member(
+				RuntimeOrigin::root(),
+				MultiAddress::from(extra.clone())
+			));
+			assert_eq!(member_count(), floor + 1);
+			assert_ok!(TechCollective::remove_member(
+				RuntimeOrigin::root(),
+				MultiAddress::from(extra),
+				0
+			));
+			assert_eq!(member_count(), floor);
+
+			// And now that we are back at the floor, removals are blocked again.
+			assert!(TechCollective::remove_member(
+				RuntimeOrigin::root(),
+				MultiAddress::from(TestCommons::account_id(2)),
+				0
+			)
+			.is_err());
+			assert_eq!(member_count(), floor);
+		});
+	}
+
+	/// Security: a `Lookup` proposal whose preimage was never noted must be rejected at
+	/// submission. Otherwise the referendum can pass and the scheduler will drop the
+	/// enactment with `CallUnavailable` (terminal), while the referendum record is already
+	/// `Approved` — the voted call silently disappears.
+	#[test]
+	fn submit_requires_lookup_preimage_to_exist() {
+		TestCommons::new_fast_governance_test_ext().execute_with(|| {
+			let proposer = TestCommons::account_id(1);
+			Balances::make_free_balance_be(&proposer, 3000 * UNIT);
+			assert_ok!(TechCollective::add_member(
+				RuntimeOrigin::root(),
+				MultiAddress::from(proposer.clone())
+			));
+
+			let call =
+				RuntimeCall::System(frame_system::Call::remark { remark: b"never noted".to_vec() });
+			let encoded = call.encode();
+			let hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded);
+			// Deliberately do NOT note the preimage.
+			let bounded_call =
+				frame_support::traits::Bounded::Lookup { hash, len: encoded.len() as u32 };
+
+			frame_support::assert_err!(
+				TechReferenda::submit(
+					RuntimeOrigin::signed(proposer),
+					Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+					bounded_call,
+					frame_support::traits::schedule::DispatchTime::After(0u32)
+				),
+				pallet_referenda::Error::<Runtime, TechReferendaInstance>::PreimageNotExist
+			);
+		});
+	}
+
+	/// Security: the proposal preimage must stay available for the whole referendum
+	/// lifecycle. A member could previously note a preimage, submit, and unnote it before
+	/// approval (it was never `request`ed); at enactment the scheduler found no bytes,
+	/// emitted `CallUnavailable` and dropped the task — the approved call was lost with no
+	/// retry path. `submit` now pins (requests) the preimage, so unnoting only refunds the
+	/// deposit while the bytes are retained until the referendum concludes.
+	#[test]
+	fn approved_referendum_survives_preimage_unnote() {
+		TestCommons::new_fast_governance_test_ext().execute_with(|| {
+			let proposer = TestCommons::account_id(1);
+			let voter = TestCommons::account_id(2);
+			let new_member_candidate = TestCommons::account_id(3);
+
+			Balances::make_free_balance_be(&proposer, 3000 * UNIT);
+			Balances::make_free_balance_be(&voter, 2000 * UNIT);
+			assert_ok!(TechCollective::add_member(
+				RuntimeOrigin::root(),
+				MultiAddress::from(proposer.clone())
+			));
+			assert_ok!(TechCollective::add_member(
+				RuntimeOrigin::root(),
+				MultiAddress::from(voter.clone())
+			));
+
+			let call_to_propose =
+				RuntimeCall::TechCollective(pallet_ranked_collective::Call::add_member {
+					who: MultiAddress::from(new_member_candidate.clone()),
+				});
+			let encoded_call = call_to_propose.encode();
+			let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
+			assert_ok!(Preimage::note_preimage(
+				RuntimeOrigin::signed(proposer.clone()),
+				encoded_call.clone()
+			));
+
+			let bounded_call = frame_support::traits::Bounded::Lookup {
+				hash: preimage_hash,
+				len: encoded_call.len() as u32,
+			};
+			assert_ok!(TechReferenda::submit(
+				RuntimeOrigin::signed(proposer.clone()),
+				Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+				bounded_call,
+				frame_support::traits::schedule::DispatchTime::After(0u32)
+			));
+			let referendum_index =
+				pallet_referenda::ReferendumCount::<Runtime, TechReferendaInstance>::get() - 1;
+
+			// Submission must have pinned the preimage.
+			assert!(
+				<Preimage as frame_support::traits::QueryPreimage>::is_requested(&preimage_hash),
+				"submit must request the proposal preimage"
+			);
+
+			// The attack: reclaim the preimage deposit before the referendum concludes. The
+			// bytes must survive because the referendum holds a request on them.
+			assert_ok!(Preimage::unnote_preimage(
+				RuntimeOrigin::signed(proposer.clone()),
+				preimage_hash
+			));
+			assert!(
+				<Preimage as frame_support::traits::QueryPreimage>::len(&preimage_hash).is_some(),
+				"preimage bytes must be retained while the referendum is ongoing"
+			);
+
+			// Drive the referendum to approval.
+			assert_ok!(TechReferenda::place_decision_deposit(
+				RuntimeOrigin::signed(proposer.clone()),
+				referendum_index
+			));
+			assert_ok!(TechCollective::vote(
+				RuntimeOrigin::signed(proposer.clone()),
+				referendum_index,
+				true
+			));
+			assert_ok!(TechCollective::vote(
+				RuntimeOrigin::signed(voter.clone()),
+				referendum_index,
+				true
+			));
+
+			let track_info =
+				<Runtime as pallet_referenda::Config<TechReferendaInstance>>::Tracks::info(
+					TRACK_ID,
+				)
+				.expect("Track info should exist for the given TRACK_ID");
+			let total_blocks = TestCommons::calculate_governance_blocks(
+				track_info.prepare_period,
+				track_info.decision_period,
+				track_info.confirm_period,
+				track_info.min_enactment_period,
+			);
+			TestCommons::run_to_block(total_blocks);
+
+			let final_info =
+				pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(
+					referendum_index,
+				)
+				.expect("Referendum info should exist at the end");
+			assert!(
+				matches!(final_info, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
+				"Referendum should be approved, but is {:?}",
+				final_info
+			);
+
+			// The decisive assertion: the approved call actually executed.
+			assert!(
+				pallet_ranked_collective::Members::<Runtime>::contains_key(&new_member_candidate),
+				"approved proposal must dispatch even after the preimage was unnoted"
+			);
+
+			// After dispatch every pin is released and the (unnoted) bytes are cleaned up.
+			assert!(
+				!<Preimage as frame_support::traits::QueryPreimage>::is_requested(&preimage_hash),
+				"no preimage request may leak after the referendum lifecycle completes"
+			);
+		});
+	}
+
+	/// The preimage pin taken at submission must be released on terminal states that never
+	/// reach the scheduler (here: cancellation), so no request leaks and the noter can
+	/// still fully reclaim their preimage afterwards.
+	#[test]
+	fn cancelled_referendum_releases_preimage_pin() {
+		TestCommons::new_fast_governance_test_ext().execute_with(|| {
+			let proposer = TestCommons::account_id(1);
+			Balances::make_free_balance_be(&proposer, 3000 * UNIT);
+			assert_ok!(TechCollective::add_member(
+				RuntimeOrigin::root(),
+				MultiAddress::from(proposer.clone())
+			));
+
+			let call = RuntimeCall::System(frame_system::Call::remark {
+				remark: b"to be cancelled".to_vec(),
+			});
+			let encoded = call.encode();
+			let hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded);
+			assert_ok!(Preimage::note_preimage(
+				RuntimeOrigin::signed(proposer.clone()),
+				encoded.clone()
+			));
+			assert_ok!(TechReferenda::submit(
+				RuntimeOrigin::signed(proposer.clone()),
+				Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+				frame_support::traits::Bounded::Lookup { hash, len: encoded.len() as u32 },
+				frame_support::traits::schedule::DispatchTime::After(0u32)
+			));
+			let referendum_index =
+				pallet_referenda::ReferendumCount::<Runtime, TechReferendaInstance>::get() - 1;
+			assert!(<Preimage as frame_support::traits::QueryPreimage>::is_requested(&hash));
+
+			assert_ok!(TechReferenda::cancel(RuntimeOrigin::root(), referendum_index));
+			assert!(
+				!<Preimage as frame_support::traits::QueryPreimage>::is_requested(&hash),
+				"cancellation must release the referendum's preimage pin"
+			);
+			// The noter keeps full control: unnote removes the bytes entirely.
+			assert_ok!(Preimage::unnote_preimage(RuntimeOrigin::signed(proposer), hash));
+			assert!(<Preimage as frame_support::traits::QueryPreimage>::len(&hash).is_none());
 		});
 	}
 

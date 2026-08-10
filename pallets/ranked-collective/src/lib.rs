@@ -855,6 +855,8 @@ pub mod pallet {
 			match maybe_rank {
 				None => {
 					Members::<T, I>::remove(&who);
+					// Votes the account leaves on ongoing polls are deliberately kept
+					// (upstream behavior) — see `do_remove_member_from_rank`.
 					Self::deposit_event(Event::MemberRemoved { who, rank: 0 });
 				},
 				Some(rank) => {
@@ -889,7 +891,17 @@ pub mod pallet {
 			o.as_signed().and_then(Self::rank_of)
 		}
 
-		/// Removes a member from the rank collective
+		/// Removes a member from the rank collective.
+		///
+		/// INTENTIONAL (matches upstream): the member's votes are not touched. Votes they
+		/// already cast keep counting in ongoing polls until each poll ends — including in
+		/// `support`, whose `MemberCount` denominator shrinks on removal (the tally's
+		/// `support` clamps at 100%, so a shrunken electorate cannot overflow the curve).
+		/// Locating the votes eagerly would take an unbounded scan of the poll-major
+		/// [`Voting`] map inside a scheduler-enacted dispatch whose benchmark carries no
+		/// vote records; with a small collective, short polls, and membership changes
+		/// themselves gated by referendum, the distortion window is narrow and accepted.
+		/// Completed-poll records are swept by the permissionless [`Call::cleanup_poll`].
 		pub fn do_remove_member_from_rank(who: &T::AccountId, rank: Rank) -> DispatchResult {
 			for r in 0..=rank {
 				Self::remove_from_rank(&who, r)?;

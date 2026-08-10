@@ -7,7 +7,7 @@ the runtime, their dispatchable calls, the runtime APIs, transaction extensions,
 genesis logic, and the workspace primitive crates pulled in.
 
 - **Crate:** `quantus-runtime` (`runtime/`), version `0.7.1-q-day-2`
-- **Spec:** `spec_name = quantus-runtime`, `spec_version = 142`, `transaction_version = 3`, `authoring_version = 1`
+- **Spec:** `spec_name = quantus-runtime`, `spec_version = 143`, `transaction_version = 3`, `authoring_version = 1`
 - **Build:** `no_std` WASM via `substrate-wasm-builder` (`runtime/build.rs`); native `std` build for the node/client
 - **Block time target:** 12s (`TARGET_BLOCK_TIME_MS = 12_000`)
 - **Consensus:** QPoW (quantum-resistant Proof of Work, Poseidon2-based)
@@ -147,11 +147,11 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - **Calls:** `vote`, `delegate`, `undelegate`, `unlock`, `remove_vote`, `remove_other_vote`.
 
 ### Index 13 — `TechCollective` (`pallet-ranked-collective`)
-- `AddOrigin/RemoveOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>` (Root-only, i.e. a passed TechReferenda vote; #91267), `Promote/Demote/ExchangeOrigin = NeverEnsureOrigin`, `Polls = TechReferenda (Instance1)`, `VoteWeight = Linear`, `MaxMemberCount = 13` (via `GlobalMaxMembers`).
-- **Calls:** `add_member`, `promote_member`, `demote_member`, `remove_member`, `vote`, `cleanup_poll`, `exchange_member`.
+- `AddOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>` (Root-only, i.e. a passed TechReferenda vote; #91267), `RemoveOrigin = EnsureRootRemoveKeepsMemberFloor` (Root-only **and** refuses removals that would leave fewer than `MIN_TECH_COLLECTIVE_MEMBERS` members — the floor that keeps the tech-referenda lane live), `Promote/Demote/ExchangeOrigin = NeverEnsureOrigin`, `Polls = TechReferenda (Instance1)`, `VoteWeight = Linear`, `MaxMemberCount = 13` (via `GlobalMaxMembers`).
+- **Calls:** `add_member`, `promote_member`, `demote_member`, `remove_member`, `vote`, `cleanup_poll`, `exchange_member`. Removal intentionally leaves the member's votes in ongoing tallies (upstream behavior); `support` clamps at 100% so the shrunken electorate cannot overflow the curve.
 
 ### Index 14 — `TechReferenda` (`pallet-referenda`, `Instance1`)
-- `SubmitOrigin = RootOrMemberForTechReferendaOrigin`, `Tracks = TechCollectiveTracksInfo` (single track, 61% approval / 60% support constant curves), `Tally = pallet_ranked_collective::TallyOf<Runtime>`.
+- `SubmitOrigin = RootOrMemberForTechReferendaOrigin`, `Tracks = TechCollectiveTracksInfo` (single track, 61% approval / 60% support constant curves), `Tally = pallet_ranked_collective::TallyOf<Runtime>`, `MaxActive = 128` / `MaxActivePerAccount = 8` (global + per-submitter caps on `Ongoing` referenda; storage `ActiveReferendaCount` / `ActiveSubmissionCount`; errors `TooManyActive` / `TooManyActiveBySubmitter`), `MaxProposalSize = 64 KiB`.
 - **Calls:** same set as `Referenda` (separate instance/storage).
 
 ### Index 15 — `TreasuryPallet` (`pallet-treasury`, local)
@@ -182,7 +182,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - **Storage:** `Schedules: schedule_id (u64) → { beneficiary, start, cliff, end, total, claimed, last_claim_at }` (ids sequential, never reused; a beneficiary may hold any number of schedules), `NextScheduleId`. Storage version 0 has no migration: an in-place upgrade with no schedules may leave the pot unfunded, and `create_schedule` then fails with `PotUnderfunded` until the treasury sends it one ED.
 - Vesting math: `vested(t) = 0` before `cliff`, `total` from `end`, else `⌊total·(t−start)/(end−start)⌋` (256-bit rational, floor; the `end` branch guarantees exactness).
 - **Payout policy:** wormhole leaves commit `amount / 10^10`, so a sub-quantum payout would create a zero-value leaf and strand funds on a keyless beneficiary. Schedule totals must be at least `MinimumPayout` and multiples of `PayoutQuantum`; payouts are quantized and `claimed` stays aligned. A successful claim must pay at least 1 QUAN and be at least 24 hours after that schedule's previous payout. Non-final claims reserve a complete minimum-sized final payout; a claim that cannot avoid a sub-minimum remainder fails with `ClaimWouldLeaveDust` until the full remainder vests. The final claim pays the exact remainder. `end_schedule` returns sub-quantum vested dust to the signature-controlled treasury and rejects a non-zero beneficiary payout below `MinimumPayout` without removing the schedule.
-- **Proof recording:** the pallet records each pot → beneficiary payout via `TransferProofRecorder` itself (`pay_out` fuses transfer + record), so scheduler-enacted Root calls — invisible to the event-scanning extension — still create leaves; the extension skips pot-touching transfer events and charges no static weight for vesting calls.
+- **Proof recording:** the pallet records each pot → beneficiary payout via `TransferProofRecorder` itself (`pay_out` fuses transfer + record and fails with `PayoutProofNotRecorded` if the recorder drops the credit, rolling the transfer back), so scheduler-enacted Root calls — invisible to the event-scanning extension — still create leaves; the extension skips pot-touching transfer events and charges no static weight for vesting calls.
 - **Calls:** `claim`(0) — **permissionless**; pays the largest valid claim from the pot to the schedule's stored beneficiary (never the caller); the only claim path for keyless/high-security beneficiaries. `create_schedule`(1) — admin; validates the schedule and funds the pot from the treasury in the same call. `end_schedule`(2) — admin; quantized unpaid vested part → beneficiary, everything else → treasury, schedule removed. `retarget_schedule`(3) — admin; first settles exactly the payout a permissionless claim could currently force to the old beneficiary, then changes the beneficiary (lost-key remedy independent of claim/retarget ordering).
 - Genesis build validates every schedule (`start ≤ cliff ≤ end`, `start < end`, `total ≥ MinimumPayout`, `total % PayoutQuantum = 0`, beneficiary ≠ pot) and, for a non-empty table, asserts the pot holds exactly `Σ schedule totals + ED`; a misconfigured chain refuses to start. `try_state` validates stored schedules, aligned claims, dust-safe remaining obligations, and—when any schedule exists—`pot balance ≥ Σ(total − claimed) + ED`; an empty schedule table is valid with an unfunded pot.
 
@@ -220,12 +220,13 @@ Signed-extension pipeline applied to every extrinsic, in order:
 5. `frame_system::CheckEra`
 6. `frame_system::CheckNonce`
 7. `frame_system::CheckWeight`
-8. `pallet_transaction_payment::ChargeTransactionPayment`
-9. `frame_metadata_hash_extension::CheckMetadataHash`
-10. `transaction_extensions::ReversibleTransactionExtension` — **custom**: blocks non-whitelisted calls from high-security accounts.
-11. `transaction_extensions::WormholeProofRecorderExtension` — **custom**: in `post_dispatch`, scans emitted native `Balances::Transfer` / `Balances::Minted` events and records transfer proofs into the ZK tree (event-based, covers direct/batch/multisig/recovery native transfers). Statically pre-charged calls (`count_transfers`): `Balances` transfers and `Utility` wrappers; uncounted paths are reconciled via `register_extra_weight_unchecked`. Transfers touching the **vesting pot** are skipped: the vesting pallet records its own payouts (covering scheduler-enacted Root calls the extension never sees) and carries that cost in its benchmarked weights.
+8. `transaction_extensions::ReversibleTransactionExtension` — **custom**: blocks non-whitelisted calls from high-security accounts.
+9. `transaction_extensions::WormholeProofRecorderExtension` — **custom**: in `post_dispatch`, scans emitted native `Balances::Transfer` / `Balances::Minted` / `Balances::TransferOnHold` / `Balances::ReserveRepatriated` events and records transfer proofs into the ZK tree (event-based, covers direct/batch/multisig/recovery native transfers). Statically pre-charged calls (`count_transfers`): `Balances` transfers, `Utility` wrappers, `ReversibleTransfers::{cancel, recover_funds}`, and `Recovery::close_recovery`; uncounted paths are reconciled via `register_extra_weight_unchecked`. Transfers touching the **vesting pot** are skipped: the vesting pallet records its own payouts (covering scheduler-enacted Root calls the extension never sees) and carries that cost in its benchmarked weights. A statically-counted transfer *into* the pot is charged for a leaf insert the scan then skips — an accepted overcharge on a rare bootstrap operation. Per-transfer recording weight is flat, priced at the circuit depth ceiling (`pallet_zk_tree::INSERT_LEAF_*` constants: DB ops, Poseidon path hashing, and per-key PoV). Statically over-charged reservations (failed transfers, short batches, `recover_funds` below the worst case) are returned in `post_dispatch_details`; the extension sits **before** `ChargeTransactionPayment` so the refund reaches the payer's fee, and the trailing `WeightReclaim` returns it to block capacity.
+10. `pallet_transaction_payment::ChargeTransactionPayment`
+11. `frame_metadata_hash_extension::CheckMetadataHash`
+12. `frame_system::WeightReclaim` — re-runs the block-weight reclaim so refunds made by earlier extensions (which `CheckWeight`'s own reclaim runs too early to see) are returned to block capacity.
 
-The high-security whitelist (`HighSecurityConfig::is_whitelisted`, extension 10) admits `ReversibleTransfers::{schedule_transfer, cancel, recover_funds}` and `Vesting::claim` (safe: the payout target is fixed by storage, never the caller).
+The high-security whitelist (`HighSecurityConfig::is_whitelisted`, extension 8) admits `ReversibleTransfers::{schedule_transfer, cancel, recover_funds}` and `Vesting::claim` (safe: the payout target is fixed by storage, never the caller).
 
 ---
 

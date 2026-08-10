@@ -4,6 +4,7 @@
 
 #[cfg(test)]
 mod tests {
+	use crate::common::TestCommons;
 	use codec::Encode;
 	use frame_support::{assert_noop, assert_ok, traits::Currency};
 	use pallet_multisig::BoundedCallOf;
@@ -21,9 +22,7 @@ mod tests {
 	const GRANT: Balance = 100 * UNIT;
 
 	fn account(id: u8) -> AccountId32 {
-		let mut bytes = [0u8; 32];
-		bytes[0] = id;
-		AccountId32::new(bytes)
+		TestCommons::account_id(id)
 	}
 
 	fn signers() -> Vec<AccountId> {

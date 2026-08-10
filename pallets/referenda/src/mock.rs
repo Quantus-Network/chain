@@ -104,8 +104,19 @@ impl pallet_scheduler::Config for Test {
 impl pallet_balances::Config for Test {
 	type AccountStore = System;
 }
+/// Defaults of the `static` config values below. Named so the per-test reset in
+/// [`reset_thread_local_state`] restores exactly what a fresh thread would start with.
+const DEFAULT_ALARM_INTERVAL: u64 = 1;
+const DEFAULT_MAX_ACTIVE: u32 = 100;
+const DEFAULT_MAX_ACTIVE_PER_ACCOUNT: u32 = 100;
+
 parameter_types! {
-	pub static AlarmInterval: u64 = 1;
+	pub static AlarmInterval: u64 = DEFAULT_ALARM_INTERVAL;
+	// Generous defaults so only tests that explicitly lower them exercise the bounds.
+	// `static` so individual tests can lower them via `MaxActive::set` /
+	// `MaxActivePerAccount::set`; see [`reset_thread_local_state`].
+	pub static MaxActive: u32 = DEFAULT_MAX_ACTIVE;
+	pub static MaxActivePerAccount: u32 = DEFAULT_MAX_ACTIVE_PER_ACCOUNT;
 }
 ord_parameter_types! {
 	pub const One: u64 = 1;
@@ -220,6 +231,11 @@ impl Config for Test {
 	type Tally = Tally;
 	type SubmissionDeposit = ConstU64<2>;
 	type MaxQueued = ConstU32<3>;
+	type MaxActive = MaxActive;
+	type MaxActivePerAccount = MaxActivePerAccount;
+	// Small enough that oversized-lookup tests can note a few bytes over the cap without
+	// allocating megabytes; generous enough for the tiny proposals the suite submits.
+	type MaxProposalSize = ConstU32<1024>;
 	type UndecidingTimeout = ConstU64<20>;
 	type AlarmInterval = AlarmInterval;
 	type Tracks = TestTracksInfo;
@@ -234,8 +250,21 @@ impl Default for ExtBuilder {
 	}
 }
 
+/// `parameter_types! { pub static ... }` values live in thread-local storage, and the
+/// test harness reuses worker threads across tests: a mutation in one test
+/// (`MaxActive::set(1)`, `AlarmInterval::set(n)`, …) leaks into whichever test the
+/// same worker runs next. Every test builds its externalities through
+/// [`ExtBuilder::build`], so resetting at build time makes each one start from the
+/// documented defaults.
+fn reset_thread_local_state() {
+	AlarmInterval::set(DEFAULT_ALARM_INTERVAL);
+	MaxActive::set(DEFAULT_MAX_ACTIVE);
+	MaxActivePerAccount::set(DEFAULT_MAX_ACTIVE_PER_ACCOUNT);
+}
+
 impl ExtBuilder {
 	pub fn build(self) -> sp_io::TestExternalities {
+		reset_thread_local_state();
 		let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 		let balances = vec![(1, 100), (2, 100), (3, 100), (4, 100), (5, 100), (6, 100)];
 		pallet_balances::GenesisConfig::<Test> { balances, ..Default::default() }

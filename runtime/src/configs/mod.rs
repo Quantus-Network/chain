@@ -26,8 +26,8 @@
 // Substrate and Polkadot dependencies
 use crate::{
 	governance::definitions::{
-		GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
-		RootOrMemberForTechReferendaOrigin, TechCollectiveTracksInfo,
+		EnsureRootRemoveKeepsMemberFloor, GlobalMaxMembers, MinRankOfClassConverter,
+		PreimageDeposit, RootOrMemberForTechReferendaOrigin, TechCollectiveTracksInfo,
 	},
 	MILLI_UNIT,
 };
@@ -64,7 +64,8 @@ use super::{
 	AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
 	PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
 	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Wormhole, ZkTree,
-	DAYS, EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
+	DAYS, EXISTENTIAL_DEPOSIT, MAX_SUPPLY, MICRO_UNIT, MILLIS_PER_DAY, TARGET_BLOCK_TIME_MS, UNIT,
+	VERSION,
 };
 use sp_core::U512;
 
@@ -139,7 +140,7 @@ impl pallet_mining_rewards::Config for Runtime {
 	type AssetId = AssetId;
 	type ProofRecorder = Wormhole;
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
-	type MaxSupply = ConstU128<{ 21_000_000 * UNIT }>; // 21 million tokens
+	type MaxSupply = ConstU128<{ MAX_SUPPLY }>;
 	type EmissionDivisor = ConstU128<15_163_560>; // Divide remaining supply by this amount
 	type Treasury = pallet_treasury::Pallet<Runtime>;
 	type MintingAccount = MintingAccount;
@@ -222,8 +223,31 @@ parameter_types! {
 	pub const ReferendumDefaultVotingPeriod: BlockNumber = 28 * DAYS;
 	// Minimum time before a successful referendum can be enacted (4 days)
 	pub const ReferendumMinEnactmentPeriod: BlockNumber = 4 * DAYS;
-	// Maximum number of active referenda
+	// Maximum number of referenda queued for deciding on a single track (`MaxQueued`).
 	pub const ReferendumMaxProposals: u32 = 100;
+	// Global cap on `Ongoing` referenda, enforced at submission. `MaxQueued` only bounds the
+	// per-track deciding queue: without this cap, submissions that never receive a decision
+	// deposit would accumulate without limit until the 45-day undeciding timeout, each one
+	// consuming referendum storage and a scheduler agenda slot for its timeout alarm. Must be
+	// at least `MaxQueued` + total `max_deciding` + 1 (checked by the pallet's
+	// `integrity_test`; benchmarks fill a track's queue and deciding slots completely).
+	pub const MaxActiveReferenda: u32 = 128;
+	// Per-account bound on ongoing referenda. `MaxActiveReferenda` is a shared resource and
+	// `SubmitOrigin` is members-only, so without this cap a single member could fill all
+	// 128 slots with refundable-deposit referenda and freeze the chain's only governance
+	// lane — including the referendum needed to remove them — for the 45-day
+	// `UndecidingTimeout`, renewably. With at most `MaxMemberCount` (13) members at 8 slots
+	// each (104 < 128), the global bound is unreachable even if every member colludes, and
+	// 8 concurrent proposals per member is ample headroom for real use.
+	pub const MaxActiveReferendaPerAccount: u32 = 8;
+	// Max encoded length of a Lookup proposal. `submit` requests the preimage so `unnote`
+	// cannot delete it before enactment — which also lets the noter reclaim the preimage
+	// deposit while the bytes stay pinned. Cap the blob so that (a) `MaxActive` × size
+	// cannot approach hundreds of MiB of deposit-free state, and (b) the preimage deposit
+	// for a max-sized blob (0.1 UNIT + 0.0001 UNIT/byte ≈ 6.6 UNIT) stays well under the
+	// 100 UNIT submission deposit, so the held bytes remain collateralized even after
+	// `unnote`. 64 KiB is ample for any tech-collective call.
+	pub const MaxReferendaProposalSize: u32 = 64 * 1024;
 	// Submission deposit for referenda
 	pub const ReferendumSubmissionDeposit: Balance = 100 * UNIT;
 	// Undeciding timeout (45 days): a submitted referendum that is NOT in the track queue —
@@ -244,9 +268,11 @@ impl pallet_ranked_collective::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	// #91267: membership changes go through Root only (i.e. a passed TechReferenda vote), so no
 	// single member can unilaterally add/remove others or stuff the collective. Root operates at
-	// rank 0, matching the flat collective.
+	// rank 0, matching the flat collective. Removals are additionally gated on the
+	// MIN_TECH_COLLECTIVE_MEMBERS floor: shrinking below it would collapse the tech-referenda
+	// vote thresholds or (at zero members) deadlock the lane entirely.
 	type AddOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>;
-	type RemoveOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>;
+	type RemoveOrigin = EnsureRootRemoveKeepsMemberFloor;
 	type PromoteOrigin = NeverEnsureOrigin<u16>;
 	type DemoteOrigin = NeverEnsureOrigin<u16>;
 	type ExchangeOrigin = NeverEnsureOrigin<u16>;
@@ -292,8 +318,14 @@ impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
 	type Tally = pallet_ranked_collective::TallyOf<Runtime>;
 	/// The deposit required to submit a referendum proposal.
 	type SubmissionDeposit = ReferendumSubmissionDeposit;
-	/// Maximum number of referenda that can be in the deciding phase simultaneously.
+	/// Maximum number of referenda that can be queued for deciding on the track.
 	type MaxQueued = ReferendumMaxProposals;
+	/// Global admission bound on `Ongoing` referenda, enforced in `submit`.
+	type MaxActive = MaxActiveReferenda;
+	/// Per-submitter admission bound, so no member coalition can exhaust `MaxActive`.
+	type MaxActivePerAccount = MaxActiveReferendaPerAccount;
+	/// Max Lookup proposal size; keeps requested-but-unnoted preimages collateralized.
+	type MaxProposalSize = MaxReferendaProposalSize;
 	/// Time period after which an undecided referendum will be automatically rejected.
 	type UndecidingTimeout = UndecidingTimeout;
 	/// The frequency at which the pallet checks for expired or ready-to-timeout referenda.
@@ -536,8 +568,27 @@ parameter_types! {
 	/// One QUAN keeps every payout above the existential deposit and the Wormhole
 	/// circuit's fee-consuming minimum.
 	pub const VestingMinimumPayout: Balance = UNIT;
-	pub const VestingMinClaimInterval: u64 = 24 * 60 * 60 * 1000;
+	pub const VestingMinClaimInterval: u64 = MILLIS_PER_DAY;
 }
+
+/// The quantum above is anchored to the wormhole pallet's constant, but the value that
+/// actually decides whether a leaf is non-zero is the ZK tree's. They are the same
+/// number today; if they ever diverge, sub-quantum payouts would round to zero-value
+/// leaves and strand funds on keyless beneficiaries.
+const _: () = assert!(
+	pallet_wormhole::SCALE_DOWN_FACTOR == pallet_zk_tree::tree::AMOUNT_SCALE_DOWN_FACTOR,
+	"vesting payout quantum must match the ZK tree's leaf amount scale factor"
+);
+
+/// A ZK leaf commits `amount / AMOUNT_SCALE_DOWN_FACTOR` as a `u32`, saturating at
+/// `u32::MAX`. A payout past that ceiling would move real funds while committing a
+/// clamped leaf, leaving the excess unexitable for a keyless beneficiary. Nothing in
+/// the runtime bounds a single vesting payout below the ceiling — total issuance does:
+/// no payout can exceed the maximum supply.
+const _: () = assert!(
+	MAX_SUPPLY < (u32::MAX as Balance) * pallet_zk_tree::tree::AMOUNT_SCALE_DOWN_FACTOR,
+	"a single payout could exceed the ZK leaf's u32 amount ceiling"
+);
 
 /// The configured treasury account as an `Option` — unlike
 /// `pallet_treasury::Pallet::account_id()`, this never panics on a chain whose

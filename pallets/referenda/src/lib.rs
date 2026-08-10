@@ -94,7 +94,8 @@ mod types;
 pub mod weights;
 
 use self::branch::{
-	alarm_retry_weight, BeginDecidingBranch, OneFewerDecidingBranch, ServiceBranch,
+	alarm_retry_weight, terminal_transition_weight, BeginDecidingBranch, OneFewerDecidingBranch,
+	ServiceBranch,
 };
 pub use self::{
 	pallet::*,
@@ -198,6 +199,43 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxQueued: Get<u32>;
 
+		/// Maximum number of referenda that may be `Ongoing` at once, across all tracks.
+		///
+		/// This is a global admission bound enforced in `submit`. It also covers referenda
+		/// that never receive a decision deposit and therefore occupy neither a deciding
+		/// slot nor a `TrackQueue` entry, yet hold storage and a scheduler agenda slot
+		/// until the `UndecidingTimeout`.
+		///
+		/// Must be at least `MaxQueued` plus the sum of all tracks' `max_deciding` plus one,
+		/// so that the deciding slots and track queues remain fully utilizable (checked by
+		/// `integrity_test`).
+		#[pallet::constant]
+		type MaxActive: Get<u32>;
+
+		/// The maximum number of referenda any one account may have in the `Ongoing` state
+		/// at once.
+		///
+		/// [`Config::MaxActive`] is a shared resource: without a per-account cap, any
+		/// single account passing `SubmitOrigin` could fill it with refundable-deposit
+		/// referenda and freeze submission for everyone — including the very referendum
+		/// needed to intervene — until the `UndecidingTimeout` (renewably). Size it so
+		/// that no plausible coalition of submitters can reach `MaxActive`:
+		/// `MaxActivePerAccount` × (maximum concurrent submitters) < `MaxActive`.
+		#[pallet::constant]
+		type MaxActivePerAccount: Get<u32>;
+
+		/// Maximum encoded length of a `Lookup` proposal accepted by `submit`.
+		///
+		/// `submit` `request`s the preimage so a later `unnote_preimage` cannot delete the
+		/// bytes before enactment; that request also lets the noter reclaim their storage
+		/// deposit while the bytes stay pinned until the referendum ends. Without a size
+		/// bound, `MaxActive` × 4 MiB of deposit-free state can accumulate against only
+		/// the refundable [`Config::SubmissionDeposit`]. Size this so that the preimage
+		/// deposit for a max-sized blob does not exceed `SubmissionDeposit` — then even
+		/// after `unnote` the submission deposit still collateralizes the held bytes.
+		#[pallet::constant]
+		type MaxProposalSize: Get<u32>;
+
 		/// The number of blocks after submission that a referendum must begin being decided by.
 		/// Once this passes, then anyone may cancel the referendum.
 		#[pallet::constant]
@@ -259,6 +297,24 @@ pub mod pallet {
 	/// The next free referendum index, aka the number of referenda started so far.
 	#[pallet::storage]
 	pub type ReferendumCount<T, I = ()> = StorageValue<_, ReferendumIndex, ValueQuery>;
+
+	/// The number of referenda currently in the `Ongoing` state, across all tracks.
+	///
+	/// Incremented on `submit` and decremented whenever a referendum reaches a terminal
+	/// state (approved, rejected, timed out, cancelled or killed). Bounds admissions at
+	/// [`Config::MaxActive`].
+	#[pallet::storage]
+	pub type ActiveReferendaCount<T, I = ()> = StorageValue<_, u32, ValueQuery>;
+
+	/// The number of referenda currently in the `Ongoing` state per submitter.
+	///
+	/// Maintained alongside [`ActiveReferendaCount`] (incremented on `submit`, decremented
+	/// on every terminal transition) and bounds each account's admissions at
+	/// [`Config::MaxActivePerAccount`], so no single submitter can exhaust the shared
+	/// [`Config::MaxActive`] capacity.
+	#[pallet::storage]
+	pub type ActiveSubmissionCount<T: Config<I>, I: 'static = ()> =
+		StorageMap<_, Twox64Concat, T::AccountId, u32, ValueQuery>;
 
 	/// Information concerning any given referendum.
 	#[pallet::storage]
@@ -446,6 +502,12 @@ pub mod pallet {
 		PreimageStoredWithDifferentLength,
 		/// The referendum's wake-up alarm could not be scheduled.
 		AlarmSchedulingFailed,
+		/// There are already the maximum number of ongoing referenda.
+		TooManyActive,
+		/// The submitter already has the maximum number of ongoing referenda.
+		TooManyActiveBySubmitter,
+		/// The proposal's preimage is larger than [`Config::MaxProposalSize`].
+		PreimageTooBig,
 	}
 
 	#[pallet::hooks]
@@ -459,6 +521,24 @@ pub mod pallet {
 		#[cfg(any(feature = "std", test))]
 		fn integrity_test() {
 			T::Tracks::check_integrity().expect("Static tracks configuration is valid.");
+			// The global active bound must leave the deciding slots and track queues fully
+			// utilizable (plus one submission that routes through a full queue).
+			let total_max_deciding = T::Tracks::tracks()
+				.map(|t| t.info.max_deciding)
+				.fold(0u32, |a, b| a.saturating_add(b));
+			assert!(
+				T::MaxActive::get() >=
+					T::MaxQueued::get().saturating_add(total_max_deciding).saturating_add(1),
+				"`MaxActive` must be at least `MaxQueued` + total `max_deciding` + 1.",
+			);
+			assert!(
+				T::MaxActivePerAccount::get() >= 1,
+				"`MaxActivePerAccount` must be at least 1 or nobody can submit.",
+			);
+			assert!(
+				T::MaxProposalSize::get() >= 1,
+				"`MaxProposalSize` must be at least 1 or no Lookup proposal can be submitted.",
+			);
 		}
 	}
 
@@ -475,8 +555,13 @@ pub mod pallet {
 		/// Emits `Submitted`.
 		#[pallet::call_index(0)]
 		// `submit` schedules the undeciding-timeout alarm, bearing the worst-case
-		// `set_alarm` retry overhead.
-		#[pallet::weight(T::WeightInfo::submit().saturating_add(alarm_retry_weight::<T, I>()))]
+		// `set_alarm` retry overhead; plus one read/write each for `ActiveReferendaCount`
+		// and the submitter's `ActiveSubmissionCount`; plus the Lookup preimage `len` /
+		// `request` (StatusFor read + RequestStatusFor read/write).
+		#[pallet::weight(T::WeightInfo::submit()
+			.saturating_add(alarm_retry_weight::<T, I>())
+			.saturating_add(T::DbWeight::get().reads_writes(2, 2))
+			.saturating_add(T::DbWeight::get().reads_writes(2, 1)))]
 		pub fn submit(
 			origin: OriginFor<T>,
 			proposal_origin: Box<PalletsOriginOf<T>>,
@@ -486,18 +571,55 @@ pub mod pallet {
 			let proposal_origin = *proposal_origin;
 			let who = T::SubmitOrigin::ensure_origin(origin, &proposal_origin)?;
 
-			// If the pre-image is already stored, ensure that it has the same length as given in
-			// `proposal`.
-			if let (Some(preimage_len), Some(proposal_len)) =
-				(proposal.lookup_hash().and_then(|h| T::Preimages::len(&h)), proposal.lookup_len())
-			{
-				if preimage_len != proposal_len {
-					return Err(Error::<T, I>::PreimageStoredWithDifferentLength.into())
+			// V12 audit: a lookup proposal whose preimage is missing at enactment is
+			// dropped by the scheduler as terminal (`CallUnavailable`) after the referendum
+			// record has already been replaced with `Approved`, which retains neither the call
+			// nor a retry path — the voted proposal silently disappears. Close both holes:
+			// (a) the preimage must exist (with the claimed length) at submission, and
+			// (b) it is `request`ed here, which makes `pallet_preimage` retain the bytes even
+			//     if the noter reclaims their deposit via `unnote_preimage`.
+			// The request is dropped again on every terminal transition (approve/reject/
+			// timeout/cancel/kill); on approval the scheduler holds its own request from
+			// `schedule_named` until dispatch, so the bytes stay pinned through enactment.
+			// Bound the pinned size at `MaxProposalSize` so that reclaiming the preimage
+			// deposit cannot leave up to `MaxActive` × 4 MiB held against only the
+			// refundable submission deposit.
+			if let Some(hash) = proposal.lookup_hash() {
+				let preimage_len =
+					T::Preimages::len(&hash).ok_or(Error::<T, I>::PreimageNotExist)?;
+				ensure!(preimage_len <= T::MaxProposalSize::get(), Error::<T, I>::PreimageTooBig);
+				if let Some(proposal_len) = proposal.lookup_len() {
+					ensure!(
+						preimage_len == proposal_len,
+						Error::<T, I>::PreimageStoredWithDifferentLength
+					);
 				}
+				T::Preimages::request(&hash);
 			}
 
 			let track =
 				T::Tracks::track_for(&proposal_origin).map_err(|_| Error::<T, I>::NoTrack)?;
+
+			// Global admission bound: `MaxQueued` only limits the per-track deciding queue,
+			// so without this check submissions that never receive a decision deposit would
+			// accumulate without limit until the `UndecidingTimeout`, each one consuming
+			// referendum storage and a scheduler agenda slot for its timeout alarm.
+			ensure!(
+				ActiveReferendaCount::<T, I>::get() < T::MaxActive::get(),
+				Error::<T, I>::TooManyActive
+			);
+
+			// Per-account admission bound: the global cap above is a shared resource, and
+			// without this a single submitter could fill it with refundable-deposit
+			// referenda and freeze submission for everyone — including the referendum
+			// needed to intervene — until the `UndecidingTimeout`.
+			let submitted = ActiveSubmissionCount::<T, I>::get(&who);
+			ensure!(
+				submitted < T::MaxActivePerAccount::get(),
+				Error::<T, I>::TooManyActiveBySubmitter
+			);
+			ActiveSubmissionCount::<T, I>::insert(&who, submitted.saturating_add(1));
+
 			let submission_deposit = Self::take_deposit(who, T::SubmissionDeposit::get())?;
 			let index = ReferendumCount::<T, I>::mutate(|x| {
 				let r = *x;
@@ -527,6 +649,7 @@ pub mod pallet {
 				alarm: Some(alarm),
 			};
 			ReferendumInfoFor::<T, I>::insert(index, ReferendumInfo::Ongoing(status));
+			ActiveReferendaCount::<T, I>::mutate(|x| *x = x.saturating_add(1));
 
 			Self::deposit_event(Event::<T, I>::Submitted { index, track, proposal });
 			Ok(())
@@ -600,10 +723,12 @@ pub mod pallet {
 		/// Emits `Cancelled`.
 		#[pallet::call_index(3)]
 		// May defer `one_fewer_deciding` via `set_alarm`, bearing its worst-case retry
-		// overhead; plus one read/write to drop a queued entry from `TrackQueue`.
+		// overhead; plus one read/write to drop a queued entry from `TrackQueue`; plus
+		// the terminal `Preimages::drop` / active-count bookkeeping.
 		#[pallet::weight(T::WeightInfo::cancel()
 			.saturating_add(alarm_retry_weight::<T, I>())
-			.saturating_add(T::DbWeight::get().reads_writes(1, 1)))]
+			.saturating_add(T::DbWeight::get().reads_writes(1, 1))
+			.saturating_add(terminal_transition_weight::<T, I>()))]
 		pub fn cancel(origin: OriginFor<T>, index: ReferendumIndex) -> DispatchResult {
 			T::CancelOrigin::ensure_origin(origin)?;
 			let status = Self::ensure_ongoing(index)?;
@@ -622,6 +747,7 @@ pub mod pallet {
 			if status.in_queue {
 				Self::remove_from_track_queue(status.track, index);
 			}
+			Self::conclude_ongoing(&status.proposal, &status.submission_deposit.who);
 			Self::deposit_event(Event::<T, I>::Cancelled { index, tally: status.tally });
 			let info = ReferendumInfo::Cancelled(
 				T::BlockNumberProvider::current_block_number(),
@@ -640,10 +766,12 @@ pub mod pallet {
 		/// Emits `Killed` and `DepositSlashed`.
 		#[pallet::call_index(4)]
 		// May defer `one_fewer_deciding` via `set_alarm`, bearing its worst-case retry
-		// overhead; plus one read/write to drop a queued entry from `TrackQueue`.
+		// overhead; plus one read/write to drop a queued entry from `TrackQueue`; plus
+		// the terminal `Preimages::drop` / active-count bookkeeping.
 		#[pallet::weight(T::WeightInfo::kill()
 			.saturating_add(alarm_retry_weight::<T, I>())
-			.saturating_add(T::DbWeight::get().reads_writes(1, 1)))]
+			.saturating_add(T::DbWeight::get().reads_writes(1, 1))
+			.saturating_add(terminal_transition_weight::<T, I>()))]
 		pub fn kill(origin: OriginFor<T>, index: ReferendumIndex) -> DispatchResult {
 			T::KillOrigin::ensure_origin(origin)?;
 			let status = Self::ensure_ongoing(index)?;
@@ -658,6 +786,7 @@ pub mod pallet {
 			if status.in_queue {
 				Self::remove_from_track_queue(status.track, index);
 			}
+			Self::conclude_ongoing(&status.proposal, &status.submission_deposit.who);
 			Self::deposit_event(Event::<T, I>::Killed { index, tally: status.tally });
 			Self::slash_deposit(Some(status.submission_deposit.clone()));
 			Self::slash_deposit(status.decision_deposit.clone());
@@ -865,7 +994,11 @@ impl<T: Config<I>, I: 'static> Polling<T::Tally> for Pallet<T, I> {
 		};
 
 		Self::ensure_alarm_at(&mut status, index, sp_runtime::traits::Bounded::max_value());
+		ActiveSubmissionCount::<T, I>::mutate(&status.submission_deposit.who, |x| {
+			*x = x.saturating_add(1)
+		});
 		ReferendumInfoFor::<T, I>::insert(index, ReferendumInfo::Ongoing(status));
+		ActiveReferendaCount::<T, I>::mutate(|x| *x = x.saturating_add(1));
 		Ok(index)
 	}
 
@@ -874,6 +1007,10 @@ impl<T: Config<I>, I: 'static> Polling<T::Tally> for Pallet<T, I> {
 		let mut status = Self::ensure_ongoing(index).map_err(|_| ())?;
 		Self::ensure_no_alarm(&mut status);
 		Self::note_one_fewer_deciding(status.track);
+		// Same terminal bookkeeping as cancel/kill/nudge: release the submit-time
+		// preimage request and free the active slot. Skipping `Preimages::drop` here
+		// previously drifted from the production path.
+		Self::conclude_ongoing(&status.proposal, &status.submission_deposit.who);
 		let now = T::BlockNumberProvider::current_block_number();
 		let info = if approved {
 			ReferendumInfo::Approved(now, Some(status.submission_deposit), status.decision_deposit)
@@ -1391,6 +1528,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 				if status.deciding.is_none() && now >= timeout && !status.in_queue {
 					// Too long without being decided - end it.
 					Self::ensure_no_alarm(&mut status);
+					Self::conclude_ongoing(&status.proposal, &status.submission_deposit.who);
 					Self::deposit_event(Event::<T, I>::TimedOut { index, tally: status.tally });
 					return (
 						ReferendumInfo::TimedOut(
@@ -1429,6 +1567,13 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 								Ok(()) => {
 									Self::ensure_no_alarm(&mut status);
 									Self::note_one_fewer_deciding(status.track);
+									// The scheduler has just taken its own request for the
+									// enactment call in `schedule_named`, so after we drop the
+									// submit-time request the bytes stay pinned until dispatch.
+									Self::conclude_ongoing(
+										&status.proposal,
+										&status.submission_deposit.who,
+									);
 									Self::deposit_event(Event::<T, I>::Confirmed {
 										index,
 										tally: status.tally,
@@ -1463,6 +1608,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 						// Failed!
 						Self::ensure_no_alarm(&mut status);
 						Self::note_one_fewer_deciding(status.track);
+						Self::conclude_ongoing(&status.proposal, &status.submission_deposit.who);
 						Self::deposit_event(Event::<T, I>::Rejected { index, tally: status.tally });
 						return (
 							ReferendumInfo::Rejected(
@@ -1535,6 +1681,30 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 			let offset = until_support.max(until_approval);
 			deciding.since.saturating_add(offset.mul_ceil(track.decision_period))
 		})
+	}
+
+	/// Note that one referendum submitted by `who` has left the `Ongoing` state.
+	///
+	/// Must accompany every transition of a referendum out of `ReferendumInfo::Ongoing`, so
+	/// that `ActiveReferendaCount` and the submitter's `ActiveSubmissionCount` (which bound
+	/// admissions in `submit`) stay accurate.
+	fn note_one_fewer_active(who: &T::AccountId) {
+		ActiveReferendaCount::<T, I>::mutate(|x| *x = x.saturating_sub(1));
+		ActiveSubmissionCount::<T, I>::mutate_exists(who, |maybe_count| {
+			*maybe_count = maybe_count.and_then(|count| {
+				let count = count.saturating_sub(1);
+				(count > 0).then_some(count)
+			});
+		});
+	}
+
+	/// Shared bookkeeping for every transition out of `ReferendumInfo::Ongoing`: release
+	/// the preimage request taken in `submit`, and free the global/per-submitter active
+	/// slots. Keeping these two steps in one helper stops the benchmark-only path from
+	/// drifting (it previously decremented the counters without dropping the preimage).
+	fn conclude_ongoing(proposal: &BoundedCallOf<T, I>, who: &T::AccountId) {
+		T::Preimages::drop(proposal);
+		Self::note_one_fewer_active(who);
 	}
 
 	/// Cancel the alarm in `status`, if one exists.
@@ -1610,6 +1780,26 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 			ReferendumCount::<T, I>::get() as usize ==
 				ReferendumInfoFor::<T, I>::iter_keys().count(),
 			"Number of referenda in `ReferendumInfoFor` is different than `ReferendumCount`"
+		);
+
+		ensure!(
+			ActiveReferendaCount::<T, I>::get() as usize ==
+				ReferendumInfoFor::<T, I>::iter_values()
+					.filter(|info| matches!(info, ReferendumInfo::Ongoing(_)))
+					.count(),
+			"`ActiveReferendaCount` must match the number of `Ongoing` referenda"
+		);
+
+		let mut ongoing_by_submitter = alloc::collections::BTreeMap::<T::AccountId, u32>::new();
+		ReferendumInfoFor::<T, I>::iter_values().for_each(|info| {
+			if let ReferendumInfo::Ongoing(status) = info {
+				*ongoing_by_submitter.entry(status.submission_deposit.who).or_default() += 1;
+			}
+		});
+		ensure!(
+			ActiveSubmissionCount::<T, I>::iter().collect::<alloc::collections::BTreeMap<_, _>>() ==
+				ongoing_by_submitter,
+			"`ActiveSubmissionCount` must match each submitter's `Ongoing` referenda, with no stale zero entries"
 		);
 
 		MetadataOf::<T, I>::iter_keys().try_for_each(|referendum_index| -> DispatchResult {

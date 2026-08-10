@@ -19,7 +19,10 @@
 
 use super::Config;
 use crate::{weights::WeightInfo, Pallet};
-use frame_support::{traits::Get, weights::Weight};
+use frame_support::{
+	traits::{Get, StorePreimage},
+	weights::Weight,
+};
 
 /// Worst-case overhead of the `set_alarm` full-agenda retry loop (V12 audit #161704 /
 /// #162455): every failed `T::Scheduler::schedule` attempt reads the candidate block's
@@ -45,6 +48,31 @@ pub fn queue_eviction_repair_weight<T: Config<I>, I: 'static>() -> Weight {
 	T::DbWeight::get()
 		.reads_writes(1, 1)
 		.saturating_add(alarm_retry_weight::<T, I>())
+}
+
+/// Worst-case overhead of the bookkeeping every Ongoing→terminal transition performs
+/// after the benchmarks were taken: `Preimages::drop` of the proposal, plus the
+/// `ActiveReferendaCount` / `ActiveSubmissionCount` updates in `note_one_fewer_active`.
+///
+/// `Preimages::drop` on a `Lookup`/`Legacy` proposal may unrequest and delete a
+/// `PreimageFor` blob of up to [`StorePreimage::MAX_LENGTH`] (4 MiB). The
+/// auto-generated Preimage weights list that key as `(r:0 w:1)` and so omit its MEL
+/// from the estimated proof size; we charge it explicitly here. Kept in this
+/// hand-written module so it survives regeneration of the benchmarked `weights.rs`.
+pub fn terminal_transition_weight<T: Config<I>, I: 'static>() -> Weight {
+	// Ref-time of destroying a MAX_LENGTH `PreimageFor`, taken from
+	// `pallet_preimage::WeightInfo::unrequest_preimage` (~20ms on reference hardware)
+	// with a small cushion. Flat DbWeight undercharges large-value deletes.
+	const PREIMAGE_DROP_REF_TIME: u64 = 25_000_000;
+	// Preimages::drop → do_unrequest_preimage: StatusFor read (legacy ensure_updated) +
+	// RequestStatusFor r/w + PreimageFor remove.
+	let preimage_drop = T::DbWeight::get().reads_writes(2, 2).saturating_add(Weight::from_parts(
+		PREIMAGE_DROP_REF_TIME,
+		T::Preimages::MAX_LENGTH as u64,
+	));
+	// note_one_fewer_active: ActiveReferendaCount r/w + ActiveSubmissionCount r/w.
+	let active_counts = T::DbWeight::get().reads_writes(2, 2);
+	preimage_drop.saturating_add(active_counts)
 }
 
 /// Branches within the `begin_deciding` function.
@@ -105,7 +133,7 @@ impl ServiceBranch {
 			Rejected => T::WeightInfo::nudge_referendum_rejected(),
 			TimedOut | Fail => T::WeightInfo::nudge_referendum_timed_out(),
 		};
-		match self {
+		let with_alarm = match self {
 			// Branches that (re)schedule the referendum's alarm, or defer
 			// `one_fewer_deciding` via `set_alarm` (`Approved`/`Rejected`), bear the
 			// worst-case retry overhead.
@@ -126,6 +154,12 @@ impl ServiceBranch {
 				base.saturating_add(queue_eviction_repair_weight::<T, I>()),
 			// These branches leave the referendum without an alarm (or only cancel one).
 			RequeuedSlide | TimedOut | Fail => base,
+		};
+		match self {
+			// Ongoing→terminal: `Preimages::drop` + `note_one_fewer_active`.
+			Approved | Rejected | TimedOut =>
+				with_alarm.saturating_add(terminal_transition_weight::<T, I>()),
+			_ => with_alarm,
 		}
 	}
 
@@ -149,6 +183,8 @@ impl ServiceBranch {
 			.max(T::WeightInfo::nudge_referendum_timed_out())
 			.saturating_add(alarm_retry_weight::<T, I>())
 			.saturating_add(queue_eviction_repair_weight::<T, I>())
+			// Covers the Approved/Rejected/TimedOut terminal bookkeeping.
+			.saturating_add(terminal_transition_weight::<T, I>())
 	}
 
 	/// Return the weight of the `place_decision_deposit` function when it takes the branch denoted

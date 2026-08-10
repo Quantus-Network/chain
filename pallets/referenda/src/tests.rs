@@ -22,12 +22,17 @@ use crate::mock::{RefState::*, *};
 use assert_matches::assert_matches;
 use codec::Decode;
 use frame_support::{
-	assert_err, assert_noop, assert_ok, dispatch::RawOrigin, storage::with_storage_layer,
-	traits::Contains,
+	assert_err, assert_noop, assert_ok,
+	dispatch::RawOrigin,
+	storage::with_storage_layer,
+	traits::{Contains, Get, QueryPreimage},
 };
 use pallet_balances::Error as BalancesError;
 use qp_scheduler::BlockNumberOrTimestamp;
-use sp_runtime::DispatchError::BadOrigin;
+use sp_runtime::{
+	traits::{BlakeTwo256, Hash},
+	DispatchError::BadOrigin,
+};
 
 #[test]
 fn params_should_work() {
@@ -36,6 +41,36 @@ fn params_should_work() {
 		assert_eq!(Balances::free_balance(42), 0);
 		assert_eq!(pallet_balances::TotalIssuance::<Test>::get(), 600);
 	});
+}
+
+/// Terminal nudge branches gained `Preimages::drop` (up to a MAX_SIZE blob) and the
+/// active-count updates after the benchmarks were taken. Their weight — and the
+/// declared `max_weight_of_nudge` used by the scheduler hook — must cover that work.
+#[test]
+fn terminal_nudge_weights_cover_preimage_drop_and_active_counts() {
+	use crate::branch::{terminal_transition_weight, ServiceBranch};
+	use frame_support::traits::StorePreimage;
+
+	let terminal = terminal_transition_weight::<Test, ()>();
+	// Proof-size must cover a full PreimageFor blob; DbWeight covers the four keys.
+	assert!(terminal.proof_size() >= <Test as Config>::Preimages::MAX_LENGTH as u64);
+	assert!(!terminal.ref_time().is_zero());
+
+	for branch in [ServiceBranch::Approved, ServiceBranch::Rejected, ServiceBranch::TimedOut] {
+		let w = branch.weight_of_nudge::<Test, ()>();
+		assert!(
+			w.proof_size() >= terminal.proof_size(),
+			"terminal nudge weight must include the PreimageFor PoV"
+		);
+	}
+
+	// Non-terminal branches must not silently absorb the 4 MiB charge.
+	let preparing = ServiceBranch::Preparing.weight_of_nudge::<Test, ()>();
+	assert!(preparing.proof_size() < terminal.proof_size());
+
+	let max = ServiceBranch::max_weight_of_nudge::<Test, ()>();
+	assert!(max.proof_size() >= terminal.proof_size());
+	assert!(max.ref_time() >= ServiceBranch::Approved.weight_of_nudge::<Test, ()>().ref_time());
 }
 
 #[test]
@@ -71,6 +106,170 @@ fn basic_happy_path_works() {
 		run_to(13);
 		// #10: Proposal should be executed.
 		assert_eq!(Balances::free_balance(&42), 1);
+	});
+}
+
+/// `parameter_types! { pub static ... }` values live in thread-local storage. A
+/// mutation in one test must not leak into the next: `ExtBuilder::build` resets
+/// them, matching the vesting mock's `reset_thread_local_state` pattern.
+#[test]
+fn ext_builder_resets_thread_local_parameter_statics() {
+	// Contaminate the worker thread the way a preceding bound-/interval-test would.
+	MaxActive::set(1);
+	MaxActivePerAccount::set(1);
+	AlarmInterval::set(99);
+	assert_eq!(MaxActive::get(), 1);
+	assert_eq!(MaxActivePerAccount::get(), 1);
+	assert_eq!(AlarmInterval::get(), 99);
+
+	ExtBuilder::default().build_and_execute(|| {
+		assert_eq!(MaxActive::get(), 100, "MaxActive must be restored by ExtBuilder::build");
+		assert_eq!(
+			MaxActivePerAccount::get(),
+			100,
+			"MaxActivePerAccount must be restored by ExtBuilder::build"
+		);
+		assert_eq!(AlarmInterval::get(), 1, "AlarmInterval must be restored by ExtBuilder::build");
+	});
+}
+
+#[test]
+fn submission_bounded_by_max_active() {
+	ExtBuilder::default().build_and_execute(|| {
+		MaxActive::set(2);
+		for _ in 0..2 {
+			assert_ok!(Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				set_balance_proposal_bounded(1),
+				DispatchTime::At(10),
+			));
+		}
+		// The global bound is reached: further submissions are rejected, even though
+		// neither referendum occupies a deciding slot or `TrackQueue` entry (no decision
+		// deposit was placed).
+		assert_noop!(
+			Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				set_balance_proposal_bounded(1),
+				DispatchTime::At(10),
+			),
+			Error::<Test>::TooManyActive
+		);
+		// Concluding an ongoing referendum frees a slot again.
+		assert_ok!(Referenda::cancel(RuntimeOrigin::signed(4), 0));
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(10),
+		));
+	});
+}
+
+#[test]
+fn timed_out_referendum_frees_active_slot() {
+	ExtBuilder::default().build_and_execute(|| {
+		MaxActive::set(1);
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(10),
+		));
+		assert_noop!(
+			Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				set_balance_proposal_bounded(1),
+				DispatchTime::At(10),
+			),
+			Error::<Test>::TooManyActive
+		);
+		// Without a decision deposit the referendum times out after `UndecidingTimeout`,
+		// which must free its active slot.
+		run_to(22);
+		assert_matches!(ReferendumInfoFor::<Test>::get(0), Some(ReferendumInfo::TimedOut(..)));
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(30),
+		));
+	});
+}
+
+#[test]
+fn one_submitter_cannot_exhaust_the_shared_active_capacity() {
+	ExtBuilder::default().build_and_execute(|| {
+		MaxActivePerAccount::set(2);
+		for _ in 0..2 {
+			assert_ok!(Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				set_balance_proposal_bounded(1),
+				DispatchTime::At(10),
+			));
+		}
+		// The spammer is stopped by their own cap, well before `MaxActive`...
+		assert_noop!(
+			Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				set_balance_proposal_bounded(1),
+				DispatchTime::At(10),
+			),
+			Error::<Test>::TooManyActiveBySubmitter
+		);
+		// ...so every other account can still submit: the lane is not frozen.
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(2),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(10),
+		));
+
+		// A concluded referendum frees its submitter's slot again.
+		assert_ok!(Referenda::cancel(RuntimeOrigin::signed(4), 0));
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(10),
+		));
+	});
+}
+
+#[test]
+fn timed_out_referendum_frees_the_submitters_slot() {
+	ExtBuilder::default().build_and_execute(|| {
+		MaxActivePerAccount::set(1);
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(10),
+		));
+		assert_noop!(
+			Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				set_balance_proposal_bounded(1),
+				DispatchTime::At(10),
+			),
+			Error::<Test>::TooManyActiveBySubmitter
+		);
+		// The undeciding timeout must release the per-submitter slot, exactly as it
+		// releases the global one.
+		run_to(22);
+		assert_matches!(ReferendumInfoFor::<Test>::get(0), Some(ReferendumInfo::TimedOut(..)));
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			set_balance_proposal_bounded(1),
+			DispatchTime::At(30),
+		));
 	});
 }
 
@@ -1039,6 +1238,146 @@ fn detects_incorrect_len() {
 			),
 			Error::<Test>::PreimageStoredWithDifferentLength
 		);
+	});
+}
+
+#[test]
+fn submit_requires_and_requests_lookup_preimage() {
+	ExtBuilder::default().build_and_execute(|| {
+		// A lookup proposal whose preimage was never noted must be rejected: otherwise the
+		// scheduler drops the enactment as terminal (`CallUnavailable`) after approval.
+		let missing = <<Test as frame_system::Config>::Hashing as sp_runtime::traits::Hash>::hash(
+			b"no such preimage",
+		);
+		assert_noop!(
+			Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				frame_support::traits::Bounded::Lookup { hash: missing, len: 1 },
+				DispatchTime::At(10),
+			),
+			Error::<Test>::PreimageNotExist
+		);
+
+		// A noted preimage is requested (pinned) by submission, so unnoting cannot delete
+		// the bytes while the referendum is ongoing — but can reclaim the storage deposit.
+		let hash = note_preimage(1);
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			frame_support::traits::Bounded::Lookup { hash, len: 1 },
+			DispatchTime::At(10),
+		));
+		assert!(Preimage::is_requested(&hash));
+		assert_ok!(Preimage::unnote_preimage(RuntimeOrigin::signed(1), hash));
+		assert!(Preimage::len(&hash).is_some());
+	});
+}
+
+#[test]
+fn submit_rejects_lookup_preimages_above_max_proposal_size() {
+	ExtBuilder::default().build_and_execute(|| {
+		// Without a size bound, submit's request + a later unnote would pin up to
+		// MaxActive × 4 MiB of deposit-free state against only the refundable
+		// submission deposit. Oversized lookups must be refused at admission.
+		let max = <<Test as Config>::MaxProposalSize as Get<u32>>::get() as usize;
+		let oversized = vec![7u8; max + 1];
+		assert_ok!(Preimage::note_preimage(RuntimeOrigin::signed(1), oversized.clone()));
+		let hash = BlakeTwo256::hash(&oversized);
+		assert_noop!(
+			Referenda::submit(
+				RuntimeOrigin::signed(1),
+				Box::new(RawOrigin::Root.into()),
+				frame_support::traits::Bounded::Lookup { hash, len: (max + 1) as u32 },
+				DispatchTime::At(10),
+			),
+			Error::<Test>::PreimageTooBig
+		);
+
+		// Exactly at the cap is accepted and pinned.
+		let capped = vec![8u8; max];
+		assert_ok!(Preimage::note_preimage(RuntimeOrigin::signed(1), capped.clone()));
+		let hash = BlakeTwo256::hash(&capped);
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			frame_support::traits::Bounded::Lookup { hash, len: max as u32 },
+			DispatchTime::At(10),
+		));
+		assert!(Preimage::is_requested(&hash));
+	});
+}
+
+#[test]
+fn submit_weight_covers_lookup_preimage_request() {
+	use crate::branch::alarm_retry_weight;
+	use frame_support::{dispatch::GetDispatchInfo, weights::RuntimeDbWeight};
+	let info = Call::<Test>::submit {
+		proposal_origin: Box::new(RawOrigin::Root.into()),
+		proposal: set_balance_proposal_bounded(1),
+		enactment_moment: DispatchTime::At(10),
+	}
+	.get_dispatch_info();
+	// Declared weight = benchmarked base + alarm-retry + active-count (2,2) +
+	// Lookup len/request (2,1). Pin the formula so the request term cannot be dropped.
+	let db: RuntimeDbWeight = <<Test as frame_system::Config>::DbWeight as Get<_>>::get();
+	let expected = <Test as Config>::WeightInfo::submit()
+		.saturating_add(alarm_retry_weight::<Test, ()>())
+		.saturating_add(db.reads_writes(2, 2))
+		.saturating_add(db.reads_writes(2, 1));
+	assert_eq!(info.call_weight, expected);
+}
+
+#[test]
+fn timed_out_referendum_releases_preimage_request() {
+	ExtBuilder::default().build_and_execute(|| {
+		let hash = note_preimage(1);
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			frame_support::traits::Bounded::Lookup { hash, len: 1 },
+			DispatchTime::At(30),
+		));
+		assert!(Preimage::is_requested(&hash));
+		run_to(21);
+		assert_matches!(ReferendumInfoFor::<Test>::get(0), Some(ReferendumInfo::TimedOut(..)));
+		assert!(!Preimage::is_requested(&hash));
+	});
+}
+
+#[test]
+fn rejected_referendum_releases_preimage_request() {
+	ExtBuilder::default().build_and_execute(|| {
+		let hash = note_preimage(1);
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			frame_support::traits::Bounded::Lookup { hash, len: 1 },
+			DispatchTime::At(30),
+		));
+		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(2), 0));
+		assert!(Preimage::is_requested(&hash));
+		// No votes: deciding starts after the prepare period (4) and fails at the end of the
+		// decision period (4).
+		run_to(12);
+		assert_matches!(ReferendumInfoFor::<Test>::get(0), Some(ReferendumInfo::Rejected(..)));
+		assert!(!Preimage::is_requested(&hash));
+	});
+}
+
+#[test]
+fn killed_referendum_releases_preimage_request() {
+	ExtBuilder::default().build_and_execute(|| {
+		let hash = note_preimage(1);
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			frame_support::traits::Bounded::Lookup { hash, len: 1 },
+			DispatchTime::At(30),
+		));
+		assert!(Preimage::is_requested(&hash));
+		assert_ok!(Referenda::kill(RuntimeOrigin::root(), 0));
+		assert!(!Preimage::is_requested(&hash));
 	});
 }
 

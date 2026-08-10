@@ -227,6 +227,10 @@ pub mod pallet {
 		PotUnderfunded,
 		/// The beneficiary must not be the pot, and retargeting must change the account.
 		InvalidBeneficiary,
+		/// The proof recorder reported the payout credit as dropped: no wormhole leaf
+		/// was created, so the payout is rolled back rather than finalized without the
+		/// proof material a keyless beneficiary needs to exit.
+		PayoutProofNotRecorded,
 	}
 
 	#[pallet::genesis_config]
@@ -335,10 +339,7 @@ pub mod pallet {
 					ClaimPlan::TooSoon => return Err(Error::<T>::ClaimTooSoon.into()),
 					ClaimPlan::WouldLeaveDust => return Err(Error::<T>::ClaimWouldLeaveDust.into()),
 				};
-				Self::pay_out(&Self::pot_account_id(), &schedule.beneficiary, payable)?;
-				schedule.claimed =
-					schedule.claimed.checked_add(&payable).ok_or(ArithmeticError::Overflow)?;
-				schedule.last_claim_at = Some(now);
+				Self::settle(schedule, payable, now)?;
 				Self::deposit_event(Event::Claimed {
 					schedule_id,
 					beneficiary: schedule.beneficiary.clone(),
@@ -457,12 +458,7 @@ pub mod pallet {
 				let now = T::TimeProvider::now();
 				let vested_paid = match Self::claim_plan(schedule, now)? {
 					ClaimPlan::Pay(amount) => {
-						Self::pay_out(&Self::pot_account_id(), &schedule.beneficiary, amount)?;
-						schedule.claimed = schedule
-							.claimed
-							.checked_add(&amount)
-							.ok_or(ArithmeticError::Overflow)?;
-						schedule.last_claim_at = Some(now);
+						Self::settle(schedule, amount, now)?;
 						amount
 					},
 					ClaimPlan::NothingToClaim | ClaimPlan::TooSoon | ClaimPlan::WouldLeaveDust =>
@@ -569,6 +565,22 @@ pub mod pallet {
 			amount.checked_sub(&remainder).expect("remainder never exceeds the dividend")
 		}
 
+		/// Pay `amount` to the schedule's beneficiary and advance the schedule to match:
+		/// the single place a claimable payout is settled, shared by `claim` and
+		/// `retarget_schedule` so the two can never drift on what a payout does to
+		/// `claimed` and `last_claim_at`.
+		fn settle(
+			schedule: &mut VestingScheduleOf<T>,
+			amount: BalanceOf<T>,
+			now: Moment,
+		) -> DispatchResult {
+			Self::pay_out(&Self::pot_account_id(), &schedule.beneficiary, amount)?;
+			schedule.claimed =
+				schedule.claimed.checked_add(&amount).ok_or(ArithmeticError::Overflow)?;
+			schedule.last_claim_at = Some(now);
+			Ok(())
+		}
+
 		/// Move a payout out of the pot AND record it as a wormhole transfer proof —
 		/// fused into one function so no payout path can move funds without creating
 		/// the ZK proof material a wormhole beneficiary needs to exit.
@@ -579,13 +591,32 @@ pub mod pallet {
 		/// the scheduler run outside the signed-extrinsic lifecycle and the extension
 		/// never sees them. The extension in turn skips pot-sourced transfer events, so
 		/// signed paths are not double-recorded.
+		///
+		/// The recorder contract permits `false` for a deliberately dropped credit.
+		/// That must be treated as failure here: were the payout finalized anyway, the
+		/// caller would advance `claimed` (or remove the schedule), making the missing
+		/// proof unrecoverable — the payout could never be retried. The storage layer
+		/// rolls the transfer back, so the schedule stays intact and retryable. (The
+		/// runtime's Wormhole recorder always records nonzero native credits, so this
+		/// guards the generic recorder boundary rather than a reachable runtime path.)
+		///
+		/// No nested `#[transactional]`: every caller is a dispatchable whose storage
+		/// layer already rolls back on `Err`, so a failed record undoes the transfer.
 		fn pay_out(
 			pot: &T::AccountId,
 			beneficiary: &T::AccountId,
 			amount: BalanceOf<T>,
 		) -> DispatchResult {
 			T::Currency::transfer(pot, beneficiary, amount, Preservation::Preserve)?;
-			T::ProofRecorder::record_transfer_proof(None, pot.clone(), beneficiary.clone(), amount);
+			ensure!(
+				T::ProofRecorder::record_transfer_proof(
+					None,
+					pot.clone(),
+					beneficiary.clone(),
+					amount
+				),
+				Error::<T>::PayoutProofNotRecorded
+			);
 			Ok(())
 		}
 

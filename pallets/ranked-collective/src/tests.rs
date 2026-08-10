@@ -623,6 +623,50 @@ fn tally_support_zero_when_electorate_empty() {
 	});
 }
 
+/// INTENTIONAL (matches upstream): removing a member performs no vote reconciliation.
+/// Votes already cast keep counting in ongoing polls — including in `support`, whose
+/// electorate denominator shrinks with the removal — until each poll ends
+/// (`cleanup_poll` then sweeps the records). Eager reconciliation would require an
+/// unbounded `Voting` scan inside a scheduler-enacted dispatch; the distortion window
+/// is accepted instead, with `support` clamped at 100% so a shrunken electorate
+/// cannot overflow the curve.
+#[test]
+fn removal_intentionally_leaves_votes_on_ongoing_polls() {
+	ExtBuilder::default().build_and_execute(|| {
+		// Three rank-1 members; account 1 votes aye on the ongoing class-1 poll.
+		for who in 1..=3 {
+			assert_ok!(Club::add_member(RuntimeOrigin::root(), who));
+			assert_ok!(Club::promote_member(RuntimeOrigin::root(), who));
+		}
+		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, true));
+		assert_eq!(tally(3).support(1), Perbill::from_rational(1u32, 3));
+
+		// Removal leaves the vote record and tally untouched; with the electorate
+		// shrunk to 2, the stale aye now counts as 1/2 support.
+		assert_ok!(Club::remove_member(RuntimeOrigin::root(), 1, 1));
+		assert_eq!(Voting::<Test>::get(3, 1), Some(VoteRecord::Aye(1)));
+		assert_eq!(tally(3), Tally::from_parts(1, 1, 0));
+		assert_eq!(tally(3).support(1), Perbill::from_rational(1u32, 2));
+
+		// The removed account cannot change or withdraw the stale vote.
+		assert_noop!(Club::vote(RuntimeOrigin::signed(1), 3, false), Error::<Test>::NotMember);
+	});
+}
+
+#[test]
+fn removal_leaves_completed_poll_votes_untouched() {
+	ExtBuilder::default().build_and_execute(|| {
+		assert_ok!(Club::add_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::promote_member(RuntimeOrigin::root(), 1));
+		assert_ok!(Club::vote(RuntimeOrigin::signed(1), 3, true));
+
+		// Poll 3 completes; historical vote records are only cleaned by `cleanup_poll`.
+		Polls::set(vec![(3, Completed(3, true))].into_iter().collect());
+		assert_ok!(Club::remove_member(RuntimeOrigin::root(), 1, 1));
+		assert_eq!(Voting::<Test>::get(3, 1), Some(VoteRecord::Aye(1)));
+	});
+}
+
 #[test]
 fn exchange_member_works() {
 	ExtBuilder::default().build_and_execute(|| {

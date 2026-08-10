@@ -202,7 +202,11 @@ pub mod pallet {
 		#[pallet::call_index(0)]
 		#[pallet::weight({
 			let (dispatch_weight, dispatch_class) = Pallet::<T>::weight_and_dispatch_class(&calls);
-			let dispatch_weight = dispatch_weight.saturating_add(T::WeightInfo::batch(calls.len() as u32));
+			let dispatch_weight = dispatch_weight
+				.saturating_add(T::WeightInfo::batch(calls.len() as u32))
+				// One `is_high_security` classification read per child for the live
+				// high-security policy re-check (`ensure_nested_call_allowed`).
+				.saturating_add(T::DbWeight::get().reads(calls.len() as u64));
 			(dispatch_weight, dispatch_class)
 		})]
 		pub fn batch(
@@ -226,7 +230,14 @@ pub mod pallet {
 				let result = if is_root {
 					call.dispatch_bypass_filter(origin.clone())
 				} else {
-					call.dispatch(origin.clone())
+					// Re-check the live high-security policy before every child: a prior child
+					// may have enrolled this origin into high-security. Charge the one
+					// classification read this performs.
+					weight = weight.saturating_add(T::DbWeight::get().reads(1));
+					match Self::ensure_nested_call_allowed(&origin, &call) {
+						Ok(()) => call.dispatch(origin.clone()),
+						Err(e) => Err(e.into()),
+					}
 				};
 				// Add the weight of this call.
 				weight = weight.saturating_add(extract_actual_weight(&result, &info));
@@ -321,7 +332,11 @@ pub mod pallet {
 		#[pallet::call_index(2)]
 		#[pallet::weight({
 			let (dispatch_weight, dispatch_class) = Pallet::<T>::weight_and_dispatch_class(&calls);
-			let dispatch_weight = dispatch_weight.saturating_add(T::WeightInfo::batch_all(calls.len() as u32));
+			let dispatch_weight = dispatch_weight
+				.saturating_add(T::WeightInfo::batch_all(calls.len() as u32))
+				// One `is_high_security` classification read per child for the live
+				// high-security policy re-check (`ensure_nested_call_allowed`).
+				.saturating_add(T::DbWeight::get().reads(calls.len() as u64));
 			(dispatch_weight, dispatch_class)
 		})]
 		pub fn batch_all(
@@ -345,15 +360,24 @@ pub mod pallet {
 				let result = if is_root {
 					call.dispatch_bypass_filter(origin.clone())
 				} else {
-					let mut filtered_origin = origin.clone();
-					// Don't allow users to nest `batch_all` calls.
-					filtered_origin.add_filter(
-						move |c: &<T as frame_system::Config>::RuntimeCall| {
-							let c = <T as Config>::RuntimeCall::from_ref(c);
-							!matches!(c.is_sub_type(), Some(Call::batch_all { .. }))
+					// Re-check the live high-security policy before every child: a prior child
+					// may have enrolled this origin into high-security. Charge the one
+					// classification read this performs.
+					weight = weight.saturating_add(T::DbWeight::get().reads(1));
+					match Self::ensure_nested_call_allowed(&origin, &call) {
+						Ok(()) => {
+							let mut filtered_origin = origin.clone();
+							// Don't allow users to nest `batch_all` calls.
+							filtered_origin.add_filter(
+								move |c: &<T as frame_system::Config>::RuntimeCall| {
+									let c = <T as Config>::RuntimeCall::from_ref(c);
+									!matches!(c.is_sub_type(), Some(Call::batch_all { .. }))
+								},
+							);
+							call.dispatch(filtered_origin)
 						},
-					);
-					call.dispatch(filtered_origin)
+						Err(e) => Err(e.into()),
+					}
 				};
 				// Add the weight of this call.
 				weight = weight.saturating_add(extract_actual_weight(&result, &info));
@@ -382,6 +406,11 @@ pub mod pallet {
 			let dispatch_info = call.get_dispatch_info();
 			(
 				T::WeightInfo::dispatch_as()
+					// High-security policy check on a signed effective origin
+					// (`is_call_allowed` → one classification read in the runtime
+					// inspector); the benchmarked base runs with the no-op inspector
+					// and does not include it.
+					.saturating_add(T::DbWeight::get().reads(1))
 					.saturating_add(dispatch_info.call_weight),
 				dispatch_info.class,
 			)
@@ -397,12 +426,7 @@ pub mod pallet {
 			// whitelist for it — mirroring `as_derivative` — so Root cannot rewrite the origin to
 			// dispatch a non-whitelisted call as a high-security account.
 			let as_origin: T::RuntimeOrigin = (*as_origin).into();
-			if let Some(who) = as_origin.as_signer() {
-				ensure!(
-					T::HighSecurity::is_call_allowed(who, &call),
-					Error::<T>::CallNotAllowedForHighSecurity
-				);
-			}
+			Self::ensure_nested_call_allowed(&as_origin, &call)?;
 			let res = call.dispatch_bypass_filter(as_origin);
 
 			Self::deposit_event(Event::DispatchedAs {
@@ -427,7 +451,11 @@ pub mod pallet {
 		#[pallet::call_index(4)]
 		#[pallet::weight({
 			let (dispatch_weight, dispatch_class) = Pallet::<T>::weight_and_dispatch_class(&calls);
-			let dispatch_weight = dispatch_weight.saturating_add(T::WeightInfo::force_batch(calls.len() as u32));
+			let dispatch_weight = dispatch_weight
+				.saturating_add(T::WeightInfo::force_batch(calls.len() as u32))
+				// One `is_high_security` classification read per child for the live
+				// high-security policy re-check (`ensure_nested_call_allowed`).
+				.saturating_add(T::DbWeight::get().reads(calls.len() as u64));
 			(dispatch_weight, dispatch_class)
 		})]
 		pub fn force_batch(
@@ -453,7 +481,14 @@ pub mod pallet {
 				let result = if is_root {
 					call.dispatch_bypass_filter(origin.clone())
 				} else {
-					call.dispatch(origin.clone())
+					// Re-check the live high-security policy before every child: a prior child
+					// may have enrolled this origin into high-security. Charge the one
+					// classification read this performs.
+					weight = weight.saturating_add(T::DbWeight::get().reads(1));
+					match Self::ensure_nested_call_allowed(&origin, &call) {
+						Ok(()) => call.dispatch(origin.clone()),
+						Err(e) => Err(e.into()),
+					}
 				};
 				// Add the weight of this call.
 				weight = weight.saturating_add(extract_actual_weight(&result, &info));
@@ -523,7 +558,10 @@ pub mod pallet {
 			(
 				T::WeightInfo::if_else()
 					.saturating_add(main.call_weight)
-					.saturating_add(fallback.call_weight),
+					.saturating_add(fallback.call_weight)
+					// Up to one `is_high_security` classification read per branch (main and
+					// fallback) for the live high-security policy re-check.
+					.saturating_add(T::DbWeight::get().reads(2)),
 				if main.class == Operational && fallback.class == Operational { Operational } else { Normal },
 			)
 		})]
@@ -548,7 +586,13 @@ pub mod pallet {
 			let main_result = if is_root {
 				main.dispatch_bypass_filter(origin.clone())
 			} else {
-				main.dispatch(origin.clone())
+				// Re-check the live high-security policy before dispatching under this origin.
+				// Charge the one classification read this performs.
+				weight = weight.saturating_add(T::DbWeight::get().reads(1));
+				match Self::ensure_nested_call_allowed(&origin, &main) {
+					Ok(()) => main.dispatch(origin.clone()),
+					Err(e) => Err(e.into()),
+				}
 			};
 
 			// Add weight of the main call
@@ -566,7 +610,13 @@ pub mod pallet {
 			let fallback_result = if is_root {
 				fallback.dispatch_bypass_filter(origin.clone())
 			} else {
-				fallback.dispatch(origin)
+				// Re-check the live high-security policy before dispatching under this origin.
+				// Charge the one classification read this performs.
+				weight = weight.saturating_add(T::DbWeight::get().reads(1));
+				match Self::ensure_nested_call_allowed(&origin, &fallback) {
+					Ok(()) => fallback.dispatch(origin),
+					Err(e) => Err(e.into()),
+				}
 			};
 
 			// Add weight of the fallback call
@@ -595,6 +645,8 @@ pub mod pallet {
 			let dispatch_info = call.get_dispatch_info();
 			(
 				T::WeightInfo::dispatch_as_fallible()
+					// Same high-security policy read as `dispatch_as`.
+					.saturating_add(T::DbWeight::get().reads(1))
 					.saturating_add(dispatch_info.call_weight),
 				dispatch_info.class,
 			)
@@ -609,12 +661,7 @@ pub mod pallet {
 			// Same high-security guard as `dispatch_as`: a signed effective origin is restricted to
 			// its whitelisted calls.
 			let as_origin: T::RuntimeOrigin = (*as_origin).into();
-			if let Some(who) = as_origin.as_signer() {
-				ensure!(
-					T::HighSecurity::is_call_allowed(who, &call),
-					Error::<T>::CallNotAllowedForHighSecurity
-				);
-			}
+			Self::ensure_nested_call_allowed(&as_origin, &call)?;
 			call.dispatch_bypass_filter(as_origin).map_err(|e| e.error)?;
 
 			Self::deposit_event(Event::DispatchedAs { result: Ok(()) });
@@ -624,6 +671,31 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+		/// Enforce the live high-security policy for a nested, same-origin dispatch.
+		///
+		/// The composite dispatchables (`batch`, `batch_all`, `force_batch`, `if_else`) re-dispatch
+		/// their children under the caller's own signed origin. Because an earlier child can change
+		/// the caller's high-security classification at runtime (e.g. by enrolling the account via
+		/// `set_high_security`), the policy must be re-evaluated against live state immediately
+		/// before *each* child dispatch — the single outer-extrinsic check performed by the
+		/// transaction extension is not sufficient, as it runs once against the pre-dispatch
+		/// classification of the outer call only.
+		///
+		/// Non-signed origins (e.g. a custom pallet origin) have no high-security classification,
+		/// so they are left to the normal call filter.
+		fn ensure_nested_call_allowed(
+			origin: &OriginFor<T>,
+			call: &<T as Config>::RuntimeCall,
+		) -> DispatchResult {
+			if let Some(who) = origin.as_signer() {
+				ensure!(
+					T::HighSecurity::is_call_allowed(who, call),
+					Error::<T>::CallNotAllowedForHighSecurity
+				);
+			}
+			Ok(())
+		}
+
 		/// Get the accumulated `weight` and the dispatch class for the given `calls`.
 		fn weight_and_dispatch_class(
 			calls: &[<T as Config>::RuntimeCall],
