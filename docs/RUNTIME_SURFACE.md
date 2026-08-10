@@ -148,7 +148,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 
 ### Index 13 — `TechCollective` (`pallet-ranked-collective`)
 - `AddOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>` (Root-only, i.e. a passed TechReferenda vote; #91267), `RemoveOrigin = EnsureRootRemoveKeepsMemberFloor` (Root-only **and** refuses removals that would leave fewer than `MIN_TECH_COLLECTIVE_MEMBERS` members — the floor that keeps the tech-referenda lane live), `Promote/Demote/ExchangeOrigin = NeverEnsureOrigin`, `Polls = TechReferenda (Instance1)`, `VoteWeight = Linear`, `MaxMemberCount = 13` (via `GlobalMaxMembers`).
-- **Calls:** `add_member`, `promote_member`, `demote_member`, `remove_member`, `vote`, `cleanup_poll`, `exchange_member`, `remove_ineligible_vote` (permissionless; withdraws a stale vote from an ongoing poll once the voter is no longer eligible).
+- **Calls:** `add_member`, `promote_member`, `demote_member`, `remove_member`, `vote`, `cleanup_poll`, `exchange_member`. Removal intentionally leaves the member's votes in ongoing tallies (upstream behavior); `support` clamps at 100% so the shrunken electorate cannot overflow the curve.
 
 ### Index 14 — `TechReferenda` (`pallet-referenda`, `Instance1`)
 - `SubmitOrigin = RootOrMemberForTechReferendaOrigin`, `Tracks = TechCollectiveTracksInfo` (single track, 61% approval / 60% support constant curves), `Tally = pallet_ranked_collective::TallyOf<Runtime>`, `MaxActive = 128` / `MaxActivePerAccount = 8` (global + per-submitter caps on `Ongoing` referenda; storage `ActiveReferendaCount` / `ActiveSubmissionCount`; errors `TooManyActive` / `TooManyActiveBySubmitter`), `MaxProposalSize = 64 KiB`.

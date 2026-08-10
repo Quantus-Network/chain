@@ -105,17 +105,6 @@ impl<T: Config<I>, I: 'static, M: GetMaxVoters> Tally<T, I, M> {
 	pub fn from_parts(bare_ayes: MemberIndex, ayes: Votes, nays: Votes) -> Self {
 		Tally { bare_ayes, ayes, nays, dummy: PhantomData }
 	}
-
-	/// Remove a previously recorded vote from this tally.
-	fn withdraw(&mut self, record: &VoteRecord) {
-		match *record {
-			VoteRecord::Aye(votes) => {
-				self.bare_ayes.saturating_dec();
-				self.ayes.saturating_reduce(votes);
-			},
-			VoteRecord::Nay(votes) => self.nays.saturating_reduce(votes),
-		}
-	}
 }
 
 // Use (non-rank-weighted) ayes for calculating support.
@@ -533,9 +522,6 @@ pub mod pallet {
 		Voted { who: T::AccountId, poll: PollIndexOf<T, I>, vote: VoteRecord, tally: TallyOf<T, I> },
 		/// The member `who` had their `AccountId` changed to `new_who`.
 		MemberExchanged { who: T::AccountId, new_who: T::AccountId },
-		/// The vote cast by `who` on `poll`, which they are no longer eligible to vote on,
-		/// has been removed from the tally.
-		IneligibleVoteRemoved { who: T::AccountId, poll: PollIndexOf<T, I> },
 	}
 
 	#[pallet::error]
@@ -562,11 +548,6 @@ pub mod pallet {
 		SameMember,
 		/// The max member count for the rank has been reached.
 		TooManyMembers,
-		/// The account has no vote on the given poll.
-		NotVoting,
-		/// The account is still eligible to vote on the given poll, so its vote cannot be
-		/// removed.
-		StillEligible,
 	}
 
 	#[pallet::call]
@@ -662,6 +643,7 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			let who = ensure_signed(origin)?;
 			let record = Self::ensure_member(&who)?;
+			use VoteRecord::*;
 			let mut pays = Pays::Yes;
 
 			let (tally, vote) = T::Polls::try_access_poll(
@@ -672,7 +654,11 @@ pub mod pallet {
 							Err(Error::<T, I>::NotPolling)?,
 						PollStatus::Ongoing(ref mut tally, class) => {
 							match Voting::<T, I>::get(&poll, &who) {
-								Some(ref prior) => tally.withdraw(prior),
+								Some(Aye(votes)) => {
+									tally.bare_ayes.saturating_dec();
+									tally.ayes.saturating_reduce(votes);
+								},
+								Some(Nay(votes)) => tally.nays.saturating_reduce(votes),
 								None => pays = Pays::No,
 							}
 							let min_rank = T::MinRankOfClass::convert(class);
@@ -763,63 +749,6 @@ pub mod pallet {
 			T::MemberSwappedHandler::swapped(&who, &new_who, rank);
 
 			Ok(())
-		}
-
-		/// Remove the vote cast on an ongoing poll by an account that is no longer eligible
-		/// to vote on it, reconciling the poll's tally.
-		///
-		/// In-flight referenda should always be tallied against the live electorate: left
-		/// in place, the vote of a removed (or sufficiently demoted) member keeps counting —
-		/// and keeps inflating `support`, whose `MemberCount` denominator shrinks on
-		/// removal — even though the account can no longer change or withdraw it.
-		/// Membership removal deliberately performs no vote reconciliation itself: locating
-		/// the votes would take an unbounded scan of the poll-major [`Voting`] map inside a
-		/// (scheduler-enacted, thus mandatory) dispatch. Instead anyone may remove such
-		/// votes here, one explicitly witnessed poll at a time, fee-free on success. A
-		/// governance proposal removing a member should batch these calls alongside
-		/// `remove_member` so the electorate is reconciled in the same block. Votes on
-		/// completed polls are handled by `cleanup_poll`.
-		///
-		/// - `origin`: Must be `Signed` by any account.
-		/// - `who`: The account whose vote should be removed.
-		/// - `poll_index`: Index of an ongoing poll `who` has voted on but is not eligible to vote
-		///   on.
-		///
-		/// Transaction fees are waived if the vote is successfully removed.
-		///
-		/// Weight: `O(1)`.
-		#[pallet::call_index(7)]
-		#[pallet::weight(
-			// The benchmarked vote figure covers the same work shape (one `Voting` write
-			// plus the tally rewrite and alarm reschedule of `access_poll`); one extra
-			// read for the eligibility check against `Members`.
-			T::WeightInfo::vote().saturating_add(T::DbWeight::get().reads(1))
-		)]
-		pub fn remove_ineligible_vote(
-			origin: OriginFor<T>,
-			who: AccountIdLookupOf<T>,
-			poll_index: PollIndexOf<T, I>,
-		) -> DispatchResultWithPostInfo {
-			ensure_signed(origin)?;
-			let who = T::Lookup::lookup(who)?;
-
-			T::Polls::try_access_poll(poll_index, |status| -> DispatchResult {
-				let PollStatus::Ongoing(tally, class) = status else {
-					return Err(Error::<T, I>::NotPolling.into())
-				};
-				let record =
-					Voting::<T, I>::get(&poll_index, &who).ok_or(Error::<T, I>::NotVoting)?;
-				let min_rank = T::MinRankOfClass::convert(class);
-				let eligible = Members::<T, I>::get(&who)
-					.is_some_and(|MemberRecord { rank, .. }| rank >= min_rank);
-				ensure!(!eligible, Error::<T, I>::StillEligible);
-
-				tally.withdraw(&record);
-				Voting::<T, I>::remove(&poll_index, &who);
-				Ok(())
-			})?;
-			Self::deposit_event(Event::IneligibleVoteRemoved { who, poll: poll_index });
-			Ok(Pays::No.into())
 		}
 	}
 
@@ -926,9 +855,8 @@ pub mod pallet {
 			match maybe_rank {
 				None => {
 					Members::<T, I>::remove(&who);
-					// Any votes the account leaves on ongoing polls can no longer be
-					// counted against the shrunken electorate; they are withdrawn
-					// permissionlessly via `remove_ineligible_vote`.
+					// Votes the account leaves on ongoing polls are deliberately kept
+					// (upstream behavior) — see `do_remove_member_from_rank`.
 					Self::deposit_event(Event::MemberRemoved { who, rank: 0 });
 				},
 				Some(rank) => {
@@ -965,12 +893,15 @@ pub mod pallet {
 
 		/// Removes a member from the rank collective.
 		///
-		/// Deliberately does not touch the member's votes: locating them would take an
-		/// unbounded scan of the poll-major [`Voting`] map, on paths that are enacted by
-		/// the scheduler and benchmarked without any vote records. Stale votes on ongoing
-		/// polls are withdrawn permissionlessly via [`Call::remove_ineligible_vote`]
-		/// (ideally batched with the removal by the enacting proposal), completed-poll
-		/// records via [`Call::cleanup_poll`].
+		/// INTENTIONAL (matches upstream): the member's votes are not touched. Votes they
+		/// already cast keep counting in ongoing polls until each poll ends — including in
+		/// `support`, whose `MemberCount` denominator shrinks on removal (the tally's
+		/// `support` clamps at 100%, so a shrunken electorate cannot overflow the curve).
+		/// Locating the votes eagerly would take an unbounded scan of the poll-major
+		/// [`Voting`] map inside a scheduler-enacted dispatch whose benchmark carries no
+		/// vote records; with a small collective, short polls, and membership changes
+		/// themselves gated by referendum, the distortion window is narrow and accepted.
+		/// Completed-poll records are swept by the permissionless [`Call::cleanup_poll`].
 		pub fn do_remove_member_from_rank(who: &T::AccountId, rank: Rank) -> DispatchResult {
 			for r in 0..=rank {
 				Self::remove_from_rank(&who, r)?;

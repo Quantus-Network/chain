@@ -48,7 +48,6 @@ Referenda's `Tally = pallet_ranked_collective::TallyOf<Runtime>` and
 | `exchange_member` | `NeverEnsureOrigin` → **disabled** | Account swap unreachable |
 | `vote(poll, aye)` | member | Rank-weighted aye/nay; re-votable while Ongoing |
 | `cleanup_poll` | signed | GC vote records after a poll ends |
-| `remove_ineligible_vote` | signed (permissionless) | Withdraw a stale vote once the voter is no longer eligible |
 
 ### `TechReferenda` (referenda `Instance1`)
 | Call | Origin | Notes |
