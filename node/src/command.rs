@@ -322,6 +322,33 @@ impl SubstrateCli for Cli {
 	}
 }
 
+/// Resolve the enforced state pruning mode against an explicit `--state-pruning`
+/// request. Full-sync nodes are fixed to archive-canonical; warp-sync nodes never
+/// download pre-checkpoint state, so they keep a rolling window of at least 256
+/// finalized blocks.
+fn resolve_state_pruning(
+	warp_sync: bool,
+	requested: Option<PruningMode>,
+) -> Result<PruningMode, String> {
+	const WARP_MIN_WINDOW: u32 = 256;
+	match (warp_sync, requested) {
+		(true, None) => Ok(PruningMode::blocks_pruning(WARP_MIN_WINDOW)),
+		(true, Some(PruningMode::Constrained(c)))
+			if c.max_blocks.unwrap_or(0) >= WARP_MIN_WINDOW =>
+			Ok(PruningMode::Constrained(c)),
+		(true, Some(_)) => Err(format!(
+			"--sync warp keeps a rolling state window; pass --state-pruning {WARP_MIN_WINDOW} \
+			 or larger (archive modes cannot warp sync)"
+		)),
+		(false, None) | (false, Some(PruningMode::ArchiveCanonical)) =>
+			Ok(PruningMode::ArchiveCanonical),
+		(false, Some(_)) =>
+			Err("--state-pruning is fixed to archive-canonical on full-sync nodes; drop the flag \
+			 (use --sync warp for a pruned node)"
+				.to_string()),
+	}
+}
+
 /// Parse and run command line arguments
 #[allow(clippy::result_large_err)]
 pub fn run() -> sc_cli::Result<()> {
@@ -573,21 +600,39 @@ pub fn run() -> sc_cli::Result<()> {
 				let warp_sync =
 					matches!(cli.run.network_params.sync, sc_cli::arg_enums::SyncMode::Warp);
 
-				//Obligatory configuration for all node holders
-				config.blocks_pruning = BlocksPruning::KeepFinalized;
-				// Archive state refuses warp sync by design (pre-checkpoint state is
-				// never downloaded), so warp nodes keep a rolling state window instead.
-				config.state_pruning = Some(if warp_sync {
-					PruningMode::blocks_pruning(256)
-				} else {
-					PruningMode::ArchiveCanonical
-				});
+				if !warp_sync && (cli.checkpoint_header.is_some() || !cli.checkpoint_url.is_empty())
+				{
+					return Err(sc_cli::Error::Input(
+						"--checkpoint-header/--checkpoint-url require --sync warp".into(),
+					));
+				}
 
-				// Note: We parse node_key_file here to make a Dilithium keypair.
-				// We then override the net config object parsed by sc_cli so we don't have to
-				// fork sc_cli.
-				let key_path =
-					if let Some(path_str) = &cli.run.network_params.node_key_params.node_key_file {
+				//Obligatory configuration for all node holders. Explicit pruning flags
+				// must match what the node enforces — anything else fails loudly
+				// instead of being silently overridden.
+				if cli.run.import_params.pruning_params.blocks_pruning()? !=
+					BlocksPruning::KeepFinalized
+				{
+					return Err(sc_cli::Error::Input(
+						"--blocks-pruning is fixed to archive-canonical on this node".into(),
+					));
+				}
+				config.blocks_pruning = BlocksPruning::KeepFinalized;
+				config.state_pruning = Some(
+					resolve_state_pruning(
+						warp_sync,
+						cli.run.import_params.pruning_params.state_pruning()?,
+					)
+					.map_err(sc_cli::Error::Input)?,
+				);
+
+				// An explicit --node-key was already parsed into the config by sc_cli
+				// (Dilithium secret input); otherwise the identity comes from a key
+				// file, resolved here to an absolute path.
+				if cli.run.network_params.node_key_params.node_key.is_none() {
+					let key_path = if let Some(path_str) =
+						&cli.run.network_params.node_key_params.node_key_file
+					{
 						let path = std::path::Path::new(path_str);
 						if path.is_absolute() {
 							path.to_path_buf()
@@ -599,9 +644,10 @@ pub fn run() -> sc_cli::Result<()> {
 						config.network.net_config_path.clone().unwrap().join("secret_dilithium")
 					};
 
-				log::debug!(target: "network", "node identity file: {:?}", key_path);
+					log::debug!(target: "network", "node identity file: {:?}", key_path);
 
-				config.network.node_key = NodeKeyConfig::Dilithium(Secret::File(key_path));
+					config.network.node_key = NodeKeyConfig::Dilithium(Secret::File(key_path));
+				}
 
 				// Network backend is set via --network-backend flag (handled by sc_cli)
 				// Both libp2p and litep2p backends use Dilithium for node identity
@@ -987,5 +1033,28 @@ mod tests {
 			TEST_WORMHOLE_ADDRESS
 		);
 		assert_eq!(hex::encode(pair.first_hash()), TEST_WORMHOLE_PREIMAGE);
+	}
+
+	/// Explicit `--state-pruning` values must match the enforced mode (full sync)
+	/// or a warp-compatible window; everything else fails instead of being
+	/// silently overridden.
+	#[test]
+	fn state_pruning_flags_match_enforced_modes_or_fail() {
+		assert_eq!(resolve_state_pruning(false, None).unwrap(), PruningMode::ArchiveCanonical);
+		assert_eq!(
+			resolve_state_pruning(false, Some(PruningMode::ArchiveCanonical)).unwrap(),
+			PruningMode::ArchiveCanonical
+		);
+		assert!(resolve_state_pruning(false, Some(PruningMode::ArchiveAll)).is_err());
+		assert!(resolve_state_pruning(false, Some(PruningMode::blocks_pruning(512))).is_err());
+
+		assert_eq!(resolve_state_pruning(true, None).unwrap(), PruningMode::blocks_pruning(256));
+		assert_eq!(
+			resolve_state_pruning(true, Some(PruningMode::blocks_pruning(512))).unwrap(),
+			PruningMode::blocks_pruning(512)
+		);
+		assert!(resolve_state_pruning(true, Some(PruningMode::blocks_pruning(64))).is_err());
+		assert!(resolve_state_pruning(true, Some(PruningMode::ArchiveAll)).is_err());
+		assert!(resolve_state_pruning(true, Some(PruningMode::ArchiveCanonical)).is_err());
 	}
 }
