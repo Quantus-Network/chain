@@ -52,6 +52,7 @@ rand = { workspace = true, default-features = false, features = [
 rcgen = { workspace = true }
 rpassword = { workspace = true }
 rustls = { workspace = true }
+sha2 = { workspace = true, default-features = false, features = ["std"] }
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
 sc-cli.default-features = true

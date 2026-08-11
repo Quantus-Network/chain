@@ -296,13 +296,14 @@ For high-performance mining, you can offload the mining process to a separate se
     --miner-listen-port 9833 \
     --rewards-inner-hash <YOUR_PREIMAGE>
    ```
-   The node binds a QUIC server on `0.0.0.0:9833` and waits for miners to connect. When `--miner-listen-port` is set, local mining is disabled. On first start it writes a shared auth token to `<base-path>/chains/<chain>/miner-auth-token` (override with `--miner-auth-token-file`) and logs the token — copy it into the miner. ⚠️ Keep this port off the public internet — see [Do NOT expose the miner port to the public internet](#️-do-not-expose-the-miner-port-to-the-public-internet).
+   The node binds a QUIC server on `0.0.0.0:9833` and waits for miners to connect. When `--miner-listen-port` is set, local mining is disabled. On first start it writes a shared auth token (`miner-auth-token`) and a TLS cert fingerprint (`miner-tls-cert-sha256`) under `<base-path>/chains/<chain>/`, and logs both — copy them into the miner. ⚠️ Keep this port off the public internet — see [Do NOT expose the miner port to the public internet](#️-do-not-expose-the-miner-port-to-the-public-internet).
 
 3. **Start External Miner** (in separate terminal, connects to the node):
    ```bash
    RUST_LOG=info ./quantus-miner serve \
      --node-addr 127.0.0.1:9833 \
-     --auth-token <TOKEN_FROM_NODE_LOGS_OR_FILE>
+     --auth-token <TOKEN_FROM_NODE_LOGS_OR_FILE> \
+     --tls-cert-sha256 <FINGERPRINT_FROM_NODE_LOGS_OR_FILE>
    ```
    Useful flags: `--cpu-workers <N>`, `--gpu-devices <N>`, `--metrics-port <PORT>` (default `9900`). If the node is on another host, replace `127.0.0.1` with its IP.
 
@@ -314,12 +315,13 @@ The miner port (`--miner-listen-port`, e.g. `9833/UDP`) is a **private control
 channel between your node and your own miners**. It is **not** a public network
 service and must never be reachable from the open internet.
 
-- **Shared-secret auth only.** Miners must present the node's auth token in the
-  initial `Ready` message. The token lives in
-  `<base-path>/chains/<chain>/miner-auth-token` by default (override with
-  `--miner-auth-token-file`); if missing, the node generates one and logs it.
-  There is still no IP allow-list or client-certificate check — treat the token
-  like a password and do not expose the port publicly.
+- **Shared-secret auth + TLS cert pinning.** Miners must present the node's auth
+  token in the initial `Ready` message, and must pin the node's TLS certificate
+  SHA-256. Defaults under `<base-path>/chains/<chain>/`:
+  `miner-auth-token`, `miner-tls-cert.der` / `miner-tls-key.der`, and
+  `miner-tls-cert-sha256`. Auth token path can be overridden with
+  `--miner-auth-token-file`. There is still no IP allow-list or client
+  certificate check — keep the port private.
 - **It always binds to `0.0.0.0:<port>`.** The node listens on all interfaces;
   there is no flag to bind it to loopback only. Reachability is therefore
   controlled entirely by your firewall / port publishing, not by the node.
@@ -732,35 +734,38 @@ Miner                                        Node
 
 ```bash
 # Listen for external miner connections on port 9833
-# Auth token defaults to <base-path>/chains/<chain>/miner-auth-token
-# (created + logged on first run; override path with --miner-auth-token-file)
+# Auth token + TLS cert/fingerprint default under <base-path>/chains/<chain>/
+# (created + logged on first run; override auth path with --miner-auth-token-file)
 quantus-node --miner-listen-port 9833
 ```
 
 ### Miner
 
 ```bash
-# Connect to node with the token from the node logs / token file
+# Connect with token + TLS cert pin from the node logs / chain config files
 quantus-miner serve \
   --node-addr 127.0.0.1:9833 \
-  --auth-token <TOKEN>
+  --auth-token <TOKEN> \
+  --tls-cert-sha256 <FINGERPRINT>
 ```
 
 ## TLS Configuration
 
-The node generates a self-signed TLS certificate at startup and does **not**
-require client certificates. Application-level auth is the shared token in
-`Ready { token }` (see above). The miner also skips certificate verification by
-default (insecure mode). Transport encryption alone is not enough: keep the
-miner port off the public internet (see
+The node persists a self-signed TLS certificate for the miner QUIC server under
+`<base-path>/chains/<chain>/` (`miner-tls-cert.der`, `miner-tls-key.der`) and
+writes the cert's SHA-256 fingerprint to `miner-tls-cert-sha256`. Miners must
+pin that fingerprint (`--tls-cert-sha256` / `--tls-cert-sha256-file`). The node
+does **not** require client certificates; application-level auth is the shared
+token in `Ready { token }`. Keep the miner port off the public internet (see
 [Do NOT expose the miner port to the public internet](#️-do-not-expose-the-miner-port-to-the-public-internet)).
 For production deployments, consider:
 
 1. **Network isolation (required)**: Run node and miners on a private network /
    VPN, or restrict the miner port with a source-IP firewall allow-list. Do not
    publish it to `0.0.0.0/0`.
-2. **Certificate pinning**: Configure the miner to accept only specific certificate fingerprints
-3. **Proper CA**: Use certificates signed by a trusted CA
+2. **Certificate pinning (required)**: Pass the node's `miner-tls-cert-sha256`
+   value to every miner.
+3. **Proper CA** (optional later): Use certificates signed by a trusted CA
 
 ## Error Handling
 

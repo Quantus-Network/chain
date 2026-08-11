@@ -42,10 +42,16 @@ use std::{
 use jsonrpsee::tokio;
 use quantus_miner_api::{read_message, write_message, MinerMessage, MiningRequest, MiningResult};
 use rand::RngCore;
+use sha2::{Digest, Sha256};
 use tokio::sync::{mpsc, RwLock};
 
 /// Default filename for the miner auth token under the chain config directory.
 pub const DEFAULT_MINER_AUTH_TOKEN_FILENAME: &str = "miner-auth-token";
+
+/// Default TLS material filenames under the chain config directory.
+pub const DEFAULT_MINER_TLS_CERT_FILENAME: &str = "miner-tls-cert.der";
+pub const DEFAULT_MINER_TLS_KEY_FILENAME: &str = "miner-tls-key.der";
+pub const DEFAULT_MINER_TLS_CERT_SHA256_FILENAME: &str = "miner-tls-cert-sha256";
 
 /// A QUIC server that accepts connections from miners.
 pub struct MinerServer {
@@ -72,15 +78,26 @@ struct MinerHandle {
 impl MinerServer {
 	/// Start the QUIC server and listen for miner connections.
 	///
-	/// Loads (or generates) the auth token from `auth_token_path` before binding.
-	/// This spawns a background task that accepts incoming connections.
-	pub async fn start(port: u16, auth_token_path: PathBuf) -> Result<Arc<Self>, String> {
+	/// Loads (or generates) the auth token and TLS certificate material before
+	/// binding. This spawns a background task that accepts incoming connections.
+	pub async fn start(
+		port: u16,
+		auth_token_path: PathBuf,
+		tls_dir: PathBuf,
+	) -> Result<Arc<Self>, String> {
 		let auth_token = load_or_create_miner_auth_token(&auth_token_path)?;
 		log::info!(
 			"⛏️ Miner auth token file: {} (pass this token to your miner)",
 			auth_token_path.display()
 		);
 		log::info!("⛏️ Miner auth token: {}", auth_token);
+
+		let tls = load_or_create_miner_tls(&tls_dir)?;
+		log::info!(
+			"⛏️ Miner TLS cert SHA-256 file: {} (pin this on your miner)",
+			tls.fingerprint_path.display()
+		);
+		log::info!("⛏️ Miner TLS cert SHA-256: {}", tls.fingerprint_hex);
 
 		let (result_tx, result_rx) = mpsc::channel::<MiningResult>(64);
 
@@ -95,7 +112,7 @@ impl MinerServer {
 
 		// Start the acceptor task
 		let server_clone = server.clone();
-		let endpoint = create_server_endpoint(port).await?;
+		let endpoint = create_server_endpoint(port, &tls).await?;
 
 		tokio::spawn(async move {
 			acceptor_task(endpoint, server_clone).await;
@@ -203,42 +220,150 @@ pub fn load_or_create_miner_auth_token(path: &Path) -> Result<String, String> {
 }
 
 fn write_miner_auth_token_file(path: &Path, token: &str) -> Result<(), String> {
-	let mut file = {
-		#[cfg(unix)]
-		{
-			use std::os::unix::fs::OpenOptionsExt;
-			fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)
+	write_secret_text_file(path, token)
+}
+
+/// Persisted miner TLS certificate material.
+struct MinerTlsMaterial {
+	cert_der: Vec<u8>,
+	key_der: Vec<u8>,
+	fingerprint_hex: String,
+	fingerprint_path: PathBuf,
+}
+
+/// Load miner TLS cert/key from `tls_dir`, or generate and persist them if missing.
+///
+/// Also writes `miner-tls-cert-sha256` (SHA-256 of the cert DER as lowercase hex)
+/// for miners to pin.
+pub fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, String> {
+	fs::create_dir_all(tls_dir).map_err(|e| {
+		format!("Failed to create miner TLS directory {}: {}", tls_dir.display(), e)
+	})?;
+
+	let cert_path = tls_dir.join(DEFAULT_MINER_TLS_CERT_FILENAME);
+	let key_path = tls_dir.join(DEFAULT_MINER_TLS_KEY_FILENAME);
+	let fingerprint_path = tls_dir.join(DEFAULT_MINER_TLS_CERT_SHA256_FILENAME);
+
+	let cert_exists = cert_path.exists();
+	let key_exists = key_path.exists();
+	if cert_exists != key_exists {
+		return Err(format!(
+			"Incomplete miner TLS material in {}: found cert={}, key={}. \
+			 Delete both `{}` and `{}` to regenerate.",
+			tls_dir.display(),
+			cert_exists,
+			key_exists,
+			DEFAULT_MINER_TLS_CERT_FILENAME,
+			DEFAULT_MINER_TLS_KEY_FILENAME
+		));
+	}
+
+	let (cert_der, key_der, generated) = if cert_exists {
+		let cert_der = fs::read(&cert_path).map_err(|e| {
+			format!("Failed to read miner TLS cert {}: {}", cert_path.display(), e)
+		})?;
+		let key_der = fs::read(&key_path)
+			.map_err(|e| format!("Failed to read miner TLS key {}: {}", key_path.display(), e))?;
+		if cert_der.is_empty() || key_der.is_empty() {
+			return Err(format!(
+				"Miner TLS cert/key in {} is empty; delete them to regenerate",
+				tls_dir.display()
+			));
 		}
-		#[cfg(not(unix))]
-		{
-			fs::OpenOptions::new().write(true).create_new(true).open(path)
+		(cert_der, key_der, false)
+	} else {
+		let certified = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
+			.map_err(|e| format!("Failed to generate miner TLS certificate: {}", e))?;
+		let cert_der = certified.cert.der().as_ref().to_vec();
+		let key_der = certified.key_pair.serialize_der();
+		write_secret_bytes_file(&cert_path, &cert_der)?;
+		write_secret_bytes_file(&key_path, &key_der)?;
+		log::info!(
+			"⛏️ Generated new miner TLS certificate at {} / {}",
+			cert_path.display(),
+			key_path.display()
+		);
+		(cert_der, key_der, true)
+	};
+
+	let fingerprint_hex = hex::encode(Sha256::digest(&cert_der));
+	if let Ok(existing) = fs::read_to_string(&fingerprint_path) {
+		if existing.trim().to_ascii_lowercase() != fingerprint_hex {
+			log::warn!(
+				"⛏️ Miner TLS fingerprint file {} did not match cert; rewriting",
+				fingerprint_path.display()
+			);
 		}
 	}
-	.map_err(|e| format!("Failed to create miner auth token file {}: {}", path.display(), e))?;
+	write_secret_text_file_overwrite(&fingerprint_path, &fingerprint_hex)?;
+	if generated {
+		log::info!("⛏️ Wrote miner TLS cert SHA-256 to {}", fingerprint_path.display());
+	}
 
-	file.write_all(token.as_bytes())
+	Ok(MinerTlsMaterial { cert_der, key_der, fingerprint_hex, fingerprint_path })
+}
+
+fn write_secret_text_file(path: &Path, contents: &str) -> Result<(), String> {
+	let mut file = open_secret_file(path, true)?;
+	file.write_all(contents.as_bytes())
 		.and_then(|_| file.write_all(b"\n"))
 		.and_then(|_| file.sync_all())
-		.map_err(|e| format!("Failed to write miner auth token file {}: {}", path.display(), e))?;
+		.map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
 	Ok(())
 }
 
-/// Create a QUIC server endpoint with self-signed certificate.
-async fn create_server_endpoint(port: u16) -> Result<quinn::Endpoint, String> {
-	// Generate self-signed certificate
-	let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
-		.map_err(|e| format!("Failed to generate certificate: {}", e))?;
+fn write_secret_text_file_overwrite(path: &Path, contents: &str) -> Result<(), String> {
+	let mut file = open_secret_file(path, false)?;
+	file.write_all(contents.as_bytes())
+		.and_then(|_| file.write_all(b"\n"))
+		.and_then(|_| file.sync_all())
+		.map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+	Ok(())
+}
 
-	let cert_der = rustls::pki_types::CertificateDer::from(cert.cert);
-	let key_der = rustls::pki_types::PrivateKeyDer::try_from(cert.key_pair.serialize_der())
-		.map_err(|e| format!("Failed to serialize private key: {}", e))?;
+fn write_secret_bytes_file(path: &Path, contents: &[u8]) -> Result<(), String> {
+	let mut file = open_secret_file(path, true)?;
+	file.write_all(contents)
+		.and_then(|_| file.sync_all())
+		.map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+	Ok(())
+}
 
-	let cert_chain = vec![cert_der];
+fn open_secret_file(path: &Path, create_new: bool) -> Result<fs::File, String> {
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::OpenOptionsExt;
+		let mut opts = fs::OpenOptions::new();
+		opts.write(true).mode(0o600);
+		if create_new {
+			opts.create_new(true);
+		} else {
+			opts.create(true).truncate(true);
+		}
+		opts.open(path).map_err(|e| format!("Failed to create {}: {}", path.display(), e))
+	}
+	#[cfg(not(unix))]
+	{
+		let mut opts = fs::OpenOptions::new();
+		opts.write(true);
+		if create_new {
+			opts.create_new(true);
+		} else {
+			opts.create(true).truncate(true);
+		}
+		opts.open(path).map_err(|e| format!("Failed to create {}: {}", path.display(), e))
+	}
+}
 
-	// Create server config
+/// Create a QUIC server endpoint with the persisted (or newly generated) certificate.
+async fn create_server_endpoint(port: u16, tls: &MinerTlsMaterial) -> Result<quinn::Endpoint, String> {
+	let cert_der = rustls::pki_types::CertificateDer::from(tls.cert_der.clone());
+	let key_der = rustls::pki_types::PrivateKeyDer::try_from(tls.key_der.clone())
+		.map_err(|e| format!("Failed to parse miner TLS private key: {}", e))?;
+
 	let mut server_config = rustls::ServerConfig::builder()
 		.with_no_client_auth()
-		.with_single_cert(cert_chain, key_der)
+		.with_single_cert(vec![cert_der], key_der)
 		.map_err(|e| format!("Failed to create server config: {}", e))?;
 
 	// Set ALPN protocol
@@ -596,5 +721,29 @@ mod tests {
 		assert!(err.contains("empty"));
 
 		let _ = fs::remove_file(&path);
+	}
+
+	fn temp_tls_dir(name: &str) -> PathBuf {
+		static COUNTER: AtomicU64 = AtomicU64::new(0);
+		let n = COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+		let dir = std::env::temp_dir().join(format!("quantus-miner-tls-test-{name}-{n}"));
+		let _ = fs::remove_dir_all(&dir);
+		fs::create_dir_all(&dir).unwrap();
+		dir
+	}
+
+	#[test]
+	fn generates_and_reuses_miner_tls_material() {
+		let dir = temp_tls_dir("roundtrip");
+		let first = load_or_create_miner_tls(&dir).unwrap();
+		assert_eq!(first.fingerprint_hex.len(), 64);
+		assert!(first.fingerprint_path.exists());
+
+		let second = load_or_create_miner_tls(&dir).unwrap();
+		assert_eq!(first.cert_der, second.cert_der);
+		assert_eq!(first.key_der, second.key_der);
+		assert_eq!(first.fingerprint_hex, second.fingerprint_hex);
+
+		let _ = fs::remove_dir_all(&dir);
 	}
 }

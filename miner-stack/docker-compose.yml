@@ -50,6 +50,7 @@ services:
       serve
       --node-addr ${MINER_NODE_ADDR:-${QUANTUS_NODE_IPV4:-172.28.0.10}:9833}
       --auth-token-file /node-data/chains/${CHAIN:-planck}/miner-auth-token
+      --tls-cert-sha256-file /node-data/chains/${CHAIN:-planck}/miner-tls-cert-sha256
       --metrics-port 9900
     environment:
       - MINER_CPU_WORKERS=${CPU_WORKERS:-4}
