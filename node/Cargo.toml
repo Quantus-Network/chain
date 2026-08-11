@@ -50,6 +50,7 @@ rand = { workspace = true, default-features = false, features = [
 	"getrandom",
 ] }
 rcgen = { workspace = true }
+reqwest = { workspace = true, features = ["rustls-tls"] }
 rpassword = { workspace = true }
 rustls = { workspace = true }
 sc-basic-authorship.default-features = true

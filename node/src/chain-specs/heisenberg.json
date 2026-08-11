@@ -16,7 +16,11 @@
   "properties": {
     "ss58Format": 189,
     "tokenDecimals": 12,
-    "tokenSymbol": "HEI"
+    "tokenSymbol": "HEI",
+    "checkpointUrls": [
+      "https://a1-heisenberg.quantus.cat",
+      "https://a2-heisenberg.quantus.cat"
+    ]
   },
   "codeSubstitutes": {},
   "genesis": {

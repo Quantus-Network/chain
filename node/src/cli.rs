@@ -36,6 +36,17 @@ pub struct Cli {
 	/// Sync: block request timeout in seconds (default: 30).
 	#[arg(long, default_value_t = 30)]
 	pub sync_block_request_timeout: u64,
+
+	/// Warp sync: pin the checkpoint (warp target) to this SCALE-encoded header
+	/// (0x-prefixed hex). Overrides checkpoint fetching and the chain spec anchor.
+	#[arg(long, value_name = "HEX_HEADER")]
+	pub checkpoint_header: Option<String>,
+
+	/// Warp sync: RPC endpoint to fetch the checkpoint (network finalized head)
+	/// from. Repeatable; all reachable endpoints must agree. Overrides the chain
+	/// spec's checkpointUrls.
+	#[arg(long, value_name = "URL")]
+	pub checkpoint_url: Vec<String>,
 }
 
 #[derive(Debug, clap::Subcommand)]

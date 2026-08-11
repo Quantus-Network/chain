@@ -28,6 +28,9 @@ sp-inherents = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+sp-state-machine = { workspace = true, default-features = true }
+
 [features]
 default = ["std"]
 std = [

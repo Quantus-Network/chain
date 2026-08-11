@@ -222,6 +222,14 @@ where
 	let finalize_number = best_number - finalize_depth.into();
 	log::debug!("Target block number to finalize: {:?}", finalize_number);
 
+	// Already finalized at or beyond the target — e.g. while the chain grows back
+	// past the reorg window after warp sync finalized the state target. Must
+	// return before the hash lookup: heights inside a not-yet-backfilled history
+	// gap have no number→hash mapping and would produce spurious errors.
+	if finalize_number <= client.info().finalized_number {
+		return Ok(());
+	}
+
 	// Get the hash for that block number in the current canonical chain
 	let finalize_hash = client
 		.hash(finalize_number)

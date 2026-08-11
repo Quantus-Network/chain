@@ -4,6 +4,7 @@
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 mod chain_spec;
+mod checkpoint;
 mod cli;
 mod command;
 mod miner_server;

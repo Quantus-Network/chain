@@ -24,7 +24,8 @@ use prometheus_endpoint::Registry;
 use sc_client_api::{self, backend::AuxStore, BlockOf, BlockchainEvents};
 use sc_consensus::{
 	BasicQueue, BlockCheckParams, BlockImport, BlockImportParams, BoxBlockImport,
-	BoxJustificationImport, ForkChoiceStrategy, ImportResult, JustificationSyncLink, Verifier,
+	BoxJustificationImport, ForkChoiceStrategy, ImportResult, JustificationSyncLink, StateAction,
+	StorageChanges, Verifier,
 };
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
@@ -34,7 +35,7 @@ use sp_consensus_qpow::POW_ENGINE_ID;
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
 use sp_runtime::{
 	generic::{Digest, DigestItem},
-	traits::Header as HeaderT,
+	traits::{Header as HeaderT, NumberFor},
 };
 
 const LOG_TARGET: &str = "pow";
@@ -96,12 +97,53 @@ impl<B: BlockT> From<Error<B>> for ConsensusError {
 	}
 }
 
+/// How a block must be verified at import time, decided by where its state can
+/// come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImportPolicy {
+	/// Parent state exists (or must exist): verify the seal via the runtime at
+	/// the parent block and account cumulative work. The only policy that can
+	/// make a block the new best.
+	FullVerify,
+	/// The state-sync target of warp sync: arrives with a complete state that
+	/// was proof-verified against the header's `state_root` by the state sync
+	/// protocol. No parent state exists by construction, so the seal cannot be
+	/// runtime-verified; the header itself is trusted by whoever resolved the
+	/// warp target (release anchor or checkpoint fetch).
+	StateImport,
+	/// A skip-execution import at or below the finalized head. History
+	/// backfill is disabled (see `create_gap` in the state import path), so
+	/// this is defense-in-depth: imported without execution, seals cannot be
+	/// runtime-verified without parent state, and never considered for best.
+	HistoricalSkip,
+}
+
+/// Classify an import. `StateAction::Skip` above the finalized head does NOT
+/// grant a verification skip: unsolicited near-tip blocks can arrive with
+/// `Skip` set by the sync layer, and they must still pass full verification
+/// (which fails closed when parent state is genuinely missing).
+fn import_policy<B: BlockT>(
+	state_action: &StateAction<B>,
+	number: NumberFor<B>,
+	finalized_number: NumberFor<B>,
+) -> ImportPolicy {
+	match state_action {
+		StateAction::ApplyChanges(StorageChanges::Import(_)) => ImportPolicy::StateImport,
+		StateAction::Skip if number <= finalized_number => ImportPolicy::HistoricalSkip,
+		_ => ImportPolicy::FullVerify,
+	}
+}
+
 /// A block importer for PoW.
 pub struct PowBlockImport<B: BlockT<Hash = H256>, I, C, CIDP, BE, const LOGGING_FREQUENCY: u64> {
 	inner: I,
 	client: Arc<C>,
 	create_inherent_data_providers: Arc<CIDP>,
 	check_inherents_after: <<B as BlockT>::Header as HeaderT>::Number,
+	// Release-pinned checkpoint (number, post-seal hash). Any import at this
+	// height whose hash differs is rejected: the network's depth finalization
+	// makes the anchor irreversible, so a mismatch means a fabricated chain.
+	anchor: Option<(NumberFor<B>, B::Hash)>,
 	// Serializes the best-work read, fork-choice decision and inner import so
 	// concurrent imports cannot race on a stale best. Shared across clones.
 	import_lock: Arc<futures::lock::Mutex<()>>,
@@ -123,6 +165,7 @@ impl<
 			client: self.client.clone(),
 			create_inherent_data_providers: self.create_inherent_data_providers.clone(),
 			check_inherents_after: self.check_inherents_after,
+			anchor: self.anchor,
 			import_lock: self.import_lock.clone(),
 			_backend: PhantomData,
 		}
@@ -154,12 +197,14 @@ where
 		client: Arc<C>,
 		check_inherents_after: <<B as BlockT>::Header as HeaderT>::Number,
 		create_inherent_data_providers: CIDP,
+		anchor: Option<(NumberFor<B>, B::Hash)>,
 	) -> Self {
 		Self {
 			inner,
 			client,
 			check_inherents_after,
 			create_inherent_data_providers: Arc::new(create_inherent_data_providers),
+			anchor,
 			import_lock: Arc::new(futures::lock::Mutex::new(())),
 			_backend: PhantomData,
 		}
@@ -245,6 +290,148 @@ where
 		}
 
 		let parent_hash = *block_import_params.header.parent_hash();
+		let block_number = *block_import_params.header.number();
+		let block_number_u64: u64 = block_number.try_into().unwrap_or(0);
+
+		// Get block hash (with seal). Must use the post-seal hash because that's how
+		// blocks are referenced:
+		// - parent_hash in child blocks references the post-seal hash
+		// - client.info().best_hash is the post-seal hash
+		let block_hash = block_import_params.post_header().hash();
+
+		let policy = import_policy::<B>(
+			&block_import_params.state_action,
+			block_number,
+			self.client.info().finalized_number,
+		);
+
+		// Anchor tripwire: the release-pinned checkpoint is network-final (depth
+		// finalization forbids reorgs across it), so any block at its height with a
+		// different hash — full sync fork, backfilled history, or a fabricated warp
+		// target's ancestry — is off the canonical chain and must be rejected.
+		if let Some((anchor_number, anchor_hash)) = self.anchor {
+			if block_number == anchor_number && block_hash != anchor_hash {
+				log::error!(
+					target: LOG_TARGET,
+					"Block #{} ({:?}) contradicts the pinned checkpoint {:?} at the same height; \
+					 rejecting import (chain does not contain the release checkpoint)",
+					block_number_u64,
+					block_hash,
+					anchor_hash
+				);
+				return Err(ConsensusError::ClientImport(format!(
+					"block {:?} contradicts pinned checkpoint {:?} at height {}",
+					block_hash, anchor_hash, block_number_u64
+				)));
+			}
+		}
+
+		// Every path requires a structurally sealed header (the verifier moved the
+		// seal into post_digests).
+		let inner_seal = fetch_seal::<B>(
+			block_import_params.post_digests.last(),
+			block_import_params.header.hash(),
+		)?;
+
+		// Log block import progress every LOGGING_FREQUENCY blocks
+		if block_number_u64.is_multiple_of(LOGGING_FREQUENCY) {
+			log::info!(
+				"⛏️ Imported blocks #{}-{}: {:?} - extrinsics_root={:?}, state_root={:?}",
+				block_number_u64.saturating_sub(LOGGING_FREQUENCY),
+				block_number,
+				block_import_params.header.hash(),
+				block_import_params.header.extrinsics_root(),
+				block_import_params.header.state_root()
+			);
+		} else {
+			log::debug!(
+				target: "qpow",
+				"⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
+				block_number,
+				block_import_params.header.hash(),
+				block_import_params.header.extrinsics_root(),
+				block_import_params.header.state_root()
+			);
+		}
+
+		match policy {
+			ImportPolicy::HistoricalSkip => {
+				// History at or below the finalized head, imported without
+				// execution. Gap backfill is disabled at the source (see
+				// `create_gap` below), so this path is defense-in-depth for stray
+				// skip-execution imports of already-finalized heights: no seal
+				// re-verification is possible without parent state, no work is
+				// accounted, and these blocks can never become best.
+				block_import_params.fork_choice = Some(ForkChoiceStrategy::Custom(false));
+				let _import_guard = self.import_lock.lock().await;
+				return self.inner.import_block(block_import_params).await.map_err(Into::into);
+			},
+			ImportPolicy::StateImport => {
+				// The warp/state-sync target: its state was proof-verified against
+				// the header's state_root by the state sync protocol, and the header
+				// itself is the resolved warp target. There is no parent state, so
+				// neither inherents nor the seal can be runtime-verified here.
+				block_import_params.fork_choice = Some(ForkChoiceStrategy::Custom(true));
+
+				// Do NOT record a block gap: gap backfill imports history ascending
+				// from genesis, where each header's linkage to the *canonical* chain
+				// cannot be verified until the fill meets this block — QPoW seals
+				// need parent state to verify, so a malicious peer could poison the
+				// canonical number→hash index with fabricated unverified history.
+				// Until backfill verifies linkage (descending fill or a pre-verified
+				// header chain), a warp-synced node serves history from this block
+				// forward only.
+				block_import_params.create_gap = false;
+
+				// Finalize atomically within the import operation: the network's
+				// depth rule already made the target irreversible, and a post-import
+				// `finalize_block()` call would fail — it walks the route from the
+				// last finalized block, and the target's ancestry headers do not
+				// exist. Import-time finalization marks the block Final directly
+				// and arms the depth-finalize guard for everything that follows.
+				block_import_params.finalized = true;
+
+				let _import_guard = self.import_lock.lock().await;
+
+				// Seed cumulative work at the pivot (mirrors genesis initialization):
+				// all post-pivot fork choice compares descendants of this block, so
+				// only relative work matters.
+				store_cumulative_achieved_work::<B, C>(&*self.client, block_hash, U512::one())
+					.map_err(|e| {
+						ConsensusError::ClientImport(format!(
+							"Failed to seed achieved work at state sync target {:?}: {:?}",
+							block_hash, e
+						))
+					})?;
+
+				let result = match self.inner.import_block(block_import_params).await {
+					Ok(result) => result,
+					Err(e) => {
+						if let Err(cleanup_err) =
+							delete_cumulative_achieved_work::<B, C>(&*self.client, block_hash)
+						{
+							log::warn!(
+								target: LOG_TARGET,
+								"Failed to clean up achieved work after failed state import for {:?}: {:?}",
+								block_hash,
+								cleanup_err
+							);
+						}
+						return Err(e.into());
+					},
+				};
+
+				log::info!(
+					"🎯 State sync target #{} ({:?}) imported and finalized; \
+					 serving chain from this block forward",
+					block_number_u64,
+					block_hash
+				);
+
+				return Ok(result);
+			},
+			ImportPolicy::FullVerify => {},
+		}
 
 		if let Some(inner_body) = block_import_params.body.take() {
 			let check_block = B::new(block_import_params.header.clone(), inner_body);
@@ -262,11 +449,6 @@ where
 
 			block_import_params.body = Some(check_block.deconstruct().1);
 		}
-
-		let inner_seal = fetch_seal::<B>(
-			block_import_params.post_digests.last(),
-			block_import_params.header.hash(),
-		)?;
 
 		let pre_hash = block_import_params.header.hash();
 
@@ -317,35 +499,6 @@ where
 			info.best_number,
 		);
 		block_import_params.fork_choice = Some(ForkChoiceStrategy::Custom(is_best));
-
-		// Get block hash (with seal) for achieved work storage.
-		// Must use the post-seal hash because that's how blocks are referenced:
-		// - parent_hash in child blocks references the post-seal hash
-		// - client.info().best_hash is the post-seal hash
-		let block_hash = block_import_params.post_header().hash();
-
-		// Log block import progress every LOGGING_FREQUENCY blocks
-		let block_number = block_import_params.header.number();
-		let block_number_u64: u64 = (*block_number).try_into().unwrap_or(0);
-		if block_number_u64.is_multiple_of(LOGGING_FREQUENCY) {
-			log::info!(
-				"⛏️ Imported blocks #{}-{}: {:?} - extrinsics_root={:?}, state_root={:?}",
-				block_number_u64.saturating_sub(LOGGING_FREQUENCY),
-				block_number,
-				block_import_params.header.hash(),
-				block_import_params.header.extrinsics_root(),
-				block_import_params.header.state_root()
-			);
-		} else {
-			log::debug!(
-				target: "qpow",
-				"⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
-				block_number,
-				block_import_params.header.hash(),
-				block_import_params.header.extrinsics_root(),
-				block_import_params.header.state_root()
-			);
-		}
 
 		// Store cumulative achieved work BEFORE inner import, because inner import
 		// triggers notifications that call best_chain which needs this data.
@@ -767,6 +920,59 @@ mod tests {
 
 		let err = result.err().expect("oversized digest must be rejected");
 		assert!(err.contains("exceeding the"), "expected the digest-length rejection, got: {err}");
+	}
+
+	fn state_import_action() -> StateAction<TestBlock> {
+		StateAction::ApplyChanges(StorageChanges::Import(sc_consensus::ImportedState {
+			block: Default::default(),
+			state: sp_state_machine::KeyValueStates(Vec::new()),
+		}))
+	}
+
+	/// A proof-verified state-sync target is always classified `StateImport`,
+	/// regardless of its height relative to the finalized head.
+	#[test]
+	fn policy_state_import_wins_over_height() {
+		assert_eq!(
+			import_policy::<TestBlock>(&state_import_action(), 50, 100),
+			ImportPolicy::StateImport
+		);
+		assert_eq!(
+			import_policy::<TestBlock>(&state_import_action(), 500, 100),
+			ImportPolicy::StateImport
+		);
+	}
+
+	/// `Skip` grants a verification skip only at or below the finalized head
+	/// (history backfill); above it, full verification stays mandatory so
+	/// unsolicited near-tip blocks cannot dodge the seal check.
+	#[test]
+	fn policy_skip_only_below_finalized() {
+		assert_eq!(
+			import_policy::<TestBlock>(&StateAction::Skip, 99, 100),
+			ImportPolicy::HistoricalSkip
+		);
+		assert_eq!(
+			import_policy::<TestBlock>(&StateAction::Skip, 100, 100),
+			ImportPolicy::HistoricalSkip
+		);
+		assert_eq!(
+			import_policy::<TestBlock>(&StateAction::Skip, 101, 100),
+			ImportPolicy::FullVerify
+		);
+	}
+
+	/// Execution paths (mined blocks, normal sync) always fully verify.
+	#[test]
+	fn policy_execution_paths_fully_verify() {
+		assert_eq!(
+			import_policy::<TestBlock>(&StateAction::Execute, 5, 100),
+			ImportPolicy::FullVerify
+		);
+		assert_eq!(
+			import_policy::<TestBlock>(&StateAction::ExecuteIfPossible, 5, 100),
+			ImportPolicy::FullVerify
+		);
 	}
 
 	/// The canonical digest fits the window exactly and must pass the length

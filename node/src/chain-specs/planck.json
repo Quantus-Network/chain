@@ -17,7 +17,11 @@
   "properties": {
     "ss58Format": 189,
     "tokenDecimals": 12,
-    "tokenSymbol": "PLK"
+    "tokenSymbol": "PLK",
+    "checkpointUrls": [
+      "https://a1-planck.quantus.cat",
+      "https://a2-planck.quantus.cat"
+    ]
   },
   "codeSubstitutes": {},
   "genesis": {

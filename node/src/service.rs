@@ -18,6 +18,7 @@ use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::InPoolTransaction;
 use sc_transaction_pool_api::{OffchainTransactionPoolFactory, TransactionPool};
 use sp_inherents::CreateInherentDataProviders;
+use sp_runtime::traits::Header as HeaderT;
 use tokio_util::sync::CancellationToken;
 
 use crate::{miner_server::MinerServer, prometheus::BusinessMetrics};
@@ -641,11 +642,19 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 			>,
 		>;
 
+	// The release anchor doubles as an import-time tripwire: any block at its
+	// height that isn't the anchor is rejected, so a fabricated warp target's
+	// ancestry is caught as soon as backfill reaches the anchor height.
+	let anchor = crate::checkpoint::anchor_from_spec(&*config.chain_spec)
+		.map_err(|e| ServiceError::Other(format!("Invalid checkpointHeader in chain spec: {e}")))?
+		.map(|header| (*header.number(), header.hash()));
+
 	let pow_block_import = sc_consensus_qpow::PowBlockImport::new(
 		Arc::clone(&client),
 		Arc::clone(&client),
 		0, // check inherents starting at block 0
 		inherent_data_providers,
+		anchor,
 	);
 
 	let import_queue = sc_consensus_qpow::import_queue::<Block, FullClient>(
@@ -680,6 +689,7 @@ pub fn new_full<
 	sync_disable_major_sync_gating: bool,
 	sync_block_request_timeout: u64,
 	allow_mining_without_peers: bool,
+	warp_target: Option<crate::checkpoint::Header>,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -707,6 +717,15 @@ pub fn new_full<
 	>::new(&config.network, config.prometheus_registry().cloned());
 	let metrics = N::register_notification_metrics(config.prometheus_registry());
 
+	let warp_sync_config = match (config.network.sync_mode.is_warp(), warp_target) {
+		(true, Some(header)) => Some(sc_service::WarpSyncConfig::WithTarget(header)),
+		(true, None) =>
+			return Err(ServiceError::Other(
+				"warp sync requires a resolved checkpoint target".into(),
+			)),
+		(false, _) => None,
+	};
+
 	let (network, system_rpc_tx, tx_handler_controller, sync_service) =
 		sc_service::build_network(sc_service::BuildNetworkParams {
 			config: &config,
@@ -716,7 +735,7 @@ pub fn new_full<
 			spawn_handle: task_manager.spawn_handle(),
 			import_queue,
 			block_announce_validator_builder: None,
-			warp_sync_config: None,
+			warp_sync_config,
 			block_relay: None,
 			metrics,
 		})?;

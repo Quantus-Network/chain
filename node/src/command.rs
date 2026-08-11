@@ -559,9 +559,29 @@ pub fn run() -> sc_cli::Result<()> {
 			log::info!("Run until exit ....");
 			let runner = cli.create_runner(&cli.run)?;
 			runner.run_node_until_exit(|mut config| async move {
+				// Fast sync cannot verify QPoW seals for the history it skips
+				// executing; warp sync is the supported fast path.
+				if matches!(
+					cli.run.network_params.sync,
+					sc_cli::arg_enums::SyncMode::Fast | sc_cli::arg_enums::SyncMode::FastUnsafe
+				) {
+					return Err(sc_cli::Error::Input(
+						"--sync fast/fast-unsafe is not supported on this chain; use --sync warp"
+							.into(),
+					));
+				}
+				let warp_sync =
+					matches!(cli.run.network_params.sync, sc_cli::arg_enums::SyncMode::Warp);
+
 				//Obligatory configuration for all node holders
 				config.blocks_pruning = BlocksPruning::KeepFinalized;
-				config.state_pruning = Some(PruningMode::ArchiveCanonical);
+				// Archive state refuses warp sync by design (pre-checkpoint state is
+				// never downloaded), so warp nodes keep a rolling state window instead.
+				config.state_pruning = Some(if warp_sync {
+					PruningMode::blocks_pruning(256)
+				} else {
+					PruningMode::ArchiveCanonical
+				});
 
 				// Note: We parse node_key_file here to make a Dilithium keypair.
 				// We then override the net config object parsed by sc_cli so we don't have to
@@ -669,6 +689,20 @@ pub fn run() -> sc_cli::Result<()> {
 				// Allow mining without peers if --dev or --force-authoring is set
 				let allow_mining_without_peers = config.force_authoring;
 
+				let warp_target = if warp_sync {
+					Some(
+						crate::checkpoint::resolve_warp_target(
+							cli.checkpoint_header.as_deref(),
+							&cli.checkpoint_url,
+							&*config.chain_spec,
+						)
+						.await
+						.map_err(sc_cli::Error::Input)?,
+					)
+				} else {
+					None
+				};
+
 				log::info!("Using litep2p network backend (with Dilithium)");
 				service::new_full::<sc_network::litep2p::Litep2pNetworkBackend>(
 					config,
@@ -679,6 +713,7 @@ pub fn run() -> sc_cli::Result<()> {
 					cli.sync_disable_major_sync_gating,
 					cli.sync_block_request_timeout,
 					allow_mining_without_peers,
+					warp_target,
 				)
 				.map_err(sc_cli::Error::Service)
 			})

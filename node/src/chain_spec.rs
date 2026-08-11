@@ -42,6 +42,10 @@ pub fn heisenberg_chain_spec() -> Result<ChainSpec, String> {
 	properties.insert("tokenDecimals".into(), json!(12));
 	properties.insert("tokenSymbol".into(), json!("HEI"));
 	properties.insert("ss58Format".into(), json!(189));
+	properties.insert(
+		"checkpointUrls".into(),
+		json!(["https://a1-heisenberg.quantus.cat", "https://a2-heisenberg.quantus.cat"]),
+	);
 
 	let telemetry_endpoints = TelemetryEndpoints::new(vec![(
 		"/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(),
@@ -79,6 +83,10 @@ pub fn planck_chain_spec() -> Result<ChainSpec, String> {
 	properties.insert("tokenDecimals".into(), json!(12));
 	properties.insert("tokenSymbol".into(), json!("PLK"));
 	properties.insert("ss58Format".into(), json!(189));
+	properties.insert(
+		"checkpointUrls".into(),
+		json!(["https://a1-planck.quantus.cat", "https://a2-planck.quantus.cat"]),
+	);
 
 	let telemetry_endpoints = TelemetryEndpoints::new(vec![(
 		"/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(),
