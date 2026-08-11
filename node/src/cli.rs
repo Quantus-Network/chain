@@ -18,6 +18,15 @@ pub struct Cli {
 	#[arg(long, value_name = "PORT")]
 	pub miner_listen_port: Option<u16>,
 
+	/// Path to the miner auth token file.
+	///
+	/// Used only with `--miner-listen-port`. Defaults to
+	/// `<base-path>/chains/<chain>/miner-auth-token`. If the file does not exist,
+	/// the node generates a random token, writes it there, and logs it so you can
+	/// copy it into the miner.
+	#[arg(long, value_name = "PATH")]
+	pub miner_auth_token_file: Option<std::path::PathBuf>,
+
 	/// Enable peer sharing via RPC endpoint (`peer_getNetworkInfo`).
 	///
 	/// The endpoint is an unsafe RPC: it is served only to local connections, or to

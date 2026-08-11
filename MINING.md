@@ -296,11 +296,13 @@ For high-performance mining, you can offload the mining process to a separate se
     --miner-listen-port 9833 \
     --rewards-inner-hash <YOUR_PREIMAGE>
    ```
-   The node binds a QUIC server on `0.0.0.0:9833` and waits for miners to connect. When `--miner-listen-port` is set, local mining is disabled. ⚠️ This port has no authentication and must not be reachable from the public internet — see [Do NOT expose the miner port to the public internet](#️-do-not-expose-the-miner-port-to-the-public-internet).
+   The node binds a QUIC server on `0.0.0.0:9833` and waits for miners to connect. When `--miner-listen-port` is set, local mining is disabled. On first start it writes a shared auth token to `<base-path>/chains/<chain>/miner-auth-token` (override with `--miner-auth-token-file`) and logs the token — copy it into the miner. ⚠️ Keep this port off the public internet — see [Do NOT expose the miner port to the public internet](#️-do-not-expose-the-miner-port-to-the-public-internet).
 
 3. **Start External Miner** (in separate terminal, connects to the node):
    ```bash
-   RUST_LOG=info ./quantus-miner serve --node-addr 127.0.0.1:9833
+   RUST_LOG=info ./quantus-miner serve \
+     --node-addr 127.0.0.1:9833 \
+     --auth-token <TOKEN_FROM_NODE_LOGS_OR_FILE>
    ```
    Useful flags: `--cpu-workers <N>`, `--gpu-devices <N>`, `--metrics-port <PORT>` (default `9900`). If the node is on another host, replace `127.0.0.1` with its IP.
 
@@ -312,16 +314,21 @@ The miner port (`--miner-listen-port`, e.g. `9833/UDP`) is a **private control
 channel between your node and your own miners**. It is **not** a public network
 service and must never be reachable from the open internet.
 
-- **No authentication.** The node's QUIC miner server accepts *any* client that
-  can reach the port — there is no password, allow-list, or client-certificate
-  check. Anyone who can connect is treated as one of your miners.
+- **Shared-secret auth only.** Miners must present the node's auth token in the
+  initial `Ready` message. The token lives in
+  `<base-path>/chains/<chain>/miner-auth-token` by default (override with
+  `--miner-auth-token-file`); if missing, the node generates one and logs it.
+  There is still no IP allow-list or client-certificate check — treat the token
+  like a password and do not expose the port publicly.
 - **It always binds to `0.0.0.0:<port>`.** The node listens on all interfaces;
   there is no flag to bind it to loopback only. Reachability is therefore
   controlled entirely by your firewall / port publishing, not by the node.
-- **What an attacker on that port can do:** open unbounded connections to
-  exhaust node resources (denial of service), flood the node with bogus job
-  results to waste validation work, and observe your mining activity (job
-  hashes and difficulty). This can stall or degrade your block production.
+- **What an attacker on that port can do without the token:** open connections /
+  streams and attempt to guess the token (failed auths are rejected before the
+  peer is registered as a miner). **With the token** (or if the port is exposed
+  and the token leaks via logs/files): flood the node with bogus job results,
+  observe mining activity (job hashes and difficulty), and contribute to
+  resource exhaustion. Keep the port private regardless.
 
 **How to keep it private:**
 
@@ -489,9 +496,9 @@ Mining performance depends on:
 - **Firewall**: Only expose the P2P port (`30333`) to the public internet. Keep
   everything else private:
   - **Miner port** (`--miner-listen-port`, e.g. `9833/UDP`): private control
-    channel with **no authentication** — never expose it publicly. Use loopback
-    for local miners, or a private network / VPN (or a source-IP-restricted
-    firewall rule) for remote miners. See
+    channel protected by a shared auth token — still never expose it publicly.
+    Use loopback for local miners, or a private network / VPN (or a source-IP-
+    restricted firewall rule) for remote miners. See
     [Do NOT expose the miner port to the public internet](#️-do-not-expose-the-miner-port-to-the-public-internet).
   - **RPC port** (`9944`) and **Prometheus port** (`9616`): expose only to hosts
     that need them.
@@ -575,7 +582,7 @@ The protocol uses **three message types**:
 
 | Direction | Message | Description |
 |-----------|---------|-------------|
-| Miner → Node | `Ready` | Sent immediately after connecting to establish the stream |
+| Miner → Node | `Ready { token }` | Sent immediately after connecting to establish the stream and authenticate |
 | Node → Miner | `NewJob` | Submit a mining job (implicitly cancels any previous job) |
 | Miner → Node | `JobResult` | Mining result (completed, failed, or cancelled) |
 
@@ -600,11 +607,16 @@ See the `quantus-miner-api` crate for the canonical Rust definitions.
 
 ```rust
 pub enum MinerMessage {
-    Ready,                      // Miner → Node: establish stream
+    Ready { token: String },    // Miner → Node: establish stream + auth
     NewJob(MiningRequest),      // Node → Miner: submit job
     JobResult(MiningResult),    // Miner → Node: return result
 }
 ```
+
+The `token` must match the node's miner auth token (default file:
+`<base-path>/chains/<chain>/miner-auth-token`, override with
+`--miner-auth-token-file`). Connections that send a missing or wrong token are
+closed before the peer is registered as a miner.
 
 ### MiningRequest
 
@@ -647,7 +659,7 @@ Miner                                        Node
   │──── QUIC Connect ─────────────────────────►│
   │◄─── Connection Established ────────────────│
   │                                            │
-  │──── Ready ────────────────────────────────►│ (establish stream)
+  │──── Ready { token } ──────────────────────►│ (establish stream + auth)
   │                                            │
   │◄─── NewJob { job_id: "abc", ... } ─────────│
   │                                            │
@@ -691,7 +703,7 @@ Miner (new)                                  Node
   │──── QUIC Connect ─────────────────────────►│
   │◄─── Connection Established ────────────────│
   │                                            │
-  │──── Ready ────────────────────────────────►│ (establish stream)
+  │──── Ready { token } ──────────────────────►│ (establish stream + auth)
   │                                            │
   │◄─── NewJob { job_id: "abc", ... } ─────────│ (current job sent immediately)
   │                                            │
@@ -720,24 +732,27 @@ Miner                                        Node
 
 ```bash
 # Listen for external miner connections on port 9833
+# Auth token defaults to <base-path>/chains/<chain>/miner-auth-token
+# (created + logged on first run; override path with --miner-auth-token-file)
 quantus-node --miner-listen-port 9833
 ```
 
 ### Miner
 
 ```bash
-# Connect to node
-quantus-miner serve --node-addr 127.0.0.1:9833
+# Connect to node with the token from the node logs / token file
+quantus-miner serve \
+  --node-addr 127.0.0.1:9833 \
+  --auth-token <TOKEN>
 ```
 
 ## TLS Configuration
 
-The node generates a self-signed TLS certificate at startup, and the QUIC
-server performs **no client authentication** — any client that can reach the
-port is accepted. The miner also skips certificate verification by default
-(insecure mode). Because of this, the transport encryption alone does **not**
-protect the port: treat network reachability as the security boundary and never
-expose the miner port to the public internet (see
+The node generates a self-signed TLS certificate at startup and does **not**
+require client certificates. Application-level auth is the shared token in
+`Ready { token }` (see above). The miner also skips certificate verification by
+default (insecure mode). Transport encryption alone is not enough: keep the
+miner port off the public internet (see
 [Do NOT expose the miner port to the public internet](#️-do-not-expose-the-miner-port-to-the-public-internet)).
 For production deployments, consider:
 

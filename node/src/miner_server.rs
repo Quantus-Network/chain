@@ -29,6 +29,9 @@
 
 use std::{
 	collections::HashMap,
+	fs,
+	io::Write,
+	path::{Path, PathBuf},
 	sync::{
 		atomic::{AtomicU64, Ordering},
 		Arc,
@@ -38,7 +41,11 @@ use std::{
 
 use jsonrpsee::tokio;
 use quantus_miner_api::{read_message, write_message, MinerMessage, MiningRequest, MiningResult};
+use rand::RngCore;
 use tokio::sync::{mpsc, RwLock};
+
+/// Default filename for the miner auth token under the chain config directory.
+pub const DEFAULT_MINER_AUTH_TOKEN_FILENAME: &str = "miner-auth-token";
 
 /// A QUIC server that accepts connections from miners.
 pub struct MinerServer {
@@ -52,6 +59,8 @@ pub struct MinerServer {
 	current_job: Arc<RwLock<Option<MiningRequest>>>,
 	/// Counter for assigning unique miner IDs.
 	next_miner_id: AtomicU64,
+	/// Shared secret required in the miner's `Ready` message.
+	auth_token: Arc<str>,
 }
 
 /// Handle for communicating with a connected miner.
@@ -63,8 +72,16 @@ struct MinerHandle {
 impl MinerServer {
 	/// Start the QUIC server and listen for miner connections.
 	///
+	/// Loads (or generates) the auth token from `auth_token_path` before binding.
 	/// This spawns a background task that accepts incoming connections.
-	pub async fn start(port: u16) -> Result<Arc<Self>, String> {
+	pub async fn start(port: u16, auth_token_path: PathBuf) -> Result<Arc<Self>, String> {
+		let auth_token = load_or_create_miner_auth_token(&auth_token_path)?;
+		log::info!(
+			"⛏️ Miner auth token file: {} (pass this token to your miner)",
+			auth_token_path.display()
+		);
+		log::info!("⛏️ Miner auth token: {}", auth_token);
+
 		let (result_tx, result_rx) = mpsc::channel::<MiningResult>(64);
 
 		let server = Arc::new(Self {
@@ -73,6 +90,7 @@ impl MinerServer {
 			result_tx,
 			current_job: Arc::new(RwLock::new(None)),
 			next_miner_id: AtomicU64::new(1),
+			auth_token: Arc::from(auth_token),
 		});
 
 		// Start the acceptor task
@@ -146,6 +164,69 @@ impl MinerServer {
 	}
 }
 
+/// Load the miner auth token from `path`, or generate and persist one if missing.
+///
+/// The token is a 32-byte value encoded as 64 lowercase hex characters.
+pub fn load_or_create_miner_auth_token(path: &Path) -> Result<String, String> {
+	match fs::read_to_string(path) {
+		Ok(contents) => {
+			let token = contents.trim().to_string();
+			if token.is_empty() {
+				return Err(format!(
+					"Miner auth token file {} is empty; delete it to regenerate or write a token",
+					path.display()
+				));
+			}
+			Ok(token)
+		},
+		Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+			let mut bytes = [0u8; 32];
+			rand::thread_rng().fill_bytes(&mut bytes);
+			let token = hex::encode(bytes);
+
+			if let Some(parent) = path.parent() {
+				fs::create_dir_all(parent).map_err(|e| {
+					format!(
+						"Failed to create miner auth token directory {}: {}",
+						parent.display(),
+						e
+					)
+				})?;
+			}
+
+			write_miner_auth_token_file(path, &token)?;
+			log::info!("⛏️ Generated new miner auth token at {}", path.display());
+			Ok(token)
+		},
+		Err(e) => Err(format!("Failed to read miner auth token file {}: {}", path.display(), e)),
+	}
+}
+
+fn write_miner_auth_token_file(path: &Path, token: &str) -> Result<(), String> {
+	let mut file = {
+		#[cfg(unix)]
+		{
+			use std::os::unix::fs::OpenOptionsExt;
+			fs::OpenOptions::new()
+				.write(true)
+				.create_new(true)
+				.mode(0o600)
+				.open(path)
+		}
+		#[cfg(not(unix))]
+		{
+			fs::OpenOptions::new().write(true).create_new(true).open(path)
+		}
+	}
+	.map_err(|e| format!("Failed to create miner auth token file {}: {}", path.display(), e))?;
+
+	file.write_all(token.as_bytes())
+		.and_then(|_| file.write_all(b"\n"))
+		.and_then(|_| file.sync_all())
+		.map_err(|e| format!("Failed to write miner auth token file {}: {}", path.display(), e))?;
+	Ok(())
+}
+
 /// Create a QUIC server endpoint with self-signed certificate.
 async fn create_server_endpoint(port: u16) -> Result<quinn::Endpoint, String> {
 	// Generate self-signed certificate
@@ -217,7 +298,7 @@ async fn handle_miner_connection(connection: quinn::Connection, server: Arc<Mine
 	log::debug!("Waiting for miner {} to open bidirectional stream...", addr);
 
 	// Accept bidirectional stream from miner
-	let (send, recv) = match connection.accept_bi().await {
+	let (send, mut recv) = match connection.accept_bi().await {
 		Ok(streams) => {
 			log::info!("⛏️ Stream accepted from miner {}", addr);
 			streams
@@ -228,17 +309,31 @@ async fn handle_miner_connection(connection: quinn::Connection, server: Arc<Mine
 		},
 	};
 
+	// Authenticate before registering so unauthenticated peers never appear as miners.
+	log::debug!("Waiting for Ready (auth) from miner {}...", addr);
+	match read_message(&mut recv).await {
+		Ok(MinerMessage::Ready { token }) if token == server.auth_token.as_ref() => {
+			log::debug!("Miner {} authenticated", addr);
+		},
+		Ok(MinerMessage::Ready { .. }) => {
+			log::warn!("⛏️ Rejected miner {}: invalid auth token", addr);
+			return;
+		},
+		Ok(other) => {
+			log::warn!("Expected Ready from miner {}, got {:?}", addr, other);
+			return;
+		},
+		Err(e) => {
+			log::warn!("Failed to read Ready from miner {}: {}", addr, e);
+			return;
+		},
+	}
+
 	// Create channel for sending jobs to this miner
 	let (job_tx, job_rx) = mpsc::channel::<MiningRequest>(16);
 
 	// Register miner
 	let miner_id = server.add_miner(job_tx).await;
-
-	// Send current job if there is one
-	if let Some(job) = server.get_current_job().await {
-		log::debug!("Sending current job {} to newly connected miner {}", job.job_id, miner_id);
-		// We'll send it through the connection handler below
-	}
 
 	// Handle the connection
 	let result = connection_handler(
@@ -316,22 +411,8 @@ async fn connection_handler(
 	initial_job: Option<MiningRequest>,
 ) -> Result<(), String> {
 	let mut consecutive_drops = 0u32;
-	// Wait for Ready message from miner (required to establish the stream)
-	log::debug!("Waiting for Ready message from miner {}...", miner_id);
-	match read_message(&mut recv).await {
-		Ok(MinerMessage::Ready) => {
-			log::debug!("Received Ready from miner {}", miner_id);
-		},
-		Ok(other) => {
-			log::warn!("Expected Ready from miner {}, got {:?}", miner_id, other);
-			return Err("Protocol error: expected Ready message".to_string());
-		},
-		Err(e) => {
-			return Err(format!("Failed to read Ready message: {}", e));
-		},
-	}
 
-	// Send initial job if there is one
+	// Send initial job if there is one (Ready/auth already handled by the caller)
 	if let Some(job) = initial_job {
 		log::debug!("Sending initial job {} to miner {}", job.job_id, miner_id);
 		let msg = MinerMessage::NewJob(job);
@@ -360,7 +441,7 @@ async fn connection_handler(
 					forward_result(miner_id, &result_tx, result, &mut consecutive_drops)
 						.await?;
 					}
-					Ok(MinerMessage::Ready) => {
+					Ok(MinerMessage::Ready { .. }) => {
 						log::debug!("Ignoring duplicate Ready from miner {}", miner_id);
 					}
 					Ok(MinerMessage::NewJob(_)) => {
@@ -399,6 +480,7 @@ async fn connection_handler(
 mod tests {
 	use super::*;
 	use quantus_miner_api::ApiResponseStatus;
+	use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
 	fn dummy_result(job_id: &str) -> MiningResult {
 		MiningResult {
@@ -475,5 +557,48 @@ mod tests {
 			rx.recv().await.unwrap();
 		}
 		assert_eq!(drops, 0, "counter must be reset by the last successful forward");
+	}
+
+	fn temp_token_path(name: &str) -> PathBuf {
+		static COUNTER: AtomicU64 = AtomicU64::new(0);
+		let n = COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+		std::env::temp_dir().join(format!("quantus-miner-auth-token-test-{name}-{n}"))
+	}
+
+	#[test]
+	fn generates_token_file_when_missing() {
+		let path = temp_token_path("missing");
+		let _ = fs::remove_file(&path);
+
+		let token = load_or_create_miner_auth_token(&path).unwrap();
+		assert_eq!(token.len(), 64);
+		assert!(token.chars().all(|c| c.is_ascii_hexdigit()));
+		assert_eq!(fs::read_to_string(&path).unwrap().trim(), token);
+
+		let _ = fs::remove_file(&path);
+	}
+
+	#[test]
+	fn reuses_existing_token_file() {
+		let path = temp_token_path("existing");
+		let _ = fs::remove_file(&path);
+		fs::write(&path, "deadbeef\n").unwrap();
+
+		let token = load_or_create_miner_auth_token(&path).unwrap();
+		assert_eq!(token, "deadbeef");
+
+		let _ = fs::remove_file(&path);
+	}
+
+	#[test]
+	fn rejects_empty_token_file() {
+		let path = temp_token_path("empty");
+		let _ = fs::remove_file(&path);
+		fs::write(&path, "   \n").unwrap();
+
+		let err = load_or_create_miner_auth_token(&path).unwrap_err();
+		assert!(err.contains("empty"));
+
+		let _ = fs::remove_file(&path);
 	}
 }

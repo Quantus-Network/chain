@@ -674,6 +674,7 @@ pub fn run() -> sc_cli::Result<()> {
 					config,
 					rewards_account,
 					cli.miner_listen_port,
+					cli.miner_auth_token_file,
 					cli.enable_peer_sharing,
 					cli.sync_max_timeouts_before_drop,
 					cli.sync_disable_major_sync_gating,

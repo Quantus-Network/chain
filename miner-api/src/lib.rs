@@ -23,14 +23,18 @@ pub enum ApiResponseStatus {
 /// QUIC protocol messages exchanged between node and miner.
 ///
 /// The protocol is:
-/// - Miner sends `Ready` immediately after connecting to establish the stream
+/// - Miner sends `Ready { token }` immediately after connecting to establish the
+///   stream and authenticate (token must match the node's miner auth token)
 /// - Node sends `NewJob` to submit a mining job (implicitly cancels any previous job)
 /// - Miner sends `JobResult` when mining completes
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum MinerMessage {
-	/// Miner → Node: Sent immediately after connecting to establish the stream.
-	/// This is required because QUIC streams are lazily initialized.
-	Ready,
+	/// Miner → Node: Sent immediately after connecting to establish the stream
+	/// and authenticate. This is required because QUIC streams are lazily initialized.
+	Ready {
+		/// Shared secret that must match the node's miner auth token.
+		token: String,
+	},
 
 	/// Node → Miner: Submit a new mining job.
 	/// If a job is already running, it will be cancelled and replaced.

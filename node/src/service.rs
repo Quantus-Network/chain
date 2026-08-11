@@ -20,7 +20,10 @@ use sc_transaction_pool_api::{OffchainTransactionPoolFactory, TransactionPool};
 use sp_inherents::CreateInherentDataProviders;
 use tokio_util::sync::CancellationToken;
 
-use crate::{miner_server::MinerServer, prometheus::BusinessMetrics};
+use crate::{
+	miner_server::{MinerServer, DEFAULT_MINER_AUTH_TOKEN_FILENAME},
+	prometheus::BusinessMetrics,
+};
 use codec::Encode;
 use jsonrpsee::tokio;
 use quantus_miner_api::{ApiResponseStatus, MiningRequest, MiningResult};
@@ -29,7 +32,7 @@ use sp_api::ProvideRuntimeApi;
 use sp_consensus::SyncOracle;
 use sp_consensus_qpow::QPoWApi;
 use sp_core::{crypto::AccountId32, U512};
-use std::{sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 /// Frequency of block import logging. Every 1000 blocks.
 const LOG_FREQUENCY: u64 = 1000;
@@ -455,6 +458,7 @@ fn spawn_authority_tasks(
 	prometheus_registry: Option<prometheus::Registry>,
 	rewards_address: AccountId32,
 	miner_listen_port: Option<u16>,
+	miner_auth_token_path: Option<PathBuf>,
 	tx_stream_for_worker: impl futures::Stream<Item = sp_core::H256> + Send + Unpin + 'static,
 	#[cfg(feature = "tx-logging")] tx_stream_for_logger: impl futures::Stream<Item = sp_core::H256>
 		+ Send
@@ -519,7 +523,10 @@ fn spawn_authority_tasks(
 	task_manager.spawn_essential_handle().spawn("qpow-mining", None, async move {
 		// Start miner server if port is specified
 		let miner_server: Option<Arc<MinerServer>> = if let Some(port) = miner_listen_port {
-			match MinerServer::start(port).await {
+			let token_path = miner_auth_token_path.expect(
+				"miner_auth_token_path must be set whenever miner_listen_port is set",
+			);
+			match MinerServer::start(port, token_path).await {
 				Ok(server) => Some(server),
 				Err(e) => {
 					log::error!("⛏️ Failed to start miner server on port {}: {}", port, e);
@@ -675,6 +682,7 @@ pub fn new_full<
 	config: Configuration,
 	rewards_address: AccountId32,
 	miner_listen_port: Option<u16>,
+	miner_auth_token_file: Option<PathBuf>,
 	enable_peer_sharing: bool,
 	sync_max_timeouts_before_drop: u32,
 	sync_disable_major_sync_gating: bool,
@@ -752,6 +760,14 @@ pub fn new_full<
 
 	let role = config.role;
 	let prometheus_registry = config.prometheus_registry().cloned();
+	let miner_auth_token_path = miner_listen_port.map(|_| {
+		miner_auth_token_file.unwrap_or_else(|| {
+			config
+				.base_path
+				.config_dir(config.chain_spec.id())
+				.join(DEFAULT_MINER_AUTH_TOKEN_FILENAME)
+		})
+	});
 
 	let rpc_extensions_builder = {
 		let client = client.clone();
@@ -798,6 +814,7 @@ pub fn new_full<
 			prometheus_registry,
 			rewards_address,
 			miner_listen_port,
+			miner_auth_token_path,
 			tx_stream_for_worker,
 			tx_stream_for_logger,
 			allow_mining_without_peers,
@@ -812,6 +829,7 @@ pub fn new_full<
 			prometheus_registry,
 			rewards_address,
 			miner_listen_port,
+			miner_auth_token_path,
 			tx_stream_for_worker,
 			allow_mining_without_peers,
 		);
