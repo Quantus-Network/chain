@@ -22,8 +22,9 @@ pub struct Cli {
 	///
 	/// Used only with `--miner-listen-port`. Defaults to
 	/// `<base-path>/chains/<chain>/miner-auth-token`. If the file does not exist,
-	/// the node generates a random token, writes it there, and logs it so you can
-	/// copy it into the miner.
+	/// the node generates a random token and writes it there (mode 0600 on Unix).
+	/// The token itself is never logged — read the file to configure miners.
+	/// Startup fails if this path is empty/unreadable or cannot be created.
 	#[arg(long, value_name = "PATH")]
 	pub miner_auth_token_file: Option<std::path::PathBuf>,
 

@@ -80,11 +80,11 @@ docker compose logs -f quantus-node
 docker compose logs -f quantus-miner
 ```
 
-On first start the node writes `node-data/chains/<chain>/miner-auth-token` and
-`miner-tls-cert-sha256` (and logs both). The bundled miner reads them via
-`--auth-token-file` / `--tls-cert-sha256-file` (Compose mounts `./node-data`
-read-only). If the miner starts before the files exist it will exit and restart
-until they appear.
+On first start the node writes `node-data/chains/<chain>/miner-auth-token`
+(not logged — read the file) and `miner-tls-cert-sha256` (logged). The bundled
+miner reads them via `--auth-token-file` / `--tls-cert-sha256-file` (Compose
+mounts `./node-data` read-only). If the miner starts before the files exist it
+will exit and restart until they appear.
 
 If monitoring is enabled:
 
@@ -141,9 +141,9 @@ the host-published TCP port for reading miner metrics from the host.
 >
 > The miner port (`9833/UDP`) is a **private control channel** between the node
 > and your miners. Connections must present a shared auth token and pin the
-> node's TLS cert fingerprint (auto-written under
-> `node-data/chains/<chain>/` and logged on first start), but you should still
-> keep the port off the public internet.
+> node's TLS cert fingerprint (auto-written under `node-data/chains/<chain>/`;
+> fingerprint is logged, token is not), but you should still keep the port off
+> the public internet.
 >
 > The default Compose file **publishes `HOST_MINER_LISTEN_PORT:9833/udp` on the
 > host**. You only need that mapping if you run miners **outside** the Compose
@@ -376,9 +376,9 @@ Replace `9833` with `HOST_MINER_LISTEN_PORT` if changed. The `-p 9900:9900`
 mapping exposes that extra miner's metrics endpoint and can be changed if
 needed.
 
-> ⚠️ Copy the miner auth token and TLS cert fingerprint from the node logs (or
-> `node-data/chains/<chain>/miner-auth-token` and `miner-tls-cert-sha256`) into
-> the miner (`--auth-token` / `--tls-cert-sha256`). When connecting miners from
+> ⚠️ Read `node-data/chains/<chain>/miner-auth-token` and
+> `miner-tls-cert-sha256` (fingerprint is also in node logs) into the miner
+> (`--auth-token-file` / `--tls-cert-sha256-file`). When connecting miners from
 > another host, do **not** open `9833/UDP` to the public internet — reach the
 > node over a private network / VPN, or restrict the published UDP port with a
 > firewall allow-list to your miner hosts only. See

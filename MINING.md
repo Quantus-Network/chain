@@ -296,7 +296,7 @@ For high-performance mining, you can offload the mining process to a separate se
     --miner-listen-port 9833 \
     --rewards-inner-hash <YOUR_PREIMAGE>
    ```
-   The node binds a QUIC server on `0.0.0.0:9833` and waits for miners to connect. When `--miner-listen-port` is set, local mining is disabled. On first start it writes a shared auth token (`miner-auth-token`) and a TLS cert fingerprint (`miner-tls-cert-sha256`) under `<base-path>/chains/<chain>/`, and logs both — copy them into the miner. ⚠️ Keep this port off the public internet — see [Do NOT expose the miner port to the public internet](#️-do-not-expose-the-miner-port-to-the-public-internet).
+   The node binds a QUIC server on `0.0.0.0:9833` and waits for miners to connect. When `--miner-listen-port` is set, local mining is disabled. On first start it writes a shared auth token (`miner-auth-token`, not logged — read the file) and a TLS cert fingerprint (`miner-tls-cert-sha256`, logged) under `<base-path>/chains/<chain>/`. If miner-server startup fails (bad token file, TLS material, bind error), the node exits instead of falling back to local mining. ⚠️ Keep this port off the public internet — see [Do NOT expose the miner port to the public internet](#️-do-not-expose-the-miner-port-to-the-public-internet).
 
 3. **Start External Miner** (in separate terminal, connects to the node):
    ```bash
@@ -735,18 +735,19 @@ Miner                                        Node
 ```bash
 # Listen for external miner connections on port 9833
 # Auth token + TLS cert/fingerprint default under <base-path>/chains/<chain>/
-# (created + logged on first run; override auth path with --miner-auth-token-file)
+# (created on first run; token is not logged — read miner-auth-token;
+#  fingerprint is logged; override auth path with --miner-auth-token-file)
 quantus-node --miner-listen-port 9833
 ```
 
 ### Miner
 
 ```bash
-# Connect with token + TLS cert pin from the node logs / chain config files
+# Connect with token (from miner-auth-token file) + TLS cert pin (from logs / file)
 quantus-miner serve \
   --node-addr 127.0.0.1:9833 \
-  --auth-token <TOKEN> \
-  --tls-cert-sha256 <FINGERPRINT>
+  --auth-token-file <BASE_PATH>/chains/<CHAIN>/miner-auth-token \
+  --tls-cert-sha256-file <BASE_PATH>/chains/<CHAIN>/miner-tls-cert-sha256
 ```
 
 ## TLS Configuration

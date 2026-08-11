@@ -87,10 +87,9 @@ impl MinerServer {
 	) -> Result<Arc<Self>, String> {
 		let auth_token = load_or_create_miner_auth_token(&auth_token_path)?;
 		log::info!(
-			"⛏️ Miner auth token file: {} (pass this token to your miner)",
+			"⛏️ Miner auth token file: {} (read this file to configure your miner; token is not logged)",
 			auth_token_path.display()
 		);
-		log::info!("⛏️ Miner auth token: {}", auth_token);
 
 		let tls = load_or_create_miner_tls(&tls_dir)?;
 		log::info!(

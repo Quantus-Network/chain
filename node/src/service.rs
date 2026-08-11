@@ -522,7 +522,9 @@ fn spawn_authority_tasks(
 
 	// Spawn the main mining loop
 	task_manager.spawn_essential_handle().spawn("qpow-mining", None, async move {
-		// Start miner server if port is specified
+		// Start miner server if port is specified. Failure must abort this essential
+		// task (and thus the node) instead of falling back to local mining — the
+		// operator explicitly opted into external mining with --miner-listen-port.
 		let miner_server: Option<Arc<MinerServer>> = if let Some(port) = miner_listen_port {
 			let token_path = miner_auth_token_path
 				.expect("miner_auth_token_path must be set whenever miner_listen_port is set");
@@ -531,8 +533,13 @@ fn spawn_authority_tasks(
 			match MinerServer::start(port, token_path, tls_dir).await {
 				Ok(server) => Some(server),
 				Err(e) => {
-					log::error!("⛏️ Failed to start miner server on port {}: {}", port, e);
-					None
+					log::error!(
+						"⛏️ Failed to start miner server on port {}: {}. \
+						 Refusing to fall back to local mining.",
+						port,
+						e
+					);
+					return;
 				},
 			}
 		} else {
