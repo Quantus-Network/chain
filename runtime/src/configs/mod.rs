@@ -32,7 +32,9 @@ use crate::{
 	MILLI_UNIT,
 };
 use frame_support::{
-	derive_impl, parameter_types,
+	derive_impl,
+	dispatch::DispatchClass,
+	parameter_types,
 	traits::{
 		ConstU128, ConstU16, ConstU32, ConstU8, EitherOfDiverse, EnsureOrigin, Get,
 		NeverEnsureOrigin, VariantCountOf,
@@ -71,22 +73,54 @@ use sp_core::U512;
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
+/// Maximum block weight: 6 seconds of compute (with 12 second block time, this
+/// leaves headroom); proof_size is uncapped (intentional for a solo PoW chain
+/// where stateless validation and PoV limits don't apply).
+const MAXIMUM_BLOCK_WEIGHT: Weight =
+	Weight::from_parts(6u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX);
+
 parameter_types! {
 	pub const BlockHashCount: BlockNumber = 4096;
 	pub const Version: RuntimeVersion = VERSION;
 
+	/// Worst-case pubkey-cache database work done by `CachedSignature`
+	/// verification for one signed extrinsic: one `Pubkeys` read (the sig-only
+	/// lookup, or the full-signature `contains_key`) plus one ~2–2.6 KB insert
+	/// on an account's first full-signature transaction.
+	///
+	/// Signature verification runs in `UncheckedExtrinsic::check`, before any
+	/// `TxExtension` weight or payment handling, so this cost cannot be carried
+	/// by a weighted dispatch path; it is instead charged as part of
+	/// `base_extrinsic` for the signed (non-mandatory) classes below.
+	pub PubkeyCacheVerifyWeight: Weight = RocksDbWeight::get().reads_writes(1, 1);
+
 	/// Block weight limits for the runtime.
 	///
-	/// - `ref_time`: 6 seconds of compute (with 12 second block time, this leaves headroom)
-	/// - `proof_size`: Set to u64::MAX (uncapped) - this is intentional for a solo PoW chain
-	///   where stateless validation and PoV limits don't apply.
+	/// Mirrors `BlockWeights::with_sensible_defaults(MAXIMUM_BLOCK_WEIGHT,
+	/// NORMAL_DISPATCH_RATIO)` (75%/25% normal/operational split, 10% average
+	/// block initialization), with one addition: `base_extrinsic` for the
+	/// `Normal` and `Operational` classes carries [`PubkeyCacheVerifyWeight`],
+	/// the pubkey-cache database work performed during signature verification.
+	/// `Mandatory` extrinsics (inherents) are unsigned, never run `Verify`, and
+	/// keep the default base weight.
 	///
 	/// See "Proof Size Design Rationale" in the Transaction Fee Structure section below
 	/// for detailed explanation of why proof_size is uncapped and when to revisit this.
-	pub RuntimeBlockWeights: BlockWeights = BlockWeights::with_sensible_defaults(
-		Weight::from_parts(6u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
-		NORMAL_DISPATCH_RATIO,
-	);
+	pub RuntimeBlockWeights: BlockWeights = BlockWeights::builder()
+		.for_class(DispatchClass::Normal, |weights| {
+			weights.max_total = Some(NORMAL_DISPATCH_RATIO * MAXIMUM_BLOCK_WEIGHT);
+		})
+		.for_class(DispatchClass::Operational, |weights| {
+			weights.max_total = Some(MAXIMUM_BLOCK_WEIGHT);
+			weights.reserved =
+				Some(MAXIMUM_BLOCK_WEIGHT - NORMAL_DISPATCH_RATIO * MAXIMUM_BLOCK_WEIGHT);
+		})
+		.for_class(DispatchClass::non_mandatory(), |weights| {
+			weights.base_extrinsic =
+				weights.base_extrinsic.saturating_add(PubkeyCacheVerifyWeight::get());
+		})
+		.avg_block_initialization(Perbill::from_percent(10))
+		.build_or_panic();
 	/// Maximum block length (5 MB).
 	///
 	/// Estimated network transfer times:

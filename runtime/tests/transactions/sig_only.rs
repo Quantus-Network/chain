@@ -189,6 +189,45 @@ fn sig_only_transaction_from_wrong_key_rejected() {
 	});
 }
 
+/// `CachedSignature` verification performs pubkey-cache database work from
+/// `UncheckedExtrinsic::check`, before any `TxExtension` weight or payment
+/// handling. That cost must therefore be carried by the signed-extrinsic base
+/// weight: the surcharge over the frame default must cover both the cache-hit
+/// case (one `Pubkeys` read — sig-only, or full with the key already cached)
+/// and the first-use case (one read plus one multi-kilobyte insert).
+#[test]
+fn base_extrinsic_weight_covers_pubkey_cache_db_ops() {
+	use frame_support::{
+		dispatch::DispatchClass,
+		weights::constants::{ExtrinsicBaseWeight, RocksDbWeight},
+	};
+	use quantus_runtime::configs::{PubkeyCacheVerifyWeight, RuntimeBlockWeights};
+
+	// Cache hit (sig-only lookup, or full-signature `contains_key`): one read.
+	let cached_case = RocksDbWeight::get().reads(1);
+	// First full-signature use: the read plus the `Pubkeys` insert.
+	let first_use_case = RocksDbWeight::get().reads_writes(1, 1);
+
+	let weights = RuntimeBlockWeights::get();
+	for class in [DispatchClass::Normal, DispatchClass::Operational] {
+		let surcharge = weights
+			.get(class)
+			.base_extrinsic
+			.saturating_sub(ExtrinsicBaseWeight::get());
+		assert!(
+			surcharge.all_gte(first_use_case),
+			"{class:?} base_extrinsic surcharge {surcharge:?} must cover the first-use \
+			 read+write {first_use_case:?}"
+		);
+		assert!(
+			surcharge.all_gte(cached_case),
+			"{class:?} base_extrinsic surcharge {surcharge:?} must cover the cached-key \
+			 read {cached_case:?}"
+		);
+	}
+	assert!(PubkeyCacheVerifyWeight::get().all_gte(first_use_case));
+}
+
 /// A full-signed `transfer_all(..., keep_alive = false)` verifies (and would
 /// cache the pubkey) before dispatch reaps the sender. The cache entry must
 /// not survive the reap, or fund → register → reap could leave unbounded

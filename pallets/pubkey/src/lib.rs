@@ -106,6 +106,15 @@ pub mod pallet {
 ///   lands in a block (during transaction-pool validation it goes to a discarded overlay).
 /// - `Dilithium87SigOnly`/`Dilithium65SigOnly`: the public key is loaded from [`Pubkeys`];
 ///   verification fails if no key of the matching parameter set is cached for the claimed signer.
+///
+/// # Weight accounting
+///
+/// This runs in `UncheckedExtrinsic::check`, before any `TxExtension` weight or
+/// payment handling, so the database work here (one `Pubkeys` read, plus one
+/// multi-kilobyte insert on an account's first full-signature transaction) is
+/// invisible to the dispatch path. The runtime must charge the worst case in
+/// the signed-extrinsic base weight — see `PubkeyCacheVerifyWeight` in the
+/// runtime's `BlockWeights` configuration.
 #[derive(Eq, PartialEq, Clone, Encode, Decode, RuntimeDebug, TypeInfo, DecodeWithMemTracking)]
 #[scale_info(skip_type_params(T))]
 pub struct CachedSignature<T>(pub DilithiumSignatureScheme, PhantomData<T>);
