@@ -526,8 +526,8 @@ fn spawn_authority_tasks(
 		let miner_server: Option<Arc<MinerServer>> = if let Some(port) = miner_listen_port {
 			let token_path = miner_auth_token_path
 				.expect("miner_auth_token_path must be set whenever miner_listen_port is set");
-			let tls_dir = miner_tls_dir
-				.expect("miner_tls_dir must be set whenever miner_listen_port is set");
+			let tls_dir =
+				miner_tls_dir.expect("miner_tls_dir must be set whenever miner_listen_port is set");
 			match MinerServer::start(port, token_path, tls_dir).await {
 				Ok(server) => Some(server),
 				Err(e) => {

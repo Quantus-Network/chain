@@ -52,7 +52,6 @@ rand = { workspace = true, default-features = false, features = [
 rcgen = { workspace = true }
 rpassword = { workspace = true }
 rustls = { workspace = true }
-sha2 = { workspace = true, default-features = false, features = ["std"] }
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
 sc-cli.default-features = true
@@ -82,6 +81,7 @@ sc-transaction-pool-api.default-features = true
 sc-transaction-pool-api.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["alloc"] }
+sha2 = { workspace = true, default-features = false, features = ["std"] }
 sp-api.default-features = true
 sp-api.workspace = true
 sp-block-builder.default-features = true

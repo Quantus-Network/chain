@@ -259,9 +259,8 @@ pub fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, Stri
 	}
 
 	let (cert_der, key_der, generated) = if cert_exists {
-		let cert_der = fs::read(&cert_path).map_err(|e| {
-			format!("Failed to read miner TLS cert {}: {}", cert_path.display(), e)
-		})?;
+		let cert_der = fs::read(&cert_path)
+			.map_err(|e| format!("Failed to read miner TLS cert {}: {}", cert_path.display(), e))?;
 		let key_der = fs::read(&key_path)
 			.map_err(|e| format!("Failed to read miner TLS key {}: {}", key_path.display(), e))?;
 		if cert_der.is_empty() || key_der.is_empty() {
@@ -340,7 +339,8 @@ fn open_secret_file(path: &Path, create_new: bool) -> Result<fs::File, String> {
 		} else {
 			opts.create(true).truncate(true);
 		}
-		opts.open(path).map_err(|e| format!("Failed to create {}: {}", path.display(), e))
+		opts.open(path)
+			.map_err(|e| format!("Failed to create {}: {}", path.display(), e))
 	}
 	#[cfg(not(unix))]
 	{
@@ -351,12 +351,16 @@ fn open_secret_file(path: &Path, create_new: bool) -> Result<fs::File, String> {
 		} else {
 			opts.create(true).truncate(true);
 		}
-		opts.open(path).map_err(|e| format!("Failed to create {}: {}", path.display(), e))
+		opts.open(path)
+			.map_err(|e| format!("Failed to create {}: {}", path.display(), e))
 	}
 }
 
 /// Create a QUIC server endpoint with the persisted (or newly generated) certificate.
-async fn create_server_endpoint(port: u16, tls: &MinerTlsMaterial) -> Result<quinn::Endpoint, String> {
+async fn create_server_endpoint(
+	port: u16,
+	tls: &MinerTlsMaterial,
+) -> Result<quinn::Endpoint, String> {
 	let cert_der = rustls::pki_types::CertificateDer::from(tls.cert_der.clone());
 	let key_der = rustls::pki_types::PrivateKeyDer::try_from(tls.key_der.clone())
 		.map_err(|e| format!("Failed to parse miner TLS private key: {}", e))?;
