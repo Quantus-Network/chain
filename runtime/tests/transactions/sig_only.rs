@@ -210,10 +210,8 @@ fn base_extrinsic_weight_covers_pubkey_cache_db_ops() {
 
 	let weights = RuntimeBlockWeights::get();
 	for class in [DispatchClass::Normal, DispatchClass::Operational] {
-		let surcharge = weights
-			.get(class)
-			.base_extrinsic
-			.saturating_sub(ExtrinsicBaseWeight::get());
+		let surcharge =
+			weights.get(class).base_extrinsic.saturating_sub(ExtrinsicBaseWeight::get());
 		assert!(
 			surcharge.all_gte(first_use_case),
 			"{class:?} base_extrinsic surcharge {surcharge:?} must cover the first-use \
@@ -251,10 +249,7 @@ fn full_signed_reap_clears_cached_pubkey() {
 		);
 		assert_ok!(Executive::apply_extrinsic(xt).expect("full-signed transfer_all is valid"));
 
-		assert!(
-			!frame_system::Account::<Runtime>::contains_key(&account),
-			"sender must be reaped"
-		);
+		assert!(!frame_system::Account::<Runtime>::contains_key(&account), "sender must be reaped");
 		assert!(
 			pallet_pubkey::Pallet::<Runtime>::pubkey_of(&account).is_none(),
 			"reaped account must not leave an orphan pubkey cache entry"

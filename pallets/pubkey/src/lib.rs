@@ -35,10 +35,10 @@ mod tests;
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use core::marker::PhantomData;
+use frame_support::traits::OnKilledAccount;
 use qp_dilithium_crypto::{
 	verify_ml_dsa_65, verify_ml_dsa_87, DilithiumSignatureScheme, DilithiumSigner,
 };
-use frame_support::traits::OnKilledAccount;
 use scale_info::TypeInfo;
 use sp_runtime::{
 	traits::{Lazy, Verify},
