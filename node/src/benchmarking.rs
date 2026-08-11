@@ -156,7 +156,7 @@ pub fn create_benchmark_extrinsic(
 	runtime::UncheckedExtrinsic::new_signed(
 		call,
 		sender.public().into_account().into(),
-		runtime::Signature::Dilithium87(signature),
+		runtime::Signature::from(signature),
 		tx_ext,
 	)
 }

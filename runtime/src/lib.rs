@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 use sp_core::U512;
 use sp_runtime::{
 	generic, impl_opaque_keys,
-	traits::{BlakeTwo256, IdentifyAccount, Verify},
+	traits::BlakeTwo256,
 	MultiAddress,
 };
 use sp_version::RuntimeVersion;
@@ -76,10 +76,11 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	//   `spec_version`, and `authoring_version` are the same between Wasm and native.
 	// This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
 	//   the compatible custom types.
-	spec_version: 144,
+	spec_version: 145,
 	impl_version: 1,
 	apis: apis::RUNTIME_API_VERSIONS,
-	transaction_version: 3,
+	// v4: `SigOnly` signature variants added (on-chain pubkey cache, `pallet-pubkey`).
+	transaction_version: 4,
 	system_version: 1,
 };
 
@@ -108,13 +109,15 @@ pub const MAX_SUPPLY: Balance = 21_000_000 * UNIT;
 /// expressed in (`pallet_timestamp` moments, not block numbers).
 pub const MILLIS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
 
-/// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
-// pub type Signature = MultiSignature;
-pub type Signature = DilithiumSignatureScheme;
+/// Chain signature type: Dilithium signatures backed by the on-chain public key
+/// cache (`pallet-pubkey`). Wraps [`DilithiumSignatureScheme`] transparently —
+/// same SCALE encoding — so full `SignatureWithPublic` transactions are
+/// unchanged, while `SigOnly` variants resolve the key from storage.
+pub type Signature = pallet_pubkey::CachedSignature<Runtime>;
 
-/// Some way of identifying an account on the chain. We intentionally make it equivalent
-/// to the public key of our transaction signing scheme.
-pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
+/// Some way of identifying an account on the chain: the Poseidon hash of the
+/// account's Dilithium public key.
+pub type AccountId = sp_runtime::AccountId32;
 
 /// Balance of an account.
 pub type Balance = u128;
@@ -285,4 +288,7 @@ mod runtime {
 
 	#[runtime::pallet_index(22)]
 	pub type Vesting = pallet_vesting;
+
+	#[runtime::pallet_index(23)]
+	pub type Pubkey = pallet_pubkey;
 }

@@ -180,6 +180,10 @@ impl Verify for DilithiumSignatureScheme {
 					sig_public.signature().as_ref(),
 				)
 			},
+			// SigOnly variants carry no public key and AccountId32 is a hash of
+			// the key, so a pure verify has nothing to check against. Resolving
+			// the key from on-chain storage is done by `pallet_pubkey::CachedSignature`.
+			Self::Dilithium87SigOnly(_) | Self::Dilithium65SigOnly(_) => false,
 		}
 	}
 }

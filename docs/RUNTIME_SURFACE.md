@@ -7,7 +7,7 @@ the runtime, their dispatchable calls, the runtime APIs, transaction extensions,
 genesis logic, and the workspace primitive crates pulled in.
 
 - **Crate:** `quantus-runtime` (`runtime/`), version `0.7.1-q-day-2`
-- **Spec:** `spec_name = quantus-runtime`, `spec_version = 143`, `transaction_version = 3`, `authoring_version = 1`
+- **Spec:** `spec_name = quantus-runtime`, `spec_version = 143`, `transaction_version = 4`, `authoring_version = 1`
 - **Build:** `no_std` WASM via `substrate-wasm-builder` (`runtime/build.rs`); native `std` build for the node/client
 - **Block time target:** 12s (`TARGET_BLOCK_TIME_MS = 12_000`)
 - **Consensus:** QPoW (quantum-resistant Proof of Work, Poseidon2-based)
@@ -32,8 +32,8 @@ genesis logic, and the workspace primitive crates pulled in.
 
 | Type | Definition |
 | --- | --- |
-| `Signature` | `DilithiumSignatureScheme` (post-quantum) |
-| `AccountId` | Derived from the Dilithium signer (`AccountId32`) |
+| `Signature` | `pallet_pubkey::CachedSignature<Runtime>` — `DilithiumSignatureScheme` (post-quantum) backed by the on-chain pubkey cache; `SigOnly` variants omit the ~2 KB public key after an account's first full-signature transaction |
+| `AccountId` | `AccountId32` (Poseidon hash of the Dilithium public key) |
 | `Balance` | `u128` |
 | `AssetId` | `u32` |
 | `Nonce` | `u32` |
@@ -83,6 +83,7 @@ The runtime derives `RuntimeCall`, `RuntimeEvent`, `RuntimeError`, `RuntimeOrigi
 | 20 | `Wormhole` | `pallet-wormhole` | **Local** (`pallets/wormhole`) | yes |
 | 21 | `ZkTree` | `pallet-zk-tree` | **Local** (`pallets/zk-tree`) | no |
 | 22 | `Vesting` | `pallet-vesting` | **Local** (`pallets/vesting`) | yes |
+| 23 | `Pubkey` | `pallet-pubkey` | **Local** (`pallets/pubkey`) | no |
 
 > Indices 4, 10, 12, 17, and 18 are intentionally left vacant after pallet removals so downstream indices stay stable.
 
@@ -186,6 +187,11 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - **Calls:** `claim`(0) — **permissionless**; pays the largest valid claim from the pot to the schedule's stored beneficiary (never the caller); the only claim path for keyless/high-security beneficiaries. `create_schedule`(1) — admin; validates the schedule and funds the pot from the treasury in the same call. `end_schedule`(2) — admin; quantized unpaid vested part → beneficiary, everything else → treasury, schedule removed. `retarget_schedule`(3) — admin; first settles exactly the payout a permissionless claim could currently force to the old beneficiary, then changes the beneficiary (lost-key remedy independent of claim/retarget ordering).
 - Genesis build validates every schedule (`start ≤ cliff ≤ end`, `start < end`, `total ≥ MinimumPayout`, `total % PayoutQuantum = 0`, beneficiary ≠ pot) and, for a non-empty table, asserts the pot holds exactly `Σ schedule totals + ED`; a misconfigured chain refuses to start. `try_state` validates stored schedules, aligned claims, dust-safe remaining obligations, and—when any schedule exists—`pot balance ≥ Σ(total − claimed) + ED`; an empty schedule table is valid with an unfunded pot.
 
+### Index 23 — `Pubkey` (`pallet-pubkey`, local)
+- On-chain cache of Dilithium public keys keyed by the `AccountId32` they hash to. No dispatchable calls, events, or genesis config.
+- **Storage:** `Pubkeys: AccountId32 → DilithiumSigner`. Written automatically by `CachedSignature` (the runtime `Signature` type) the first time an account's full `SignatureWithPublic` transaction verifies — the successful verify proves both the signature and `Poseidon(pubkey) == account`, so the binding is trusted and permanent.
+- Once cached, the account may sign with the `Dilithium87SigOnly`/`Dilithium65SigOnly` variants of `DilithiumSignatureScheme`, omitting the ~1.9–2.6 KB public key from every subsequent transaction; verification loads the key from `Pubkeys` and fails (`BadProof`) if none of the matching parameter set is cached. Full-signature transactions remain valid forever, so existing clients need no changes; sig-only is an opt-in size optimization.
+
 ---
 
 ## 4. Runtime APIs (`apis.rs`, `impl_runtime_apis!`)
@@ -288,7 +294,7 @@ Related transaction-payment RPC surface (patched for WASM + node builds):
 
 | Crate | Path | Role in runtime |
 | --- | --- | --- |
-| `qp-dilithium-crypto` | `primitives/dilithium-crypto` | ML-DSA-87/ML-DSA-65 post-quantum signatures; `DilithiumSignatureScheme` = the chain's `Signature`/`AccountId`. |
+| `qp-dilithium-crypto` | `primitives/dilithium-crypto` | ML-DSA-87/ML-DSA-65 post-quantum signatures; `DilithiumSignatureScheme` underlies the chain's `Signature` (wrapped by `pallet_pubkey::CachedSignature`) and `AccountId`. |
 | `qp-header` | `primitives/header` | Custom block `Header` (Poseidon block hash + Blake2 state trie); `ZkTreeRootProvider` trait. |
 | `qp-high-security` | `primitives/high-security` | `HighSecurityInspector` trait shared by multisig, reversible-transfers, tx-extensions (breaks circular dep). |
 | `qp-scheduler` | `primitives/scheduler` | `BlockNumberOrTimestamp`, `DispatchTime`, `ScheduleNamed` trait for delayed dispatch. |

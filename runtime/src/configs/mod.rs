@@ -131,6 +131,11 @@ impl frame_system::Config for Runtime {
 	type MaxConsumers = ConstU32<16>;
 }
 
+/// On-chain cache of Dilithium public keys; filled automatically on the first
+/// full-signature transaction of each account and consulted when verifying
+/// `SigOnly` transactions (see `CachedSignature`, the runtime `Signature` type).
+impl pallet_pubkey::Config for Runtime {}
+
 parameter_types! {
 	pub const MiningUnit: Balance = UNIT;
 }

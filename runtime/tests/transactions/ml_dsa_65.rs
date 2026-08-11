@@ -81,12 +81,7 @@ fn signed_transfer(
 	);
 	let signature = raw_payload.using_encoded(|e| pair.sign(e));
 
-	UncheckedExtrinsic::new_signed(
-		call,
-		MultiAddress::Id(sender),
-		Signature::Dilithium65(signature),
-		tx_ext,
-	)
+	UncheckedExtrinsic::new_signed(call, MultiAddress::Id(sender), signature.into(), tx_ext)
 }
 
 #[test]
