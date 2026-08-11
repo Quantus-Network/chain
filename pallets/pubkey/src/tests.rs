@@ -122,3 +122,19 @@ fn full_signature_does_not_overwrite_existing_entry() {
 		assert_eq!(Pubkeys::<Test>::get(&account).unwrap(), first);
 	});
 }
+
+#[test]
+fn killed_account_clears_cached_pubkey() {
+	use frame_support::traits::OnKilledAccount;
+
+	new_test_ext().execute_with(|| {
+		let pair = Dilithium65Pair::from_seed_slice(&[1u8; 32]).unwrap();
+		let account = pair.public().into_account();
+
+		assert!(Sig::from(pair.sign(MSG)).verify(MSG, &account));
+		assert!(Pallet::<Test>::pubkey_of(&account).is_some());
+
+		Pallet::<Test>::on_killed_account(&account);
+		assert!(Pallet::<Test>::pubkey_of(&account).is_none());
+	});
+}

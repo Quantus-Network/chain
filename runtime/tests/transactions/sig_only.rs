@@ -31,19 +31,16 @@ fn test_ext(account: &AccountId32) -> sp_io::TestExternalities {
 	ext
 }
 
-/// Build a `transfer_keep_alive` extrinsic signed by `pair`. With `sig_only`
-/// the public key is omitted from the signature, relying on the on-chain cache.
-fn signed_transfer(
+/// Build a signed extrinsic for `call`. With `sig_only` the public key is
+/// omitted from the signature, relying on the on-chain cache.
+fn signed_call(
 	pair: &Dilithium65Pair,
 	sender: AccountId32,
-	dest: AccountId32,
-	value: u128,
+	call: RuntimeCall,
 	nonce: u32,
 	sig_only: bool,
 ) -> UncheckedExtrinsic {
 	let genesis_hash = System::block_hash(0);
-	let call: RuntimeCall =
-		BalancesCall::transfer_keep_alive { dest: MultiAddress::Id(dest), value }.into();
 
 	let tx_ext: TxExtension = (
 		frame_system::CheckNonZeroSender::<Runtime>::new(),
@@ -86,6 +83,24 @@ fn signed_transfer(
 	};
 
 	UncheckedExtrinsic::new_signed(call, MultiAddress::Id(sender), signature, tx_ext)
+}
+
+/// Build a `transfer_keep_alive` extrinsic signed by `pair`.
+fn signed_transfer(
+	pair: &Dilithium65Pair,
+	sender: AccountId32,
+	dest: AccountId32,
+	value: u128,
+	nonce: u32,
+	sig_only: bool,
+) -> UncheckedExtrinsic {
+	signed_call(
+		pair,
+		sender,
+		BalancesCall::transfer_keep_alive { dest: MultiAddress::Id(dest), value }.into(),
+		nonce,
+		sig_only,
+	)
 }
 
 #[test]
@@ -170,6 +185,40 @@ fn sig_only_transaction_from_wrong_key_rejected() {
 			Executive::apply_extrinsic(xt),
 			Err(TransactionValidityError::Invalid(InvalidTransaction::BadProof)),
 			"sig-only extrinsic signed by a different key must be rejected"
+		);
+	});
+}
+
+/// A full-signed `transfer_all(..., keep_alive = false)` verifies (and would
+/// cache the pubkey) before dispatch reaps the sender. The cache entry must
+/// not survive the reap, or fund → register → reap could leave unbounded
+/// orphan `Pubkeys` state.
+#[test]
+fn full_signed_reap_clears_cached_pubkey() {
+	let pair = Dilithium65Pair::from_seed_slice(&[42u8; 32]).expect("valid seed");
+	let account = pair.public().into_account();
+	let mut ext = test_ext(&account);
+
+	ext.execute_with(|| {
+		let dest = AccountId32::new([9u8; 32]);
+		Balances::make_free_balance_be(&dest, UNIT);
+
+		let xt = signed_call(
+			&pair,
+			account.clone(),
+			BalancesCall::transfer_all { dest: MultiAddress::Id(dest), keep_alive: false }.into(),
+			0,
+			false,
+		);
+		assert_ok!(Executive::apply_extrinsic(xt).expect("full-signed transfer_all is valid"));
+
+		assert!(
+			!frame_system::Account::<Runtime>::contains_key(&account),
+			"sender must be reaped"
+		);
+		assert!(
+			pallet_pubkey::Pallet::<Runtime>::pubkey_of(&account).is_none(),
+			"reaped account must not leave an orphan pubkey cache entry"
 		);
 	});
 }

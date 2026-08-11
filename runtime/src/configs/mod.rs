@@ -62,7 +62,7 @@ use sp_version::RuntimeVersion;
 // Local module imports
 use super::{
 	AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
-	PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
+	PalletInfo, Preimage, Pubkey, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
 	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Wormhole, ZkTree,
 	DAYS, EXISTENTIAL_DEPOSIT, MAX_SUPPLY, MICRO_UNIT, MILLIS_PER_DAY, TARGET_BLOCK_TIME_MS, UNIT,
 	VERSION,
@@ -129,6 +129,9 @@ impl frame_system::Config for Runtime {
 	/// This is used as an identifier of the chain. 42 is the generic substrate prefix.
 	type SS58Prefix = SS58Prefix;
 	type MaxConsumers = ConstU32<16>;
+	/// Drop cached Dilithium public keys when the system account is reaped so
+	/// fund → register → reap cannot leave unbounded orphan `Pubkeys` state.
+	type OnKilledAccount = Pubkey;
 }
 
 /// On-chain cache of Dilithium public keys; filled automatically on the first

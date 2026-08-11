@@ -189,7 +189,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 
 ### Index 23 — `Pubkey` (`pallet-pubkey`, local)
 - On-chain cache of Dilithium public keys keyed by the `AccountId32` they hash to. No dispatchable calls, events, or genesis config.
-- **Storage:** `Pubkeys: AccountId32 → DilithiumSigner`. Written automatically by `CachedSignature` (the runtime `Signature` type) the first time an account's full `SignatureWithPublic` transaction verifies — the successful verify proves both the signature and `Poseidon(pubkey) == account`, so the binding is trusted and permanent.
+- **Storage:** `Pubkeys: AccountId32 → DilithiumSigner`. Written automatically by `CachedSignature` (the runtime `Signature` type) the first time an account's full `SignatureWithPublic` transaction verifies — the successful verify proves both the signature and `Poseidon(pubkey) == account`, so the binding is trusted. Cleared via `frame_system::Config::OnKilledAccount = Pubkey` when the system account is reaped, so a fund → register → reap loop cannot leave unbounded orphan state; the next full-signature transaction re-registers.
 - Once cached, the account may sign with the `Dilithium87SigOnly`/`Dilithium65SigOnly` variants of `DilithiumSignatureScheme`, omitting the ~1.9–2.6 KB public key from every subsequent transaction; verification loads the key from `Pubkeys` and fails (`BadProof`) if none of the matching parameter set is cached. Full-signature transactions remain valid forever, so existing clients need no changes; sig-only is an opt-in size optimization.
 
 ---

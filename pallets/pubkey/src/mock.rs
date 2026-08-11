@@ -35,7 +35,7 @@ impl frame_system::Config for Test {
 	type PalletInfo = PalletInfo;
 	type AccountData = ();
 	type OnNewAccount = ();
-	type OnKilledAccount = ();
+	type OnKilledAccount = Pubkey;
 	type SystemWeightInfo = ();
 	type ExtensionsWeightInfo = ();
 	type SS58Prefix = ();

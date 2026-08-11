@@ -12,6 +12,9 @@
 //!   public key is written to [`Pubkeys`].
 //! - From then on the account may sign with the `SigOnly` variants of [`DilithiumSignatureScheme`],
 //!   which omit the public key; verification resolves the key from [`Pubkeys`] instead.
+//! - When the system account is reaped, the cache entry is removed via [`OnKilledAccount`] so a
+//!   fund → register → reap loop cannot leave unbounded orphan state. The next full-signature
+//!   transaction re-registers the key.
 //!
 //! The pallet has no extrinsics. Registration happens as a side effect of
 //! signature verification in [`CachedSignature`], the runtime's `Signature`
@@ -35,6 +38,7 @@ use core::marker::PhantomData;
 use qp_dilithium_crypto::{
 	verify_ml_dsa_65, verify_ml_dsa_87, DilithiumSignatureScheme, DilithiumSigner,
 };
+use frame_support::traits::OnKilledAccount;
 use scale_info::TypeInfo;
 use sp_runtime::{
 	traits::{Lazy, Verify},
@@ -49,15 +53,18 @@ pub mod pallet {
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
+	/// This chain's `AccountId` is always the Poseidon hash of a Dilithium
+	/// public key (`AccountId32`), so the cache is keyed that way.
 	#[pallet::config]
-	pub trait Config: frame_system::Config {}
+	pub trait Config: frame_system::Config<AccountId = AccountId32> {}
 
 	/// Dilithium public keys cached on chain, keyed by the account they hash to.
 	///
 	/// An entry is written only after a full `SignatureWithPublic` verification
 	/// succeeded, which proves both the signature and `Poseidon(pubkey) ==
-	/// account`. The binding is permanent: an account cannot rotate to a key
-	/// with a different hash, so entries never need updating.
+	/// account`. The account cannot rotate to a key with a different hash, so
+	/// entries never need updating while the account lives; they are removed
+	/// when the system account is reaped (see [`OnKilledAccount`] below).
 	#[pallet::storage]
 	pub type Pubkeys<T: Config> =
 		StorageMap<_, Blake2_128Concat, AccountId32, DilithiumSigner, OptionQuery>;
@@ -77,6 +84,12 @@ pub mod pallet {
 			if !Pubkeys::<T>::contains_key(who) {
 				Pubkeys::<T>::insert(who, public);
 			}
+		}
+	}
+
+	impl<T: Config> OnKilledAccount<T::AccountId> for Pallet<T> {
+		fn on_killed_account(who: &T::AccountId) {
+			Pubkeys::<T>::remove(who);
 		}
 	}
 }
