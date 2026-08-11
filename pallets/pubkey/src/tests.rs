@@ -46,9 +46,8 @@ fn sig_only_verifies_against_cached_pubkey() {
 		// Register through a full signature first.
 		assert!(Sig::from(pair.sign(MSG)).verify(MSG, &account));
 
-		let sig_only = Sig::from(DilithiumSignatureScheme::Dilithium65SigOnly(
-			pair.sign(MSG).signature(),
-		));
+		let sig_only =
+			Sig::from(DilithiumSignatureScheme::Dilithium65SigOnly(pair.sign(MSG).signature()));
 		assert!(sig_only.verify(MSG, &account));
 		assert!(!sig_only.verify(&b"different payload"[..], &account));
 	});
@@ -60,9 +59,8 @@ fn sig_only_fails_without_cached_pubkey() {
 		let pair = Dilithium65Pair::from_seed_slice(&[1u8; 32]).unwrap();
 		let account = pair.public().into_account();
 
-		let sig_only = Sig::from(DilithiumSignatureScheme::Dilithium65SigOnly(
-			pair.sign(MSG).signature(),
-		));
+		let sig_only =
+			Sig::from(DilithiumSignatureScheme::Dilithium65SigOnly(pair.sign(MSG).signature()));
 		assert!(!sig_only.verify(MSG, &account));
 	});
 }
@@ -77,9 +75,8 @@ fn sig_only_fails_on_parameter_set_mismatch() {
 		assert!(Sig::from(pair.sign(MSG)).verify(MSG, &account));
 
 		let pair87 = Dilithium87Pair::from_seed_slice(&[1u8; 32]).unwrap();
-		let sig_only = Sig::from(DilithiumSignatureScheme::Dilithium87SigOnly(
-			pair87.sign(MSG).signature(),
-		));
+		let sig_only =
+			Sig::from(DilithiumSignatureScheme::Dilithium87SigOnly(pair87.sign(MSG).signature()));
 		assert!(!sig_only.verify(MSG, &account));
 	});
 }
@@ -97,9 +94,8 @@ fn sig_only_fails_for_wrong_account() {
 		let other_account = other_pair.public().into_account();
 		assert!(Sig::from(other_pair.sign(MSG)).verify(MSG, &other_account));
 
-		let sig_only = Sig::from(DilithiumSignatureScheme::Dilithium65SigOnly(
-			pair.sign(MSG).signature(),
-		));
+		let sig_only =
+			Sig::from(DilithiumSignatureScheme::Dilithium65SigOnly(pair.sign(MSG).signature()));
 		assert!(!sig_only.verify(MSG, &other_account));
 	});
 }

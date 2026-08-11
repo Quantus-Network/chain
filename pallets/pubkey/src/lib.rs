@@ -8,11 +8,10 @@
 //! carry the full public key next to the signature (~1.9–2.6 KB). This pallet
 //! removes that cost for all transactions after an account's first one:
 //!
-//! - The first time an account signs with a full `SignatureWithPublic`
-//!   transaction, the verified public key is written to [`Pubkeys`].
-//! - From then on the account may sign with the `SigOnly` variants of
-//!   [`DilithiumSignatureScheme`], which omit the public key; verification
-//!   resolves the key from [`Pubkeys`] instead.
+//! - The first time an account signs with a full `SignatureWithPublic` transaction, the verified
+//!   public key is written to [`Pubkeys`].
+//! - From then on the account may sign with the `SigOnly` variants of [`DilithiumSignatureScheme`],
+//!   which omit the public key; verification resolves the key from [`Pubkeys`] instead.
 //!
 //! The pallet has no extrinsics. Registration happens as a side effect of
 //! signature verification in [`CachedSignature`], the runtime's `Signature`
@@ -89,13 +88,11 @@ pub mod pallet {
 /// full-signature transactions is unchanged.
 ///
 /// Verification behavior per variant:
-/// - `Dilithium87`/`Dilithium65` (full): verified self-contained as before; on
-///   success the carried public key is written to [`Pubkeys`] if absent. The
-///   write persists only when the extrinsic lands in a block (during
-///   transaction-pool validation it goes to a discarded overlay).
-/// - `Dilithium87SigOnly`/`Dilithium65SigOnly`: the public key is loaded from
-///   [`Pubkeys`]; verification fails if no key of the matching parameter set
-///   is cached for the claimed signer.
+/// - `Dilithium87`/`Dilithium65` (full): verified self-contained as before; on success the carried
+///   public key is written to [`Pubkeys`] if absent. The write persists only when the extrinsic
+///   lands in a block (during transaction-pool validation it goes to a discarded overlay).
+/// - `Dilithium87SigOnly`/`Dilithium65SigOnly`: the public key is loaded from [`Pubkeys`];
+///   verification fails if no key of the matching parameter set is cached for the claimed signer.
 #[derive(Eq, PartialEq, Clone, Encode, Decode, RuntimeDebug, TypeInfo, DecodeWithMemTracking)]
 #[scale_info(skip_type_params(T))]
 pub struct CachedSignature<T>(pub DilithiumSignatureScheme, PhantomData<T>);

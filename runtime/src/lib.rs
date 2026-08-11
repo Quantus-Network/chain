@@ -16,11 +16,7 @@ pub use qp_dilithium_crypto::{
 
 use alloc::vec::Vec;
 use sp_core::U512;
-use sp_runtime::{
-	generic, impl_opaque_keys,
-	traits::BlakeTwo256,
-	MultiAddress,
-};
+use sp_runtime::{generic, impl_opaque_keys, traits::BlakeTwo256, MultiAddress};
 use sp_version::RuntimeVersion;
 
 pub use frame_system::Call as SystemCall;
