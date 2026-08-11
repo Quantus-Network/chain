@@ -302,8 +302,8 @@ For high-performance mining, you can offload the mining process to a separate se
    ```bash
    RUST_LOG=info ./quantus-miner serve \
      --node-addr 127.0.0.1:9833 \
-     --auth-token <TOKEN_FROM_NODE_LOGS_OR_FILE> \
-     --tls-cert-sha256 <FINGERPRINT_FROM_NODE_LOGS_OR_FILE>
+     --auth-token-file <BASE_PATH>/chains/<CHAIN>/miner-auth-token \
+     --tls-cert-sha256-file <BASE_PATH>/chains/<CHAIN>/miner-tls-cert-sha256
    ```
    Useful flags: `--cpu-workers <N>`, `--gpu-devices <N>`, `--metrics-port <PORT>` (default `9900`). If the node is on another host, replace `127.0.0.1` with its IP.
 
