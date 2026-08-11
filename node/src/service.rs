@@ -523,9 +523,8 @@ fn spawn_authority_tasks(
 	task_manager.spawn_essential_handle().spawn("qpow-mining", None, async move {
 		// Start miner server if port is specified
 		let miner_server: Option<Arc<MinerServer>> = if let Some(port) = miner_listen_port {
-			let token_path = miner_auth_token_path.expect(
-				"miner_auth_token_path must be set whenever miner_listen_port is set",
-			);
+			let token_path = miner_auth_token_path
+				.expect("miner_auth_token_path must be set whenever miner_listen_port is set");
 			match MinerServer::start(port, token_path).await {
 				Ok(server) => Some(server),
 				Err(e) => {

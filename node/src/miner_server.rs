@@ -207,11 +207,7 @@ fn write_miner_auth_token_file(path: &Path, token: &str) -> Result<(), String> {
 		#[cfg(unix)]
 		{
 			use std::os::unix::fs::OpenOptionsExt;
-			fs::OpenOptions::new()
-				.write(true)
-				.create_new(true)
-				.mode(0o600)
-				.open(path)
+			fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)
 		}
 		#[cfg(not(unix))]
 		{
