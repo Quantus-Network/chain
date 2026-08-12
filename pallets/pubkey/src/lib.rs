@@ -16,6 +16,13 @@
 //!   fund → register → reap loop cannot leave unbounded orphan state. The next full-signature
 //!   transaction re-registers the key.
 //!
+//! `SigOnly` signatures are domain-separated from full ones: they sign
+//! [`sig_only_signing_payload`]`(payload)` (`"qsigonly" ‖ payload`) instead of
+//! the raw payload. A signature is therefore valid only in the encoding form
+//! its author chose — a third party cannot re-encode a `SigOnly` extrinsic
+//! into the ~2 KB larger full form (inflating the sender's length fee and
+//! changing the extrinsic hash) or vice versa.
+//!
 //! The pallet has no extrinsics. Registration happens as a side effect of
 //! signature verification in [`CachedSignature`], the runtime's `Signature`
 //! type. `CachedSignature` wraps [`DilithiumSignatureScheme`] transparently
@@ -37,7 +44,8 @@ use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use core::marker::PhantomData;
 use frame_support::traits::OnKilledAccount;
 use qp_dilithium_crypto::{
-	verify_ml_dsa_65, verify_ml_dsa_87, DilithiumSignatureScheme, DilithiumSigner,
+	sig_only_signing_payload, verify_ml_dsa_65, verify_ml_dsa_87, DilithiumSignatureScheme,
+	DilithiumSigner,
 };
 use scale_info::TypeInfo;
 use sp_runtime::{
@@ -117,11 +125,14 @@ pub mod pallet {
 /// full-signature transactions is unchanged.
 ///
 /// Verification behavior per variant:
-/// - `Dilithium87`/`Dilithium65` (full): verified self-contained as before; on success the carried
-///   public key is written to [`Pubkeys`] if absent. The write persists only when the extrinsic
-///   lands in a block (during transaction-pool validation it goes to a discarded overlay).
-/// - `Dilithium87SigOnly`/`Dilithium65SigOnly`: the public key is loaded from [`Pubkeys`];
-///   verification fails if no key of the matching parameter set is cached for the claimed signer.
+/// - `Dilithium87`/`Dilithium65` (full): verified self-contained as before, over the raw payload;
+///   on success the carried public key is written to [`Pubkeys`] if absent. The write persists only
+///   when the extrinsic lands in a block (during transaction-pool validation it goes to a discarded
+///   overlay).
+/// - `Dilithium87SigOnly`/`Dilithium65SigOnly`: the public key is loaded from [`Pubkeys`], and the
+///   signature is checked over the domain-separated message [`sig_only_signing_payload`]`(payload)`
+///   so it cannot be re-encoded as (or from) a full signature. Verification fails if no key of the
+///   matching parameter set is cached for the claimed signer.
 ///
 /// # Weight accounting
 ///
@@ -193,14 +204,20 @@ impl<T: Config> Verify for CachedSignature<T> {
 			},
 			DilithiumSignatureScheme::Dilithium87SigOnly(signature) =>
 				match Pubkeys::<T>::get(signer) {
-					Some(DilithiumSigner::Dilithium87(public)) =>
-						verify_ml_dsa_87(public.as_ref(), msg.get(), signature.as_ref()),
+					Some(DilithiumSigner::Dilithium87(public)) => verify_ml_dsa_87(
+						public.as_ref(),
+						&sig_only_signing_payload(msg.get()),
+						signature.as_ref(),
+					),
 					_ => false,
 				},
 			DilithiumSignatureScheme::Dilithium65SigOnly(signature) =>
 				match Pubkeys::<T>::get(signer) {
-					Some(DilithiumSigner::Dilithium65(public)) =>
-						verify_ml_dsa_65(public.as_ref(), msg.get(), signature.as_ref()),
+					Some(DilithiumSigner::Dilithium65(public)) => verify_ml_dsa_65(
+						public.as_ref(),
+						&sig_only_signing_payload(msg.get()),
+						signature.as_ref(),
+					),
 					_ => false,
 				},
 		}

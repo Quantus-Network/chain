@@ -1,11 +1,15 @@
 //! End-to-end tests for the on-chain pubkey cache (`pallet-pubkey`): an
 //! account's first full `SignatureWithPublic` transaction registers its
 //! Dilithium public key, after which `SigOnly` transactions — which omit the
-//! ~2 KB public key — pass the full `Executive::apply_extrinsic` pipeline.
+//! ~2 KB public key and sign the domain-separated payload — pass the full
+//! `Executive::apply_extrinsic` pipeline.
 
 use codec::Encode;
 use frame_support::{assert_ok, traits::Currency};
-use qp_dilithium_crypto::{Dilithium65Pair, Dilithium65Public, DilithiumSignatureScheme};
+use qp_dilithium_crypto::{
+	sig_only_signing_payload, Dilithium65Pair, Dilithium65Public, Dilithium65SignatureWithPublic,
+	DilithiumSignatureScheme, DilithiumSigner,
+};
 use quantus_runtime::{
 	transaction_extensions::{ReversibleTransactionExtension, WormholeProofRecorderExtension},
 	Balances, BalancesCall, Executive, Runtime, RuntimeCall, Signature, SignedPayload, System,
@@ -31,15 +35,8 @@ fn test_ext(account: &AccountId32) -> sp_io::TestExternalities {
 	ext
 }
 
-/// Build a signed extrinsic for `call`. With `sig_only` the public key is
-/// omitted from the signature, relying on the on-chain cache.
-fn signed_call(
-	pair: &Dilithium65Pair,
-	sender: AccountId32,
-	call: RuntimeCall,
-	nonce: u32,
-	sig_only: bool,
-) -> UncheckedExtrinsic {
+/// The signing payload and transaction extensions for `call` at `nonce`.
+fn payload_and_ext(call: RuntimeCall, nonce: u32) -> (SignedPayload, TxExtension) {
 	let genesis_hash = System::block_hash(0);
 
 	let tx_ext: TxExtension = (
@@ -58,7 +55,7 @@ fn signed_call(
 	);
 
 	let raw_payload = SignedPayload::from_raw(
-		call.clone(),
+		call,
 		tx_ext.clone(),
 		(
 			(),
@@ -75,11 +72,28 @@ fn signed_call(
 			(),
 		),
 	);
-	let sig_with_public = raw_payload.using_encoded(|e| pair.sign(e));
+	(raw_payload, tx_ext)
+}
+
+/// Build a signed extrinsic for `call`. With `sig_only` the public key is
+/// omitted from the signature, relying on the on-chain cache, and the
+/// signature is made over the domain-separated sig-only payload.
+fn signed_call(
+	pair: &Dilithium65Pair,
+	sender: AccountId32,
+	call: RuntimeCall,
+	nonce: u32,
+	sig_only: bool,
+) -> UncheckedExtrinsic {
+	let (raw_payload, tx_ext) = payload_and_ext(call.clone(), nonce);
+
 	let signature: Signature = if sig_only {
-		DilithiumSignatureScheme::Dilithium65SigOnly(sig_with_public.signature()).into()
+		let sig = raw_payload
+			.using_encoded(|e| pair.sign(&sig_only_signing_payload(e)))
+			.signature();
+		DilithiumSignatureScheme::Dilithium65SigOnly(sig).into()
 	} else {
-		sig_with_public.into()
+		raw_payload.using_encoded(|e| pair.sign(e)).into()
 	};
 
 	UncheckedExtrinsic::new_signed(call, MultiAddress::Id(sender), signature, tx_ext)
@@ -185,6 +199,104 @@ fn sig_only_transaction_from_wrong_key_rejected() {
 			Executive::apply_extrinsic(xt),
 			Err(TransactionValidityError::Invalid(InvalidTransaction::BadProof)),
 			"sig-only extrinsic signed by a different key must be rejected"
+		);
+	});
+}
+
+/// A third party must not be able to re-encode a sig-only extrinsic into the
+/// ~2 KB larger full form: the cached pubkey is world-readable, so only the
+/// domain separation of the signed message stops the substitution. Without
+/// it, a fee-collecting block author could inflate every sig-only extrinsic
+/// it includes — the sender pays the extra length fee, and the extrinsic hash
+/// the sender is watching never appears on chain.
+#[test]
+fn sig_only_extrinsic_reencoded_as_full_is_rejected() {
+	let pair = Dilithium65Pair::from_seed_slice(&[42u8; 32]).expect("valid seed");
+	let account = pair.public().into_account();
+	let mut ext = test_ext(&account);
+
+	ext.execute_with(|| {
+		let dest = AccountId32::new([9u8; 32]);
+
+		// Register the key.
+		let full = signed_transfer(&pair, account.clone(), dest.clone(), 10 * UNIT, 0, false);
+		assert_ok!(Executive::apply_extrinsic(full).expect("full-signature extrinsic is valid"));
+
+		// The victim's sig-only transaction for nonce 1.
+		let call: RuntimeCall =
+			BalancesCall::transfer_keep_alive { dest: MultiAddress::Id(dest), value: 5 * UNIT }
+				.into();
+		let (raw_payload, tx_ext) = payload_and_ext(call.clone(), 1);
+		let sig = raw_payload
+			.using_encoded(|e| pair.sign(&sig_only_signing_payload(e)))
+			.signature();
+
+		// An attacker pulls the raw signature out of the preamble and
+		// re-wraps it as a full SignatureWithPublic, with the public key read
+		// from on-chain storage.
+		let cached_public = match pallet_pubkey::Pallet::<Runtime>::pubkey_of(&account) {
+			Some(DilithiumSigner::Dilithium65(public)) => public,
+			other => panic!("expected a cached ML-DSA-65 key, got {other:?}"),
+		};
+		let inflated_sig: Signature = DilithiumSignatureScheme::Dilithium65(
+			Dilithium65SignatureWithPublic::new(sig.clone(), cached_public),
+		)
+		.into();
+		let inflated = UncheckedExtrinsic::new_signed(
+			call.clone(),
+			MultiAddress::Id(account.clone()),
+			inflated_sig,
+			tx_ext.clone(),
+		);
+		assert_eq!(
+			Executive::apply_extrinsic(inflated),
+			Err(TransactionValidityError::Invalid(InvalidTransaction::BadProof)),
+			"a sig-only signature re-wrapped as a full signature must be rejected"
+		);
+
+		// The genuine sig-only encoding of the very same signature applies
+		// fine: only the re-encoding was rejected, not the signature.
+		let sig_only: Signature = DilithiumSignatureScheme::Dilithium65SigOnly(sig).into();
+		let genuine =
+			UncheckedExtrinsic::new_signed(call, MultiAddress::Id(account.clone()), sig_only, tx_ext);
+		assert_ok!(Executive::apply_extrinsic(genuine).expect("genuine sig-only form is valid"));
+	});
+}
+
+/// The reverse direction: stripping the public key off an observed full
+/// extrinsic and resubmitting it in the smaller sig-only form must fail,
+/// because the full signature was made over the raw payload, not the
+/// domain-separated one.
+#[test]
+fn full_extrinsic_reencoded_as_sig_only_is_rejected() {
+	let pair = Dilithium65Pair::from_seed_slice(&[42u8; 32]).expect("valid seed");
+	let account = pair.public().into_account();
+	let mut ext = test_ext(&account);
+
+	ext.execute_with(|| {
+		let dest = AccountId32::new([9u8; 32]);
+
+		let full = signed_transfer(&pair, account.clone(), dest.clone(), 10 * UNIT, 0, false);
+		assert_ok!(Executive::apply_extrinsic(full).expect("full-signature extrinsic is valid"));
+
+		// A full-signature transaction for nonce 1, as an attacker would see
+		// it in the pool…
+		let call: RuntimeCall =
+			BalancesCall::transfer_keep_alive { dest: MultiAddress::Id(dest), value: 5 * UNIT }
+				.into();
+		let (raw_payload, tx_ext) = payload_and_ext(call.clone(), 1);
+		let full_sig = raw_payload.using_encoded(|e| pair.sign(e));
+
+		// …stripped down to its bare signature.
+		let stripped: Signature =
+			DilithiumSignatureScheme::Dilithium65SigOnly(full_sig.signature()).into();
+		let xt =
+			UncheckedExtrinsic::new_signed(call, MultiAddress::Id(account.clone()), stripped, tx_ext);
+
+		assert_eq!(
+			Executive::apply_extrinsic(xt),
+			Err(TransactionValidityError::Invalid(InvalidTransaction::BadProof)),
+			"a full signature re-wrapped as sig-only must be rejected"
 		);
 	});
 }

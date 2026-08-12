@@ -71,14 +71,41 @@ pub struct WrappedSignatureBytes<const N: usize, SubTag>(pub SignatureBytes<N, S
 pub enum DilithiumSignatureScheme {
 	Dilithium87(Dilithium87SignatureWithPublic),
 	Dilithium65(Dilithium65SignatureWithPublic),
-	/// ML-DSA-87 signature without the public key. Only verifiable against a
-	/// public key already cached on chain (see `pallet-pubkey`); the pure
-	/// [`Verify`](sp_runtime::traits::Verify) impl in this crate rejects it.
+	/// ML-DSA-87 signature without the public key, over the domain-separated
+	/// message [`sig_only_signing_payload`]`(payload)` rather than the raw
+	/// payload. Only verifiable against a public key already cached on chain
+	/// (see `pallet-pubkey`); the pure [`Verify`](sp_runtime::traits::Verify)
+	/// impl in this crate rejects it.
 	Dilithium87SigOnly(Dilithium87Signature),
-	/// ML-DSA-65 signature without the public key. Only verifiable against a
-	/// public key already cached on chain (see `pallet-pubkey`); the pure
-	/// [`Verify`](sp_runtime::traits::Verify) impl in this crate rejects it.
+	/// ML-DSA-65 signature without the public key, over the domain-separated
+	/// message [`sig_only_signing_payload`]`(payload)` rather than the raw
+	/// payload. Only verifiable against a public key already cached on chain
+	/// (see `pallet-pubkey`); the pure [`Verify`](sp_runtime::traits::Verify)
+	/// impl in this crate rejects it.
 	Dilithium65SigOnly(Dilithium65Signature),
+}
+
+/// Domain-separation prefix for `SigOnly` signatures.
+///
+/// Full `SignatureWithPublic` transactions sign the raw transaction payload;
+/// `SigOnly` transactions sign [`sig_only_signing_payload`]`(payload)` =
+/// `"qsigonly" ‖ payload`. This makes the signature commit to the encoding
+/// form the signer chose: without it, one signature would be valid in both
+/// encodings, and any third party (a fee-collecting block author in
+/// particular) could re-encode a `SigOnly` extrinsic into the ~2 KB larger
+/// full form — inflating the sender's length fee and changing the extrinsic
+/// hash the sender is tracking — or shrink a full one, all without touching
+/// the signature.
+pub const SIG_ONLY_SIGNING_PREFIX: &[u8] = b"qsigonly";
+
+/// The message actually signed and verified for `SigOnly` signatures:
+/// [`SIG_ONLY_SIGNING_PREFIX`] followed by the transaction signing payload
+/// (the same bytes a full signature would sign).
+pub fn sig_only_signing_payload(payload: &[u8]) -> alloc::vec::Vec<u8> {
+	let mut msg = alloc::vec::Vec::with_capacity(SIG_ONLY_SIGNING_PREFIX.len() + payload.len());
+	msg.extend_from_slice(SIG_ONLY_SIGNING_PREFIX);
+	msg.extend_from_slice(payload);
+	msg
 }
 
 /// Dilithium signer - replacement for MultiSigner
