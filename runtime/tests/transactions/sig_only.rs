@@ -339,51 +339,60 @@ fn first_registration_plus_reap_weight_covers_combined_db_ops() {
 	}
 
 	// The cleanup write is registered where it happens, so it is covered on
-	// every reap path by construction. Differential check: two identical
-	// `transfer_all` extrinsics (same dispatch info), one of which reaps its
-	// sender — the reaping one must consume exactly one extra DB write.
+	// every reap path by construction. Differential check: two otherwise
+	// identical `transfer_all` extrinsics, one of which reaps its sender —
+	// the reaping one must consume at least the cleanup DB write.
+	//
+	// Each extrinsic runs as the sole extrinsic of its own externalities so
+	// `WormholeProofRecorderExtension`'s event-scan weight (charged on the
+	// cumulative block event count) cannot confound the differential with a
+	// positional re-scan of a prior extrinsic's events. Even then the reaping
+	// path emits extra events (e.g. `KilledAccount`), so the scan cost still
+	// differs — exact registration of the single write is proven by
+	// `killed_account_registers_cleanup_weight`; here we only require coverage.
 	let reaper_pair = Dilithium65Pair::from_seed_slice(&[42u8; 32]).expect("valid seed");
 	let reaper = reaper_pair.public().into_account();
 	let keeper_pair = Dilithium65Pair::from_seed_slice(&[43u8; 32]).expect("valid seed");
 	let keeper = keeper_pair.public().into_account();
+	let dest = AccountId32::new([9u8; 32]);
 
-	let mut ext = test_ext(&reaper);
-	ext.execute_with(|| {
-		Balances::make_free_balance_be(&keeper, 1000 * UNIT);
-		let dest = AccountId32::new([9u8; 32]);
-		Balances::make_free_balance_be(&dest, UNIT);
-
-		let consumed_by = |xt: UncheckedExtrinsic| {
+	let consumed_by = |pair: &Dilithium65Pair, sender: &AccountId32, keep_alive: bool| {
+		let mut ext = test_ext(sender);
+		ext.execute_with(|| {
+			Balances::make_free_balance_be(&dest, UNIT);
+			let xt = signed_call(
+				pair,
+				sender.clone(),
+				BalancesCall::transfer_all {
+					dest: MultiAddress::Id(dest.clone()),
+					keep_alive,
+				}
+				.into(),
+				0,
+				false,
+			);
 			let before = *System::block_weight().get(DispatchClass::Normal);
 			assert_ok!(Executive::apply_extrinsic(xt).expect("extrinsic is valid"));
 			let after = *System::block_weight().get(DispatchClass::Normal);
+			if !keep_alive {
+				assert!(
+					!frame_system::Account::<Runtime>::contains_key(sender),
+					"sender must be reaped"
+				);
+			}
 			after.saturating_sub(before)
-		};
+		})
+	};
 
-		let keep = consumed_by(signed_call(
-			&keeper_pair,
-			keeper.clone(),
-			BalancesCall::transfer_all { dest: MultiAddress::Id(dest.clone()), keep_alive: true }
-				.into(),
-			0,
-			false,
-		));
-		let reap = consumed_by(signed_call(
-			&reaper_pair,
-			reaper.clone(),
-			BalancesCall::transfer_all { dest: MultiAddress::Id(dest), keep_alive: false }.into(),
-			0,
-			false,
-		));
+	let keep = consumed_by(&keeper_pair, &keeper, true);
+	let reap = consumed_by(&reaper_pair, &reaper, false);
 
-		assert!(!frame_system::Account::<Runtime>::contains_key(&reaper), "sender must be reaped");
-		assert_eq!(
-			reap.saturating_sub(keep),
-			cleanup,
-			"a reaping transfer_all must register exactly the Pubkeys::remove write \
-			 on top of an otherwise identical non-reaping one"
-		);
-	});
+	assert!(
+		reap.saturating_sub(keep).all_gte(cleanup),
+		"a reaping transfer_all must cover at least the Pubkeys::remove write \
+		 on top of an otherwise identical non-reaping one; \
+		 keep={keep:?} reap={reap:?} cleanup={cleanup:?}"
+	);
 }
 
 /// A full-signed `transfer_all(..., keep_alive = false)` verifies (and would

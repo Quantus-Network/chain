@@ -159,23 +159,25 @@ impl Verify for DilithiumSignatureScheme {
 	) -> bool {
 		match self {
 			Self::Dilithium87(sig_public) => {
-				let account = sig_public.public().clone().into_account();
-				if account != *signer {
+				// `public()` rebuilds an owned key from the carried bytes; bind
+				// once and reuse so the verify path does a single copy.
+				let public = sig_public.public();
+				if AccountId32::new(hash_bytes(public.as_ref())) != *signer {
 					return false;
 				}
 				crate::verify_ml_dsa_87(
-					sig_public.public().as_ref(),
+					public.as_ref(),
 					msg.get(),
 					sig_public.signature().as_ref(),
 				)
 			},
 			Self::Dilithium65(sig_public) => {
-				let account = sig_public.public().clone().into_account();
-				if account != *signer {
+				let public = sig_public.public();
+				if AccountId32::new(hash_bytes(public.as_ref())) != *signer {
 					return false;
 				}
 				crate::verify_ml_dsa_65(
-					sig_public.public().as_ref(),
+					public.as_ref(),
 					msg.get(),
 					sig_public.signature().as_ref(),
 				)

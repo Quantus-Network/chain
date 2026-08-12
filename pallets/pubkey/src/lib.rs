@@ -129,6 +129,14 @@ pub mod pallet {
 	/// Signature-verification base weight does not cover this write — a
 	/// first-registration that also reaps performs both the insert and this
 	/// remove.
+	///
+	/// Class attribution is deliberately approximate: `OnKilledAccount` has no
+	/// access to the enclosing dispatch's [`DispatchClass`], so the write is
+	/// always booked against [`DispatchClass::Normal`]. Reaps inside Operational
+	/// or Mandatory paths therefore consume Normal budget they did not use; the
+	/// block total stays correct. The remove is also registered on every reap,
+	/// including accounts that never cached a key — an over-charge, not an
+	/// under-charge.
 	impl<T: Config> OnKilledAccount<T::AccountId> for Pallet<T> {
 		fn on_killed_account(who: &T::AccountId) {
 			Pubkeys::<T>::remove(who);
