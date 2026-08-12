@@ -55,6 +55,12 @@ pub const DEFAULT_MINER_TLS_CERT_FILENAME: &str = "miner-tls-cert.der";
 pub const DEFAULT_MINER_TLS_KEY_FILENAME: &str = "miner-tls-key.der";
 pub const DEFAULT_MINER_TLS_CERT_SHA256_FILENAME: &str = "miner-tls-cert-sha256";
 
+/// ALPN protocol id, versioned with the wire protocol: bump it on breaking
+/// message changes so an incompatible miner fails cleanly at the TLS handshake
+/// ("no application protocol") instead of an opaque auth/deserialize error
+/// indistinguishable from a wrong token. `/2` = authenticated `Ready { token }`.
+pub const MINER_ALPN: &[u8] = b"quantus-miner/2";
+
 /// Max time for stream accept + `Ready` auth before the connection is dropped.
 const AUTH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -529,7 +535,7 @@ async fn create_server_endpoint(
 		.map_err(|e| format!("Failed to create server config: {}", e))?;
 
 	// Set ALPN protocol
-	server_config.alpn_protocols = vec![b"quantus-miner".to_vec()];
+	server_config.alpn_protocols = vec![MINER_ALPN.to_vec()];
 
 	// Wrap in QuicServerConfig for quinn 0.11+
 	let quic_server_config = quinn::crypto::rustls::QuicServerConfig::try_from(server_config)

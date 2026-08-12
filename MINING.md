@@ -793,7 +793,9 @@ If the miner receives an invalid `MiningRequest`, it sends a `JobResult` with st
 - All hex values should be sent **without** the `0x` prefix
 - The miner implements validation logic from `qpow_math::is_valid_nonce`
 - The node uses the `work` field from `MiningResult` to construct `QPoWSeal`
-- ALPN protocol identifier: `quantus-miner`
+- ALPN protocol identifier: `quantus-miner/2` (versioned with the wire
+  protocol; a mismatched miner fails at the TLS handshake with "no application
+  protocol" rather than an auth error)
 - Each miner independently generates a random nonce starting point using cryptographically secure randomness
 - With a 512-bit nonce space, collision between miners is statistically impossible
 
