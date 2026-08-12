@@ -297,7 +297,7 @@ pub fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, Stri
 		));
 	}
 
-	let (cert_der, key_der, generated) = if cert_exists {
+	let (cert_der, key_der) = if cert_exists {
 		let cert_der = fs::read(&cert_path)
 			.map_err(|e| format!("Failed to read miner TLS cert {}: {}", cert_path.display(), e))?;
 		let key_der = fs::read(&key_path)
@@ -308,7 +308,7 @@ pub fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, Stri
 				tls_dir.display()
 			));
 		}
-		(cert_der, key_der, false)
+		(cert_der, key_der)
 	} else {
 		let certified = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
 			.map_err(|e| format!("Failed to generate miner TLS certificate: {}", e))?;
@@ -322,24 +322,40 @@ pub fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, Stri
 			cert_path.display(),
 			key_path.display()
 		);
-		(cert_der, key_der, true)
+		(cert_der, key_der)
 	};
 
 	// Existing material must also validate before we (re)publish the fingerprint.
 	validate_miner_tls(&cert_der, &key_der)?;
 
+	// Only touch the fingerprint file when it is missing or wrong: rewriting it
+	// every boot re-runs the temp-file + fsync + rename dance for no reason and
+	// creates a crash window on a file operators have already distributed.
 	let fingerprint_hex = hex::encode(Sha256::digest(&cert_der));
-	if let Ok(existing) = fs::read_to_string(&fingerprint_path) {
-		if existing.trim().to_ascii_lowercase() != fingerprint_hex {
+	let needs_write = match fs::read_to_string(&fingerprint_path) {
+		Ok(existing) => {
+			let matches = existing.trim().eq_ignore_ascii_case(&fingerprint_hex);
+			if !matches {
+				log::warn!(
+					"⛏️ Miner TLS fingerprint file {} did not match cert; rewriting",
+					fingerprint_path.display()
+				);
+			}
+			!matches
+		},
+		Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
+		Err(e) => {
 			log::warn!(
-				"⛏️ Miner TLS fingerprint file {} did not match cert; rewriting",
-				fingerprint_path.display()
+				"⛏️ Could not read miner TLS fingerprint file {}: {}; rewriting",
+				fingerprint_path.display(),
+				e
 			);
-		}
-	}
-	// Fingerprint is public pin data — world-readable is fine (and helps remote miners).
-	atomic_write_text_file(&fingerprint_path, &fingerprint_hex, 0o644)?;
-	if generated {
+			true
+		},
+	};
+	if needs_write {
+		// Fingerprint is public pin data — world-readable is fine (and helps remote miners).
+		atomic_write_text_file(&fingerprint_path, &fingerprint_hex, 0o644)?;
 		log::info!("⛏️ Wrote miner TLS cert SHA-256 to {}", fingerprint_path.display());
 	}
 
@@ -418,10 +434,15 @@ fn atomic_write_text_file(path: &Path, contents: &str, mode: u32) -> Result<(), 
 
 fn atomic_write_bytes_file(path: &Path, contents: &[u8], mode: u32) -> Result<(), String> {
 	let parent = path.parent().unwrap_or_else(|| Path::new("."));
+	// The suffix must be unique across restarts, not just across processes: a
+	// stale temp file left by a hard kill (SIGKILL/OOM/power loss) would make
+	// `create_new` fail forever if the name were deterministic — under Docker
+	// the node is PID 1 on every restart, so a PID-only suffix collides.
 	let tmp_name = format!(
-		".{}.{}.tmp",
+		".{}.{}.{:016x}.tmp",
 		path.file_name().and_then(|s| s.to_str()).unwrap_or("secret"),
-		std::process::id()
+		std::process::id(),
+		rand::thread_rng().next_u64()
 	);
 	let tmp_path = parent.join(tmp_name);
 
