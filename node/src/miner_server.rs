@@ -558,8 +558,14 @@ async fn acceptor_task(endpoint: quinn::Endpoint, server: Arc<MinerServer>) {
 			continue;
 		};
 		tokio::spawn(async move {
-			match connecting.await {
-				Ok(connection) => {
+			// The QUIC/TLS handshake must be bounded too: a peer that sends an
+			// Initial and then stalls would otherwise pin this pre-auth permit
+			// until max_idle_timeout (60s), letting ~32 cheap half-open
+			// handshakes lock every legitimate miner out. Dropping the
+			// `Connecting` future on timeout abandons the handshake.
+			let remote = connecting.remote_address();
+			match tokio::time::timeout(AUTH_HANDSHAKE_TIMEOUT, connecting).await {
+				Ok(Ok(connection)) => {
 					log::debug!("New QUIC connection from {:?}", connection.remote_address());
 					match authenticate_miner_connection(&connection, &server).await {
 						Some((send, recv)) => {
@@ -575,8 +581,15 @@ async fn acceptor_task(endpoint: quinn::Endpoint, server: Arc<MinerServer>) {
 						},
 					}
 				},
-				Err(e) => {
+				Ok(Err(e)) => {
 					log::warn!("Failed to accept connection: {}", e);
+				},
+				Err(_) => {
+					log::warn!(
+						"⛏️ Rejected miner {}: QUIC handshake timed out after {:?}",
+						remote,
+						AUTH_HANDSHAKE_TIMEOUT
+					);
 				},
 			}
 			drop(unauth_permit);
