@@ -43,7 +43,7 @@ use jsonrpsee::tokio;
 use quantus_miner_api::{read_message, write_message, MinerMessage, MiningRequest, MiningResult};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, RwLock, Semaphore};
 
 /// Default filename for the miner auth token under the chain config directory.
 pub const DEFAULT_MINER_AUTH_TOKEN_FILENAME: &str = "miner-auth-token";
@@ -52,6 +52,12 @@ pub const DEFAULT_MINER_AUTH_TOKEN_FILENAME: &str = "miner-auth-token";
 pub const DEFAULT_MINER_TLS_CERT_FILENAME: &str = "miner-tls-cert.der";
 pub const DEFAULT_MINER_TLS_KEY_FILENAME: &str = "miner-tls-key.der";
 pub const DEFAULT_MINER_TLS_CERT_SHA256_FILENAME: &str = "miner-tls-cert-sha256";
+
+/// Max time for stream accept + `Ready` auth before the connection is dropped.
+const AUTH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Cap on connections that have not yet completed auth (prevents pre-auth task/memory DoS).
+const MAX_UNAUTHENTICATED_CONNECTIONS: usize = 32;
 
 /// A QUIC server that accepts connections from miners.
 pub struct MinerServer {
@@ -67,6 +73,8 @@ pub struct MinerServer {
 	next_miner_id: AtomicU64,
 	/// Shared secret required in the miner's `Ready` message.
 	auth_token: Arc<str>,
+	/// Limits concurrent pre-auth handshakes.
+	unauth_slots: Arc<Semaphore>,
 }
 
 /// Handle for communicating with a connected miner.
@@ -107,6 +115,7 @@ impl MinerServer {
 			current_job: Arc::new(RwLock::new(None)),
 			next_miner_id: AtomicU64::new(1),
 			auth_token: Arc::from(auth_token),
+			unauth_slots: Arc::new(Semaphore::new(MAX_UNAUTHENTICATED_CONNECTIONS)),
 		});
 
 		// Start the acceptor task
@@ -430,9 +439,16 @@ async fn create_server_endpoint(
 
 	let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(quic_server_config));
 
-	// Set transport config
+	// Bound how many incomplete handshakes quinn will buffer for the app.
+	quinn_config.max_incoming(MAX_UNAUTHENTICATED_CONNECTIONS);
+
+	// Set transport config: one bi-stream (the protocol), no uni-streams, and no
+	// server keep-alives so max_idle_timeout can reclaim peers that connect and stall
+	// before/during auth. Authenticated miners stay alive via job traffic.
 	let mut transport_config = quinn::TransportConfig::default();
-	transport_config.keep_alive_interval(Some(Duration::from_secs(10)));
+	transport_config.max_concurrent_bidi_streams(1u32.into());
+	transport_config.max_concurrent_uni_streams(0u32.into());
+	transport_config.keep_alive_interval(None);
 	transport_config.max_idle_timeout(Some(Duration::from_secs(60).try_into().unwrap()));
 	quinn_config.transport_config(Arc::new(transport_config));
 
@@ -451,67 +467,106 @@ async fn acceptor_task(endpoint: quinn::Endpoint, server: Arc<MinerServer>) {
 	while let Some(connecting) = endpoint.accept().await {
 		let server = server.clone();
 
+		// Refuse early when the pre-auth budget is exhausted so we do not spawn
+		// unbounded tasks for silent connect-and-stall peers.
+		let Ok(unauth_permit) = server.unauth_slots.clone().try_acquire_owned() else {
+			log::warn!(
+				"⛏️ Rejecting miner connection: {} unauthenticated handshakes already in flight",
+				MAX_UNAUTHENTICATED_CONNECTIONS
+			);
+			connecting.refuse();
+			continue;
+		};
 		tokio::spawn(async move {
 			match connecting.await {
 				Ok(connection) => {
 					log::debug!("New QUIC connection from {:?}", connection.remote_address());
-					handle_miner_connection(connection, server).await;
+					match authenticate_miner_connection(&connection, &server).await {
+						Some((send, recv)) => {
+							// Auth succeeded — free the pre-auth slot before the
+							// long-lived miner session so authenticated miners do
+							// not consume the unauth budget.
+							drop(unauth_permit);
+							serve_authenticated_miner(connection, server, send, recv).await;
+							return;
+						},
+						None => {
+							// Rejection/timeout already logged + connection closed.
+						},
+					}
 				},
 				Err(e) => {
 					log::warn!("Failed to accept connection: {}", e);
 				},
 			}
+			drop(unauth_permit);
 		});
 	}
 
 	log::info!("Acceptor task stopped");
 }
 
-/// Handle a single miner connection.
-async fn handle_miner_connection(connection: quinn::Connection, server: Arc<MinerServer>) {
+/// Run the stream accept + `Ready` auth handshake under a timeout.
+///
+/// Returns the bi-streams on success. On failure the connection is closed.
+async fn authenticate_miner_connection(
+	connection: &quinn::Connection,
+	server: &MinerServer,
+) -> Option<(quinn::SendStream, quinn::RecvStream)> {
 	let addr = connection.remote_address();
 	log::info!("⛏️ New miner connection from {}", addr);
-	log::debug!("Waiting for miner {} to open bidirectional stream...", addr);
 
-	// Accept bidirectional stream from miner
-	let (send, mut recv) = match connection.accept_bi().await {
-		Ok(streams) => {
-			log::info!("⛏️ Stream accepted from miner {}", addr);
-			streams
-		},
-		Err(e) => {
-			log::warn!("Failed to accept stream from {}: {}", addr, e);
-			return;
-		},
+	let handshake = async {
+		log::debug!("Waiting for miner {} to open bidirectional stream...", addr);
+		let (send, mut recv) = connection
+			.accept_bi()
+			.await
+			.map_err(|e| format!("Failed to accept stream from {}: {}", addr, e))?;
+		log::info!("⛏️ Stream accepted from miner {}", addr);
+
+		log::debug!("Waiting for Ready (auth) from miner {}...", addr);
+		match read_message(&mut recv).await {
+			Ok(MinerMessage::Ready { token }) if token == server.auth_token.as_ref() => {
+				log::debug!("Miner {} authenticated", addr);
+				Ok((send, recv))
+			},
+			Ok(MinerMessage::Ready { .. }) => {
+				Err(format!("Rejected miner {}: invalid auth token", addr))
+			},
+			Ok(other) => Err(format!("Expected Ready from miner {}, got {:?}", addr, other)),
+			Err(e) => Err(format!("Failed to read Ready from miner {}: {}", addr, e)),
+		}
 	};
 
-	// Authenticate before registering so unauthenticated peers never appear as miners.
-	log::debug!("Waiting for Ready (auth) from miner {}...", addr);
-	match read_message(&mut recv).await {
-		Ok(MinerMessage::Ready { token }) if token == server.auth_token.as_ref() => {
-			log::debug!("Miner {} authenticated", addr);
+	match tokio::time::timeout(AUTH_HANDSHAKE_TIMEOUT, handshake).await {
+		Ok(Ok(streams)) => Some(streams),
+		Ok(Err(e)) => {
+			log::warn!("⛏️ {}", e);
+			connection.close(0u32.into(), b"auth failed");
+			None
 		},
-		Ok(MinerMessage::Ready { .. }) => {
-			log::warn!("⛏️ Rejected miner {}: invalid auth token", addr);
-			return;
-		},
-		Ok(other) => {
-			log::warn!("Expected Ready from miner {}, got {:?}", addr, other);
-			return;
-		},
-		Err(e) => {
-			log::warn!("Failed to read Ready from miner {}: {}", addr, e);
-			return;
+		Err(_) => {
+			log::warn!(
+				"⛏️ Rejected miner {}: auth handshake timed out after {:?}",
+				addr,
+				AUTH_HANDSHAKE_TIMEOUT
+			);
+			connection.close(0u32.into(), b"auth timeout");
+			None
 		},
 	}
+}
 
-	// Create channel for sending jobs to this miner
+/// Register and serve a miner that has already passed auth.
+async fn serve_authenticated_miner(
+	_connection: quinn::Connection,
+	server: Arc<MinerServer>,
+	send: quinn::SendStream,
+	recv: quinn::RecvStream,
+) {
 	let (job_tx, job_rx) = mpsc::channel::<MiningRequest>(16);
-
-	// Register miner
 	let miner_id = server.add_miner(job_tx).await;
 
-	// Handle the connection
 	let result = connection_handler(
 		miner_id,
 		send,
@@ -526,7 +581,6 @@ async fn handle_miner_connection(connection: quinn::Connection, server: Arc<Mine
 		log::debug!("Miner {} connection ended: {}", miner_id, e);
 	}
 
-	// Unregister miner
 	server.remove_miner(miner_id).await;
 }
 
