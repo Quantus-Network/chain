@@ -202,6 +202,7 @@ pub fn load_or_create_miner_auth_token(path: &Path) -> Result<String, String> {
 					path.display()
 				));
 			}
+			ensure_secret_file_permissions(path)?;
 			Ok(token)
 		},
 		Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -347,6 +348,37 @@ fn persist_miner_tls_pair(
 
 fn write_secret_text_file(path: &Path, contents: &str) -> Result<(), String> {
 	atomic_write_text_file(path, contents, 0o600)
+}
+
+/// Warn and repair overly-permissive modes on existing secret files (Unix).
+///
+/// Newly created files are written as 0600, but tokens restored from backup or
+/// copied in by hand may be 0644; keep the CLI "mode 0600" claim honest.
+fn ensure_secret_file_permissions(path: &Path) -> Result<(), String> {
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::PermissionsExt;
+		let meta = fs::metadata(path)
+			.map_err(|e| format!("Failed to stat {}: {}", path.display(), e))?;
+		let mode = meta.permissions().mode() & 0o777;
+		if mode & 0o077 != 0 {
+			log::warn!(
+				"⛏️ Miner secret file {} has mode {:04o}; repairing to 0600",
+				path.display(),
+				mode
+			);
+			let mut perms = meta.permissions();
+			perms.set_mode(0o600);
+			fs::set_permissions(path, perms).map_err(|e| {
+				format!("Failed to repair permissions on {}: {}", path.display(), e)
+			})?;
+		}
+	}
+	#[cfg(not(unix))]
+	{
+		let _ = path;
+	}
+	Ok(())
 }
 
 fn atomic_write_text_file(path: &Path, contents: &str, mode: u32) -> Result<(), String> {
