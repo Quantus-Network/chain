@@ -240,6 +240,21 @@ fn validate_auth_token_length(token: &str, path: &Path) -> Result<(), String> {
 			MAX_AUTH_TOKEN_LEN
 		));
 	}
+	// The wire frame is JSON, so escaping can inflate the token well past its
+	// raw length (e.g. a token full of quotes doubles). Check what miners will
+	// actually send, otherwise every miner fails auth with an opaque
+	// "Message size exceeds maximum" framing error.
+	let frame = serde_json::to_vec(&MinerMessage::Ready { token: token.to_string() })
+		.map_err(|e| format!("Failed to serialize miner auth token from {}: {}", path.display(), e))?;
+	if frame.len() > quantus_miner_api::MAX_MESSAGE_SIZE as usize {
+		return Err(format!(
+			"Miner auth token in {} serializes to a {}-byte Ready frame; max is {}. \
+			 Shorten the token or avoid characters that require JSON escaping.",
+			path.display(),
+			frame.len(),
+			quantus_miner_api::MAX_MESSAGE_SIZE
+		));
+	}
 	Ok(())
 }
 
@@ -926,6 +941,21 @@ mod tests {
 		assert!(err.contains("empty"));
 
 		let _ = fs::remove_file(&path);
+	}
+
+	#[test]
+	fn rejects_token_whose_escaped_frame_exceeds_message_limit() {
+		let path = temp_token_path("escape-heavy");
+		// 512 raw bytes (passes the raw-length cap) but JSON-escapes to ~1024,
+		// pushing the Ready frame past MAX_MESSAGE_SIZE.
+		let token = "\"".repeat(MAX_AUTH_TOKEN_LEN);
+
+		let err = validate_auth_token_length(&token, &path).unwrap_err();
+		assert!(err.contains("Ready frame"), "unexpected error: {err}");
+
+		// A max-length token without escaping still fits.
+		let token = "a".repeat(MAX_AUTH_TOKEN_LEN);
+		validate_auth_token_length(&token, &path).unwrap();
 	}
 
 	fn temp_tls_dir(name: &str) -> PathBuf {
