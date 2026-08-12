@@ -68,8 +68,13 @@ pub const MAX_TREE_DEPTH: u8 = 32;
 pub const CIRCUIT_MAX_TREE_DEPTH: u8 = 16;
 
 /// Worst-case `ref_time` (picoseconds) of one Poseidon evaluation
-/// ([`tree::hash_node`] / [`tree::hash_leaf`]). Padded for wasm / slower hardware.
-pub const POSEIDON_EVAL_REF_TIME_PS: u64 = 50_000_000;
+/// ([`tree::hash_node`] / [`tree::hash_leaf`]).
+///
+/// Native release on the reference host measures ~3.3µs/eval
+/// (`measure_hash_node_time`). 10µs is ~3× that — enough headroom for wasm /
+/// slower boxes without the previous 15× (50µs) pad that capped blocks at
+/// ~500 transfers while prepare only took ~1.5s wall clock.
+pub const POSEIDON_EVAL_REF_TIME_PS: u64 = 10_000_000;
 
 /// Flat `(reads, writes)` for one [`Pallet::insert_leaf`], priced at
 /// [`CIRCUIT_MAX_TREE_DEPTH`].
