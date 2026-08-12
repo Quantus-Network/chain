@@ -651,8 +651,7 @@ fn reference_root(leaf_hashes: &[Hash256]) -> Hash256 {
 		level = level
 			.chunks(4)
 			.map(|children| {
-				let children: [Hash256; 4] =
-					[children[0], children[1], children[2], children[3]];
+				let children: [Hash256; 4] = [children[0], children[1], children[2], children[3]];
 				if children == [tree::empty_hash(); 4] {
 					tree::empty_hash()
 				} else {

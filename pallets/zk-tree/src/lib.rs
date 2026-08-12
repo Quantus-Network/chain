@@ -8,8 +8,8 @@
 //! - 4-ary tree (4 children per node) for optimal ZK circuit efficiency
 //! - Leaves hashed as 8 field elements (injective: values are ≤32 bits)
 //! - Internal nodes hashed as 16 field elements (8 bytes/felt compact encoding)
-//! - Inserts only append; the root is recomputed once per block in `on_finalize`,
-//!   folding all of the block's leaves in a single bottom-up pass
+//! - Inserts only append; the root is recomputed once per block in `on_finalize`, folding all of
+//!   the block's leaves in a single bottom-up pass
 //! - Tree root published in block header for ZK verification
 //!
 //! ## Tree Structure
@@ -87,13 +87,12 @@ pub const POSEIDON_EVAL_REF_TIME_PS: u64 = 10_000_000;
 /// depth-dependent tail that is the same no matter how many leaves the block has.
 ///
 /// The split keeps `price × n` sound for any multi-insert call:
-/// - this constant covers the per-leaf marginal cost: 2 insert-phase reads
-///   (`LeafCount`, `UnprocessedLeaves`) + the finalize-phase `Leaves` read, and 3
-///   insert-phase writes (`Leaves`, `LeafCount`, `UnprocessedLeaves`) + the
-///   amortized `⌈n/3⌉ ≤ n` internal-node writes;
-/// - the depth-dependent tail (boundary siblings, the path above the batch, grow
-///   bookkeeping) is charged once per block by [`FINALIZE_BASE_DB_OPS`], reserved
-///   unconditionally in this pallet's `on_initialize`.
+/// - this constant covers the per-leaf marginal cost: 2 insert-phase reads (`LeafCount`,
+///   `UnprocessedLeaves`) + the finalize-phase `Leaves` read, and 3 insert-phase writes (`Leaves`,
+///   `LeafCount`, `UnprocessedLeaves`) + the amortized `⌈n/3⌉ ≤ n` internal-node writes;
+/// - the depth-dependent tail (boundary siblings, the path above the batch, grow bookkeeping) is
+///   charged once per block by [`FINALIZE_BASE_DB_OPS`], reserved unconditionally in this pallet's
+///   `on_initialize`.
 ///
 /// Charge together with [`INSERT_LEAF_HASH_REF_TIME_PS`].
 pub const INSERT_LEAF_DB_OPS: (u64, u64) = (3, 4);
@@ -114,13 +113,13 @@ pub const INSERT_LEAF_HASH_REF_TIME_PS: u64 =
 ///
 /// This is everything the finalize pass costs *beyond* the per-leaf marginal ops
 /// already charged through [`INSERT_LEAF_DB_OPS`]. At `d = CIRCUIT_MAX_TREE_DEPTH`:
-/// - reads: `UnprocessedLeaves` + `LeafCount` + `Depth` + `grow_tree`'s `Root` +
-///   the header-publish `Root` + up to 3 boundary leaves and `3·(d − 1)` boundary
-///   sibling nodes (only the parent containing the batch's first leaf can have
-///   pre-existing children; everything right of the batch is empty and skipped);
-/// - writes: `UnprocessedLeaves` + `Depth` + `grow_tree`'s parked node + `Root` +
-///   the `frame_system` header root + the `≤ d` per-level path tail of node writes
-///   not covered by the amortized per-leaf share.
+/// - reads: `UnprocessedLeaves` + `LeafCount` + `Depth` + `grow_tree`'s `Root` + the header-publish
+///   `Root` + up to 3 boundary leaves and `3·(d − 1)` boundary sibling nodes (only the parent
+///   containing the batch's first leaf can have pre-existing children; everything right of the
+///   batch is empty and skipped);
+/// - writes: `UnprocessedLeaves` + `Depth` + `grow_tree`'s parked node + `Root` + the
+///   `frame_system` header root + the `≤ d` per-level path tail of node writes not covered by the
+///   amortized per-leaf share.
 ///
 /// Out-deepening the circuit ceiling would take ~4.3 billion leaves — see
 /// [`CIRCUIT_MAX_TREE_DEPTH`]; the trade-off is a modest overcharge while the tree
