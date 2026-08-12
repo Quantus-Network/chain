@@ -21,7 +21,7 @@ use sp_inherents::CreateInherentDataProviders;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-	miner_server::{MinerServer, DEFAULT_MINER_AUTH_TOKEN_FILENAME},
+	miner_server::{MinerServer, MinerServerConfig, DEFAULT_MINER_AUTH_TOKEN_FILENAME},
 	prometheus::BusinessMetrics,
 };
 use codec::Encode;
@@ -473,9 +473,7 @@ fn spawn_authority_tasks(
 	sync_service: Arc<sc_network_sync::SyncingService<Block>>,
 	prometheus_registry: Option<prometheus::Registry>,
 	rewards_address: AccountId32,
-	miner_listen_port: Option<u16>,
-	miner_auth_token_path: Option<PathBuf>,
-	miner_tls_dir: Option<PathBuf>,
+	miner_config: Option<MinerServerConfig>,
 	tx_stream_for_worker: impl futures::Stream<Item = sp_core::H256> + Send + Unpin + 'static,
 	#[cfg(feature = "tx-logging")] tx_stream_for_logger: impl futures::Stream<Item = sp_core::H256>
 		+ Send
@@ -541,12 +539,9 @@ fn spawn_authority_tasks(
 		// Start miner server if port is specified. Failure must abort this essential
 		// task (and thus the node) instead of falling back to local mining — the
 		// operator explicitly opted into external mining with --miner-listen-port.
-		let miner_server: Option<Arc<MinerServer>> = if let Some(port) = miner_listen_port {
-			let token_path = miner_auth_token_path
-				.expect("miner_auth_token_path must be set whenever miner_listen_port is set");
-			let tls_dir =
-				miner_tls_dir.expect("miner_tls_dir must be set whenever miner_listen_port is set");
-			match MinerServer::start(port, token_path, tls_dir).await {
+		let miner_server: Option<Arc<MinerServer>> = if let Some(cfg) = miner_config {
+			let port = cfg.port;
+			match MinerServer::start(cfg) {
 				Ok(server) => Some(server),
 				Err(e) => {
 					log::error!(
@@ -785,14 +780,13 @@ pub fn new_full<
 
 	let role = config.role;
 	let prometheus_registry = config.prometheus_registry().cloned();
-	let (miner_auth_token_path, miner_tls_dir) = if miner_listen_port.is_some() {
-		let config_dir = config.base_path.config_dir(config.chain_spec.id());
-		let auth_path = miner_auth_token_file
-			.unwrap_or_else(|| config_dir.join(DEFAULT_MINER_AUTH_TOKEN_FILENAME));
-		(Some(auth_path), Some(config_dir))
-	} else {
-		(None, None)
-	};
+	// config.data_path is the chain-scoped config dir every other chain path uses.
+	let miner_config = miner_listen_port.map(|port| MinerServerConfig {
+		port,
+		auth_token_path: miner_auth_token_file
+			.unwrap_or_else(|| config.data_path.join(DEFAULT_MINER_AUTH_TOKEN_FILENAME)),
+		tls_dir: config.data_path.clone(),
+	});
 
 	let rpc_extensions_builder = {
 		let client = client.clone();
@@ -838,9 +832,7 @@ pub fn new_full<
 			sync_service,
 			prometheus_registry,
 			rewards_address,
-			miner_listen_port,
-			miner_auth_token_path,
-			miner_tls_dir,
+			miner_config,
 			tx_stream_for_worker,
 			tx_stream_for_logger,
 			allow_mining_without_peers,
@@ -854,9 +846,7 @@ pub fn new_full<
 			sync_service,
 			prometheus_registry,
 			rewards_address,
-			miner_listen_port,
-			miner_auth_token_path,
-			miner_tls_dir,
+			miner_config,
 			tx_stream_for_worker,
 			allow_mining_without_peers,
 		);

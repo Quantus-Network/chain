@@ -81,7 +81,6 @@ sc-transaction-pool-api.default-features = true
 sc-transaction-pool-api.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["alloc"] }
-sha2 = { workspace = true, default-features = false, features = ["std"] }
 sp-api.default-features = true
 sp-api.workspace = true
 sp-block-builder.default-features = true

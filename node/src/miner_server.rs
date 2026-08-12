@@ -44,7 +44,7 @@ use quantus_miner_api::{
 	read_message, write_message, MinerMessage, MiningRequest, MiningResult, MAX_AUTH_TOKEN_LEN,
 };
 use rand::RngCore;
-use sha2::{Digest, Sha256};
+use sp_io::hashing::sha2_256;
 use tokio::sync::{mpsc, RwLock, Semaphore};
 
 /// Default filename for the miner auth token under the chain config directory.
@@ -66,6 +66,16 @@ const AUTH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Cap on connections that have not yet completed auth (prevents pre-auth task/memory DoS).
 const MAX_UNAUTHENTICATED_CONNECTIONS: usize = 32;
+
+/// Everything needed to start the external-miner server.
+///
+/// Bundling these makes "a listen port implies a token path and TLS dir" a
+/// compile-time fact instead of parallel `Option`s re-joined at the call site.
+pub struct MinerServerConfig {
+	pub port: u16,
+	pub auth_token_path: PathBuf,
+	pub tls_dir: PathBuf,
+}
 
 /// A QUIC server that accepts connections from miners.
 pub struct MinerServer {
@@ -96,11 +106,8 @@ impl MinerServer {
 	///
 	/// Loads (or generates) the auth token and TLS certificate material before
 	/// binding. This spawns a background task that accepts incoming connections.
-	pub async fn start(
-		port: u16,
-		auth_token_path: PathBuf,
-		tls_dir: PathBuf,
-	) -> Result<Arc<Self>, String> {
+	pub fn start(config: MinerServerConfig) -> Result<Arc<Self>, String> {
+		let MinerServerConfig { port, auth_token_path, tls_dir } = config;
 		let auth_token = load_or_create_miner_auth_token(&auth_token_path)?;
 		log::info!(
 			"⛏️ Miner auth token file: {} (read this file to configure your miner; token is not logged)",
@@ -356,7 +363,7 @@ fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, String> 
 	// Build the config we will actually serve with. This must succeed before we
 	// (re)publish the fingerprint, and using the same config for validation and
 	// serving means the two can never drift apart.
-	let fingerprint_hex = hex::encode(Sha256::digest(&cert_der));
+	let fingerprint_hex = hex::encode(sha2_256(&cert_der));
 	let server_crypto = build_server_crypto(cert_der, key_der)?;
 
 	// Only touch the fingerprint file when it is missing or wrong: rewriting it
