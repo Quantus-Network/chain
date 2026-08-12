@@ -526,7 +526,11 @@ async fn authenticate_miner_connection(
 
 		log::debug!("Waiting for Ready (auth) from miner {}...", addr);
 		match read_message(&mut recv).await {
-			Ok(MinerMessage::Ready { token }) if token == server.auth_token.as_ref() => {
+			// Trim so a miner that sends a file contents including trailing newline
+			// still matches the node's trimmed on-disk token.
+			Ok(MinerMessage::Ready { token })
+				if token.trim() == server.auth_token.as_ref() =>
+			{
 				log::debug!("Miner {} authenticated", addr);
 				Ok((send, recv))
 			},
