@@ -233,7 +233,8 @@ struct MinerTlsMaterial {
 /// Load miner TLS cert/key from `tls_dir`, or generate and persist them if missing.
 ///
 /// Also writes `miner-tls-cert-sha256` (SHA-256 of the cert DER as lowercase hex)
-/// for miners to pin.
+/// for miners to pin — but only after the cert/key pair validates as a rustls
+/// server config, so a corrupt cert cannot overwrite an already-distributed pin.
 pub fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, String> {
 	fs::create_dir_all(tls_dir).map_err(|e| {
 		format!("Failed to create miner TLS directory {}: {}", tls_dir.display(), e)
@@ -274,8 +275,9 @@ pub fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, Stri
 			.map_err(|e| format!("Failed to generate miner TLS certificate: {}", e))?;
 		let cert_der = certified.cert.der().as_ref().to_vec();
 		let key_der = certified.key_pair.serialize_der();
-		write_secret_bytes_file(&cert_path, &cert_der)?;
-		write_secret_bytes_file(&key_path, &key_der)?;
+		// Validate before persisting so we never leave half-written or unusable material.
+		validate_miner_tls(&cert_der, &key_der)?;
+		persist_miner_tls_pair(&cert_path, &key_path, &cert_der, &key_der)?;
 		log::info!(
 			"⛏️ Generated new miner TLS certificate at {} / {}",
 			cert_path.display(),
@@ -283,6 +285,9 @@ pub fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, Stri
 		);
 		(cert_der, key_der, true)
 	};
+
+	// Existing material must also validate before we (re)publish the fingerprint.
+	validate_miner_tls(&cert_der, &key_der)?;
 
 	let fingerprint_hex = hex::encode(Sha256::digest(&cert_der));
 	if let Ok(existing) = fs::read_to_string(&fingerprint_path) {
@@ -293,7 +298,8 @@ pub fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, Stri
 			);
 		}
 	}
-	write_secret_text_file_overwrite(&fingerprint_path, &fingerprint_hex)?;
+	// Fingerprint is public pin data — world-readable is fine (and helps remote miners).
+	atomic_write_text_file(&fingerprint_path, &fingerprint_hex, 0o644)?;
 	if generated {
 		log::info!("⛏️ Wrote miner TLS cert SHA-256 to {}", fingerprint_path.display());
 	}
@@ -301,56 +307,102 @@ pub fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, Stri
 	Ok(MinerTlsMaterial { cert_der, key_der, fingerprint_hex, fingerprint_path })
 }
 
+fn validate_miner_tls(cert_der: &[u8], key_der: &[u8]) -> Result<(), String> {
+	let cert = rustls::pki_types::CertificateDer::from(cert_der.to_vec());
+	let key = rustls::pki_types::PrivateKeyDer::try_from(key_der.to_vec())
+		.map_err(|e| format!("Failed to parse miner TLS private key: {}", e))?;
+	let server_config = rustls::ServerConfig::builder()
+		.with_no_client_auth()
+		.with_single_cert(vec![cert], key)
+		.map_err(|e| format!("Failed to create miner TLS server config: {}", e))?;
+	quinn::crypto::rustls::QuicServerConfig::try_from(server_config)
+		.map_err(|e| format!("Failed to create miner QUIC TLS config: {}", e))?;
+	Ok(())
+}
+
+/// Persist cert then key with atomic renames. If the key write fails after the cert
+/// is installed, remove the cert so the next start can regenerate a complete pair.
+fn persist_miner_tls_pair(
+	cert_path: &Path,
+	key_path: &Path,
+	cert_der: &[u8],
+	key_der: &[u8],
+) -> Result<(), String> {
+	atomic_write_bytes_file(cert_path, cert_der, 0o600)?;
+	if let Err(e) = atomic_write_bytes_file(key_path, key_der, 0o600) {
+		let _ = fs::remove_file(cert_path);
+		return Err(e);
+	}
+	Ok(())
+}
+
 fn write_secret_text_file(path: &Path, contents: &str) -> Result<(), String> {
-	let mut file = open_secret_file(path, true)?;
-	file.write_all(contents.as_bytes())
-		.and_then(|_| file.write_all(b"\n"))
-		.and_then(|_| file.sync_all())
-		.map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+	atomic_write_text_file(path, contents, 0o600)
+}
+
+fn atomic_write_text_file(path: &Path, contents: &str, mode: u32) -> Result<(), String> {
+	let mut payload = contents.as_bytes().to_vec();
+	payload.push(b'\n');
+	atomic_write_bytes_file(path, &payload, mode)
+}
+
+fn atomic_write_bytes_file(path: &Path, contents: &[u8], mode: u32) -> Result<(), String> {
+	let parent = path.parent().unwrap_or_else(|| Path::new("."));
+	let tmp_name = format!(
+		".{}.{}.tmp",
+		path.file_name().and_then(|s| s.to_str()).unwrap_or("secret"),
+		std::process::id()
+	);
+	let tmp_path = parent.join(tmp_name);
+
+	{
+		let mut file = open_file_with_mode(&tmp_path, mode)?;
+		file.write_all(contents)
+			.and_then(|_| file.sync_all())
+			.map_err(|e| {
+				let _ = fs::remove_file(&tmp_path);
+				format!("Failed to write {}: {}", path.display(), e)
+			})?;
+	}
+
+	fs::rename(&tmp_path, path).map_err(|e| {
+		let _ = fs::remove_file(&tmp_path);
+		format!("Failed to finalize {}: {}", path.display(), e)
+	})?;
+
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::PermissionsExt;
+		let perms = fs::Permissions::from_mode(mode);
+		fs::set_permissions(path, perms)
+			.map_err(|e| format!("Failed to set permissions on {}: {}", path.display(), e))?;
+	}
+
 	Ok(())
 }
 
-fn write_secret_text_file_overwrite(path: &Path, contents: &str) -> Result<(), String> {
-	let mut file = open_secret_file(path, false)?;
-	file.write_all(contents.as_bytes())
-		.and_then(|_| file.write_all(b"\n"))
-		.and_then(|_| file.sync_all())
-		.map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
-	Ok(())
-}
-
-fn write_secret_bytes_file(path: &Path, contents: &[u8]) -> Result<(), String> {
-	let mut file = open_secret_file(path, true)?;
-	file.write_all(contents)
-		.and_then(|_| file.sync_all())
-		.map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
-	Ok(())
-}
-
-fn open_secret_file(path: &Path, create_new: bool) -> Result<fs::File, String> {
+fn open_file_with_mode(path: &Path, mode: u32) -> Result<fs::File, String> {
 	#[cfg(unix)]
 	{
 		use std::os::unix::fs::OpenOptionsExt;
-		let mut opts = fs::OpenOptions::new();
-		opts.write(true).mode(0o600);
-		if create_new {
-			opts.create_new(true);
-		} else {
-			opts.create(true).truncate(true);
-		}
-		opts.open(path)
+		fs::OpenOptions::new()
+			.write(true)
+			.create_new(true)
+			.mode(mode)
+			.open(path)
 			.map_err(|e| format!("Failed to create {}: {}", path.display(), e))
 	}
 	#[cfg(not(unix))]
 	{
-		let mut opts = fs::OpenOptions::new();
-		opts.write(true);
-		if create_new {
-			opts.create_new(true);
-		} else {
-			opts.create(true).truncate(true);
-		}
-		opts.open(path)
+		let _ = mode;
+		log::warn!(
+			"⛏️ Writing {} without Unix mode bits; ensure the file is not world-readable",
+			path.display()
+		);
+		fs::OpenOptions::new()
+			.write(true)
+			.create_new(true)
+			.open(path)
 			.map_err(|e| format!("Failed to create {}: {}", path.display(), e))
 	}
 }
@@ -746,6 +798,21 @@ mod tests {
 		assert_eq!(first.cert_der, second.cert_der);
 		assert_eq!(first.key_der, second.key_der);
 		assert_eq!(first.fingerprint_hex, second.fingerprint_hex);
+
+		let _ = fs::remove_dir_all(&dir);
+	}
+
+	#[test]
+	fn corrupt_cert_does_not_overwrite_fingerprint() {
+		let dir = temp_tls_dir("corrupt-fp");
+		let first = load_or_create_miner_tls(&dir).unwrap();
+		let fp_before = fs::read_to_string(&first.fingerprint_path).unwrap();
+
+		fs::write(dir.join(DEFAULT_MINER_TLS_CERT_FILENAME), b"not-a-cert").unwrap();
+		assert!(load_or_create_miner_tls(&dir).is_err());
+
+		let fp_after = fs::read_to_string(&first.fingerprint_path).unwrap();
+		assert_eq!(fp_before, fp_after, "distributed fingerprint must survive a bad cert load");
 
 		let _ = fs::remove_dir_all(&dir);
 	}
