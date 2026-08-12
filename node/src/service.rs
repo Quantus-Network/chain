@@ -111,6 +111,12 @@ where
 			Some(result) => {
 				let miner_id = result.miner_id.unwrap_or(0);
 				if let Some(seal) = parse_mining_result(&result, job_id) {
+					// The template can rebuild while we were blocked on recv. Re-check
+					// before returning a seal so we never submit work for a superseded
+					// pre_hash (stress tests hit this: job N completes after rebuild).
+					if should_stop() {
+						return None;
+					}
 					return Some((miner_id, seal));
 				}
 				// Keep waiting for other miners (stale, failed, or invalid parse)
@@ -152,6 +158,10 @@ async fn handle_external_mining(
 	job_counter: &mut u64,
 	mining_start_time: &mut std::time::Instant,
 ) -> ExternalMiningOutcome {
+	// Read the version BEFORE snapshotting metadata (same pattern as
+	// handle_local_mining) so a concurrent rebuild between the two reads is
+	// caught by the version comparisons below.
+	let job_version = worker_handle.version();
 	let metadata = match worker_handle.metadata() {
 		Some(m) => m,
 		None => return ExternalMiningOutcome::Interrupted,
@@ -181,40 +191,39 @@ async fn handle_external_mining(
 
 	server.broadcast_job(job).await;
 
-	// Wait for results from miners, retrying on invalid seals
-	// Track both best_hash (parent) and pre_hash (block template) to detect rebuilds
+	// Any rebuild, sync-clear, or consumed build bumps the worker version,
+	// superseding this job. Note submit() re-verifies the seal against the
+	// current build under its own lock, so a stale seal can never be imported;
+	// these checks only avoid wasted verification and misleading logs.
+	let superseded =
+		|| cancellation_token.is_cancelled() || worker_handle.version() != job_version;
 	let best_hash = metadata.best_hash;
 	let original_pre_hash = metadata.pre_hash;
+	let log_if_rebuilt = || {
+		if let Some(current) = worker_handle.metadata() {
+			if current.best_hash == best_hash && current.pre_hash != original_pre_hash {
+				log::info!(
+					"⛏️ Block template rebuilt while mining job {}. Old pre_hash: {}, New pre_hash: {}. Rebroadcasting...",
+					job_id,
+					hex::encode(original_pre_hash.as_bytes()),
+					hex::encode(current.pre_hash.as_bytes())
+				);
+			}
+		}
+	};
+
+	// Wait for results from miners, retrying on invalid seals
 	loop {
-		let (miner_id, seal) = match wait_for_mining_result(server, &job_id, || {
-			// Interrupt if cancelled, parent block changed, OR block template was rebuilt
-			cancellation_token.is_cancelled() ||
-				worker_handle
-					.metadata()
-					.map(|m| m.best_hash != best_hash || m.pre_hash != original_pre_hash)
-					.unwrap_or(true)
-		})
-		.await
-		{
+		let (miner_id, seal) = match wait_for_mining_result(server, &job_id, superseded).await {
 			Some(result) => result,
 			None => {
-				// Check why we were interrupted - log if it was a rebuild
-				if let Some(current) = worker_handle.metadata() {
-					if current.best_hash == best_hash && current.pre_hash != original_pre_hash {
-						log::info!(
-							"⛏️ Block template rebuilt while mining job {}. Old pre_hash: {}, New pre_hash: {}. Rebroadcasting...",
-							job_id,
-							hex::encode(original_pre_hash.as_bytes()),
-							hex::encode(current.pre_hash.as_bytes())
-						);
-					}
-				}
+				log_if_rebuilt();
 				return ExternalMiningOutcome::Interrupted;
 			},
 		};
 
 		// Submit the seal (submit verifies atomically before consuming the build)
-		if worker_handle.submit(seal.clone()).await {
+		if worker_handle.submit(seal).await {
 			let mining_time = mining_start_time.elapsed().as_secs();
 			log::info!(
 				"🥇 Successfully mined and submitted a new block via external miner {} (mining time: {}s)",
@@ -223,6 +232,13 @@ async fn handle_external_mining(
 			);
 			*mining_start_time = std::time::Instant::now();
 			return ExternalMiningOutcome::Success;
+		}
+
+		// If the template moved while we were submitting, the failure is not the
+		// miner's fault — interrupt and rebroadcast instead of blaming the seal.
+		if superseded() {
+			log_if_rebuilt();
+			return ExternalMiningOutcome::Interrupted;
 		}
 
 		// Submit failed (seal invalid or import error)
