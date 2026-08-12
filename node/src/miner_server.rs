@@ -323,6 +323,9 @@ pub fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, Stri
 				tls_dir.display()
 			));
 		}
+		// The private key is as secret as the auth token; repair over-permissive
+		// modes on keys restored from backup or copied in by hand.
+		ensure_secret_file_permissions(&key_path)?;
 		(cert_der, key_der)
 	} else {
 		let certified = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
