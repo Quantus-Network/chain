@@ -40,7 +40,9 @@ use std::{
 };
 
 use jsonrpsee::tokio;
-use quantus_miner_api::{read_message, write_message, MinerMessage, MiningRequest, MiningResult};
+use quantus_miner_api::{
+	read_message, write_message, MinerMessage, MiningRequest, MiningResult, MAX_AUTH_TOKEN_LEN,
+};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use tokio::sync::{mpsc, RwLock, Semaphore};
@@ -203,6 +205,7 @@ pub fn load_or_create_miner_auth_token(path: &Path) -> Result<String, String> {
 				));
 			}
 			ensure_secret_file_permissions(path)?;
+			validate_auth_token_length(&token, path)?;
 			Ok(token)
 		},
 		Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -226,6 +229,32 @@ pub fn load_or_create_miner_auth_token(path: &Path) -> Result<String, String> {
 		},
 		Err(e) => Err(format!("Failed to read miner auth token file {}: {}", path.display(), e)),
 	}
+}
+
+fn validate_auth_token_length(token: &str, path: &Path) -> Result<(), String> {
+	if token.len() > MAX_AUTH_TOKEN_LEN {
+		return Err(format!(
+			"Miner auth token in {} is {} bytes; max is {} so Ready frames fit under the protocol message limit",
+			path.display(),
+			token.len(),
+			MAX_AUTH_TOKEN_LEN
+		));
+	}
+	Ok(())
+}
+
+/// Constant-time equality for auth tokens (after trimming the wire value).
+fn auth_tokens_equal(wire_token: &str, expected: &str) -> bool {
+	let a = wire_token.trim().as_bytes();
+	let b = expected.as_bytes();
+	if a.len() != b.len() {
+		return false;
+	}
+	let mut diff = 0u8;
+	for (x, y) in a.iter().zip(b.iter()) {
+		diff |= x ^ y;
+	}
+	diff == 0
 }
 
 fn write_miner_auth_token_file(path: &Path, token: &str) -> Result<(), String> {
@@ -558,10 +587,10 @@ async fn authenticate_miner_connection(
 
 		log::debug!("Waiting for Ready (auth) from miner {}...", addr);
 		match read_message(&mut recv).await {
-			// Trim so a miner that sends a file contents including trailing newline
-			// still matches the node's trimmed on-disk token.
+			// Trim so a miner that sends file contents including a trailing newline
+			// still matches the node's trimmed on-disk token. Compare in constant time.
 			Ok(MinerMessage::Ready { token })
-				if token.trim() == server.auth_token.as_ref() =>
+				if auth_tokens_equal(&token, server.auth_token.as_ref()) =>
 			{
 				log::debug!("Miner {} authenticated", addr);
 				Ok((send, recv))

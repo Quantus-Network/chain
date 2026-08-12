@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -6,6 +8,11 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 /// Real MinerMessage payloads are only a few hundred bytes (Ready, NewJob, JobResult).
 /// 1 KB provides sufficient headroom while minimizing the amplification attack surface.
 pub const MAX_MESSAGE_SIZE: u32 = 1024;
+
+/// Conservative max auth token length so a `Ready { token }` JSON frame still fits
+/// under [`MAX_MESSAGE_SIZE`]. Larger operator-supplied tokens would make every
+/// miner fail with an opaque framing/deserialize error.
+pub const MAX_AUTH_TOKEN_LEN: usize = 512;
 
 /// Status codes returned in API responses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -27,7 +34,7 @@ pub enum ApiResponseStatus {
 ///   authenticate (token must match the node's miner auth token)
 /// - Node sends `NewJob` to submit a mining job (implicitly cancels any previous job)
 /// - Miner sends `JobResult` when mining completes
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum MinerMessage {
 	/// Miner → Node: Sent immediately after connecting to establish the stream
 	/// and authenticate. This is required because QUIC streams are lazily initialized.
@@ -42,6 +49,16 @@ pub enum MinerMessage {
 
 	/// Miner → Node: Mining result (completed, failed, or cancelled).
 	JobResult(MiningResult),
+}
+
+impl fmt::Debug for MinerMessage {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			Self::Ready { .. } => f.write_str("Ready { token: \"[REDACTED]\" }"),
+			Self::NewJob(req) => f.debug_tuple("NewJob").field(req).finish(),
+			Self::JobResult(res) => f.debug_tuple("JobResult").field(res).finish(),
+		}
+	}
 }
 
 /// Write a length-prefixed JSON message to an async writer.
