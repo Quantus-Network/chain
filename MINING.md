@@ -568,6 +568,12 @@ The node delegates the mining task (finding a valid nonce) to external miner ser
 - Single bidirectional stream per miner connection
 - Connection persists across multiple mining jobs
 - Multiple miners can connect simultaneously
+- **Miners must send QUIC keep-alives** (e.g. every 5–15 seconds). The node
+  sends no keep-alives and enforces a 60-second idle timeout; job traffic is
+  event-driven, so on a quiet or high-difficulty chain a mining round can
+  easily exceed 60 seconds with no packets. A miner without client keep-alives
+  is silently disconnected mid-job and loses its seal. (The bundled
+  `quantus-miner` sends keep-alives every 5 seconds.)
 
 ### Multi-Miner Operation
 
@@ -599,7 +605,7 @@ Messages are length-prefixed JSON:
 └─────────────────┴─────────────────────────────────┘
 ```
 
-Maximum message size: 16 MB
+Maximum message size: 1 KB (`MAX_MESSAGE_SIZE` in `quantus-miner-api`)
 
 ## Data Types
 

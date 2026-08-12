@@ -539,7 +539,9 @@ async fn create_server_endpoint(
 
 	// Set transport config: one bi-stream (the protocol), no uni-streams, and no
 	// server keep-alives so max_idle_timeout can reclaim peers that connect and stall
-	// before/during auth. Authenticated miners stay alive via job traffic.
+	// before/during auth. Job traffic is event-driven and can go quiet for minutes,
+	// so authenticated miners MUST send client keep-alives (documented in MINING.md;
+	// the bundled quantus-miner sends them every 5s) or they hit the idle timeout.
 	let mut transport_config = quinn::TransportConfig::default();
 	transport_config.max_concurrent_bidi_streams(1u32.into());
 	transport_config.max_concurrent_uni_streams(0u32.into());
