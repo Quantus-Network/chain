@@ -20,15 +20,35 @@ jobs:
       is_draft: ${{ steps.extract_version.outputs.is_draft }}
       commit_sha: ${{ github.event.pull_request.merge_commit_sha }}
     steps:
+      - name: Checkout merge commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+
       - name: Extract version from PR title
         id: extract_version
         run: |
-          # Extract version from PR title (format: "ci: Miner API version bump to quantus-miner-api-vX.Y.Z")
-          VERSION=$(echo "${{ github.event.pull_request.title }}" | grep -o 'quantus-miner-api-v[0-9]\+\.[0-9]\+\.[0-9]\+')
+          set -euo pipefail
+          # Extract version from PR title (format: "ci: Miner API version bump to quantus-miner-api-vX.Y.Z").
+          # Take only the first match so a title with two version strings cannot
+          # write a multi-line value into GITHUB_OUTPUT.
+          VERSION=$(echo "${{ github.event.pull_request.title }}" \
+            | grep -o 'quantus-miner-api-v[0-9]\+\.[0-9]\+\.[0-9]\+' \
+            | head -n1 || true)
           if [ -z "$VERSION" ]; then
             echo "Error: Could not extract miner-api version from PR title: ${{ github.event.pull_request.title }}"
             exit 1
           fi
+
+          # The tag/crates.io name comes from the title; cargo publish uses
+          # miner-api/Cargo.toml. Refuse to proceed if they disagree.
+          CARGO_VERSION=${VERSION#quantus-miner-api-v}
+          if ! grep -q "^version = \"$CARGO_VERSION\"" miner-api/Cargo.toml; then
+            echo "Error: PR title version $VERSION does not match miner-api/Cargo.toml:"
+            grep '^version = ' miner-api/Cargo.toml || true
+            exit 1
+          fi
+
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
           # Check if this is a draft release
@@ -37,7 +57,7 @@ jobs:
           else
             echo "is_draft=false" >> $GITHUB_OUTPUT
           fi
-          echo "Extracted miner-api version: $VERSION"
+          echo "Extracted miner-api version: $VERSION (matches Cargo.toml)"
           echo "Merge commit: ${{ github.event.pull_request.merge_commit_sha }}"
 
   format-checks:
