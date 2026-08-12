@@ -1,6 +1,8 @@
 //! Weights for `pallet_vesting`. Payout paths replace the benchmarked tree component
-//! with flat [`pallet_zk_tree::INSERT_LEAF_*`] pricing at
-//! [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`].
+//! with the flat marginal [`pallet_zk_tree::INSERT_LEAF_*`] insert pricing (the
+//! batched root recomputation's depth-dependent tail is reserved per block by the
+//! zk-tree pallet's `on_initialize`), clamped to never fall below the benchmarked
+//! base.
 
 use crate::weights_generated as generated;
 use core::marker::PhantomData;
@@ -21,16 +23,19 @@ pub trait WeightInfo {
 /// `LeafCount` + `Leaves` + `Root` writes (= 3); `Depth` is written too once the insert
 /// grows the tree, which the shallow benchmark tree does for `end_schedule` /
 /// `retarget_schedule` (= 4) but not for `claim` (= 3). They are subtracted back out so
-/// the flat circuit-depth insert cost can replace them;
+/// the flat marginal insert cost can replace them;
 /// [`tests::payout_weight_never_undercharges_the_benchmarked_base`] pins that the
 /// replacement never under-charges the measured base.
 const BENCHMARK_TREE_READS: u64 = 5;
 const BENCHMARK_TREE_WRITES: u64 = 4;
 const CLAIM_BENCHMARK_TREE_WRITES: u64 = 3;
 
-/// Benchmarked base with its benchmark-depth tree ops swapped for the flat
-/// circuit-depth insert cost — DB ops, Poseidon path hashing and PoV all priced by
-/// [`pallet_zk_tree::INSERT_LEAF_*`] at [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`].
+/// Benchmarked base with its benchmark-time tree ops swapped for the flat marginal
+/// insert cost — DB ops, Poseidon hashing and PoV all priced by
+/// [`pallet_zk_tree::INSERT_LEAF_*`]. The benchmarks were generated against the
+/// per-insert path-update code, so the marginal append can be cheaper than the ops
+/// it replaces; clamp to the measured base rather than under-charging it until the
+/// benchmarks are regenerated.
 fn payout_weight(
 	base: Weight,
 	db: RuntimeDbWeight,
@@ -48,6 +53,7 @@ fn payout_weight(
 		))
 		.saturating_add(db.reads(tree_reads))
 		.saturating_add(db.writes(tree_writes))
+		.max(base)
 }
 
 pub struct SubstrateWeight<T>(PhantomData<T>);
@@ -139,11 +145,10 @@ mod tests {
 	}
 
 	/// The augmentation subtracts hand-maintained `BENCHMARK_TREE_*` counts from the
-	/// generated base and adds the flat circuit-depth insert back. If a zk-tree
-	/// cost-model change ever made that insert cheaper (in DB ops) than the
-	/// benchmark-time ops it replaces, the subtraction would silently under-charge —
-	/// no compile error, no failing benchmark. Pin it: the augmented weight must still
-	/// cover the measured base.
+	/// generated base and adds the flat marginal insert back. The marginal append is
+	/// cheaper (in DB ops) than the benchmark-time path update it replaces, so
+	/// `payout_weight` clamps to the measured base — pin that the clamp keeps the
+	/// augmented weight from ever falling below it.
 	#[test]
 	fn payout_weight_never_undercharges_the_benchmarked_base() {
 		let db = RocksDbWeight::get();

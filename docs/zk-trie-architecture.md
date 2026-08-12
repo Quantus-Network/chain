@@ -191,11 +191,29 @@ Every balance transfer on the chain is automatically captured and recorded into 
    │                                               │
    │  1. Store leaf data at next index             │
    │  2. Compute leaf_hash = poseidon(leaf_data)   │
-   │  3. Update path from leaf to root             │
-   │  4. Store new root                            │
-   │  5. Emit LeafInserted event                   │
+   │  3. Mark the leaf as pending                  │
+   │  4. Emit LeafInserted event                   │
+   └───────────────────────┬───────────────────────┘
+                           │  (once per block)
+                           ▼
+   ┌──────────────────────────────────────────────┐
+   │ ZkTrie on_finalize                            │
+   │                                               │
+   │  1. Fold ALL leaves appended this block into  │
+   │     the tree in one bottom-up pass (shared    │
+   │     parents hashed once, not once per leaf)   │
+   │  2. Grow the tree if capacity was crossed     │
+   │  3. Store new root                            │
+   │  4. Publish root to the block header          │
    └──────────────────────────────────────────────┘
 ```
+
+Root recomputation is deliberately **batched per block**: a per-insert path update
+costs `depth` Poseidon hashes and `3·depth` sibling reads for every transfer, while
+the batched pass costs roughly `n/4 + n/16 + … + depth` hashes for a block with `n`
+transfers. Nothing on-chain needs the root mid-block — exit proofs verify against
+historical block headers — so during block execution `Root` is simply the root as of
+the end of the previous block.
 
 ### 2. Generating a ZK Proof
 

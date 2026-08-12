@@ -133,8 +133,10 @@ fn storage_tail(
 
 /// Weights for `pallet_wormhole` using the Substrate node and recommended hardware.
 ///
-/// Every processed exit inserts a ZK-tree leaf; that component is flat-priced at
-/// [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`] via [`pallet_zk_tree::INSERT_LEAF_*`].
+/// Every processed exit appends a ZK-tree leaf; that component is priced at the
+/// flat *marginal* per-insert share via [`pallet_zk_tree::INSERT_LEAF_*`] — the
+/// root recomputation is batched per block, and its depth-dependent tail is
+/// reserved by the zk-tree pallet's `on_initialize`.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `System::BlockHash` (r:1 w:0)
@@ -163,7 +165,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	}
 	/// Inclusion path: ZK verify + pre-validation twice (`pre_dispatch` and dispatch
 	/// body), each charged in full (compute + DB + PoV), plus exit-processing storage
-	/// and the per-exit ZK-tree Poseidon hashing (one hash per tree level per insert).
+	/// and the per-exit marginal share of the block's batched ZK-tree hashing.
 	fn verify_private_batch() -> Weight {
 		let tree_ops = pallet_zk_tree::INSERT_LEAF_DB_OPS;
 		let (reads, writes, proof_size) =
@@ -214,8 +216,8 @@ impl WeightInfo for () {
 		Weight::from_parts(PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS, proof_size)
 			.saturating_add(RocksDbWeight::get().reads(1_u64.saturating_add(nullifier_reads)))
 	}
-	/// See `SubstrateWeight::verify_private_batch`. Tree component flat-priced at
-	/// [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`].
+	/// See `SubstrateWeight::verify_private_batch`. Tree component priced at the
+	/// flat marginal per-insert share via [`pallet_zk_tree::INSERT_LEAF_DB_OPS`].
 	fn verify_private_batch() -> Weight {
 		let tree_ops = pallet_zk_tree::INSERT_LEAF_DB_OPS;
 		let (reads, writes, proof_size) =

@@ -137,12 +137,14 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	/// Weight charged per recorded transfer proof.
 	///
 	/// Per recorded transfer, `record_transfer` touches one `TransferCount` read and one
-	/// write, plus the ZK-tree leaf insert. The insert price is FLAT at the circuit
-	/// depth ceiling (see [`pallet_zk_tree::INSERT_LEAF_DB_OPS`]), so multiplying this
-	/// single price by a transfer count is sound even for multi-transfer calls that
-	/// cross capacity boundaries. The path update also puts every tree key it reads
-	/// into the PoV ([`pallet_zk_tree::TREE_KEY_POV`] each); omitting that proof-size
-	/// term would let deep-tree blocks exceed the PoV budget validators re-execute
+	/// write, plus the ZK-tree leaf append. Root recomputation is batched once per
+	/// block in the zk-tree's `on_finalize`; this price is the flat *marginal* share
+	/// of that batch (see [`pallet_zk_tree::INSERT_LEAF_DB_OPS`]), so multiplying it
+	/// by a transfer count is sound even for multi-transfer calls that cross capacity
+	/// boundaries — the depth-dependent tail is reserved once per block by the
+	/// zk-tree's `on_initialize`. The batch also puts every tree key it touches into
+	/// the PoV ([`pallet_zk_tree::TREE_KEY_POV`] each); omitting that proof-size term
+	/// would let deep-tree blocks exceed the PoV budget validators re-execute
 	/// against. Recording finally deposits [`Self::EVENTS_PER_RECORDED_PROOF`] events;
 	/// those land after the scan snapshot, so this reservation is the only place their
 	/// System work can be charged.
