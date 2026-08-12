@@ -87,6 +87,15 @@ pub mod pallet {
 		}
 	}
 
+	/// Clears the cached public key when the system account is reaped.
+	///
+	/// The storage write is **not** free: runtimes that install this hook must
+	/// charge one DB write on every call path that can kill an account (this
+	/// chain folds it into the balances `WeightInfo` for kill-capable
+	/// extrinsics, which also covers scheduled/root dispatch of those calls).
+	/// Signature-verification base weight does not cover this write — a
+	/// first-registration that also reaps performs both the insert and this
+	/// remove.
 	impl<T: Config> OnKilledAccount<T::AccountId> for Pallet<T> {
 		fn on_killed_account(who: &T::AccountId) {
 			Pubkeys::<T>::remove(who);
@@ -112,9 +121,12 @@ pub mod pallet {
 /// This runs in `UncheckedExtrinsic::check`, before any `TxExtension` weight or
 /// payment handling, so the database work here (one `Pubkeys` read, plus one
 /// multi-kilobyte insert on an account's first full-signature transaction) is
-/// invisible to the dispatch path. The runtime must charge the worst case in
-/// the signed-extrinsic base weight — see `PubkeyCacheVerifyWeight` in the
-/// runtime's `BlockWeights` configuration.
+/// invisible to the dispatch path. The runtime must charge that worst case in
+/// the signed-extrinsic base weight (`PubkeyCacheVerifyWeight`). Separately,
+/// account reaping runs `Pubkeys::remove` via `OnKilledAccount` and must be
+/// charged on every kill-capable call weight (`PubkeyCleanupWeight` on this
+/// chain's balances `WeightInfo`) — a first-registration that also reaps
+/// performs both the insert and the remove.
 #[derive(Eq, PartialEq, Clone, Encode, Decode, RuntimeDebug, TypeInfo, DecodeWithMemTracking)]
 #[scale_info(skip_type_params(T))]
 pub struct CachedSignature<T>(pub DilithiumSignatureScheme, PhantomData<T>);

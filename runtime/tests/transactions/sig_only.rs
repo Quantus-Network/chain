@@ -189,47 +189,79 @@ fn sig_only_transaction_from_wrong_key_rejected() {
 	});
 }
 
-/// `CachedSignature` verification performs pubkey-cache database work from
-/// `UncheckedExtrinsic::check`, before any `TxExtension` weight or payment
-/// handling. That cost must therefore be carried by the signed-extrinsic base
-/// weight: the surcharge over the frame default must cover both the cache-hit
-/// case (one `Pubkeys` read — sig-only, or full with the key already cached)
-/// and the first-use case (one read plus one multi-kilobyte insert).
+/// Worst-case pubkey-cache path: a first full-signature `transfer_all(...,
+/// keep_alive = false)` performs `contains_key` + insert during verify, then
+/// `Pubkeys::remove` when dispatch reaps the sender — one read and two writes.
+///
+/// Verify-path DB work is charged in the signed `base_extrinsic` surcharge;
+/// the cleanup write is charged on the kill-capable balances call weight
+/// (also covering scheduled/root dispatch of that call). Neither side alone
+/// is enough; together they must cover the combined R+2W cost.
 #[test]
-fn base_extrinsic_weight_covers_pubkey_cache_db_ops() {
+fn first_registration_plus_reap_weight_covers_combined_db_ops() {
 	use frame_support::{
-		dispatch::DispatchClass,
+		dispatch::{DispatchClass, GetDispatchInfo},
 		weights::constants::{ExtrinsicBaseWeight, RocksDbWeight},
 	};
-	use quantus_runtime::configs::{PubkeyCacheVerifyWeight, RuntimeBlockWeights};
+	use pallet_balances::WeightInfo;
+	use quantus_runtime::configs::{
+		PubkeyCacheVerifyWeight, PubkeyCleanupWeight, RuntimeBlockWeights,
+	};
 
-	// Cache hit (sig-only lookup, or full-signature `contains_key`): one read.
-	let cached_case = RocksDbWeight::get().reads(1);
-	// First full-signature use: the read plus the `Pubkeys` insert.
-	let first_use_case = RocksDbWeight::get().reads_writes(1, 1);
+	let verify = RocksDbWeight::get().reads_writes(1, 1);
+	let cleanup = RocksDbWeight::get().writes(1);
+	let combined = verify.saturating_add(cleanup); // R + 2W
+
+	assert_eq!(PubkeyCacheVerifyWeight::get(), verify);
+	assert_eq!(PubkeyCleanupWeight::get(), cleanup);
+
+	let stock_transfer_all =
+		pallet_balances::weights::SubstrateWeight::<Runtime>::transfer_all();
+	let runtime_transfer_all =
+		<Runtime as pallet_balances::Config>::WeightInfo::transfer_all();
+	assert!(
+		runtime_transfer_all.all_gte(stock_transfer_all.saturating_add(cleanup)),
+		"kill-capable balances weight must include Pubkeys::remove: \
+		 runtime {runtime_transfer_all:?} vs stock+cleanup {:?}",
+		stock_transfer_all.saturating_add(cleanup)
+	);
 
 	let weights = RuntimeBlockWeights::get();
 	for class in [DispatchClass::Normal, DispatchClass::Operational] {
-		let surcharge =
+		let base_surcharge =
 			weights.get(class).base_extrinsic.saturating_sub(ExtrinsicBaseWeight::get());
 		assert!(
-			surcharge.all_gte(first_use_case),
-			"{class:?} base_extrinsic surcharge {surcharge:?} must cover the first-use \
-			 read+write {first_use_case:?}"
+			base_surcharge.all_gte(verify),
+			"{class:?} base_extrinsic surcharge {base_surcharge:?} must cover verify {verify:?}"
 		);
+
+		// Combined budget available to a first-reg+reap extrinsic of this class.
+		let charged = base_surcharge.saturating_add(runtime_transfer_all.saturating_sub(stock_transfer_all));
 		assert!(
-			surcharge.all_gte(cached_case),
-			"{class:?} base_extrinsic surcharge {surcharge:?} must cover the cached-key \
-			 read {cached_case:?}"
+			charged.all_gte(combined),
+			"{class:?} verify surcharge + cleanup surcharge {charged:?} must cover \
+			 first-registration-plus-reap {combined:?}"
 		);
 	}
-	assert!(PubkeyCacheVerifyWeight::get().all_gte(first_use_case));
+
+	// The dispatch info used for fees / CheckWeight on the concrete call also
+	// carries the cleanup write (scheduled/root use this same WeightInfo).
+	let call: RuntimeCall = BalancesCall::transfer_all {
+		dest: MultiAddress::Id(AccountId32::new([9u8; 32])),
+		keep_alive: false,
+	}
+	.into();
+	assert!(
+		call.get_dispatch_info().call_weight.all_gte(runtime_transfer_all),
+		"dispatch info must expose the cleanup-inclusive transfer_all weight"
+	);
 }
 
 /// A full-signed `transfer_all(..., keep_alive = false)` verifies (and would
 /// cache the pubkey) before dispatch reaps the sender. The cache entry must
 /// not survive the reap, or fund → register → reap could leave unbounded
-/// orphan `Pubkeys` state.
+/// orphan `Pubkeys` state. Weight coverage for this combined path lives in
+/// [`first_registration_plus_reap_weight_covers_combined_db_ops`].
 #[test]
 fn full_signed_reap_clears_cached_pubkey() {
 	let pair = Dilithium65Pair::from_seed_slice(&[42u8; 32]).expect("valid seed");

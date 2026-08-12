@@ -7,7 +7,7 @@ the runtime, their dispatchable calls, the runtime APIs, transaction extensions,
 genesis logic, and the workspace primitive crates pulled in.
 
 - **Crate:** `quantus-runtime` (`runtime/`), version `0.7.1-q-day-2`
-- **Spec:** `spec_name = quantus-runtime`, `spec_version = 143`, `transaction_version = 4`, `authoring_version = 1`
+- **Spec:** `spec_name = quantus-runtime`, `spec_version = 145`, `transaction_version = 4`, `authoring_version = 1`
 - **Build:** `no_std` WASM via `substrate-wasm-builder` (`runtime/build.rs`); native `std` build for the node/client
 - **Block time target:** 12s (`TARGET_BLOCK_TIME_MS = 12_000`)
 - **Consensus:** QPoW (quantum-resistant Proof of Work, Poseidon2-based)
@@ -191,7 +191,9 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - On-chain cache of Dilithium public keys keyed by the `AccountId32` they hash to. No dispatchable calls, events, or genesis config.
 - **Storage:** `Pubkeys: AccountId32 → DilithiumSigner`. Written automatically by `CachedSignature` (the runtime `Signature` type) the first time an account's full `SignatureWithPublic` transaction verifies — the successful verify proves both the signature and `Poseidon(pubkey) == account`, so the binding is trusted. Cleared via `frame_system::Config::OnKilledAccount = Pubkey` when the system account is reaped, so a fund → register → reap loop cannot leave unbounded orphan state; the next full-signature transaction re-registers.
 - Once cached, the account may sign with the `Dilithium87SigOnly`/`Dilithium65SigOnly` variants of `DilithiumSignatureScheme`, omitting the ~1.9–2.6 KB public key from every subsequent transaction; verification loads the key from `Pubkeys` and fails (`BadProof`) if none of the matching parameter set is cached. Full-signature transactions remain valid forever, so existing clients need no changes; sig-only is an opt-in size optimization.
-- **Weight accounting:** the cache read (and first-use ~2–2.6 KB insert) happens during signature verification in `UncheckedExtrinsic::check`, outside any weighted path. The worst case (`PubkeyCacheVerifyWeight` = 1 DB read + 1 DB write) is charged via a `base_extrinsic` surcharge on the `Normal` and `Operational` classes in `RuntimeBlockWeights`; `Mandatory` inherents are unsigned and keep the default base weight.
+- **Weight accounting:**
+  - Verify path (`PubkeyCacheVerifyWeight` = 1 DB read + 1 DB write): charged via a `base_extrinsic` surcharge on the `Normal`/`Operational` classes in `RuntimeBlockWeights` (verification runs in `UncheckedExtrinsic::check`, outside any weighted dispatch path). `Mandatory` inherents are unsigned and keep the default base weight.
+  - Reap cleanup (`PubkeyCleanupWeight` = 1 DB write for `Pubkeys::remove`): folded into `BalancesWeightsWithPubkeyCleanup` for every kill-capable balances call (`transfer_all`, `transfer_allow_death`, `burn_allow_death`, `force_transfer`, `force_set_balance_killing`), so user-signed, scheduled, and root-dispatched reaps all reserve and fee the write. A first-registration that also reaps therefore pays verify (R+W) in the base weight plus cleanup (W) in the call weight.
 
 ---
 
