@@ -4,6 +4,7 @@ This crate defines the shared data structures and API contract used for communic
 
 It includes:
 
+*   QUIC protocol messages (`MinerMessage`), including `Ready { token }` for miner auth.
 *   Request structures (e.g., `MiningRequest`).
 *   Response structures (e.g., `MiningResponse`, `MiningResult`).
 *   Status enums (`ApiResponseStatus`) used in responses.

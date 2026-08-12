@@ -20,7 +20,10 @@ use sc_transaction_pool_api::{OffchainTransactionPoolFactory, TransactionPool};
 use sp_inherents::CreateInherentDataProviders;
 use tokio_util::sync::CancellationToken;
 
-use crate::{miner_server::MinerServer, prometheus::BusinessMetrics};
+use crate::{
+	miner_server::{MinerServer, MinerServerConfig, DEFAULT_MINER_AUTH_TOKEN_FILENAME},
+	prometheus::BusinessMetrics,
+};
 use codec::Encode;
 use jsonrpsee::tokio;
 use quantus_miner_api::{ApiResponseStatus, MiningRequest, MiningResult};
@@ -29,7 +32,7 @@ use sp_api::ProvideRuntimeApi;
 use sp_consensus::SyncOracle;
 use sp_consensus_qpow::QPoWApi;
 use sp_core::{crypto::AccountId32, U512};
-use std::{sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 /// Frequency of block import logging. Every 1000 blocks.
 const LOG_FREQUENCY: u64 = 1000;
@@ -108,6 +111,12 @@ where
 			Some(result) => {
 				let miner_id = result.miner_id.unwrap_or(0);
 				if let Some(seal) = parse_mining_result(&result, job_id) {
+					// The template can rebuild while we were blocked on recv. Re-check
+					// before returning a seal so we never submit work for a superseded
+					// pre_hash (stress tests hit this: job N completes after rebuild).
+					if should_stop() {
+						return None;
+					}
 					return Some((miner_id, seal));
 				}
 				// Keep waiting for other miners (stale, failed, or invalid parse)
@@ -149,6 +158,10 @@ async fn handle_external_mining(
 	job_counter: &mut u64,
 	mining_start_time: &mut std::time::Instant,
 ) -> ExternalMiningOutcome {
+	// Read the version BEFORE snapshotting metadata (same pattern as
+	// handle_local_mining) so a concurrent rebuild between the two reads is
+	// caught by the version comparisons below.
+	let job_version = worker_handle.version();
 	let metadata = match worker_handle.metadata() {
 		Some(m) => m,
 		None => return ExternalMiningOutcome::Interrupted,
@@ -178,40 +191,38 @@ async fn handle_external_mining(
 
 	server.broadcast_job(job).await;
 
-	// Wait for results from miners, retrying on invalid seals
-	// Track both best_hash (parent) and pre_hash (block template) to detect rebuilds
+	// Any rebuild, sync-clear, or consumed build bumps the worker version,
+	// superseding this job. Note submit() re-verifies the seal against the
+	// current build under its own lock, so a stale seal can never be imported;
+	// these checks only avoid wasted verification and misleading logs.
+	let superseded = || cancellation_token.is_cancelled() || worker_handle.version() != job_version;
 	let best_hash = metadata.best_hash;
 	let original_pre_hash = metadata.pre_hash;
+	let log_if_rebuilt = || {
+		if let Some(current) = worker_handle.metadata() {
+			if current.best_hash == best_hash && current.pre_hash != original_pre_hash {
+				log::info!(
+					"⛏️ Block template rebuilt while mining job {}. Old pre_hash: {}, New pre_hash: {}. Rebroadcasting...",
+					job_id,
+					hex::encode(original_pre_hash.as_bytes()),
+					hex::encode(current.pre_hash.as_bytes())
+				);
+			}
+		}
+	};
+
+	// Wait for results from miners, retrying on invalid seals
 	loop {
-		let (miner_id, seal) = match wait_for_mining_result(server, &job_id, || {
-			// Interrupt if cancelled, parent block changed, OR block template was rebuilt
-			cancellation_token.is_cancelled() ||
-				worker_handle
-					.metadata()
-					.map(|m| m.best_hash != best_hash || m.pre_hash != original_pre_hash)
-					.unwrap_or(true)
-		})
-		.await
-		{
+		let (miner_id, seal) = match wait_for_mining_result(server, &job_id, superseded).await {
 			Some(result) => result,
 			None => {
-				// Check why we were interrupted - log if it was a rebuild
-				if let Some(current) = worker_handle.metadata() {
-					if current.best_hash == best_hash && current.pre_hash != original_pre_hash {
-						log::info!(
-							"⛏️ Block template rebuilt while mining job {}. Old pre_hash: {}, New pre_hash: {}. Rebroadcasting...",
-							job_id,
-							hex::encode(original_pre_hash.as_bytes()),
-							hex::encode(current.pre_hash.as_bytes())
-						);
-					}
-				}
+				log_if_rebuilt();
 				return ExternalMiningOutcome::Interrupted;
 			},
 		};
 
 		// Submit the seal (submit verifies atomically before consuming the build)
-		if worker_handle.submit(seal.clone()).await {
+		if worker_handle.submit(seal).await {
 			let mining_time = mining_start_time.elapsed().as_secs();
 			log::info!(
 				"🥇 Successfully mined and submitted a new block via external miner {} (mining time: {}s)",
@@ -220,6 +231,13 @@ async fn handle_external_mining(
 			);
 			*mining_start_time = std::time::Instant::now();
 			return ExternalMiningOutcome::Success;
+		}
+
+		// If the template moved while we were submitting, the failure is not the
+		// miner's fault — interrupt and rebroadcast instead of blaming the seal.
+		if superseded() {
+			log_if_rebuilt();
+			return ExternalMiningOutcome::Interrupted;
 		}
 
 		// Submit failed (seal invalid or import error)
@@ -454,7 +472,7 @@ fn spawn_authority_tasks(
 	sync_service: Arc<sc_network_sync::SyncingService<Block>>,
 	prometheus_registry: Option<prometheus::Registry>,
 	rewards_address: AccountId32,
-	miner_listen_port: Option<u16>,
+	miner_config: Option<MinerServerConfig>,
 	tx_stream_for_worker: impl futures::Stream<Item = sp_core::H256> + Send + Unpin + 'static,
 	#[cfg(feature = "tx-logging")] tx_stream_for_logger: impl futures::Stream<Item = sp_core::H256>
 		+ Send
@@ -517,13 +535,21 @@ fn spawn_authority_tasks(
 
 	// Spawn the main mining loop
 	task_manager.spawn_essential_handle().spawn("qpow-mining", None, async move {
-		// Start miner server if port is specified
-		let miner_server: Option<Arc<MinerServer>> = if let Some(port) = miner_listen_port {
-			match MinerServer::start(port).await {
+		// Start miner server if port is specified. Failure must abort this essential
+		// task (and thus the node) instead of falling back to local mining — the
+		// operator explicitly opted into external mining with --miner-listen-port.
+		let miner_server: Option<Arc<MinerServer>> = if let Some(cfg) = miner_config {
+			let port = cfg.port;
+			match MinerServer::start(cfg) {
 				Ok(server) => Some(server),
 				Err(e) => {
-					log::error!("⛏️ Failed to start miner server on port {}: {}", port, e);
-					None
+					log::error!(
+						"⛏️ Failed to start miner server on port {}: {}. \
+						 Refusing to fall back to local mining.",
+						port,
+						e
+					);
+					return;
 				},
 			}
 		} else {
@@ -675,6 +701,7 @@ pub fn new_full<
 	config: Configuration,
 	rewards_address: AccountId32,
 	miner_listen_port: Option<u16>,
+	miner_auth_token_file: Option<PathBuf>,
 	enable_peer_sharing: bool,
 	sync_max_timeouts_before_drop: u32,
 	sync_disable_major_sync_gating: bool,
@@ -752,6 +779,13 @@ pub fn new_full<
 
 	let role = config.role;
 	let prometheus_registry = config.prometheus_registry().cloned();
+	// config.data_path is the chain-scoped config dir every other chain path uses.
+	let miner_config = miner_listen_port.map(|port| MinerServerConfig {
+		port,
+		auth_token_path: miner_auth_token_file
+			.unwrap_or_else(|| config.data_path.join(DEFAULT_MINER_AUTH_TOKEN_FILENAME)),
+		tls_dir: config.data_path.clone(),
+	});
 
 	let rpc_extensions_builder = {
 		let client = client.clone();
@@ -797,7 +831,7 @@ pub fn new_full<
 			sync_service,
 			prometheus_registry,
 			rewards_address,
-			miner_listen_port,
+			miner_config,
 			tx_stream_for_worker,
 			tx_stream_for_logger,
 			allow_mining_without_peers,
@@ -811,11 +845,13 @@ pub fn new_full<
 			sync_service,
 			prometheus_registry,
 			rewards_address,
-			miner_listen_port,
+			miner_config,
 			tx_stream_for_worker,
 			allow_mining_without_peers,
 		);
 	}
+	// Note: --miner-listen-port without --validator is rejected at CLI parse
+	// time in command.rs, so no silent-ignore path exists here.
 
 	// Note: Finalization is now handled synchronously in import_block,
 	// so we don't need a separate finalization task.

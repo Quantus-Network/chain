@@ -14,9 +14,20 @@ pub struct Cli {
 	pub rewards_inner_hash: Option<String>,
 
 	/// Port to listen for external miner connections (e.g., 9833).
-	/// When set, the node will wait for miners to connect instead of mining locally.
+	/// When set, the node waits for miners instead of mining locally.
+	/// Requires `--validator`; startup fails otherwise.
 	#[arg(long, value_name = "PORT")]
 	pub miner_listen_port: Option<u16>,
+
+	/// Path to the miner auth token file.
+	///
+	/// Requires `--miner-listen-port` (startup fails otherwise). Defaults to
+	/// `<base-path>/chains/<chain>/miner-auth-token`. If the file does not exist,
+	/// the node generates a random token and writes it there (mode 0600 on Unix).
+	/// The token itself is never logged — read the file to configure miners.
+	/// Startup fails if this path is empty/unreadable or cannot be created.
+	#[arg(long, value_name = "PATH")]
+	pub miner_auth_token_file: Option<std::path::PathBuf>,
 
 	/// Enable peer sharing via RPC endpoint (`peer_getNetworkInfo`).
 	///
