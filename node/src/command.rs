@@ -666,6 +666,25 @@ pub fn run() -> sc_cli::Result<()> {
 						},
 				};
 
+				// External mining only runs on authorities; fail fast instead of
+				// silently ignoring the flags (matches --rewards-inner-hash above).
+				if cli.miner_listen_port.is_some() && !config.role.is_authority() {
+					eprintln!(
+						"Error: --miner-listen-port requires running with --validator.\n"
+					);
+					return Err(sc_cli::Error::Input(
+						"--miner-listen-port requires --validator".into(),
+					));
+				}
+				if cli.miner_auth_token_file.is_some() && cli.miner_listen_port.is_none() {
+					eprintln!(
+						"Error: --miner-auth-token-file is only used with --miner-listen-port.\n"
+					);
+					return Err(sc_cli::Error::Input(
+						"--miner-auth-token-file requires --miner-listen-port".into(),
+					));
+				}
+
 				// Allow mining without peers if --dev or --force-authoring is set
 				let allow_mining_without_peers = config.force_authoring;
 

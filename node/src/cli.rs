@@ -14,14 +14,14 @@ pub struct Cli {
 	pub rewards_inner_hash: Option<String>,
 
 	/// Port to listen for external miner connections (e.g., 9833).
-	/// When set on a validator, the node waits for miners instead of mining locally.
-	/// Ignored (with a warning) unless `--validator` is also set.
+	/// When set, the node waits for miners instead of mining locally.
+	/// Requires `--validator`; startup fails otherwise.
 	#[arg(long, value_name = "PORT")]
 	pub miner_listen_port: Option<u16>,
 
 	/// Path to the miner auth token file.
 	///
-	/// Used only with `--miner-listen-port` on a validator. Defaults to
+	/// Requires `--miner-listen-port` (startup fails otherwise). Defaults to
 	/// `<base-path>/chains/<chain>/miner-auth-token`. If the file does not exist,
 	/// the node generates a random token and writes it there (mode 0600 on Unix).
 	/// The token itself is never logged — read the file to configure miners.
