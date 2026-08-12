@@ -31,6 +31,19 @@
 //! once the key is known to be cached. Clients can query [`PubkeyApi`] (or
 //! [`Pallet::pubkey_of`] via state RPC) to learn whether an account's key is
 //! registered before switching to `SigOnly`.
+//!
+//! ## State economics (accepted trade-off)
+//!
+//! A cached key parks 1.9–2.6 KB of storage backed by **no deposit**: its
+//! standing cost is the account's existential deposit plus one transaction
+//! fee, roughly 20× more state per ED than a plain `System::Account` entry
+//! buys. This is a deliberate, reviewed decision in favor of keeping
+//! registration automatic (no extra extrinsic, no deposit UX on an account's
+//! first transaction). The exposure is bounded: entries exist only for live,
+//! ED-holding accounts, and the ED cannot be reclaimed without reaping the
+//! account — which deletes the entry via [`OnKilledAccount`] — so the state
+//! never outlives its collateral. Revisiting this with a storage deposit
+//! later requires a migration for already-registered keys.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
