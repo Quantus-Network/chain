@@ -195,8 +195,7 @@ async fn handle_external_mining(
 	// superseding this job. Note submit() re-verifies the seal against the
 	// current build under its own lock, so a stale seal can never be imported;
 	// these checks only avoid wasted verification and misleading logs.
-	let superseded =
-		|| cancellation_token.is_cancelled() || worker_handle.version() != job_version;
+	let superseded = || cancellation_token.is_cancelled() || worker_handle.version() != job_version;
 	let best_hash = metadata.best_hash;
 	let original_pre_hash = metadata.pre_hash;
 	let log_if_rebuilt = || {

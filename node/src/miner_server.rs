@@ -257,8 +257,10 @@ fn validate_auth_token_length(token: &str, path: &Path) -> Result<(), String> {
 	// raw length (e.g. a token full of quotes doubles). Check what miners will
 	// actually send, otherwise every miner fails auth with an opaque
 	// "Message size exceeds maximum" framing error.
-	let frame = serde_json::to_vec(&MinerMessage::Ready { token: token.to_string() })
-		.map_err(|e| format!("Failed to serialize miner auth token from {}: {}", path.display(), e))?;
+	let frame =
+		serde_json::to_vec(&MinerMessage::Ready { token: token.to_string() }).map_err(|e| {
+			format!("Failed to serialize miner auth token from {}: {}", path.display(), e)
+		})?;
 	if frame.len() > quantus_miner_api::MAX_MESSAGE_SIZE as usize {
 		return Err(format!(
 			"Miner auth token in {} serializes to a {}-byte Ready frame; max is {}. \
