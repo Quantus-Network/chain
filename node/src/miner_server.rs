@@ -80,7 +80,7 @@ pub struct MinerServer {
 	/// Counter for assigning unique miner IDs.
 	next_miner_id: AtomicU64,
 	/// Shared secret required in the miner's `Ready` message.
-	auth_token: Arc<str>,
+	auth_token: String,
 	/// Limits concurrent pre-auth handshakes.
 	unauth_slots: Arc<Semaphore>,
 }
@@ -122,13 +122,13 @@ impl MinerServer {
 			result_tx,
 			current_job: Arc::new(RwLock::new(None)),
 			next_miner_id: AtomicU64::new(1),
-			auth_token: Arc::from(auth_token),
+			auth_token,
 			unauth_slots: Arc::new(Semaphore::new(MAX_UNAUTHENTICATED_CONNECTIONS)),
 		});
 
 		// Start the acceptor task
 		let server_clone = server.clone();
-		let endpoint = create_server_endpoint(port, &tls).await?;
+		let endpoint = create_server_endpoint(port, tls.server_crypto)?;
 
 		tokio::spawn(async move {
 			acceptor_task(endpoint, server_clone).await;
@@ -200,7 +200,7 @@ impl MinerServer {
 /// Load the miner auth token from `path`, or generate and persist one if missing.
 ///
 /// The token is a 32-byte value encoded as 64 lowercase hex characters.
-pub fn load_or_create_miner_auth_token(path: &Path) -> Result<String, String> {
+fn load_or_create_miner_auth_token(path: &Path) -> Result<String, String> {
 	match fs::read_to_string(path) {
 		Ok(contents) => {
 			let token = contents.trim().to_string();
@@ -279,13 +279,15 @@ fn auth_tokens_equal(wire_token: &str, expected: &str) -> bool {
 }
 
 fn write_miner_auth_token_file(path: &Path, token: &str) -> Result<(), String> {
-	write_secret_text_file(path, token)
+	atomic_write_text_file(path, token, 0o600)
 }
 
-/// Persisted miner TLS certificate material.
+/// Persisted miner TLS certificate material, ready to serve with.
 struct MinerTlsMaterial {
-	cert_der: Vec<u8>,
-	key_der: Vec<u8>,
+	/// Prebuilt QUIC crypto config (cert/key validated, ALPN set). Building it
+	/// here is also what guarantees the fingerprint is only published for
+	/// material that actually works — see `load_or_create_miner_tls`.
+	server_crypto: quinn::crypto::rustls::QuicServerConfig,
 	fingerprint_hex: String,
 	fingerprint_path: PathBuf,
 }
@@ -293,9 +295,10 @@ struct MinerTlsMaterial {
 /// Load miner TLS cert/key from `tls_dir`, or generate and persist them if missing.
 ///
 /// Also writes `miner-tls-cert-sha256` (SHA-256 of the cert DER as lowercase hex)
-/// for miners to pin — but only after the cert/key pair validates as a rustls
-/// server config, so a corrupt cert cannot overwrite an already-distributed pin.
-pub fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, String> {
+/// for miners to pin — but only after the cert/key pair builds into the server
+/// config we will actually serve with, so a corrupt cert cannot overwrite an
+/// already-distributed pin.
+fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, String> {
 	fs::create_dir_all(tls_dir).map_err(|e| {
 		format!("Failed to create miner TLS directory {}: {}", tls_dir.display(), e)
 	})?;
@@ -338,8 +341,9 @@ pub fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, Stri
 			.map_err(|e| format!("Failed to generate miner TLS certificate: {}", e))?;
 		let cert_der = certified.cert.der().as_ref().to_vec();
 		let key_der = certified.key_pair.serialize_der();
-		// Validate before persisting so we never leave half-written or unusable material.
-		validate_miner_tls(&cert_der, &key_der)?;
+		// Validate before persisting so we never leave half-written or unusable
+		// material. (`build_server_crypto` below re-validates the persisted pair.)
+		build_server_crypto(cert_der.clone(), key_der.clone())?;
 		persist_miner_tls_pair(&cert_path, &key_path, &cert_der, &key_der)?;
 		log::info!(
 			"⛏️ Generated new miner TLS certificate at {} / {}",
@@ -349,13 +353,15 @@ pub fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, Stri
 		(cert_der, key_der)
 	};
 
-	// Existing material must also validate before we (re)publish the fingerprint.
-	validate_miner_tls(&cert_der, &key_der)?;
+	// Build the config we will actually serve with. This must succeed before we
+	// (re)publish the fingerprint, and using the same config for validation and
+	// serving means the two can never drift apart.
+	let fingerprint_hex = hex::encode(Sha256::digest(&cert_der));
+	let server_crypto = build_server_crypto(cert_der, key_der)?;
 
 	// Only touch the fingerprint file when it is missing or wrong: rewriting it
 	// every boot re-runs the temp-file + fsync + rename dance for no reason and
 	// creates a crash window on a file operators have already distributed.
-	let fingerprint_hex = hex::encode(Sha256::digest(&cert_der));
 	let needs_write = match fs::read_to_string(&fingerprint_path) {
 		Ok(existing) => {
 			let matches = existing.trim().eq_ignore_ascii_case(&fingerprint_hex);
@@ -383,20 +389,28 @@ pub fn load_or_create_miner_tls(tls_dir: &Path) -> Result<MinerTlsMaterial, Stri
 		log::info!("⛏️ Wrote miner TLS cert SHA-256 to {}", fingerprint_path.display());
 	}
 
-	Ok(MinerTlsMaterial { cert_der, key_der, fingerprint_hex, fingerprint_path })
+	Ok(MinerTlsMaterial { server_crypto, fingerprint_hex, fingerprint_path })
 }
 
-fn validate_miner_tls(cert_der: &[u8], key_der: &[u8]) -> Result<(), String> {
-	let cert = rustls::pki_types::CertificateDer::from(cert_der.to_vec());
-	let key = rustls::pki_types::PrivateKeyDer::try_from(key_der.to_vec())
+/// Build the QUIC server crypto config (with ALPN) from cert/key DER.
+///
+/// Single source of truth: the same config is used to validate persisted
+/// material and to serve, consuming the buffers so no extra private-key copy
+/// lingers.
+fn build_server_crypto(
+	cert_der: Vec<u8>,
+	key_der: Vec<u8>,
+) -> Result<quinn::crypto::rustls::QuicServerConfig, String> {
+	let cert = rustls::pki_types::CertificateDer::from(cert_der);
+	let key = rustls::pki_types::PrivateKeyDer::try_from(key_der)
 		.map_err(|e| format!("Failed to parse miner TLS private key: {}", e))?;
-	let server_config = rustls::ServerConfig::builder()
+	let mut server_config = rustls::ServerConfig::builder()
 		.with_no_client_auth()
 		.with_single_cert(vec![cert], key)
 		.map_err(|e| format!("Failed to create miner TLS server config: {}", e))?;
+	server_config.alpn_protocols = vec![MINER_ALPN.to_vec()];
 	quinn::crypto::rustls::QuicServerConfig::try_from(server_config)
-		.map_err(|e| format!("Failed to create miner QUIC TLS config: {}", e))?;
-	Ok(())
+		.map_err(|e| format!("Failed to create miner QUIC TLS config: {}", e))
 }
 
 /// Persist cert then key with atomic renames. If the key write fails after the cert
@@ -409,14 +423,16 @@ fn persist_miner_tls_pair(
 ) -> Result<(), String> {
 	atomic_write_bytes_file(cert_path, cert_der, 0o600)?;
 	if let Err(e) = atomic_write_bytes_file(key_path, key_der, 0o600) {
-		let _ = fs::remove_file(cert_path);
+		if let Err(rm) = fs::remove_file(cert_path) {
+			log::error!(
+				"⛏️ Failed to remove orphaned miner TLS cert {} after key write failure: {}",
+				cert_path.display(),
+				rm
+			);
+		}
 		return Err(e);
 	}
 	Ok(())
-}
-
-fn write_secret_text_file(path: &Path, contents: &str) -> Result<(), String> {
-	atomic_write_text_file(path, contents, 0o600)
 }
 
 /// Warn and repair overly-permissive modes on existing secret files (Unix).
@@ -470,16 +486,26 @@ fn atomic_write_bytes_file(path: &Path, contents: &[u8], mode: u32) -> Result<()
 	);
 	let tmp_path = parent.join(tmp_name);
 
+	let remove_tmp = |tmp_path: &Path| {
+		if let Err(e) = fs::remove_file(tmp_path) {
+			log::error!(
+				"⛏️ Failed to clean up temp file {} (remove it by hand): {}",
+				tmp_path.display(),
+				e
+			);
+		}
+	};
+
 	{
 		let mut file = open_file_with_mode(&tmp_path, mode)?;
 		file.write_all(contents).and_then(|_| file.sync_all()).map_err(|e| {
-			let _ = fs::remove_file(&tmp_path);
+			remove_tmp(&tmp_path);
 			format!("Failed to write {}: {}", path.display(), e)
 		})?;
 	}
 
 	fs::rename(&tmp_path, path).map_err(|e| {
-		let _ = fs::remove_file(&tmp_path);
+		remove_tmp(&tmp_path);
 		format!("Failed to finalize {}: {}", path.display(), e)
 	})?;
 
@@ -520,28 +546,12 @@ fn open_file_with_mode(path: &Path, mode: u32) -> Result<fs::File, String> {
 	}
 }
 
-/// Create a QUIC server endpoint with the persisted (or newly generated) certificate.
-async fn create_server_endpoint(
+/// Create a QUIC server endpoint from the already-validated crypto config.
+fn create_server_endpoint(
 	port: u16,
-	tls: &MinerTlsMaterial,
+	server_crypto: quinn::crypto::rustls::QuicServerConfig,
 ) -> Result<quinn::Endpoint, String> {
-	let cert_der = rustls::pki_types::CertificateDer::from(tls.cert_der.clone());
-	let key_der = rustls::pki_types::PrivateKeyDer::try_from(tls.key_der.clone())
-		.map_err(|e| format!("Failed to parse miner TLS private key: {}", e))?;
-
-	let mut server_config = rustls::ServerConfig::builder()
-		.with_no_client_auth()
-		.with_single_cert(vec![cert_der], key_der)
-		.map_err(|e| format!("Failed to create server config: {}", e))?;
-
-	// Set ALPN protocol
-	server_config.alpn_protocols = vec![MINER_ALPN.to_vec()];
-
-	// Wrap in QuicServerConfig for quinn 0.11+
-	let quic_server_config = quinn::crypto::rustls::QuicServerConfig::try_from(server_config)
-		.map_err(|e| format!("Failed to create QUIC server config: {}", e))?;
-
-	let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(quic_server_config));
+	let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(server_crypto));
 
 	// Bound how many incomplete handshakes quinn will buffer for the app.
 	quinn_config.max_incoming(MAX_UNAUTHENTICATED_CONNECTIONS);
@@ -597,9 +607,11 @@ async fn acceptor_task(endpoint: quinn::Endpoint, server: Arc<MinerServer>) {
 						Some((send, recv)) => {
 							// Auth succeeded — free the pre-auth slot before the
 							// long-lived miner session so authenticated miners do
-							// not consume the unauth budget.
+							// not consume the unauth budget. The streams keep the
+							// quinn connection alive; no handle needs to be held.
 							drop(unauth_permit);
-							serve_authenticated_miner(connection, server, send, recv).await;
+							drop(connection);
+							serve_authenticated_miner(server, send, recv).await;
 							return;
 						},
 						None => {
@@ -681,7 +693,6 @@ async fn authenticate_miner_connection(
 
 /// Register and serve a miner that has already passed auth.
 async fn serve_authenticated_miner(
-	_connection: quinn::Connection,
 	server: Arc<MinerServer>,
 	send: quinn::SendStream,
 	recv: quinn::RecvStream,
@@ -985,10 +996,14 @@ mod tests {
 		assert_eq!(first.fingerprint_hex.len(), 64);
 		assert!(first.fingerprint_path.exists());
 
+		let cert_bytes = fs::read(dir.join(DEFAULT_MINER_TLS_CERT_FILENAME)).unwrap();
+		let key_bytes = fs::read(dir.join(DEFAULT_MINER_TLS_KEY_FILENAME)).unwrap();
+
 		let second = load_or_create_miner_tls(&dir).unwrap();
-		assert_eq!(first.cert_der, second.cert_der);
-		assert_eq!(first.key_der, second.key_der);
+		// The fingerprint pins the cert, so equality proves the pair was reused.
 		assert_eq!(first.fingerprint_hex, second.fingerprint_hex);
+		assert_eq!(cert_bytes, fs::read(dir.join(DEFAULT_MINER_TLS_CERT_FILENAME)).unwrap());
+		assert_eq!(key_bytes, fs::read(dir.join(DEFAULT_MINER_TLS_KEY_FILENAME)).unwrap());
 
 		let _ = fs::remove_dir_all(&dir);
 	}
