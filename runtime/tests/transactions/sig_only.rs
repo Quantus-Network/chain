@@ -215,10 +215,8 @@ fn first_registration_plus_reap_weight_covers_combined_db_ops() {
 	assert_eq!(PubkeyCacheVerifyWeight::get(), verify);
 	assert_eq!(PubkeyCleanupWeight::get(), cleanup);
 
-	let stock_transfer_all =
-		pallet_balances::weights::SubstrateWeight::<Runtime>::transfer_all();
-	let runtime_transfer_all =
-		<Runtime as pallet_balances::Config>::WeightInfo::transfer_all();
+	let stock_transfer_all = pallet_balances::weights::SubstrateWeight::<Runtime>::transfer_all();
+	let runtime_transfer_all = <Runtime as pallet_balances::Config>::WeightInfo::transfer_all();
 	assert!(
 		runtime_transfer_all.all_gte(stock_transfer_all.saturating_add(cleanup)),
 		"kill-capable balances weight must include Pubkeys::remove: \
@@ -236,7 +234,8 @@ fn first_registration_plus_reap_weight_covers_combined_db_ops() {
 		);
 
 		// Combined budget available to a first-reg+reap extrinsic of this class.
-		let charged = base_surcharge.saturating_add(runtime_transfer_all.saturating_sub(stock_transfer_all));
+		let charged =
+			base_surcharge.saturating_add(runtime_transfer_all.saturating_sub(stock_transfer_all));
 		assert!(
 			charged.all_gte(combined),
 			"{class:?} verify surcharge + cleanup surcharge {charged:?} must cover \
