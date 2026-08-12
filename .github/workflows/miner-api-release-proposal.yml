@@ -51,30 +51,59 @@ jobs:
           echo "commit_sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "source_branch=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Get latest miner-api tag
+      - name: Get latest miner-api tag and manifest version
         id: latest_tag
         run: |
+          set -euo pipefail
           # Get all miner-api version tags and sort them by version
           latest_miner_api_tag=$(git tag -l "quantus-miner-api-v[0-9]*.[0-9]*.[0-9]*" | sort -V | tail -n 1)
-          
+
           # If no tags found, use default
           if [ -z "$latest_miner_api_tag" ]; then
             latest_miner_api_tag="quantus-miner-api-v0.0.0"
           fi
-          
-          echo "latest_tag_found=$latest_miner_api_tag" >> $GITHUB_OUTPUT
-          echo "Latest miner-api tag found: $latest_miner_api_tag"
+
+          manifest_version=$(grep -E '^version = "[0-9]+\.[0-9]+\.[0-9]+"' miner-api/Cargo.toml | head -n1 | sed -E 's/^version = "([^"]+)"/\1/')
+          if [ -z "$manifest_version" ]; then
+            echo "Error: could not read version from miner-api/Cargo.toml"
+            exit 1
+          fi
+
+          tag_version=${latest_miner_api_tag#quantus-miner-api-v}
+          # Base bumps on max(manifest, tag). Tag-only basing rewrites the
+          # manifest downward when a merge left an untagged higher version
+          # (e.g. tree at 0.3.0, latest tag still 0.2.1 → patch becomes 0.2.2).
+          base_version=$(printf '%s\n%s\n' "$manifest_version" "$tag_version" | sort -V | tail -n 1)
+
+          echo "latest_tag_found=$latest_miner_api_tag" >> "$GITHUB_OUTPUT"
+          echo "manifest_version=$manifest_version" >> "$GITHUB_OUTPUT"
+          echo "base_version=$base_version" >> "$GITHUB_OUTPUT"
+          echo "Latest miner-api tag: $latest_miner_api_tag"
+          echo "Manifest version: $manifest_version"
+          echo "Bump base (max of tag/manifest): $base_version"
+
+          # Untagged merge: tree is ahead of tags. Refusing automatic bumps
+          # forces the recovery path (Miner API - Publish workflow_dispatch)
+          # instead of inventing a higher version that skips the untagged one.
+          if [ "$manifest_version" != "$tag_version" ] && \
+             [ "$(printf '%s\n%s\n' "$manifest_version" "$tag_version" | sort -V | tail -n 1)" = "$manifest_version" ]; then
+            echo "::error::miner-api/Cargo.toml is at $manifest_version but the newest tag is still $latest_miner_api_tag."
+            echo "::error::Publish the untagged version first via workflow_dispatch on 'Miner API - Publish'"
+            echo "::error::(version=$manifest_version, ref=$(git rev-parse --abbrev-ref HEAD)), then re-run this proposal."
+            exit 1
+          fi
 
       - name: Calculate new miner-api version
         id: versioner
         env:
-          LATEST_TAG: ${{ steps.latest_tag.outputs.latest_tag_found }}
+          BASE_VERSION: ${{ steps.latest_tag.outputs.base_version }}
+          MANIFEST_VERSION: ${{ steps.latest_tag.outputs.manifest_version }}
           VERSION_TYPE: ${{ github.event.inputs.version_type }}
           CUSTOM_VERSION: ${{ github.event.inputs.custom_version }}
           IS_DRAFT: ${{ github.event.inputs.is_draft }}
         run: |
-          # Remove 'quantus-miner-api-v' prefix for processing
-          current_version=${LATEST_TAG#quantus-miner-api-v}
+          set -euo pipefail
+          current_version="$BASE_VERSION"
 
           if [[ "$VERSION_TYPE" == "custom" ]]; then
             if [[ -z "$CUSTOM_VERSION" ]]; then
@@ -86,6 +115,14 @@ jobs:
               exit 1
             fi
             new_version="quantus-miner-api-v$CUSTOM_VERSION"
+            # Refuse no-op / downward customs: a custom equal to the manifest
+            # makes every sed a no-op and `git commit` fails under set -ex.
+            if [ "$(printf '%s\n%s\n' "$CUSTOM_VERSION" "$MANIFEST_VERSION" | sort -V | tail -n 1)" != "$CUSTOM_VERSION" ] || \
+               [ "$CUSTOM_VERSION" = "$MANIFEST_VERSION" ]; then
+              echo "Error: custom version $CUSTOM_VERSION must be strictly greater than manifest $MANIFEST_VERSION."
+              echo "If $MANIFEST_VERSION is already on the tree but untagged, use workflow_dispatch on 'Miner API - Publish'."
+              exit 1
+            fi
           else
             # Split version into components
             IFS='.' read -r major minor patch <<< "$current_version"
@@ -113,8 +150,16 @@ jobs:
             new_version="quantus-miner-api-v$major.$minor.$patch"
           fi
 
+          new_cargo_version=${new_version#quantus-miner-api-v}
+          # Belt-and-suspenders: never rewrite the manifest downward.
+          if [ "$(printf '%s\n%s\n' "$new_cargo_version" "$MANIFEST_VERSION" | sort -V | tail -n 1)" != "$new_cargo_version" ] || \
+             [ "$new_cargo_version" = "$MANIFEST_VERSION" ]; then
+            echo "Error: computed version $new_cargo_version is not strictly greater than manifest $MANIFEST_VERSION"
+            exit 1
+          fi
+
           echo "New miner-api version: $new_version"
-          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+          echo "new_version=$new_version" >> "$GITHUB_OUTPUT"
 
   update-miner-api-cargo-toml:
     name: 📝 Update Miner API Version Files
@@ -171,14 +216,26 @@ jobs:
             exit 1
           fi
           
-          # Update Cargo.lock
-          cargo update --package quantus-miner-api --precise "$new_cargo_version" || echo "cargo update tried, proceeding."
+          # Update Cargo.lock (must succeed — a stale lock fails --locked after merge)
+          cargo update --package quantus-miner-api --precise "$new_cargo_version"
+
+          # Keep the crates.io install snippet in the README in sync (ships in the .crate tarball).
+          echo "Updating miner-api/README.md install version to: $new_cargo_version"
+          sed -i -E "s/^quantus-miner-api = \"[0-9]+\.[0-9]+\.[0-9]+\"/quantus-miner-api = \"$new_cargo_version\"/" miner-api/README.md
+          if ! grep -q "^quantus-miner-api = \"$new_cargo_version\"" miner-api/README.md; then
+            echo "Error: Failed to update install version in miner-api/README.md"
+            exit 1
+          fi
 
           # Commit changes
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor }}@users.noreply.github.com"
-          
-          git add miner-api/Cargo.toml Cargo.toml Cargo.lock
+
+          git add miner-api/Cargo.toml miner-api/README.md Cargo.toml Cargo.lock
+          if git diff --cached --quiet; then
+            echo "Error: version bump staged nothing (already at $new_cargo_version?). Refusing empty commit."
+            exit 1
+          fi
           git commit -m "ci: Miner API version bump to $NEW_VERSION"
           git push origin "$branch_name"
 
