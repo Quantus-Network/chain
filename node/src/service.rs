@@ -844,6 +844,14 @@ pub fn new_full<
 			tx_stream_for_worker,
 			allow_mining_without_peers,
 		);
+	} else if miner_listen_port.is_some() {
+		// External mining (token/TLS material, QUIC listener, fail-closed start) only runs
+		// for authorities. Surface a clear warning so operators are not left thinking the
+		// port is listening or that auth files were written.
+		log::warn!(
+			"⚠️  --miner-listen-port is set but this node is not a validator (--validator); \
+			 miner listen / auth-token / TLS setup are ignored"
+		);
 	}
 
 	// Note: Finalization is now handled synchronously in import_block,
