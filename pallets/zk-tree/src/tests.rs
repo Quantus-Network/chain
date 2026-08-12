@@ -352,8 +352,7 @@ fn proof_for_nonexistent_leaf_fails() {
 		settle();
 
 		// Try to get proof for leaf index 5 (doesn't exist)
-		let result = ZkTree::get_merkle_proof(5);
-		assert!(result.is_err());
+		assert!(matches!(ZkTree::get_merkle_proof(5), Err(Error::<Test>::LeafIndexOutOfBounds)));
 	});
 }
 
@@ -366,7 +365,7 @@ fn proof_for_pending_leaf_fails_until_settled() {
 
 		// Leaf 1 is appended but not yet folded into the root: `Nodes` doesn't
 		// cover it, so no valid proof can exist for it yet.
-		assert!(ZkTree::get_merkle_proof(1).is_err());
+		assert!(matches!(ZkTree::get_merkle_proof(1), Err(Error::<Test>::LeafNotYetSettled)));
 		// Settled leaves stay provable.
 		assert!(ZkTree::get_merkle_proof(0).is_ok());
 

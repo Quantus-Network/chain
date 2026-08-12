@@ -72,10 +72,16 @@ pub const CIRCUIT_MAX_TREE_DEPTH: u8 = 16;
 /// Worst-case `ref_time` (picoseconds) of one Poseidon evaluation
 /// ([`tree::hash_node`] / [`tree::hash_leaf`]).
 ///
-/// Native release on the reference host measures ~3.3µs/eval
-/// (`measure_hash_node_time`). 10µs is ~3× that — enough headroom for wasm /
-/// slower boxes without the previous 15× (50µs) pad that capped blocks at
-/// ~500 transfers while prepare only took ~1.5s wall clock.
+/// ~3.3µs/eval is a *native lower bound*, measured on the reference host by the
+/// `#[ignore]`d `measure_hash_node_time` (run it manually; nothing in CI pins
+/// this constant). The runtime executes wasm32, where Goldilocks' u64×u64→u128
+/// products are emulated instead of compiling to a single `mulq`, so the wasm
+/// cost is higher and the margin under this 10µs budget is thinner than the
+/// native 3× suggests. The generated benchmarks bound it from the wasm side
+/// (e.g. vesting `claim` − `create_schedule` leaves a ~43µs delta covering a
+/// whole vested transfer plus the insert's Poseidon work). Still far below the
+/// previous 15× (50µs) pad that capped blocks at ~500 transfers while prepare
+/// took only ~1.5s wall clock. Re-measure when touching the hashing code.
 pub const POSEIDON_EVAL_REF_TIME_PS: u64 = 10_000_000;
 
 /// Flat *marginal* `(reads, writes)` charged per [`Pallet::insert_leaf`].
@@ -97,11 +103,12 @@ pub const POSEIDON_EVAL_REF_TIME_PS: u64 = 10_000_000;
 /// Charge together with [`INSERT_LEAF_HASH_REF_TIME_PS`].
 pub const INSERT_LEAF_DB_OPS: (u64, u64) = (3, 4);
 
-/// Marginal Poseidon evaluations per insert: `hash_leaf` for the `LeafInserted`
-/// event at insert time, `hash_leaf` again in the finalize batch, plus the
-/// amortized share (`≤ 1` for any `n ≥ 1`) of the batch's internal-node hashes.
-/// The depth-dependent remainder is in [`FINALIZE_BASE_POSEIDON_EVALS`].
-pub const INSERT_LEAF_POSEIDON_EVALS: u64 = 3;
+/// Marginal Poseidon evaluations per insert: one `hash_leaf` in the finalize
+/// batch (the insert itself hashes nothing — the `LeafInserted` event carries
+/// only the index), plus the amortized share (`≤ 1` for any `n ≥ 1`) of the
+/// batch's internal-node hashes. The depth-dependent remainder is in
+/// [`FINALIZE_BASE_POSEIDON_EVALS`].
+pub const INSERT_LEAF_POSEIDON_EVALS: u64 = 2;
 
 /// Marginal insert compute (`ref_time` picoseconds).
 pub const INSERT_LEAF_HASH_REF_TIME_PS: u64 =
@@ -263,8 +270,11 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// A new leaf was inserted into the tree. The root including this leaf is
-		/// computed at the end of the block and published in the block header.
-		LeafInserted { index: u64, leaf_hash: Hash256 },
+		/// computed at the end of the block and published in the block header. The
+		/// leaf hash is deliberately not included: it is derivable from `Leaves`
+		/// (and served by the RPC), and hashing it here would double the per-leaf
+		/// Poseidon work the batched settlement saves.
+		LeafInserted { index: u64 },
 		/// Tree depth increased.
 		TreeGrew { new_depth: u8 },
 	}
@@ -275,6 +285,9 @@ pub mod pallet {
 		LeafIndexOutOfBounds,
 		/// Leaf not found.
 		LeafNotFound,
+		/// Leaf was appended this block and is not yet folded into the root; it
+		/// becomes provable once the block is finalized.
+		LeafNotYetSettled,
 	}
 
 	#[pallet::hooks]
@@ -299,10 +312,7 @@ pub mod pallet {
 		}
 	}
 
-	impl<T: Config> Pallet<T>
-	where
-		AccountIdOf<T>: AsRef<[u8]>,
-	{
+	impl<T: Config> Pallet<T> {
 		/// Append a new leaf to the tree.
 		///
 		/// Returns the leaf index. The leaf is *not* folded into the Merkle root
@@ -324,12 +334,11 @@ pub mod pallet {
 			let leaf = ZkLeaf { to, transfer_count, asset_id, amount };
 			let leaf_index = LeafCount::<T>::get();
 
-			let leaf_hash = tree::hash_leaf::<T>(&leaf);
 			Leaves::<T>::insert(leaf_index, leaf);
 			LeafCount::<T>::put(leaf_index + 1);
 			UnprocessedLeaves::<T>::mutate(|pending| *pending = pending.saturating_add(1));
 
-			Self::deposit_event(Event::LeafInserted { index: leaf_index, leaf_hash });
+			Self::deposit_event(Event::LeafInserted { index: leaf_index });
 
 			leaf_index
 		}
@@ -387,8 +396,11 @@ pub mod pallet {
 		/// the previous block; all leaves once `on_finalize` has run) are provable
 		/// — `Nodes` does not yet cover leaves still pending in this block.
 		pub fn get_merkle_proof(leaf_index: u64) -> Result<ZkMerkleProof, Error<T>> {
-			let processed = LeafCount::<T>::get().saturating_sub(UnprocessedLeaves::<T>::get());
-			ensure!(leaf_index < processed, Error::<T>::LeafIndexOutOfBounds);
+			let leaf_count = LeafCount::<T>::get();
+			ensure!(leaf_index < leaf_count, Error::<T>::LeafIndexOutOfBounds);
+
+			let processed = leaf_count.saturating_sub(UnprocessedLeaves::<T>::get());
+			ensure!(leaf_index < processed, Error::<T>::LeafNotYetSettled);
 
 			let depth = Depth::<T>::get();
 			tree::generate_proof::<T>(leaf_index, depth)
@@ -436,10 +448,7 @@ impl<AccountId, AssetId, Balance> ZkTreeRecorder<AccountId, AssetId, Balance> fo
 	}
 }
 
-impl<T: Config> ZkTreeRecorder<T::AccountId, T::AssetId, T::Balance> for Pallet<T>
-where
-	T::AccountId: AsRef<[u8]>,
-{
+impl<T: Config> ZkTreeRecorder<T::AccountId, T::AssetId, T::Balance> for Pallet<T> {
 	fn record_transfer(
 		to: T::AccountId,
 		transfer_count: u64,

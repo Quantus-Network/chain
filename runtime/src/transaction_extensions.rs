@@ -162,9 +162,8 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 
 	/// Events deposited by one successfully recorded proof: `ZkTree::LeafInserted`
 	/// plus the wormhole's `NativeTransferred` / `AssetTransferred`. (`TreeGrew` is
-	/// deliberately not modeled: the tree grows at most [`pallet_zk_tree::MAX_TREE_DEPTH`]
-	/// times over the chain's entire life, and the flat depth-ceiling insert pricing
-	/// already carries margin for young trees.)
+	/// not modeled because it cannot appear in the scan at all: it is emitted from
+	/// the zk-tree's `on_finalize`, after every post-dispatch scan has already run.)
 	const EVENTS_PER_RECORDED_PROOF: u64 = 2;
 
 	/// Weight of depositing `events` records from proof recording. Each
@@ -1210,10 +1209,9 @@ mod tests {
 
 	/// Pins the multiplier behind the modeled event-deposit charge: one recorded proof
 	/// deposits exactly `EVENTS_PER_RECORDED_PROOF` events. If recording ever starts
-	/// emitting more, the static reservation must be updated with it. (Capacity-boundary
-	/// inserts additionally emit `TreeGrew`, deliberately unmodeled: it happens at most
-	/// `MAX_TREE_DEPTH` times over the chain's whole life — the warm-up insert below
-	/// steps the fresh test tree past the first boundary.)
+	/// emitting more, the static reservation must be updated with it. (`TreeGrew` is
+	/// emitted from the zk-tree's `on_finalize`, never during recording, so even the
+	/// very first insert on a fresh tree deposits exactly the modeled events.)
 	#[test]
 	fn recording_one_proof_deposits_exactly_the_modeled_events() {
 		new_test_ext().execute_with(|| {
@@ -1235,13 +1233,75 @@ mod tests {
 				u64::from(System::event_count() - events_before)
 			};
 
-			// Warm-up: the very first insert grows the empty tree and emits `TreeGrew`.
-			record_one_transfer();
-
 			assert_eq!(
 				record_one_transfer(),
 				WormholeProofRecorderExtension::<Runtime>::EVENTS_PER_RECORDED_PROOF,
 				"the modeled events-per-proof multiplier must match what recording deposits"
+			);
+		});
+	}
+
+	/// The batched zk-tree settlement assumes every pallet that inserts leaves runs
+	/// its `on_finalize` before `ZkTree`'s. That holds because hooks execute in
+	/// pallet declaration order and `ZkTree` (index 21) is declared after all
+	/// inserters — notably `MiningRewards` (index 6), which records the block
+	/// reward leaf from its own `on_finalize` — but nothing except declaration
+	/// order enforces it. Drive the real `AllPalletsWithSystem` finalize sequence
+	/// and pin the invariant: after a full-block finalize nothing may be left
+	/// pending, and the header root must cover both a mid-block transfer leaf and
+	/// the mining-reward leaf.
+	#[test]
+	fn full_block_finalize_settles_all_leaves_including_mining_reward() {
+		new_test_ext().execute_with(|| {
+			use frame_support::traits::OnFinalize;
+			use frame_system::pallet_prelude::BlockNumberFor;
+
+			let block: BlockNumberFor<Runtime> = 1u32.into();
+			System::set_block_number(block);
+			// Timestamp's `on_finalize` asserts its inherent ran this block.
+			crate::Timestamp::set(crate::RuntimeOrigin::none(), 12_000)
+				.expect("timestamp inherent must apply");
+
+			// A transfer leaf recorded mid-block, as the proof-recorder extension
+			// would do in an extrinsic's post-dispatch. The recipient must be
+			// canonical for the leaf encoding (the wormhole canonicalizes too).
+			let recipient: AccountId =
+				pallet_zk_tree::tree::canonicalize_account_bytes(alice().into()).into();
+			let leaves_before = crate::ZkTree::leaf_count();
+			pallet_zk_tree::Pallet::<Runtime>::insert_leaf(
+				recipient,
+				0,
+				Default::default(),
+				EXISTENTIAL_DEPOSIT,
+			);
+			assert_eq!(crate::ZkTree::unprocessed_leaves(), 1);
+			let root_before = crate::ZkTree::root();
+
+			<crate::AllPalletsWithSystem as OnFinalize<BlockNumberFor<Runtime>>>::on_finalize(
+				block,
+			);
+
+			// MiningRewards' on_finalize (declared before ZkTree's) minted the
+			// block reward and recorded its leaf via the wormhole recorder.
+			assert!(
+				crate::ZkTree::leaf_count() >= leaves_before + 2,
+				"expected the mid-block leaf plus the mining-reward leaf"
+			);
+			assert_eq!(
+				crate::ZkTree::unprocessed_leaves(),
+				0,
+				"a full-block finalize must settle every leaf — if this fails, a \
+				 leaf-inserting pallet's on_finalize now runs after ZkTree's"
+			);
+			assert_ne!(
+				crate::ZkTree::root(),
+				root_before,
+				"the settled root must fold the block's leaves in"
+			);
+			assert_eq!(
+				frame_system::Pallet::<Runtime>::zk_tree_root().0,
+				crate::ZkTree::root(),
+				"the header must carry the settled root"
 			);
 		});
 	}

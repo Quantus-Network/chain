@@ -190,9 +190,8 @@ Every balance transfer on the chain is automatically captured and recorded into 
    │ ZkTrie::insert_leaf()                         │
    │                                               │
    │  1. Store leaf data at next index             │
-   │  2. Compute leaf_hash = poseidon(leaf_data)   │
-   │  3. Mark the leaf as pending                  │
-   │  4. Emit LeafInserted event                   │
+   │  2. Mark the leaf as pending                  │
+   │  3. Emit LeafInserted event                   │
    └───────────────────────┬───────────────────────┘
                            │  (once per block)
                            ▼

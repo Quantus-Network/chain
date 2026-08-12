@@ -96,10 +96,7 @@ fn bytes_to_felts_compact_lossy(input: &[u8]) -> impl Iterator<Item = Goldilocks
 /// the leaf's `to_account` felts to `WA(secret)` (a canonical Poseidon output), so
 /// canonicalizing the recipient never changes who can exit a leaf. The
 /// `debug_assert` below enforces the caller contract in test/dev builds.
-pub fn hash_leaf<T: Config>(leaf: &ZkLeaf<AccountIdOf<T>, T::AssetId, T::Balance>) -> Hash256
-where
-	AccountIdOf<T>: AsRef<[u8]>,
-{
+pub fn hash_leaf<T: Config>(leaf: &ZkLeaf<AccountIdOf<T>, T::AssetId, T::Balance>) -> Hash256 {
 	use qp_poseidon_core::serialization::u64_to_felts;
 
 	let mut felts = Vec::with_capacity(8);
@@ -188,10 +185,7 @@ pub fn empty_hash() -> Hash256 {
 }
 
 /// Get the hash of a leaf by index, or empty hash if not present.
-fn get_leaf_hash<T: Config>(index: u64) -> Hash256
-where
-	AccountIdOf<T>: AsRef<[u8]>,
-{
+fn get_leaf_hash<T: Config>(index: u64) -> Hash256 {
 	match crate::Leaves::<T>::get(index) {
 		Some(leaf) => hash_leaf::<T>(&leaf),
 		None => empty_hash(),
@@ -215,10 +209,7 @@ fn get_node_hash<T: Config>(level: u8, index: u64) -> Hash256 {
 /// a batch of `n` leaves costs about `n/4 + n/16 + … + depth` node hashes instead
 /// of the `n · depth` a per-insert path update would pay. This is what makes the
 /// once-per-block (`on_finalize`) root computation cheap.
-pub fn update_range<T: Config>(start: u64, end: u64, depth: u8) -> Hash256
-where
-	AccountIdOf<T>: AsRef<[u8]>,
-{
+pub fn update_range<T: Config>(start: u64, end: u64, depth: u8) -> Hash256 {
 	debug_assert!(start < end, "leaf range must be non-empty");
 	debug_assert!(capacity_at_depth(depth) >= end, "depth must fit the whole range");
 
@@ -289,10 +280,7 @@ pub fn grow_tree<T: Config>(old_depth: u8) {
 ///
 /// Returns siblings at each level. No path indices needed because children
 /// are sorted before hashing - the verifier can reconstruct by sorting.
-pub fn generate_proof<T: Config>(leaf_index: u64, depth: u8) -> Result<ZkMerkleProof, Error<T>>
-where
-	AccountIdOf<T>: AsRef<[u8]>,
-{
+pub fn generate_proof<T: Config>(leaf_index: u64, depth: u8) -> Result<ZkMerkleProof, Error<T>> {
 	if depth == 0 {
 		return Err(Error::<T>::LeafNotFound);
 	}
@@ -347,10 +335,7 @@ pub fn verify_proof<T: Config>(
 	leaf: &ZkLeaf<AccountIdOf<T>, T::AssetId, T::Balance>,
 	proof: &ZkMerkleProof,
 	expected_root: Hash256,
-) -> bool
-where
-	AccountIdOf<T>: AsRef<[u8]>,
-{
+) -> bool {
 	let mut current_hash = hash_leaf::<T>(leaf);
 
 	for level_siblings in &proof.siblings {
