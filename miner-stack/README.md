@@ -358,15 +358,22 @@ docker compose up -d   # init-node.sh will regenerate key_node on startup
 You can connect additional miners (on the same host or another host) to the
 node. The node broadcasts every job to all connected miners; whoever finds a
 valid solution first wins. To run an extra miner from another host, expose
-`HOST_MINER_LISTEN_PORT` (UDP) on the node's host and start a miner anywhere
-with:
+`HOST_MINER_LISTEN_PORT` (UDP) on the node's host, copy
+`node-data/chains/<chain>/miner-auth-token` and `miner-tls-cert-sha256` to the
+miner host, then start a miner with those files mounted read-only:
 
 ```bash
+# On the miner host: copy miner-auth-token and miner-tls-cert-sha256 from the
+# node into the current directory first, then:
 docker run --rm --platform linux/amd64 \
   -p 9900:9900 \
+  -v "$PWD/miner-auth-token:/secrets/miner-auth-token:ro" \
+  -v "$PWD/miner-tls-cert-sha256:/secrets/miner-tls-cert-sha256:ro" \
   ghcr.io/quantus-network/quantus-miner:latest \
   serve \
   --node-addr <node-host-ip>:9833 \
+  --auth-token-file /secrets/miner-auth-token \
+  --tls-cert-sha256-file /secrets/miner-tls-cert-sha256 \
   --cpu-workers 4 \
   --metrics-port 9900
 ```
@@ -374,14 +381,13 @@ docker run --rm --platform linux/amd64 \
 Replace `<node-host-ip>` with the Docker host's reachable IP or DNS name.
 Replace `9833` with `HOST_MINER_LISTEN_PORT` if changed. The `-p 9900:9900`
 mapping exposes that extra miner's metrics endpoint and can be changed if
-needed.
+needed. Alternatively, pass `--auth-token <TOKEN>` and
+`--tls-cert-sha256 <FINGERPRINT>` directly instead of mounting files.
 
-> ⚠️ Read `node-data/chains/<chain>/miner-auth-token` and
-> `miner-tls-cert-sha256` (fingerprint is also in node logs) into the miner
-> (`--auth-token-file` / `--tls-cert-sha256-file`). When connecting miners from
-> another host, do **not** open `9833/UDP` to the public internet — reach the
-> node over a private network / VPN, or restrict the published UDP port with a
-> firewall allow-list to your miner hosts only. See
+> ⚠️ When connecting miners from another host, do **not** open `9833/UDP` to
+> the public internet — reach the node over a private network / VPN, or
+> restrict the published UDP port with a firewall allow-list to your miner
+> hosts only. See
 > [Do not expose the miner QUIC port to the public internet](#️-do-not-expose-the-miner-quic-port-to-the-public-internet).
 
 ---
