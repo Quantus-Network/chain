@@ -9,63 +9,108 @@ on:
     types: [closed]
     branches:
       - main
+  # Recovery path: tag + publish what's already on a ref without a version-bump PR
+  # (e.g. main carries 0.3.0 but create-miner-api-tag never ran after a failed check).
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (quantus-miner-api-vX.Y.Z or X.Y.Z)'
+        required: true
+        type: string
+      ref:
+        description: 'Git ref containing that version (branch, tag, or SHA)'
+        required: false
+        type: string
+        default: 'main'
+      is_draft:
+        description: 'Draft release (tag only; skip crates.io)?'
+        required: true
+        type: boolean
+        default: false
 
 jobs:
   prepare-miner-api-release:
     name: Prepare Miner API Release
-    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'miner-api-release-proposal')
+    if: |
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.merged == true &&
+       contains(github.event.pull_request.labels.*.name, 'miner-api-release-proposal')) ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.extract_version.outputs.version }}
-      is_draft: ${{ steps.extract_version.outputs.is_draft }}
-      commit_sha: ${{ github.event.pull_request.merge_commit_sha }}
+      version: ${{ steps.resolve.outputs.version }}
+      is_draft: ${{ steps.resolve.outputs.is_draft }}
+      commit_sha: ${{ steps.resolve.outputs.commit_sha }}
     steps:
-      - name: Checkout merge commit
+      - name: Checkout release commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref || github.event.pull_request.merge_commit_sha }}
 
-      - name: Extract version from PR title
-        id: extract_version
+      - name: Resolve version and commit
+        id: resolve
         run: |
           set -euo pipefail
-          # Extract version from PR title (format: "ci: Miner API version bump to quantus-miner-api-vX.Y.Z").
-          # Take only the first match so a title with two version strings cannot
-          # write a multi-line value into GITHUB_OUTPUT.
-          VERSION=$(echo "${{ github.event.pull_request.title }}" \
-            | grep -o 'quantus-miner-api-v[0-9]\+\.[0-9]\+\.[0-9]\+' \
-            | head -n1 || true)
-          if [ -z "$VERSION" ]; then
-            echo "Error: Could not extract miner-api version from PR title: ${{ github.event.pull_request.title }}"
-            exit 1
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RAW="${{ github.event.inputs.version }}"
+            case "$RAW" in
+              quantus-miner-api-v*) VERSION="$RAW" ;;
+              *) VERSION="quantus-miner-api-v$RAW" ;;
+            esac
+            if [[ ! "$VERSION" =~ ^quantus-miner-api-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Error: invalid version '$RAW' (want X.Y.Z or quantus-miner-api-vX.Y.Z)"
+              exit 1
+            fi
+            if [ "${{ github.event.inputs.is_draft }}" = "true" ]; then
+              echo "is_draft=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "is_draft=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            # Take only the first match so a title with two version strings cannot
+            # write a multi-line value into GITHUB_OUTPUT.
+            VERSION=$(echo "${{ github.event.pull_request.title }}" \
+              | grep -o 'quantus-miner-api-v[0-9]\+\.[0-9]\+\.[0-9]\+' \
+              | head -n1 || true)
+            if [ -z "$VERSION" ]; then
+              echo "Error: Could not extract miner-api version from PR title: ${{ github.event.pull_request.title }}"
+              exit 1
+            fi
+            if [[ "${{ contains(github.event.pull_request.labels.*.name, 'draft-release') }}" == "true" ]]; then
+              echo "is_draft=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "is_draft=false" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
-          # The tag/crates.io name comes from the title; cargo publish uses
-          # miner-api/Cargo.toml. Refuse to proceed if they disagree.
           CARGO_VERSION=${VERSION#quantus-miner-api-v}
+
+          # Tag/crates.io name must match what cargo publish will upload.
           if ! grep -q "^version = \"$CARGO_VERSION\"" miner-api/Cargo.toml; then
-            echo "Error: PR title version $VERSION does not match miner-api/Cargo.toml:"
+            echo "Error: release version $VERSION does not match miner-api/Cargo.toml:"
             grep '^version = ' miner-api/Cargo.toml || true
             exit 1
           fi
 
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-          # Check if this is a draft release
-          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'draft-release') }}" == "true" ]]; then
-            echo "is_draft=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_draft=false" >> $GITHUB_OUTPUT
+          # README ships in the .crate tarball; keep the install snippet honest.
+          if ! grep -q "^quantus-miner-api = \"$CARGO_VERSION\"" miner-api/README.md; then
+            echo "Error: miner-api/README.md install line does not match $CARGO_VERSION:"
+            grep -E '^quantus-miner-api = "' miner-api/README.md || true
+            exit 1
           fi
-          echo "Extracted miner-api version: $VERSION (matches Cargo.toml)"
-          echo "Merge commit: ${{ github.event.pull_request.merge_commit_sha }}"
+
+          COMMIT_SHA=$(git rev-parse HEAD)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
+          echo "Resolved miner-api version: $VERSION at $COMMIT_SHA"
 
   format-checks:
     name: 🏁 Format Checks (Miner API)
     needs: prepare-miner-api-release
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout merge commit
+      - name: Checkout release commit
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.prepare-miner-api-release.outputs.commit_sha }}
@@ -86,7 +131,7 @@ jobs:
     needs: [prepare-miner-api-release, format-checks]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout merge commit
+      - name: Checkout release commit
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.prepare-miner-api-release.outputs.commit_sha }}
@@ -113,7 +158,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout merge commit
+      - name: Checkout release commit
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -142,7 +187,7 @@ jobs:
           fi
 
           git tag -a "$VERSION" -m "Miner API release $VERSION" "$SHA"
-          git push origin "$VERSION"
+          git push origin "refs/tags/$VERSION"
 
   publish-miner-api-to-crates:
     name: 📦 Publish to crates.io
@@ -153,17 +198,33 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - name: Checkout code at tag
+      # Pin by SHA (not the tag name) so a branch named like the tag cannot
+      # shadow refs/tags/ and get published under the org token.
+      - name: Checkout release commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.prepare-miner-api-release.outputs.version }}
+          ref: ${{ needs.prepare-miner-api-release.outputs.commit_sha }}
 
       - name: Setup Ubuntu
         uses: ./.github/actions/ubuntu
 
       - name: Publish quantus-miner-api to crates.io
         run: |
+          set -euo pipefail
           cd miner-api
-          cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} --allow-dirty
+          set +e
+          cargo publish --token "${{ secrets.CARGO_REGISTRY_TOKEN }}" --allow-dirty 2>&1 | tee publish.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          # Idempotent re-run: upload may have succeeded while the job still failed
+          # (runner eviction, dropped response). Tag guard already short-circuits.
+          if grep -Eqi 'already exists|already uploaded' publish.log; then
+            echo "Version already on crates.io; treating as success for idempotent re-run"
+            exit 0
+          fi
+          exit "$status"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
