@@ -387,8 +387,8 @@ fn ensure_secret_file_permissions(path: &Path) -> Result<(), String> {
 	#[cfg(unix)]
 	{
 		use std::os::unix::fs::PermissionsExt;
-		let meta = fs::metadata(path)
-			.map_err(|e| format!("Failed to stat {}: {}", path.display(), e))?;
+		let meta =
+			fs::metadata(path).map_err(|e| format!("Failed to stat {}: {}", path.display(), e))?;
 		let mode = meta.permissions().mode() & 0o777;
 		if mode & 0o077 != 0 {
 			log::warn!(
@@ -427,12 +427,10 @@ fn atomic_write_bytes_file(path: &Path, contents: &[u8], mode: u32) -> Result<()
 
 	{
 		let mut file = open_file_with_mode(&tmp_path, mode)?;
-		file.write_all(contents)
-			.and_then(|_| file.sync_all())
-			.map_err(|e| {
-				let _ = fs::remove_file(&tmp_path);
-				format!("Failed to write {}: {}", path.display(), e)
-			})?;
+		file.write_all(contents).and_then(|_| file.sync_all()).map_err(|e| {
+			let _ = fs::remove_file(&tmp_path);
+			format!("Failed to write {}: {}", path.display(), e)
+		})?;
 	}
 
 	fs::rename(&tmp_path, path).map_err(|e| {
@@ -595,9 +593,8 @@ async fn authenticate_miner_connection(
 				log::debug!("Miner {} authenticated", addr);
 				Ok((send, recv))
 			},
-			Ok(MinerMessage::Ready { .. }) => {
-				Err(format!("Rejected miner {}: invalid auth token", addr))
-			},
+			Ok(MinerMessage::Ready { .. }) =>
+				Err(format!("Rejected miner {}: invalid auth token", addr)),
 			Ok(other) => Err(format!("Expected Ready from miner {}, got {:?}", addr, other)),
 			Err(e) => Err(format!("Failed to read Ready from miner {}: {}", addr, e)),
 		}
