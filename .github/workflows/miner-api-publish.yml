@@ -11,21 +11,15 @@ on:
       - main
 
 jobs:
-  create-miner-api-tag:
-    name: Create Miner API Tag
+  prepare-miner-api-release:
+    name: Prepare Miner API Release
     if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'miner-api-release-proposal')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
       version: ${{ steps.extract_version.outputs.version }}
       is_draft: ${{ steps.extract_version.outputs.is_draft }}
+      commit_sha: ${{ github.event.pull_request.merge_commit_sha }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Extract version from PR title
         id: extract_version
         run: |
@@ -44,23 +38,17 @@ jobs:
             echo "is_draft=false" >> $GITHUB_OUTPUT
           fi
           echo "Extracted miner-api version: $VERSION"
-
-      - name: Create and push miner-api tag
-        run: |
-          git config user.name "${{ github.actor }}"
-          git config user.email "${{ github.actor }}@users.noreply.github.com"
-          git tag -a "${{ steps.extract_version.outputs.version }}" -m "Miner API release ${{ steps.extract_version.outputs.version }}"
-          git push origin "${{ steps.extract_version.outputs.version }}"
+          echo "Merge commit: ${{ github.event.pull_request.merge_commit_sha }}"
 
   format-checks:
     name: 🏁 Format Checks (Miner API)
-    needs: create-miner-api-tag
+    needs: prepare-miner-api-release
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code at tag
+      - name: Checkout merge commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.create-miner-api-tag.outputs.version }}
+          ref: ${{ needs.prepare-miner-api-release.outputs.commit_sha }}
 
       - name: Install required components
         run: rustup component add rustfmt --toolchain nightly
@@ -75,13 +63,13 @@ jobs:
 
   build-and-test-miner-api:
     name: 🛠️ Build & Test Miner API
-    needs: [create-miner-api-tag, format-checks]
+    needs: [prepare-miner-api-release, format-checks]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code at tag
+      - name: Checkout merge commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.create-miner-api-tag.outputs.version }}
+          ref: ${{ needs.prepare-miner-api-release.outputs.commit_sha }}
 
       - name: Setup Ubuntu
         uses: ./.github/actions/ubuntu
@@ -98,10 +86,48 @@ jobs:
       - name: Build docs for miner-api
         run: cargo doc --locked --no-deps --package quantus-miner-api
 
+  create-miner-api-tag:
+    name: Create Miner API Tag
+    needs: [prepare-miner-api-release, build-and-test-miner-api]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout merge commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ needs.prepare-miner-api-release.outputs.commit_sha }}
+
+      - name: Create and push miner-api tag
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.prepare-miner-api-release.outputs.version }}"
+          SHA="${{ needs.prepare-miner-api-release.outputs.commit_sha }}"
+
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+          # Idempotent: a re-run after a successful tag (e.g. publish flaked) must
+          # not fail just because the tag already exists at the same commit.
+          if git rev-parse "refs/tags/$VERSION" >/dev/null 2>&1; then
+            EXISTING=$(git rev-list -n 1 "$VERSION")
+            if [ "$EXISTING" = "$SHA" ]; then
+              echo "Tag $VERSION already points at $SHA; nothing to do"
+              exit 0
+            fi
+            echo "Error: tag $VERSION already exists at $EXISTING, expected $SHA"
+            exit 1
+          fi
+
+          git tag -a "$VERSION" -m "Miner API release $VERSION" "$SHA"
+          git push origin "$VERSION"
+
   publish-miner-api-to-crates:
     name: 📦 Publish to crates.io
-    needs: [create-miner-api-tag, build-and-test-miner-api]
-    if: needs.create-miner-api-tag.result == 'success' && needs.build-and-test-miner-api.result == 'success' && needs.create-miner-api-tag.outputs.is_draft == 'false'
+    needs: [prepare-miner-api-release, create-miner-api-tag, build-and-test-miner-api]
+    if: needs.prepare-miner-api-release.result == 'success' && needs.create-miner-api-tag.result == 'success' && needs.build-and-test-miner-api.result == 'success' && needs.prepare-miner-api-release.outputs.is_draft == 'false'
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -110,7 +136,7 @@ jobs:
       - name: Checkout code at tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.create-miner-api-tag.outputs.version }}
+          ref: ${{ needs.prepare-miner-api-release.outputs.version }}
 
       - name: Setup Ubuntu
         uses: ./.github/actions/ubuntu
