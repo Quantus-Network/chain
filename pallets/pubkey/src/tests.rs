@@ -68,6 +68,21 @@ fn sig_only_verifies_against_cached_pubkey() {
 }
 
 #[test]
+fn sig_only_87_verifies_against_cached_pubkey() {
+	new_test_ext().execute_with(|| {
+		let pair = Dilithium87Pair::from_seed_slice(&[1u8; 32]).unwrap();
+		let account = pair.public().into_account();
+
+		// Register through a full ML-DSA-87 signature first.
+		assert!(Sig::from(pair.sign(MSG)).verify(MSG, &account));
+
+		let sig_only = sign_sig_only_87(&pair, MSG);
+		assert!(sig_only.verify(MSG, &account));
+		assert!(!sig_only.verify(&b"different payload"[..], &account));
+	});
+}
+
+#[test]
 fn sig_only_fails_without_cached_pubkey() {
 	new_test_ext().execute_with(|| {
 		let pair = Dilithium65Pair::from_seed_slice(&[1u8; 32]).unwrap();
