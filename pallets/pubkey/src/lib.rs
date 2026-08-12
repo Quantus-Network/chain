@@ -42,7 +42,7 @@ mod tests;
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use core::marker::PhantomData;
-use frame_support::traits::OnKilledAccount;
+use frame_support::{dispatch::DispatchClass, traits::OnKilledAccount};
 use qp_dilithium_crypto::{
 	sig_only_signing_payload, verify_ml_dsa_65, verify_ml_dsa_87, DilithiumSignatureScheme,
 	DilithiumSigner,
@@ -104,16 +104,23 @@ pub mod pallet {
 
 	/// Clears the cached public key when the system account is reaped.
 	///
-	/// The storage write is **not** free: runtimes that install this hook must
-	/// charge one DB write on every call path that can kill an account (this
-	/// chain folds it into the balances `WeightInfo` for kill-capable
-	/// extrinsics, which also covers scheduled/root dispatch of those calls).
+	/// The storage write is charged here, via
+	/// [`register_extra_weight_unchecked`](frame_system::Pallet::register_extra_weight_unchecked),
+	/// rather than on the weights of kill-capable calls: hooking the weight
+	/// where the write happens covers every reap path — user-signed,
+	/// scheduled, root, or from a pallet added later — by construction.
+	/// "Unchecked" is acceptable for one DB write: reaps only occur inside
+	/// already-weighted dispatches, so the overshoot per extrinsic is bounded.
 	/// Signature-verification base weight does not cover this write — a
 	/// first-registration that also reaps performs both the insert and this
 	/// remove.
 	impl<T: Config> OnKilledAccount<T::AccountId> for Pallet<T> {
 		fn on_killed_account(who: &T::AccountId) {
 			Pubkeys::<T>::remove(who);
+			frame_system::Pallet::<T>::register_extra_weight_unchecked(
+				T::DbWeight::get().writes(1),
+				DispatchClass::Normal,
+			);
 		}
 	}
 }
@@ -141,10 +148,9 @@ pub mod pallet {
 /// multi-kilobyte insert on an account's first full-signature transaction) is
 /// invisible to the dispatch path. The runtime must charge that worst case in
 /// the signed-extrinsic base weight (`PubkeyCacheVerifyWeight`). Separately,
-/// account reaping runs `Pubkeys::remove` via `OnKilledAccount` and must be
-/// charged on every kill-capable call weight (`PubkeyCleanupWeight` on this
-/// chain's balances `WeightInfo`) — a first-registration that also reaps
-/// performs both the insert and the remove.
+/// account reaping runs `Pubkeys::remove` via `OnKilledAccount`, which
+/// registers its own write via `register_extra_weight_unchecked` — a
+/// first-registration that also reaps performs both the insert and the remove.
 #[derive(Eq, PartialEq, Clone, Encode, Decode, RuntimeDebug, TypeInfo, DecodeWithMemTracking)]
 #[scale_info(skip_type_params(T))]
 pub struct CachedSignature<T>(pub DilithiumSignatureScheme, PhantomData<T>);

@@ -301,41 +301,25 @@ fn full_extrinsic_reencoded_as_sig_only_is_rejected() {
 	});
 }
 
-/// Worst-case pubkey-cache path: a first full-signature `transfer_all(...,
-/// keep_alive = false)` performs `contains_key` + insert during verify, then
-/// `Pubkeys::remove` when dispatch reaps the sender — one read and two writes.
-///
-/// Verify-path DB work is charged in the signed `base_extrinsic` surcharge;
-/// the cleanup write is charged on the kill-capable balances call weight
-/// (also covering scheduled/root dispatch of that call). Neither side alone
-/// is enough; together they must cover the combined R+2W cost.
+/// Verify-path DB work (one `Pubkeys` read plus the first-registration insert)
+/// is charged in the signed `base_extrinsic` surcharge; the `Pubkeys::remove`
+/// on account reap is registered as block weight by `pallet_pubkey`'s
+/// `OnKilledAccount` hook itself. Together they cover the worst case — a first
+/// full-signature `transfer_all(..., keep_alive = false)` that registers and
+/// reaps in one extrinsic (one read, two writes).
 #[test]
 fn first_registration_plus_reap_weight_covers_combined_db_ops() {
 	use frame_support::{
-		dispatch::{DispatchClass, GetDispatchInfo},
+		dispatch::DispatchClass,
 		weights::constants::{ExtrinsicBaseWeight, RocksDbWeight},
 	};
-	use pallet_balances::WeightInfo;
-	use quantus_runtime::configs::{
-		PubkeyCacheVerifyWeight, PubkeyCleanupWeight, RuntimeBlockWeights,
-	};
+	use quantus_runtime::configs::{PubkeyCacheVerifyWeight, RuntimeBlockWeights};
 
 	let verify = RocksDbWeight::get().reads_writes(1, 1);
 	let cleanup = RocksDbWeight::get().writes(1);
-	let combined = verify.saturating_add(cleanup); // R + 2W
 
+	// The base-weight surcharge on signed classes covers the verify-path work.
 	assert_eq!(PubkeyCacheVerifyWeight::get(), verify);
-	assert_eq!(PubkeyCleanupWeight::get(), cleanup);
-
-	let stock_transfer_all = pallet_balances::weights::SubstrateWeight::<Runtime>::transfer_all();
-	let runtime_transfer_all = <Runtime as pallet_balances::Config>::WeightInfo::transfer_all();
-	assert!(
-		runtime_transfer_all.all_gte(stock_transfer_all.saturating_add(cleanup)),
-		"kill-capable balances weight must include Pubkeys::remove: \
-		 runtime {runtime_transfer_all:?} vs stock+cleanup {:?}",
-		stock_transfer_all.saturating_add(cleanup)
-	);
-
 	let weights = RuntimeBlockWeights::get();
 	for class in [DispatchClass::Normal, DispatchClass::Operational] {
 		let base_surcharge =
@@ -344,28 +328,54 @@ fn first_registration_plus_reap_weight_covers_combined_db_ops() {
 			base_surcharge.all_gte(verify),
 			"{class:?} base_extrinsic surcharge {base_surcharge:?} must cover verify {verify:?}"
 		);
+	}
 
-		// Combined budget available to a first-reg+reap extrinsic of this class.
-		let charged =
-			base_surcharge.saturating_add(runtime_transfer_all.saturating_sub(stock_transfer_all));
-		assert!(
-			charged.all_gte(combined),
-			"{class:?} verify surcharge + cleanup surcharge {charged:?} must cover \
-			 first-registration-plus-reap {combined:?}"
+	// The cleanup write is registered where it happens, so it is covered on
+	// every reap path by construction. Differential check: two identical
+	// `transfer_all` extrinsics (same dispatch info), one of which reaps its
+	// sender — the reaping one must consume exactly one extra DB write.
+	let reaper_pair = Dilithium65Pair::from_seed_slice(&[42u8; 32]).expect("valid seed");
+	let reaper = reaper_pair.public().into_account();
+	let keeper_pair = Dilithium65Pair::from_seed_slice(&[43u8; 32]).expect("valid seed");
+	let keeper = keeper_pair.public().into_account();
+
+	let mut ext = test_ext(&reaper);
+	ext.execute_with(|| {
+		Balances::make_free_balance_be(&keeper, 1000 * UNIT);
+		let dest = AccountId32::new([9u8; 32]);
+		Balances::make_free_balance_be(&dest, UNIT);
+
+		let consumed_by = |xt: UncheckedExtrinsic| {
+			let before = *System::block_weight().get(DispatchClass::Normal);
+			assert_ok!(Executive::apply_extrinsic(xt).expect("extrinsic is valid"));
+			let after = *System::block_weight().get(DispatchClass::Normal);
+			after.saturating_sub(before)
+		};
+
+		let keep = consumed_by(signed_call(
+			&keeper_pair,
+			keeper.clone(),
+			BalancesCall::transfer_all { dest: MultiAddress::Id(dest.clone()), keep_alive: true }
+				.into(),
+			0,
+			false,
+		));
+		let reap = consumed_by(signed_call(
+			&reaper_pair,
+			reaper.clone(),
+			BalancesCall::transfer_all { dest: MultiAddress::Id(dest), keep_alive: false }.into(),
+			0,
+			false,
+		));
+
+		assert!(!frame_system::Account::<Runtime>::contains_key(&reaper), "sender must be reaped");
+		assert_eq!(
+			reap.saturating_sub(keep),
+			cleanup,
+			"a reaping transfer_all must register exactly the Pubkeys::remove write \
+			 on top of an otherwise identical non-reaping one"
 		);
-	}
-
-	// The dispatch info used for fees / CheckWeight on the concrete call also
-	// carries the cleanup write (scheduled/root use this same WeightInfo).
-	let call: RuntimeCall = BalancesCall::transfer_all {
-		dest: MultiAddress::Id(AccountId32::new([9u8; 32])),
-		keep_alive: false,
-	}
-	.into();
-	assert!(
-		call.get_dispatch_info().call_weight.all_gte(runtime_transfer_all),
-		"dispatch info must expose the cleanup-inclusive transfer_all weight"
-	);
+	});
 }
 
 /// A full-signed `transfer_all(..., keep_alive = false)` verifies (and would

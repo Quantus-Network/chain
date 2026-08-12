@@ -93,18 +93,11 @@ parameter_types! {
 	/// by a weighted dispatch path; it is instead charged as part of
 	/// `base_extrinsic` for the signed (non-mandatory) classes below.
 	///
-	/// Does **not** cover [`PubkeyCleanupWeight`]: a first-registration that
-	/// also reaps the sender (e.g. full-signed `transfer_all(..., keep_alive =
-	/// false)`) performs a second write via `OnKilledAccount`, charged on the
-	/// kill-capable balances call weight instead.
+	/// Does **not** cover the `Pubkeys::remove` performed when an account is
+	/// reaped: `pallet_pubkey`'s `OnKilledAccount` hook registers that write
+	/// itself via `register_extra_weight_unchecked`, on whichever call path
+	/// killed the account.
 	pub PubkeyCacheVerifyWeight: Weight = RocksDbWeight::get().reads_writes(1, 1);
-
-	/// Cost of `Pubkeys::remove` run by `OnKilledAccount = Pubkey` when a
-	/// system account is reaped. Folded into every balances `WeightInfo`
-	/// method that can kill an account (see
-	/// [`BalancesWeightsWithPubkeyCleanup`]), so user-signed, scheduled, and
-	/// root-dispatched balances reaps all reserve and fee this write.
-	pub PubkeyCleanupWeight: Weight = RocksDbWeight::get().writes(1);
 
 	/// Block weight limits for the runtime.
 	///
@@ -241,61 +234,13 @@ parameter_types! {
 	pub const ExistentialDeposit: Balance = EXISTENTIAL_DEPOSIT;
 }
 
-/// Balances weights with the `Pubkeys::remove` performed by
-/// `OnKilledAccount = Pubkey` folded into every call that can reap an account.
-///
-/// The stock `pallet_balances` weights predate the pubkey cache and only
-/// account for `System::Account`. Without this surcharge, a kill path — user
-/// signed, scheduled, or root-dispatched — would leave block weight and fees
-/// short by one storage write. Non-killing calls are passed through unchanged.
-pub struct BalancesWeightsWithPubkeyCleanup;
-
-impl pallet_balances::WeightInfo for BalancesWeightsWithPubkeyCleanup {
-	fn transfer_allow_death() -> Weight {
-		pallet_balances::weights::SubstrateWeight::<Runtime>::transfer_allow_death()
-			.saturating_add(PubkeyCleanupWeight::get())
-	}
-	fn transfer_keep_alive() -> Weight {
-		pallet_balances::weights::SubstrateWeight::<Runtime>::transfer_keep_alive()
-	}
-	fn force_set_balance_creating() -> Weight {
-		pallet_balances::weights::SubstrateWeight::<Runtime>::force_set_balance_creating()
-	}
-	fn force_set_balance_killing() -> Weight {
-		pallet_balances::weights::SubstrateWeight::<Runtime>::force_set_balance_killing()
-			.saturating_add(PubkeyCleanupWeight::get())
-	}
-	fn force_transfer() -> Weight {
-		pallet_balances::weights::SubstrateWeight::<Runtime>::force_transfer()
-			.saturating_add(PubkeyCleanupWeight::get())
-	}
-	fn transfer_all() -> Weight {
-		pallet_balances::weights::SubstrateWeight::<Runtime>::transfer_all()
-			.saturating_add(PubkeyCleanupWeight::get())
-	}
-	fn force_unreserve() -> Weight {
-		pallet_balances::weights::SubstrateWeight::<Runtime>::force_unreserve()
-	}
-	fn upgrade_accounts(u: u32) -> Weight {
-		pallet_balances::weights::SubstrateWeight::<Runtime>::upgrade_accounts(u)
-	}
-	fn force_adjust_total_issuance() -> Weight {
-		pallet_balances::weights::SubstrateWeight::<Runtime>::force_adjust_total_issuance()
-	}
-	fn burn_allow_death() -> Weight {
-		pallet_balances::weights::SubstrateWeight::<Runtime>::burn_allow_death()
-			.saturating_add(PubkeyCleanupWeight::get())
-	}
-	fn burn_keep_alive() -> Weight {
-		pallet_balances::weights::SubstrateWeight::<Runtime>::burn_keep_alive()
-	}
-}
-
 impl pallet_balances::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type RuntimeFreezeReason = RuntimeFreezeReason;
-	type WeightInfo = BalancesWeightsWithPubkeyCleanup;
+	// Stock weights: the `Pubkeys::remove` triggered when a call reaps an
+	// account is weighted by `pallet_pubkey`'s `OnKilledAccount` hook itself.
+	type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;
 	/// The type for recording an account's balance.
 	type Balance = Balance;
 	type DustRemoval = ();

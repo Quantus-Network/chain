@@ -30,7 +30,8 @@ impl frame_system::Config for Test {
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Block = Block;
 	type BlockHashCount = frame_support::traits::ConstU64<250>;
-	type DbWeight = ();
+	// Nonzero so tests can observe the weight `on_killed_account` registers.
+	type DbWeight = frame_support::weights::constants::RocksDbWeight;
 	type Version = ();
 	type PalletInfo = PalletInfo;
 	type AccountData = ();

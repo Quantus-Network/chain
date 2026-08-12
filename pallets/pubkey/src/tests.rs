@@ -209,3 +209,33 @@ fn killed_account_clears_cached_pubkey() {
 		assert!(Pallet::<Test>::pubkey_of(&account).is_none());
 	});
 }
+
+/// `on_killed_account` must account for its own `Pubkeys::remove`: it registers
+/// one DB write of block weight, so every reap path — present or future — is
+/// charged by construction.
+#[test]
+fn killed_account_registers_cleanup_weight() {
+	use frame_support::{
+		dispatch::DispatchClass,
+		traits::{Get, OnKilledAccount},
+	};
+	use sp_runtime::traits::Zero;
+
+	new_test_ext().execute_with(|| {
+		let account = sp_runtime::AccountId32::new([1u8; 32]);
+
+		let before = *frame_system::Pallet::<Test>::block_weight().get(DispatchClass::Normal);
+		Pallet::<Test>::on_killed_account(&account);
+		let after = *frame_system::Pallet::<Test>::block_weight().get(DispatchClass::Normal);
+
+		let expected = <<Test as frame_system::Config>::DbWeight as Get<
+			frame_support::weights::RuntimeDbWeight,
+		>>::get()
+		.writes(1);
+		assert!(
+			!expected.is_zero(),
+			"mock DbWeight must be nonzero for this test to be meaningful"
+		);
+		assert_eq!(after.saturating_sub(before), expected);
+	});
+}
