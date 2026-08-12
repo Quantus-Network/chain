@@ -174,11 +174,19 @@ jobs:
           # Update Cargo.lock
           cargo update --package quantus-miner-api --precise "$new_cargo_version" || echo "cargo update tried, proceeding."
 
+          # Keep the crates.io install snippet in the README in sync (ships in the .crate tarball).
+          echo "Updating miner-api/README.md install version to: $new_cargo_version"
+          sed -i -E "s/^quantus-miner-api = \"[0-9]+\.[0-9]+\.[0-9]+\"/quantus-miner-api = \"$new_cargo_version\"/" miner-api/README.md
+          if ! grep -q "^quantus-miner-api = \"$new_cargo_version\"" miner-api/README.md; then
+            echo "Error: Failed to update install version in miner-api/README.md"
+            exit 1
+          fi
+
           # Commit changes
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor }}@users.noreply.github.com"
           
-          git add miner-api/Cargo.toml Cargo.toml Cargo.lock
+          git add miner-api/Cargo.toml miner-api/README.md Cargo.toml Cargo.lock
           git commit -m "ci: Miner API version bump to $NEW_VERSION"
           git push origin "$branch_name"
 
