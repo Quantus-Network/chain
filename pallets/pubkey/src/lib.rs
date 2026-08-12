@@ -76,13 +76,20 @@ pub mod pallet {
 			Pubkeys::<T>::get(who)
 		}
 
-		/// Cache `public` for `who` unless already present.
+		/// Cache the key produced by `public` for `who` unless already present.
 		///
-		/// Callers must have proven that `who` is the hash of `public` (a
-		/// successful full-signature verification does exactly that).
-		pub(crate) fn note_pubkey(who: &AccountId32, public: DilithiumSigner) {
+		/// Takes a closure because extracting the key copies 1.9–2.6 KB out of
+		/// the signature; on every transaction after an account's first the
+		/// entry already exists and the copy must not happen.
+		///
+		/// Callers must have proven that `who` is the hash of the produced key
+		/// (a successful full-signature verification does exactly that).
+		pub(crate) fn note_pubkey_with(
+			who: &AccountId32,
+			public: impl FnOnce() -> DilithiumSigner,
+		) {
 			if !Pubkeys::<T>::contains_key(who) {
-				Pubkeys::<T>::insert(who, public);
+				Pubkeys::<T>::insert(who, public());
 			}
 		}
 	}
@@ -166,14 +173,22 @@ impl<T: Config> Verify for CachedSignature<T> {
 
 	fn verify<L: Lazy<[u8]>>(&self, mut msg: L, signer: &AccountId32) -> bool {
 		match &self.0 {
-			DilithiumSignatureScheme::Dilithium87(_) | DilithiumSignatureScheme::Dilithium65(_) => {
+			DilithiumSignatureScheme::Dilithium87(sig_public) => {
 				if !self.0.verify(msg, signer) {
 					return false;
 				}
-				// Full variants always carry a public key.
-				if let Some(public) = self.0.carried_signer() {
-					Pallet::<T>::note_pubkey(signer, public);
+				Pallet::<T>::note_pubkey_with(signer, || {
+					DilithiumSigner::Dilithium87(sig_public.public())
+				});
+				true
+			},
+			DilithiumSignatureScheme::Dilithium65(sig_public) => {
+				if !self.0.verify(msg, signer) {
+					return false;
 				}
+				Pallet::<T>::note_pubkey_with(signer, || {
+					DilithiumSigner::Dilithium65(sig_public.public())
+				});
 				true
 			},
 			DilithiumSignatureScheme::Dilithium87SigOnly(signature) =>

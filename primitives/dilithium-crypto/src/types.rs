@@ -81,22 +81,6 @@ pub enum DilithiumSignatureScheme {
 	Dilithium65SigOnly(Dilithium65Signature),
 }
 
-impl DilithiumSignatureScheme {
-	/// The public key carried by this signature, if any.
-	///
-	/// `SigOnly` variants carry none — their key must be resolved from on-chain
-	/// storage by the caller.
-	pub fn carried_signer(&self) -> Option<DilithiumSigner> {
-		match self {
-			Self::Dilithium87(sig_public) =>
-				Some(DilithiumSigner::Dilithium87(sig_public.public())),
-			Self::Dilithium65(sig_public) =>
-				Some(DilithiumSigner::Dilithium65(sig_public.public())),
-			Self::Dilithium87SigOnly(_) | Self::Dilithium65SigOnly(_) => None,
-		}
-	}
-}
-
 /// Dilithium signer - replacement for MultiSigner
 ///
 /// Identifies the signer of a transaction using a Dilithium public key.
