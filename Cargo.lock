@@ -5906,6 +5906,7 @@ dependencies = [
  "parity-scale-codec",
  "qp-dilithium-crypto",
  "scale-info",
+ "sp-api",
  "sp-core",
  "sp-io",
  "sp-runtime",

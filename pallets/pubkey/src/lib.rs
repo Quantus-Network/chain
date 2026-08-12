@@ -28,7 +28,9 @@
 //! type. `CachedSignature` wraps [`DilithiumSignatureScheme`] transparently
 //! (identical SCALE encoding), so existing clients that always send the full
 //! form keep working unchanged; sending `SigOnly` is an opt-in optimization
-//! once the key is known to be cached.
+//! once the key is known to be cached. Clients can query [`PubkeyApi`] (or
+//! [`Pallet::pubkey_of`] via state RPC) to learn whether an account's key is
+//! registered before switching to `SigOnly`.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -122,6 +124,19 @@ pub mod pallet {
 				DispatchClass::Normal,
 			);
 		}
+	}
+}
+
+sp_api::decl_runtime_apis! {
+	/// Queries the on-chain Dilithium pubkey cache.
+	pub trait PubkeyApi {
+		/// The cached public key for `account`, if any.
+		///
+		/// Once this returns `Some` for a block the client trusts not to be
+		/// reverted, `account` can sign with the `SigOnly` variants of
+		/// `DilithiumSignatureScheme` (over the domain-separated payload)
+		/// instead of resending the full public key.
+		fn pubkey_of(account: AccountId32) -> Option<DilithiumSigner>;
 	}
 }
 
