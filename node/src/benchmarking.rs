@@ -121,7 +121,10 @@ pub fn create_benchmark_extrinsic(
 				best_block.saturated_into(),
 			)),
 			frame_system::CheckNonce::<runtime::Runtime>::from(nonce),
-			frame_system::CheckWeight::<runtime::Runtime>::new(),
+			(
+				quantus_runtime::transaction_extensions::ChargePubkeyCacheVerify::new(),
+				frame_system::CheckWeight::<runtime::Runtime>::new(),
+			),
 			quantus_runtime::transaction_extensions::ReversibleTransactionExtension::<
 				runtime::Runtime,
 			>::new(),
@@ -143,7 +146,7 @@ pub fn create_benchmark_extrinsic(
 			genesis_hash,
 			best_hash,
 			(),
-			(),
+			((), ()),
 			(),
 			(),
 			(),

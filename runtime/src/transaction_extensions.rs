@@ -12,9 +12,42 @@ use qp_wormhole::TransferProofRecorder;
 use scale_info::TypeInfo;
 use sp_core::Get;
 use sp_runtime::{
+	impl_tx_ext_default,
 	traits::{DispatchInfoOf, PostDispatchInfoOf, TransactionExtension},
 	DispatchResult, Weight,
 };
+
+/// Reserves [`configs::PubkeyCacheVerifyWeight`] on signed extrinsics for the
+/// pubkey-cache DB work performed by `CachedSignature` during
+/// `UncheckedExtrinsic::check`.
+///
+/// Bare unsigned extrinsics (e.g. wormhole `verify_*`) report
+/// `extension_weight = 0`, so they do not pay this surcharge — they never run
+/// `Verify`. Charging via a `TxExtension` rather than `base_extrinsic` is what
+/// makes that distinction; `base_extrinsic` is class-wide and would also tax
+/// unsigned `Normal`/`Operational` paths.
+#[derive(Encode, Decode, Clone, Eq, PartialEq, Default, TypeInfo, Debug, DecodeWithMemTracking)]
+pub struct ChargePubkeyCacheVerify;
+
+impl ChargePubkeyCacheVerify {
+	/// Create a new `ChargePubkeyCacheVerify` extension.
+	pub fn new() -> Self {
+		Self
+	}
+}
+
+impl TransactionExtension<RuntimeCall> for ChargePubkeyCacheVerify {
+	const IDENTIFIER: &'static str = "ChargePubkeyCacheVerify";
+	type Implicit = ();
+	type Val = ();
+	type Pre = ();
+
+	fn weight(&self, _: &RuntimeCall) -> Weight {
+		configs::PubkeyCacheVerifyWeight::get()
+	}
+
+	impl_tx_ext_default!(RuntimeCall; validate prepare);
+}
 
 /// Transaction extension for reversible accounts
 ///

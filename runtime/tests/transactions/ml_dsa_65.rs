@@ -10,7 +10,9 @@ use frame_support::{
 };
 use qp_dilithium_crypto::Dilithium65Pair;
 use quantus_runtime::{
-	transaction_extensions::{ReversibleTransactionExtension, WormholeProofRecorderExtension},
+	transaction_extensions::{
+		ChargePubkeyCacheVerify, ReversibleTransactionExtension, WormholeProofRecorderExtension,
+	},
 	Balances, BalancesCall, Executive, Runtime, RuntimeCall, RuntimeEvent, SignedPayload, System,
 	TxExtension, UncheckedExtrinsic, UNIT, VERSION,
 };
@@ -53,7 +55,7 @@ fn signed_transfer(
 		frame_system::CheckGenesis::<Runtime>::new(),
 		frame_system::CheckEra::<Runtime>::from(Era::immortal()),
 		frame_system::CheckNonce::<Runtime>::from(nonce),
-		frame_system::CheckWeight::<Runtime>::new(),
+		(ChargePubkeyCacheVerify::new(), frame_system::CheckWeight::<Runtime>::new()),
 		ReversibleTransactionExtension::<Runtime>::new(),
 		WormholeProofRecorderExtension::<Runtime>::new(),
 		pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
@@ -71,7 +73,7 @@ fn signed_transfer(
 			genesis_hash,
 			genesis_hash,
 			(),
-			(),
+			((), ()),
 			(),
 			(),
 			(),

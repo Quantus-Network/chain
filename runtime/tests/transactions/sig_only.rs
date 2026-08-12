@@ -11,7 +11,9 @@ use qp_dilithium_crypto::{
 	DilithiumSignatureScheme, DilithiumSigner,
 };
 use quantus_runtime::{
-	transaction_extensions::{ReversibleTransactionExtension, WormholeProofRecorderExtension},
+	transaction_extensions::{
+		ChargePubkeyCacheVerify, ReversibleTransactionExtension, WormholeProofRecorderExtension,
+	},
 	Balances, BalancesCall, Executive, Runtime, RuntimeCall, Signature, SignedPayload, System,
 	TxExtension, UncheckedExtrinsic, UNIT, VERSION,
 };
@@ -46,7 +48,7 @@ fn payload_and_ext(call: RuntimeCall, nonce: u32) -> (SignedPayload, TxExtension
 		frame_system::CheckGenesis::<Runtime>::new(),
 		frame_system::CheckEra::<Runtime>::from(Era::immortal()),
 		frame_system::CheckNonce::<Runtime>::from(nonce),
-		frame_system::CheckWeight::<Runtime>::new(),
+		(ChargePubkeyCacheVerify::new(), frame_system::CheckWeight::<Runtime>::new()),
 		ReversibleTransactionExtension::<Runtime>::new(),
 		WormholeProofRecorderExtension::<Runtime>::new(),
 		pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
@@ -64,7 +66,7 @@ fn payload_and_ext(call: RuntimeCall, nonce: u32) -> (SignedPayload, TxExtension
 			genesis_hash,
 			genesis_hash,
 			(),
-			(),
+			((), ()),
 			(),
 			(),
 			(),
@@ -310,11 +312,11 @@ fn full_extrinsic_reencoded_as_sig_only_is_rejected() {
 }
 
 /// Verify-path DB work (one `Pubkeys` read plus the first-registration insert)
-/// is charged in the signed `base_extrinsic` surcharge; the `Pubkeys::remove`
-/// on account reap is registered as block weight by `pallet_pubkey`'s
-/// `OnKilledAccount` hook itself. Together they cover the worst case — a first
-/// full-signature `transfer_all(..., keep_alive = false)` that registers and
-/// reaps in one extrinsic (one read, two writes).
+/// is charged by `ChargePubkeyCacheVerify` as signed-only `extension_weight`;
+/// the `Pubkeys::remove` on account reap is registered as block weight by
+/// `pallet_pubkey`'s `OnKilledAccount` hook itself. Together they cover the
+/// worst case — a first full-signature `transfer_all(..., keep_alive = false)`
+/// that registers and reaps in one extrinsic (one read, two writes).
 #[test]
 fn first_registration_plus_reap_weight_covers_combined_db_ops() {
 	use frame_support::{
@@ -322,19 +324,30 @@ fn first_registration_plus_reap_weight_covers_combined_db_ops() {
 		weights::constants::{ExtrinsicBaseWeight, RocksDbWeight},
 	};
 	use quantus_runtime::configs::{PubkeyCacheVerifyWeight, RuntimeBlockWeights};
+	use sp_runtime::traits::TransactionExtension;
 
 	let verify = RocksDbWeight::get().reads_writes(1, 1);
 	let cleanup = RocksDbWeight::get().writes(1);
 
-	// The base-weight surcharge on signed classes covers the verify-path work.
+	// Signed-only extension weight covers the verify-path work; class-wide
+	// `base_extrinsic` must not, or bare unsigned Normal (wormhole exits) would
+	// pay for a Verify they never run.
 	assert_eq!(PubkeyCacheVerifyWeight::get(), verify);
+	let call: RuntimeCall = BalancesCall::transfer_keep_alive {
+		dest: MultiAddress::Id(AccountId32::new([9u8; 32])),
+		value: UNIT,
+	}
+	.into();
+	assert!(
+		ChargePubkeyCacheVerify::new().weight(&call).all_gte(verify),
+		"ChargePubkeyCacheVerify must cover verify {verify:?}"
+	);
 	let weights = RuntimeBlockWeights::get();
 	for class in [DispatchClass::Normal, DispatchClass::Operational] {
-		let base_surcharge =
-			weights.get(class).base_extrinsic.saturating_sub(ExtrinsicBaseWeight::get());
-		assert!(
-			base_surcharge.all_gte(verify),
-			"{class:?} base_extrinsic surcharge {base_surcharge:?} must cover verify {verify:?}"
+		assert_eq!(
+			weights.get(class).base_extrinsic,
+			ExtrinsicBaseWeight::get(),
+			"{class:?} base_extrinsic must not include PubkeyCacheVerifyWeight"
 		);
 	}
 
@@ -363,11 +376,8 @@ fn first_registration_plus_reap_weight_covers_combined_db_ops() {
 			let xt = signed_call(
 				pair,
 				sender.clone(),
-				BalancesCall::transfer_all {
-					dest: MultiAddress::Id(dest.clone()),
-					keep_alive,
-				}
-				.into(),
+				BalancesCall::transfer_all { dest: MultiAddress::Id(dest.clone()), keep_alive }
+					.into(),
 				0,
 				false,
 			);

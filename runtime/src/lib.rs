@@ -79,7 +79,9 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_version: 145,
 	impl_version: 1,
 	apis: apis::RUNTIME_API_VERSIONS,
-	// v4: `SigOnly` signature variants added (on-chain pubkey cache, `pallet-pubkey`).
+	// v4: `SigOnly` signature variants added (on-chain pubkey cache, `pallet-pubkey`),
+	//     plus the `ChargePubkeyCacheVerify` extension (zero-sized: explicit and
+	//     implicit both encode to zero bytes, so extrinsic encoding is unchanged).
 	transaction_version: 4,
 	system_version: 1,
 };
@@ -162,6 +164,11 @@ pub type BlockId = generic::BlockId<Block>;
 pub type Difficulty = U512;
 
 /// The SignedExtension to the basic transaction logic.
+///
+/// Nested as `(ChargePubkeyCacheVerify, CheckWeight)` to stay within the
+/// 12-element `TransactionExtension` tuple limit while still charging the
+/// pubkey-cache verify surcharge on signed extrinsics only (bare unsigned
+/// report `extension_weight = 0`).
 pub type TxExtension = (
 	frame_system::CheckNonZeroSender<Runtime>,
 	frame_system::CheckSpecVersion<Runtime>,
@@ -169,7 +176,7 @@ pub type TxExtension = (
 	frame_system::CheckGenesis<Runtime>,
 	frame_system::CheckEra<Runtime>,
 	frame_system::CheckNonce<Runtime>,
-	frame_system::CheckWeight<Runtime>,
+	(transaction_extensions::ChargePubkeyCacheVerify, frame_system::CheckWeight<Runtime>),
 	transaction_extensions::ReversibleTransactionExtension<Runtime>,
 	// Must run before `ChargeTransactionPayment`: post-dispatch hooks execute
 	// left-to-right, and payment finalizes the fee from `PostDispatchInfo` at its

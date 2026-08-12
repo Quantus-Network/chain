@@ -165,22 +165,14 @@ impl Verify for DilithiumSignatureScheme {
 				if AccountId32::new(hash_bytes(public.as_ref())) != *signer {
 					return false;
 				}
-				crate::verify_ml_dsa_87(
-					public.as_ref(),
-					msg.get(),
-					sig_public.signature().as_ref(),
-				)
+				crate::verify_ml_dsa_87(public.as_ref(), msg.get(), sig_public.signature().as_ref())
 			},
 			Self::Dilithium65(sig_public) => {
 				let public = sig_public.public();
 				if AccountId32::new(hash_bytes(public.as_ref())) != *signer {
 					return false;
 				}
-				crate::verify_ml_dsa_65(
-					public.as_ref(),
-					msg.get(),
-					sig_public.signature().as_ref(),
-				)
+				crate::verify_ml_dsa_65(public.as_ref(), msg.get(), sig_public.signature().as_ref())
 			},
 			// SigOnly variants carry no public key and AccountId32 is a hash of
 			// the key, so a pure verify has nothing to check against. Resolving

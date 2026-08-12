@@ -182,10 +182,11 @@ sp_api::decl_runtime_apis! {
 /// This runs in `UncheckedExtrinsic::check`, before any `TxExtension` weight or
 /// payment handling, so the database work here (one `Pubkeys` read, plus one
 /// multi-kilobyte insert on an account's first full-signature transaction) is
-/// invisible to the dispatch path. The runtime must charge that worst case in
-/// the signed-extrinsic base weight (`PubkeyCacheVerifyWeight`). Separately,
-/// account reaping runs `Pubkeys::remove` via `OnKilledAccount`, which
-/// registers its own write via `register_extra_weight_unchecked` — a
+/// invisible to the dispatch path. The runtime charges that worst case via the
+/// signed-only `ChargePubkeyCacheVerify` extension (`PubkeyCacheVerifyWeight`),
+/// so bare unsigned extrinsics do not pay for a `Verify` they never run.
+/// Separately, account reaping runs `Pubkeys::remove` via `OnKilledAccount`,
+/// which registers its own write via `register_extra_weight_unchecked` — a
 /// first-registration that also reaps performs both the insert and the remove.
 #[derive(Eq, PartialEq, Clone, Encode, Decode, RuntimeDebug, TypeInfo, DecodeWithMemTracking)]
 #[scale_info(skip_type_params(T))]

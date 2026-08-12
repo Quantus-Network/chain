@@ -90,8 +90,11 @@ parameter_types! {
 	///
 	/// Signature verification runs in `UncheckedExtrinsic::check`, before any
 	/// `TxExtension` weight or payment handling, so this cost cannot be carried
-	/// by a weighted dispatch path; it is instead charged as part of
-	/// `base_extrinsic` for the signed (non-mandatory) classes below.
+	/// by a weighted dispatch path. It is charged by
+	/// [`crate::transaction_extensions::ChargePubkeyCacheVerify`] as
+	/// `extension_weight` on signed extrinsics only — bare unsigned paths
+	/// (wormhole `verify_*`, inherents) report `extension_weight = 0` and never
+	/// run `Verify`.
 	///
 	/// Does **not** cover the `Pubkeys::remove` performed when an account is
 	/// reaped: `pallet_pubkey`'s `OnKilledAccount` hook registers that write
@@ -104,11 +107,9 @@ parameter_types! {
 	///
 	/// Mirrors `BlockWeights::with_sensible_defaults(MAXIMUM_BLOCK_WEIGHT,
 	/// NORMAL_DISPATCH_RATIO)` (75%/25% normal/operational split, 10% average
-	/// block initialization), with one addition: `base_extrinsic` for the
-	/// `Normal` and `Operational` classes carries [`PubkeyCacheVerifyWeight`],
-	/// the pubkey-cache database work performed during signature verification.
-	/// `Mandatory` extrinsics (inherents) are unsigned, never run `Verify`, and
-	/// keep the default base weight.
+	/// block initialization). Pubkey-cache verify work is **not** folded into
+	/// `base_extrinsic` (that would tax unsigned `Normal` paths such as wormhole
+	/// exits); it is reserved by `ChargePubkeyCacheVerify` on signed extrinsics.
 	///
 	/// See "Proof Size Design Rationale" in the Transaction Fee Structure section below
 	/// for detailed explanation of why proof_size is uncapped and when to revisit this.
@@ -120,10 +121,6 @@ parameter_types! {
 			weights.max_total = Some(MAXIMUM_BLOCK_WEIGHT);
 			weights.reserved =
 				Some(MAXIMUM_BLOCK_WEIGHT - NORMAL_DISPATCH_RATIO * MAXIMUM_BLOCK_WEIGHT);
-		})
-		.for_class(DispatchClass::non_mandatory(), |weights| {
-			weights.base_extrinsic =
-				weights.base_extrinsic.saturating_add(PubkeyCacheVerifyWeight::get());
 		})
 		.avg_block_initialization(Perbill::from_percent(10))
 		.build_or_panic();
