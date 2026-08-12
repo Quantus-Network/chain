@@ -125,8 +125,7 @@ pub type Signature = pallet_pubkey::CachedSignature<Runtime>;
 /// `Runtime: frame_system::Config`, whose `AccountId` is this very alias.
 /// `CachedSignature` fixes its `Signer` to the inner scheme's, so this is the
 /// same type.)
-pub type AccountId =
-	<<DilithiumSignatureScheme as Verify>::Signer as IdentifyAccount>::AccountId;
+pub type AccountId = <<DilithiumSignatureScheme as Verify>::Signer as IdentifyAccount>::AccountId;
 
 /// Balance of an account.
 pub type Balance = u128;

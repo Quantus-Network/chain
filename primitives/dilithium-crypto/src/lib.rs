@@ -18,6 +18,6 @@ pub use types::{
 	sig_only_signing_payload, verify_ml_dsa_65, verify_ml_dsa_87, Dilithium65CryptoTag,
 	Dilithium65Pair, Dilithium65Public, Dilithium65Signature, Dilithium65SignatureWithPublic,
 	Dilithium87CryptoTag, Dilithium87Pair, Dilithium87Public, Dilithium87Signature,
-	Dilithium87SignatureWithPublic, DilithiumSignatureScheme, DilithiumSigner,
-	WrappedPublicBytes, WrappedSignatureBytes, SIG_ONLY_SIGNING_PREFIX,
+	Dilithium87SignatureWithPublic, DilithiumSignatureScheme, DilithiumSigner, WrappedPublicBytes,
+	WrappedSignatureBytes, SIG_ONLY_SIGNING_PREFIX,
 };

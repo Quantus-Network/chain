@@ -257,8 +257,12 @@ fn sig_only_extrinsic_reencoded_as_full_is_rejected() {
 		// The genuine sig-only encoding of the very same signature applies
 		// fine: only the re-encoding was rejected, not the signature.
 		let sig_only: Signature = DilithiumSignatureScheme::Dilithium65SigOnly(sig).into();
-		let genuine =
-			UncheckedExtrinsic::new_signed(call, MultiAddress::Id(account.clone()), sig_only, tx_ext);
+		let genuine = UncheckedExtrinsic::new_signed(
+			call,
+			MultiAddress::Id(account.clone()),
+			sig_only,
+			tx_ext,
+		);
 		assert_ok!(Executive::apply_extrinsic(genuine).expect("genuine sig-only form is valid"));
 	});
 }
@@ -290,8 +294,12 @@ fn full_extrinsic_reencoded_as_sig_only_is_rejected() {
 		// …stripped down to its bare signature.
 		let stripped: Signature =
 			DilithiumSignatureScheme::Dilithium65SigOnly(full_sig.signature()).into();
-		let xt =
-			UncheckedExtrinsic::new_signed(call, MultiAddress::Id(account.clone()), stripped, tx_ext);
+		let xt = UncheckedExtrinsic::new_signed(
+			call,
+			MultiAddress::Id(account.clone()),
+			stripped,
+			tx_ext,
+		);
 
 		assert_eq!(
 			Executive::apply_extrinsic(xt),

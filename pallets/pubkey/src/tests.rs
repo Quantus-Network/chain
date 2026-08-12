@@ -140,9 +140,8 @@ fn full_signature_rewrapped_as_sig_only_is_rejected() {
 		// with any full extrinsic it observes.
 		assert!(Sig::from(pair.sign(MSG)).verify(MSG, &account));
 
-		let stripped = Sig::from(DilithiumSignatureScheme::Dilithium65SigOnly(
-			pair.sign(MSG).signature(),
-		));
+		let stripped =
+			Sig::from(DilithiumSignatureScheme::Dilithium65SigOnly(pair.sign(MSG).signature()));
 		assert!(!stripped.verify(MSG, &account));
 	});
 }
