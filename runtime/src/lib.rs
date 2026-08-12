@@ -16,7 +16,11 @@ pub use qp_dilithium_crypto::{
 
 use alloc::vec::Vec;
 use sp_core::U512;
-use sp_runtime::{generic, impl_opaque_keys, traits::BlakeTwo256, MultiAddress};
+use sp_runtime::{
+	generic, impl_opaque_keys,
+	traits::{BlakeTwo256, IdentifyAccount, Verify},
+	MultiAddress,
+};
 use sp_version::RuntimeVersion;
 
 pub use frame_system::Call as SystemCall;
@@ -113,7 +117,16 @@ pub type Signature = pallet_pubkey::CachedSignature<Runtime>;
 
 /// Some way of identifying an account on the chain: the Poseidon hash of the
 /// account's Dilithium public key.
-pub type AccountId = sp_runtime::AccountId32;
+///
+/// Derived from the signer of the inner signature scheme rather than written
+/// out as `AccountId32`, so a future signer change fails to compile instead of
+/// diverging silently. (Deriving it from [`Signature`] itself would be
+/// circular: `CachedSignature<Runtime>`'s `Verify` impl requires
+/// `Runtime: frame_system::Config`, whose `AccountId` is this very alias.
+/// `CachedSignature` fixes its `Signer` to the inner scheme's, so this is the
+/// same type.)
+pub type AccountId =
+	<<DilithiumSignatureScheme as Verify>::Signer as IdentifyAccount>::AccountId;
 
 /// Balance of an account.
 pub type Balance = u128;

@@ -97,7 +97,8 @@ parameter_types! {
 	/// reaped: `pallet_pubkey`'s `OnKilledAccount` hook registers that write
 	/// itself via `register_extra_weight_unchecked`, on whichever call path
 	/// killed the account.
-	pub PubkeyCacheVerifyWeight: Weight = RocksDbWeight::get().reads_writes(1, 1);
+	pub PubkeyCacheVerifyWeight: Weight =
+		<Runtime as frame_system::Config>::DbWeight::get().reads_writes(1, 1);
 
 	/// Block weight limits for the runtime.
 	///
