@@ -1086,9 +1086,13 @@ mod private_batch_proof_tests {
 				.into(),
 			);
 			assert_eq!(
-				Balances::free_balance(expected_author),
+				Balances::free_balance(expected_author.clone()),
 				author_balance_before + expected_miner_fee
 			);
+			// The author address is hash-derived and has no signing key. Without a
+			// zk-tree leaf the credited fee is permanently frozen (EQ-QNT-WORMHOLE-F-03
+			// leftover: extraction was fixed, leaf recording was not).
+			assert_exitable_native_leaf(&expected_author, expected_miner_fee);
 		});
 	}
 
@@ -1820,6 +1824,59 @@ mod exit_bundle_tests {
 		});
 	}
 
+	/// Security regression (EQ-QNT-WORMHOLE-F-03 leftover): the miner's volume-fee
+	/// share is credited to a hash-derived wormhole address with no signing key.
+	/// Without a zk-tree leaf the credit cannot be exited and is permanently frozen.
+	#[test]
+	fn process_exit_bundle_records_leaf_for_miner_volume_fee() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let miner_preimage = [7u8; 32];
+			set_miner_preimage_digest(miner_preimage);
+			let miner = AccountId32::from(
+				qp_wormhole::derive_wormhole_address(miner_preimage)
+					.expect("test preimage limbs are canonical"),
+			);
+
+			assert_ok!(Wormhole::process_exit_bundle(bundle(
+				vec![segment(&[1], &[(10, AMOUNT_A)])],
+				None
+			)));
+
+			let fee_bps = VolumeFeeRateBps::get() as u128;
+			let fee = super::ceil_volume_fee(AMOUNT_A as u128, fee_bps);
+			let expected_miner_fee = fee - Permill::from_percent(50) * fee;
+			assert!(expected_miner_fee > 0, "fixture amounts must produce a nonzero miner fee");
+			assert_eq!(Balances::balance(&miner), expected_miner_fee);
+			assert_exitable_native_leaf(&miner, expected_miner_fee);
+		});
+	}
+
+	/// Security regression (EQ-QNT-WORMHOLE-F-03 leftover): the public-batch
+	/// aggregator rebate is credited to a hash-derived account. Same omission as
+	/// the miner fee — a balance with no leaf is permanently frozen.
+	#[test]
+	fn process_exit_bundle_records_leaf_for_aggregator_rebate() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let aggregator = AccountId32::new([7u8; 32]);
+			assert_ok!(Wormhole::process_exit_bundle(bundle(
+				vec![segment(&[1], &[(10, AMOUNT_A)])],
+				Some(digest(7)),
+			)));
+
+			let fee_bps = VolumeFeeRateBps::get() as u128;
+			let fee = super::ceil_volume_fee(AMOUNT_A as u128, fee_bps);
+			let burn_bucket = Permill::from_percent(50) * fee;
+			let expected_rebate = Permill::from_percent(50) * burn_bucket;
+			assert!(expected_rebate > 0, "amounts must produce a nonzero rebate");
+			assert_eq!(Balances::balance(&aggregator), expected_rebate);
+			assert_exitable_native_leaf(&aggregator, expected_rebate);
+		});
+	}
+
 	#[test]
 	fn process_exit_bundle_burns_rebate_when_aggregator_mint_fails() {
 		new_test_ext().execute_with(|| {
@@ -1847,6 +1904,11 @@ mod exit_bundle_tests {
 				Balances::balance(&aggregator),
 				0,
 				"below-ED rebate must not create the aggregator account"
+			);
+			assert_eq!(
+				Wormhole::transfer_count(&aggregator),
+				0,
+				"a failed rebate must not insert a zk-tree leaf"
 			);
 
 			// The whole fee is burned: the rebate fell back into the burn bucket and
@@ -2045,6 +2107,9 @@ mod public_batch_proof_tests {
 				expected_rebate,
 				"Aggregator should receive its slice of the burn bucket"
 			);
+			// Same class of address as the miner: hash-derived, spendable only via a
+			// zk-tree leaf. A rebate without a leaf is permanently frozen.
+			assert_exitable_native_leaf(&aggregator, expected_rebate);
 		});
 	}
 

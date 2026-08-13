@@ -818,18 +818,7 @@ pub mod pallet {
 			for (exit_account, exit_balance) in &processed_accounts {
 				// Skip failed credits (e.g. below ED); nullifier already marked, value
 				// excluded from fee settlement / event.
-				//
-				// NOTE: this must stay `Unbalanced::increase_balance` (event-free). The runtime's
-				// `WormholeProofRecorderExtension` records a transfer proof for every
-				// `Balances::Minted` event it scans, and this exit already records its own proof
-				// via `record_transfer` below — switching to `mint_into` (which emits `Minted`)
-				// could double-record the credit. Pinned by the test
-				// `exit_credits_emit_no_scannable_transfer_events`.
-				match <T::Currency as Unbalanced<_>>::increase_balance(
-					exit_account,
-					*exit_balance,
-					frame_support::traits::tokens::Precision::Exact,
-				) {
+				match Self::credit_and_record(exit_account, *exit_balance, &mint_account) {
 					Ok(_) => {},
 					Err(e) => {
 						log::warn!(
@@ -847,16 +836,6 @@ pub mod pallet {
 				}
 
 				minted_exit_amount = minted_exit_amount.saturating_add(*exit_balance);
-
-				// Record transfer proof for the minted tokens
-				let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
-				let to_account: <T as Config>::WormholeAccountId = exit_account.clone().into();
-				Self::record_transfer(
-					T::AssetId::default(),
-					&from_account,
-					&to_account,
-					*exit_balance,
-				);
 			}
 
 			Self::deposit_event(Event::ProofVerified {
@@ -878,7 +857,7 @@ pub mod pallet {
 			//
 			// Fee split (controlled by VolumeFeesBurnRate):
 			//   - burn_amount = fee * burn_rate  (reduces total issuance via Currency::burn)
-			//   - miner_fee = fee - burn_amount  (minted to block author via increase_balance)
+			//   - miner_fee = fee - burn_amount  (credited to block author with a zk-tree leaf)
 			//
 			// Supply accounting:
 			//   - Minting exit amounts: increases balances but NOT issuance by sum(output_amounts)
@@ -916,10 +895,10 @@ pub mod pallet {
 					// the whole bundle - that would drag users' exits down with a
 					// problem the aggregator inflicted on itself. Burn the rebate
 					// instead and process the exits normally.
-					match <T::Currency as Unbalanced<_>>::increase_balance(
+					match Self::credit_and_record(
 						&aggregator_account,
 						aggregator_fee,
-						frame_support::traits::tokens::Precision::Exact,
+						&mint_account,
 					) {
 						Ok(_) => {},
 						Err(e) => {
@@ -952,11 +931,7 @@ pub mod pallet {
 					// the fee is below the existential deposit) must not revert the whole
 					// bundle and drag users' exits down with it. Burn it instead, exactly
 					// like the no-author branch below and the aggregator-rebate fallback.
-					match <T::Currency as Unbalanced<_>>::increase_balance(
-						&author,
-						miner_fee,
-						frame_support::traits::tokens::Precision::Exact,
-					) {
+					match Self::credit_and_record(&author, miner_fee, &mint_account) {
 						Ok(_) => {
 							Self::deposit_event(Event::MinerVolumeFeePaid {
 								miner: author,
@@ -1268,6 +1243,31 @@ pub mod pallet {
 				Ok(bytes) => pallet_zk_tree::tree::canonicalize_account_bytes(bytes).into(),
 				Err(_) => to.clone(),
 			}
+		}
+
+		/// Credit `amount` to `to` via event-free `increase_balance` and insert a
+		/// zk-tree leaf so the credit is exitable.
+		///
+		/// Must stay paired: wormhole-derived accounts have no signing key, so a
+		/// balance without a leaf is permanently frozen. Must stay
+		/// `Unbalanced::increase_balance` (not `mint_into`): the runtime's
+		/// `WormholeProofRecorderExtension` would otherwise double-record from the
+		/// `Minted` event. Pinned by `exit_credits_emit_no_scannable_transfer_events`
+		/// and the miner-fee / aggregator-rebate leaf tests.
+		fn credit_and_record(
+			to: &<T as frame_system::Config>::AccountId,
+			amount: BalanceOf<T>,
+			mint_account: &<T as frame_system::Config>::AccountId,
+		) -> Result<BalanceOf<T>, DispatchError> {
+			let credited = <T::Currency as Unbalanced<_>>::increase_balance(
+				to,
+				amount,
+				frame_support::traits::tokens::Precision::Exact,
+			)?;
+			let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
+			let to_account: <T as Config>::WormholeAccountId = to.clone().into();
+			Self::record_transfer(T::AssetId::default(), &from_account, &to_account, amount);
+			Ok(credited)
 		}
 
 		/// Record a transfer in the ZK tree and emit events.
