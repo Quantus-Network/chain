@@ -76,7 +76,7 @@ Creates a new proposal for multisig execution.
 **Validation:**
 - Caller must be a signer
 - Call must fit `MaxCallSize` as bounded call bytes
-- Call must decode as a valid `RuntimeCall`
+- Call must decode as a valid `RuntimeCall` **and** be its exact canonical encoding (no trailing bytes) — anything else could never satisfy `execute`'s byte-equality check, leaving the proposal permanently unexecutable
 - Declared call weight must not exceed `MaxInnerCallWeight`
 - **High-Security Check:** If multisig is currently high-security, only whitelisted calls are allowed (see High-Security Integration section)
 - Multisig cannot have MaxTotalProposalsInStorage or more total proposals in storage
@@ -158,7 +158,7 @@ Dispatches an **Approved** proposal. Can be called by any signer of the multisig
 
 **Important:** After wrapper-level validation succeeds, the `execute` extrinsic itself succeeds even if the inner call fails. The proposal is removed and deposit returned in both cases. Check the `ProposalExecuted` event's `result` field to determine if the inner call succeeded.
 
-**Economic Costs:** Declared weight is multisig bookkeeping (sized by the call bytes) plus the inner call's own declared weight, refunded post-dispatch based on actual bookkeeping and the inner call's post-dispatch weight.
+**Economic Costs:** Declared weight is multisig bookkeeping (reserved at `MaxCallSize`, since the stored proposal bytes are read and their length is unknown pre-dispatch) plus the inner call's own declared weight; both are refunded post-dispatch based on actual bookkeeping and the inner call's post-dispatch weight.
 
 ### 6. Remove Expired
 Manually removes a single expired **Active or Approved** proposal from storage. Only signers can call this. Deposit is returned to the original proposer.
@@ -487,7 +487,7 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 - **No global limits:** Only per-multisig limits (decentralized resistance)
 
 ### Call Execution
-- Calls are decoded and validated at `propose()` time (including an inner-call weight check against `MaxInnerCallWeight`), then stored as bounded call bytes
+- Calls are decoded and validated at `propose()` time (including a canonical-encoding check and an inner-call weight check against `MaxInnerCallWeight`), then stored as bounded call bytes
 - At `execute()` time the executor resubmits the call; it is verified byte-equal to the stored bytes before dispatch, and the inner-call weight is recomputed from it (it is not stored)
 - High-security whitelist enforcement runs at proposal creation for currently high-security multisigs and again at execution time
 - Allowed calls execute with multisig_address as origin

@@ -599,6 +599,20 @@ pub mod pallet {
 			let decoded_call = <T as Config>::RuntimeCall::decode(&mut &call[..])
 				.map_err(|_| Self::err_burn_full_raw(Error::<T>::InvalidCall))?;
 
+			// The stored bytes must be exactly the decoded call's canonical
+			// encoding. Decode does not have to consume its whole input, so
+			// `valid_call.encode() ++ trailing_bytes` would pass every check
+			// above yet be permanently unexecutable: `execute` requires the
+			// executor's typed call to re-encode byte-equal to the stored
+			// payload, and no typed call encodes trailing garbage (or a
+			// non-canonical form). Reject such payloads before any state
+			// change, fee, or deposit.
+			if decoded_call.encode() != call.as_slice() {
+				// Same burn-full reasoning as decode failure: size-dependent
+				// work (decode + encode) has already been done.
+				return Self::err_burn_full(Error::<T>::InvalidCall);
+			}
+
 			// ===== PHASE 3b: Check inner call weight against limit =====
 			// This ensures execute() can safely reserve weight at pre-dispatch time.
 			let call_weight = decoded_call.get_dispatch_info().call_weight;
@@ -1050,12 +1064,13 @@ pub mod pallet {
 		/// - **Clearsigning:** the executor's (hardware) wallet displays and signs the actual call
 		///   being dispatched, not an opaque proposal id.
 		/// - **Self-describing weight:** the executing extrinsic carries the inner call, so its
-		///   declared weight is computed from the submitted bytes (bookkeeping + the inner call's
-		///   own declared weight, refunded to actuals post-dispatch) instead of reserving a flat
-		///   `MaxInnerCallWeight`, and runtime transaction extensions can inspect the inner call
-		///   and price its side effects (account-reap cleanup, transfer-proof recording) exactly as
-		///   they do for directly submitted calls. Nothing about the dispatch is invisible to
-		///   pre-dispatch admission or fees.
+		///   declared weight carries the inner call's own declared weight (refunded to actuals
+		///   post-dispatch) instead of reserving a flat `MaxInnerCallWeight`, and runtime
+		///   transaction extensions can inspect the inner call and price its side effects
+		///   (account-reap cleanup, transfer-proof recording) exactly as they do for directly
+		///   submitted calls. Nothing about the dispatch is invisible to pre-dispatch admission or
+		///   fees. (Only the bookkeeping term is reserved at `MaxCallSize`, since the stored bytes'
+		///   length is unknown pre-dispatch; the unused remainder is refunded.)
 		///
 		/// On execution:
 		/// - The call is dispatched as the multisig account
@@ -1068,10 +1083,16 @@ pub mod pallet {
 		/// - `call`: The proposal's inner call, byte-equal to the stored payload
 		#[pallet::call_index(6)]
 		#[pallet::weight({
-			// Bookkeeping (storage reads/writes, sized by the submitted call) plus the
-			// inner call's own declared weight. Refunded post-dispatch to actuals.
-			<T as Config>::WeightInfo::execute(call.encoded_size() as u32)
-				.saturating_add(call.get_dispatch_info().call_weight)
+			// Bookkeeping (storage reads/writes) plus the inner call's own declared
+			// weight, refunded post-dispatch to actuals. Bookkeeping is sized by the
+			// larger of the submitted call and `MaxCallSize`: the dispatch reads the
+			// stored proposal bytes, whose length is unknown pre-dispatch (bounded
+			// only by `MaxCallSize`), and no error path may report more weight than
+			// was declared (FRAME clamps and logs such violations).
+			<T as Config>::WeightInfo::execute(
+				T::MaxCallSize::get().max(call.encoded_size() as u32),
+			)
+			.saturating_add(call.get_dispatch_info().call_weight)
 		})]
 		#[allow(clippy::useless_conversion)]
 		pub fn execute(
