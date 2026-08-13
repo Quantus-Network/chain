@@ -674,7 +674,7 @@ impl Stream for TcpTransport {
 			}
 		}
 
-		while let Poll::Ready(Some(connection)) = self.pending_connections.poll_next_unpin(cx) {
+		if let Poll::Ready(Some(connection)) = self.pending_connections.poll_next_unpin(cx) {
 			match connection {
 				Ok(connection) => {
 					let peer = connection.peer();
