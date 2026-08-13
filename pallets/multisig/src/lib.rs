@@ -133,7 +133,7 @@ pub mod pallet {
 			Pays, PostDispatchInfo,
 		},
 		pallet_prelude::*,
-		traits::{Currency, ReservableCurrency},
+		traits::{Contains, Currency, ReservableCurrency},
 		weights::Weight,
 		PalletId,
 	};
@@ -237,6 +237,19 @@ pub mod pallet {
 			Self::AccountId,
 			<Self as pallet::Config>::RuntimeCall,
 		>;
+
+		/// Runtime-supplied admission filter for the decoded stored call,
+		/// checked at propose time and re-checked at execute time (the filter
+		/// may have been tightened by a runtime upgrade in between; stored
+		/// proposals must not bypass it).
+		///
+		/// This is the hook the runtime uses to bound statically countable
+		/// side effects of stored calls — account reaps, transfer-proof
+		/// recording — so its transaction extensions can reserve small, sound
+		/// worst-case weights for `execute` (whose call bytes are otherwise
+		/// invisible pre-dispatch, being read from storage rather than the
+		/// submitted extrinsic). Use `Everything` to disable.
+		type StoredCallFilter: Contains<<Self as pallet::Config>::RuntimeCall>;
 	}
 
 	/// Type alias for bounded signers vector
@@ -397,6 +410,9 @@ pub mod pallet {
 		ProposalNotApproved,
 		/// Call is not allowed for high-security multisig
 		CallNotAllowedForHighSecurityMultisig,
+		/// The decoded call is rejected by the runtime's `StoredCallFilter`
+		/// (e.g. it exceeds the cap on statically countable side effects)
+		StoredCallNotAllowed,
 		/// Proposal nonce exhausted (u32::MAX reached)
 		ProposalNonceExhausted,
 		/// Call weight exceeds MaxInnerCallWeight limit
@@ -620,6 +636,14 @@ pub mod pallet {
 			if !T::HighSecurity::is_call_allowed_given(is_high_security, &decoded_call) {
 				// Don't refund after decode - same reasoning as above.
 				return Self::err_burn_full(Error::<T>::CallNotAllowedForHighSecurityMultisig);
+			}
+
+			// ===== PHASE 4b: Runtime stored-call filter =====
+			// Bounds runtime-defined side effects of stored calls (see
+			// `Config::StoredCallFilter`) so `execute` reservations stay sound.
+			if !T::StoredCallFilter::contains(&decoded_call) {
+				// Don't refund after decode - same reasoning as above.
+				return Self::err_burn_full(Error::<T>::StoredCallNotAllowed);
 			}
 
 			// Calculate dynamic fee based on number of signers
@@ -1141,6 +1165,15 @@ pub mod pallet {
 			// After decode + get_dispatch_info, don't refund - burn the full reserved weight.
 			if !T::HighSecurity::is_call_allowed(&multisig_address, &call) {
 				return Self::err_burn_full(Error::<T>::CallNotAllowedForHighSecurityMultisig);
+			}
+
+			// Re-check the runtime stored-call filter at execute time. The filter
+			// may have been tightened via runtime upgrade since propose time, and
+			// stored proposals must not bypass the bound the runtime's transaction
+			// extensions rely on when reserving weight for this dispatch.
+			// After decode + get_dispatch_info, don't refund - burn the full reserved weight.
+			if !T::StoredCallFilter::contains(&call) {
+				return Self::err_burn_full(Error::<T>::StoredCallNotAllowed);
 			}
 
 			// EFFECTS: Remove proposal and return deposit BEFORE dispatch (reentrancy protection)

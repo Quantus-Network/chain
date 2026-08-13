@@ -163,6 +163,33 @@ pub fn reset_max_inner_call_weight() {
 	MAX_INNER_CALL_WEIGHT.with(|v| *v.borrow_mut() = Weight::from_parts(1_000_000_000, 1_048_576));
 }
 
+// Dynamic stored-call filter: rejects `System::remark(b"filtered")`, and can be
+// switched to reject everything (for testing the execute-time re-check of
+// proposals stored before a filter tightening).
+thread_local! {
+	static STORED_CALL_FILTER_BLOCKS_ALL: RefCell<bool> = const { RefCell::new(false) };
+}
+
+pub struct MockStoredCallFilter;
+impl frame_support::traits::Contains<RuntimeCall> for MockStoredCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		if STORED_CALL_FILTER_BLOCKS_ALL.with(|b| *b.borrow()) {
+			return false;
+		}
+		!matches!(
+			call,
+			RuntimeCall::System(frame_system::Call::remark { remark })
+				if remark.as_slice() == b"filtered"
+		)
+	}
+}
+
+/// Make the stored-call filter reject every call (simulates a runtime upgrade
+/// tightening the filter after proposals were stored).
+pub fn set_stored_call_filter_blocks_all(blocks_all: bool) {
+	STORED_CALL_FILTER_BLOCKS_ALL.with(|b| *b.borrow_mut() = blocks_all);
+}
+
 impl pallet_multisig::Config for Test {
 	type RuntimeCall = RuntimeCall;
 	type Currency = Balances;
@@ -178,6 +205,7 @@ impl pallet_multisig::Config for Test {
 	type PalletId = MultisigPalletId;
 	type WeightInfo = ();
 	type HighSecurity = crate::tests::MockHighSecurity;
+	type StoredCallFilter = MockStoredCallFilter;
 }
 
 impl mock_heavy_call::Config for Test {}

@@ -2636,3 +2636,93 @@ fn execute_rejects_call_when_max_weight_lowered_after_propose() {
 		reset_max_inner_call_weight();
 	});
 }
+
+/// A call rejected by the runtime's `StoredCallFilter` cannot be proposed.
+#[test]
+fn propose_rejects_call_blocked_by_stored_call_filter() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let signers = vec![alice(), bob()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0,
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// The mock filter rejects exactly `remark(b"filtered")`.
+		let blocked =
+			RuntimeCall::System(frame_system::Call::remark { remark: b"filtered".to_vec() });
+		assert_err_ignore_postinfo(
+			Multisig::propose(
+				RuntimeOrigin::signed(alice()),
+				multisig_address.clone(),
+				blocked.encode().try_into().unwrap(),
+				100,
+			),
+			Error::<Test>::StoredCallNotAllowed.into(),
+		);
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
+
+		// An allowed call with the same shape passes.
+		let allowed =
+			RuntimeCall::System(frame_system::Call::remark { remark: b"passable".to_vec() });
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			allowed.encode().try_into().unwrap(),
+			100,
+		));
+	});
+}
+
+/// The `StoredCallFilter` is re-checked at execute time: a proposal stored
+/// before a runtime upgrade tightened the filter must not bypass it (the
+/// runtime's transaction extensions size `execute`'s weight reservations by
+/// the bound this filter enforces).
+#[test]
+fn execute_rejects_call_when_stored_call_filter_tightened_after_propose() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let signers = vec![alice(), bob()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0,
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Propose and approve while the filter allows the call.
+		let call = RuntimeCall::System(frame_system::Call::remark { remark: b"test".to_vec() });
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			call.encode().try_into().unwrap(),
+			100,
+		));
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			stored_call(&multisig_address, 0)
+		));
+
+		// Simulate a runtime upgrade tightening the filter.
+		set_stored_call_filter_blocks_all(true);
+
+		assert_err_ignore_postinfo(
+			Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0),
+			Error::<Test>::StoredCallNotAllowed.into(),
+		);
+
+		// Proposal survives the failed execute; once the filter allows the
+		// call again, execution proceeds normally.
+		assert!(Proposals::<Test>::contains_key(&multisig_address, 0));
+		set_stored_call_filter_blocks_all(false);
+		assert_ok!(Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0));
+	});
+}

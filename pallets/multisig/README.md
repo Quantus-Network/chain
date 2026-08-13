@@ -360,6 +360,7 @@ enum ProposalStatus {
 - `ProposalExpired` - Proposal deadline passed (for approve)
 - `InvalidCall` - Call decoding failed during proposal validation or execution
 - `CallNotAllowedForHighSecurityMultisig` - Call is not whitelisted for a high-security multisig
+- `StoredCallNotAllowed` - Call is rejected by the runtime's `StoredCallFilter` (checked at propose, re-checked at execute)
 - `CallWeightExceedsLimit` - Declared call weight exceeds MaxInnerCallWeight
 - `InsufficientBalance` - Not enough funds for fee/deposit
 - `TooManyProposalsInStorage` - Multisig has MaxTotalProposalsInStorage total proposals (cleanup required to create new)
@@ -521,6 +522,12 @@ impl pallet_multisig::Config for Runtime {
     type PalletId = ConstPalletId(*b"py/mltsg");
     type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
     type HighSecurity = runtime::HighSecurityConfig;
+    // Runtime-defined admission filter for decoded stored calls, checked at
+    // propose and re-checked at execute. Lets the runtime bound statically
+    // countable side effects of stored calls (e.g. account reaps,
+    // transfer-proof recording) so its transaction extensions can reserve
+    // sound flat weights for `execute`. Use `Everything` to disable.
+    type StoredCallFilter = runtime::StoredMultisigCallFilter;
 }
 ```
 

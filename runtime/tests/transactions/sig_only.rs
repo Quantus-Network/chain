@@ -707,18 +707,20 @@ fn multisig_stored_call_reaps_are_admitted_and_paid_per_reap() {
 	let (reap_declared, reap_fee) = run(false);
 
 	// (a) Admission: the stored bytes are invisible pre-dispatch, so both
-	// variants declare the same weight, and it carries the full worst-case
-	// stored-call reservation — this is what `CheckWeight` admits against
-	// block limits BEFORE the stored call is even decoded.
+	// variants declare the same weight, and it carries the full stored-call
+	// cap reservation (`StoredMultisigCallFilter` guarantees at propose time
+	// that no stored call counts past the cap) — this is what `CheckWeight`
+	// admits against block limits BEFORE the stored call is even decoded.
 	let cleanup = pallet_pubkey::Pallet::<Runtime>::reap_cleanup_weight();
-	let reservation = cleanup.saturating_mul(ChargePubkeyCacheVerify::max_reaps_per_stored_call());
+	let reservation =
+		cleanup.saturating_mul(quantus_runtime::transaction_extensions::STORED_CALL_COUNT_CAP);
 	assert_eq!(reap_declared, keep_declared, "the reservation must be blind to stored bytes");
 	let execute_shape: RuntimeCall =
 		pallet_multisig::Call::execute { multisig_address: dest.clone(), proposal_id: 0 }.into();
 	assert_eq!(
 		ChargePubkeyCacheVerify::new().weight(&execute_shape),
 		quantus_runtime::configs::PubkeyCacheVerifyWeight::get().saturating_add(reservation),
-		"execute's extension weight must reserve the stored-call worst case"
+		"execute's extension weight must reserve the stored-call cap"
 	);
 	assert!(
 		reap_declared.all_gte(reservation),
