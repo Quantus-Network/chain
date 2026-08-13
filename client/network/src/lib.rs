@@ -309,6 +309,12 @@ pub use types::ProtocolName;
 /// The maximum number of concurrent established connections that were incoming.
 pub const MAX_CONNECTIONS_ESTABLISHED_INCOMING: u32 = 10_000;
 
+/// The maximum number of incoming connections that may be in handshake at once.
+///
+/// Unauthenticated peers hold a file descriptor until negotiation times out.
+/// This must stay well below a typical process `nofile` limit (often 1024).
+pub const MAX_CONNECTIONS_PENDING_INCOMING: u32 = 128;
+
 /// Maximum response size limit.
 pub const MAX_RESPONSE_SIZE: u64 = 16 * 1024 * 1024;
 

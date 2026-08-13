@@ -580,23 +580,19 @@ impl Stream for TcpTransport {
 
 	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
 		if let Poll::Ready(event) = self.listener.poll_next_unpin(cx) {
-			return match event {
+			match event {
 				None => {
 					tracing::error!(
 						target: LOG_TARGET,
-						"TCP listener terminated, ignore if the node is stopping",
+						"TCP listener closed; existing connections will still be served"
 					);
-
-					Poll::Ready(None)
 				},
 				Some(Err(error)) => {
-					tracing::error!(
+					tracing::warn!(
 						target: LOG_TARGET,
 						?error,
-						"TCP listener terminated with error",
+						"TCP accept error; listener will continue",
 					);
-
-					Poll::Ready(None)
 				},
 				Some(Ok((connection, address))) => {
 					let connection_id = self.context.next_connection_id();
@@ -610,9 +606,11 @@ impl Stream for TcpTransport {
 					self.pending_inbound_connections
 						.insert(connection_id, PendingInboundConnection { connection, address });
 
-					Poll::Ready(Some(TransportEvent::PendingInboundConnection { connection_id }))
+					return Poll::Ready(Some(TransportEvent::PendingInboundConnection {
+						connection_id,
+					}));
 				},
-			};
+			}
 		}
 
 		while let Poll::Ready(Some(result)) = self.pending_raw_connections.poll_next_unpin(cx) {
@@ -676,7 +674,7 @@ impl Stream for TcpTransport {
 			}
 		}
 
-		while let Poll::Ready(Some(connection)) = self.pending_connections.poll_next_unpin(cx) {
+		if let Poll::Ready(Some(connection)) = self.pending_connections.poll_next_unpin(cx) {
 			match connection {
 				Ok(connection) => {
 					let peer = connection.peer();
@@ -697,7 +695,15 @@ impl Stream for TcpTransport {
 							error,
 						}));
 					} else {
-						tracing::debug!(target: LOG_TARGET, ?error, ?connection_id, "Pending inbound connection failed");
+						tracing::debug!(
+							target: LOG_TARGET,
+							?error,
+							?connection_id,
+							"Pending inbound connection failed"
+						);
+						return Poll::Ready(Some(TransportEvent::InboundConnectionFailed {
+							connection_id,
+						}));
 					}
 				},
 			}
@@ -722,6 +728,41 @@ mod tests {
 	use multiaddr::Protocol;
 	use std::sync::Arc;
 	use tokio::sync::mpsc::channel;
+
+	fn test_tcp_transport(listen: &str) -> (TcpTransport, Vec<Multiaddr>) {
+		let keypair = Keypair::generate();
+		let (tx, _rx) = channel(64);
+		let (event_tx, _event_rx) = channel(64);
+		let handle = crate::transport::manager::TransportHandle {
+			executor: Arc::new(DefaultExecutor {}),
+			next_substream_id: Default::default(),
+			next_connection_id: Default::default(),
+			keypair,
+			tx: event_tx,
+			bandwidth_sink: BandwidthSink::new(),
+			protocols: HashMap::from_iter([(
+				ProtocolName::from("/notif/1"),
+				ProtocolContext {
+					tx,
+					codec: ProtocolCodec::Identity(32),
+					fallback_names: Vec::new(),
+					keep_alive: SubstreamKeepAlive::Yes,
+				},
+			)]),
+		};
+		let config =
+			Config { listen_addresses: vec![listen.parse().unwrap()], ..Default::default() };
+		let resolver = Arc::new(TokioResolver::builder_tokio().unwrap().build().unwrap());
+		TcpTransport::new(handle, config, resolver).unwrap()
+	}
+
+	fn tcp_port(listen_addresses: &[Multiaddr]) -> u16 {
+		let Some(Protocol::Tcp(port)) = listen_addresses.first().unwrap().clone().iter().nth(1)
+		else {
+			panic!("invalid address");
+		};
+		port
+	}
 
 	#[tokio::test]
 	async fn connect_and_accept_works() {
@@ -902,6 +943,52 @@ mod tests {
 	}
 
 	#[tokio::test]
+	async fn rejected_raw_inbounds_do_not_end_the_listener() {
+		let (mut server, listen_addresses) = test_tcp_transport("/ip4/127.0.0.1/tcp/0");
+		let listen_address = listen_addresses[0].clone();
+		let port = tcp_port(&listen_addresses);
+
+		let mut idle = Vec::new();
+		for _ in 0..4 {
+			idle.push(TcpStream::connect(format!("127.0.0.1:{port}")).await.unwrap());
+		}
+		for _ in 0..4 {
+			match server.next().await.unwrap() {
+				TransportEvent::PendingInboundConnection { connection_id } => {
+					server.reject_pending(connection_id).unwrap();
+				},
+				event => panic!("unexpected event: {event:?}"),
+			}
+		}
+		drop(idle);
+
+		let (mut client, _) = test_tcp_transport("/ip4/127.0.0.1/tcp/0");
+		client.dial(ConnectionId::new(), listen_address).unwrap();
+
+		let (tx, mut from_client) = channel(64);
+		tokio::spawn(async move {
+			let event = client.next().await;
+			tx.send(event).await.unwrap();
+		});
+
+		match server.next().await.unwrap() {
+			TransportEvent::PendingInboundConnection { connection_id } => {
+				server.accept_pending(connection_id).unwrap();
+			},
+			event => panic!("unexpected event: {event:?}"),
+		}
+
+		assert!(std::matches!(
+			server.next().await,
+			Some(TransportEvent::ConnectionEstablished { .. })
+		));
+		assert!(std::matches!(
+			from_client.recv().await.unwrap(),
+			Some(TransportEvent::ConnectionEstablished { .. })
+		));
+	}
+
+	#[tokio::test]
 	async fn dial_failure() {
 		let _ = tracing_subscriber::fmt()
 			.with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -943,6 +1030,7 @@ mod tests {
 					TransportEvent::ConnectionOpened { .. } => {},
 					TransportEvent::OpenFailure { .. } => {},
 					TransportEvent::PendingInboundConnection { .. } => {},
+					TransportEvent::InboundConnectionFailed { .. } => {},
 				}
 			}
 		});

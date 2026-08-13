@@ -33,15 +33,61 @@ use socket2::{Domain, Socket, Type};
 use tokio::net::{TcpListener as TokioTcpListener, TcpStream};
 
 use std::{
+	future::Future,
 	io,
 	net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
 	pin::Pin,
 	sync::Arc,
 	task::{Context, Poll},
+	time::Duration,
 };
 
 /// Logging target for the file.
 const LOG_TARGET: &str = "litep2p::transport::listener";
+
+/// Pause before retrying `accept` after file-descriptor exhaustion.
+///
+/// EMFILE/ENFILE are transient: descriptors are released as connections close.
+/// Returning `Poll::Ready(None)` from the transport stream would permanently
+/// kill networking, so we back off and keep the listener alive instead.
+const ACCEPT_PAUSE: Duration = Duration::from_millis(100);
+
+/// Whether an `accept` error should be retried rather than treated as fatal.
+///
+/// EMFILE is reported as `ErrorKind::Uncategorized` on several platforms, so
+/// this also inspects the raw OS code.
+pub(crate) fn is_transient_accept_error(error: &io::Error) -> bool {
+	match error.kind() {
+		io::ErrorKind::WouldBlock |
+		io::ErrorKind::Interrupted |
+		io::ErrorKind::ConnectionAborted |
+		io::ErrorKind::ConnectionReset |
+		io::ErrorKind::ConnectionRefused |
+		io::ErrorKind::TimedOut |
+		io::ErrorKind::OutOfMemory => true,
+		_ => is_resource_exhaustion(error),
+	}
+}
+
+/// Whether the error is fd/memory exhaustion and needs a short pause.
+pub(crate) fn accept_error_needs_backoff(error: &io::Error) -> bool {
+	is_resource_exhaustion(error) || error.kind() == io::ErrorKind::OutOfMemory
+}
+
+fn is_resource_exhaustion(error: &io::Error) -> bool {
+	match error.raw_os_error() {
+		#[cfg(unix)]
+		Some(code)
+			if code == libc::EMFILE ||
+				code == libc::ENFILE ||
+				code == libc::ENOBUFS ||
+				code == libc::ENOMEM =>
+			true,
+		#[cfg(windows)]
+		Some(10024 | 10055) => true, // WSAEMFILE, WSAENOBUFS
+		_ => false,
+	}
+}
 
 /// Address type.
 #[derive(Debug)]
@@ -144,12 +190,34 @@ impl DialAddresses {
 	}
 }
 
+/// A bind that can be polled for inbound sockets.
+enum PollableListener {
+	Socket(TokioTcpListener),
+	#[cfg(test)]
+	Scripted(std::collections::VecDeque<Poll<io::Result<(TcpStream, SocketAddr)>>>),
+}
+
+impl PollableListener {
+	fn poll_accept(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<(TcpStream, SocketAddr)>> {
+		match self {
+			Self::Socket(listener) => listener.poll_accept(cx),
+			#[cfg(test)]
+			Self::Scripted(events) => match events.pop_front() {
+				Some(event) => event,
+				None => Poll::Pending,
+			},
+		}
+	}
+}
+
 /// Socket listening to zero or more addresses.
 pub struct SocketListener {
 	/// Listeners.
-	listeners: Vec<TokioTcpListener>,
+	listeners: Vec<PollableListener>,
 	/// The index in the listeners from which the polling is resumed.
 	poll_index: usize,
+	/// Pause accept after a resource-exhaustion error (e.g. EMFILE).
+	accept_pause: Option<Pin<Box<tokio::time::Sleep>>>,
 }
 
 /// Trait to convert between `Multiaddr` and `SocketAddr`.
@@ -218,7 +286,7 @@ impl SocketListener {
 		reuse_port: bool,
 		nodelay: bool,
 	) -> (Self, Vec<Multiaddr>, DialAddresses) {
-		let (listeners, listen_addresses): (_, Vec<Vec<_>>) = addresses
+		let (listeners, listen_addresses): (Vec<TokioTcpListener>, Vec<Vec<_>>) = addresses
 			.into_iter()
 			.filter_map(|address| {
 				let address = match T::multiaddr_to_socket_address(&address).ok()?.0 {
@@ -312,7 +380,71 @@ impl SocketListener {
 			DialAddresses::NoReuse
 		};
 
-		(Self { listeners, poll_index: 0 }, listen_multi_addresses, dial_addresses)
+		(
+			Self {
+				listeners: listeners.into_iter().map(PollableListener::Socket).collect(),
+				poll_index: 0,
+				accept_pause: None,
+			},
+			listen_multi_addresses,
+			dial_addresses,
+		)
+	}
+
+	#[cfg(test)]
+	fn from_scripted(events: Vec<Poll<io::Result<(TcpStream, SocketAddr)>>>) -> Self {
+		Self {
+			listeners: vec![PollableListener::Scripted(events.into())],
+			poll_index: 0,
+			accept_pause: None,
+		}
+	}
+
+	/// Register a short pause before the next `accept` attempt and return `Pending`.
+	fn backoff(
+		&mut self,
+		cx: &mut Context<'_>,
+	) -> Poll<Option<io::Result<(TcpStream, SocketAddr)>>> {
+		let mut pause = Box::pin(tokio::time::sleep(ACCEPT_PAUSE));
+		match pause.as_mut().poll(cx) {
+			Poll::Ready(()) => {
+				cx.waker().wake_by_ref();
+				Poll::Pending
+			},
+			Poll::Pending => {
+				self.accept_pause = Some(pause);
+				Poll::Pending
+			},
+		}
+	}
+
+	fn on_accept_error(
+		&mut self,
+		cx: &mut Context<'_>,
+		error: io::Error,
+	) -> Poll<Option<io::Result<(TcpStream, SocketAddr)>>> {
+		if is_transient_accept_error(&error) {
+			if accept_error_needs_backoff(&error) {
+				tracing::warn!(
+					target: LOG_TARGET,
+					?error,
+					"transient accept error; backing off"
+				);
+			} else {
+				tracing::debug!(
+					target: LOG_TARGET,
+					?error,
+					"transient accept error; backing off to preserve wakeup"
+				);
+			}
+		} else {
+			tracing::error!(
+				target: LOG_TARGET,
+				?error,
+				"accept error; backing off and keeping the listener alive"
+			);
+		}
+		self.backoff(cx)
 	}
 }
 
@@ -425,29 +557,36 @@ impl Stream for SocketListener {
 	type Item = io::Result<(TcpStream, SocketAddr)>;
 
 	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+		if let Some(pause) = self.accept_pause.as_mut() {
+			match pause.as_mut().poll(cx) {
+				Poll::Pending => return Poll::Pending,
+				Poll::Ready(()) => self.accept_pause = None,
+			}
+		}
+
 		if self.listeners.is_empty() {
 			return Poll::Pending;
 		}
 
 		let len = self.listeners.len();
+		let start = self.poll_index;
 		for index in 0..len {
-			let current = (self.poll_index + index) % len;
-			let listener = &mut self.listeners[current];
+			let current = (start + index) % len;
 
-			match listener.poll_accept(cx) {
+			match self.listeners[current].poll_accept(cx) {
 				Poll::Pending => {},
 				Poll::Ready(Err(error)) => {
-					self.poll_index = (self.poll_index + 1) % len;
-					return Poll::Ready(Some(Err(error)));
+					self.poll_index = (current + 1) % len;
+					return self.on_accept_error(cx, error);
 				},
 				Poll::Ready(Ok((stream, address))) => {
-					self.poll_index = (self.poll_index + 1) % len;
+					self.poll_index = (current + 1) % len;
 					return Poll::Ready(Some(Ok((stream, address))));
 				},
 			}
 		}
 
-		self.poll_index = (self.poll_index + 1) % len;
+		self.poll_index = (start + 1) % len;
 		Poll::Pending
 	}
 }
@@ -456,6 +595,50 @@ impl Stream for SocketListener {
 mod tests {
 	use super::*;
 	use futures::StreamExt;
+
+	#[cfg(unix)]
+	#[test]
+	fn emfile_is_transient_and_needs_backoff() {
+		let error = io::Error::from_raw_os_error(libc::EMFILE);
+		assert!(is_transient_accept_error(&error));
+		assert!(accept_error_needs_backoff(&error));
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn enfile_is_transient_and_needs_backoff() {
+		let error = io::Error::from_raw_os_error(libc::ENFILE);
+		assert!(is_transient_accept_error(&error));
+		assert!(accept_error_needs_backoff(&error));
+	}
+
+	#[test]
+	fn connection_aborted_is_transient_without_backoff() {
+		let error = io::Error::from(io::ErrorKind::ConnectionAborted);
+		assert!(is_transient_accept_error(&error));
+		assert!(!accept_error_needs_backoff(&error));
+	}
+
+	#[tokio::test]
+	async fn transient_accept_error_then_successful_accept() {
+		let bind = TokioTcpListener::bind("127.0.0.1:0").await.unwrap();
+		let addr = bind.local_addr().unwrap();
+		let (client, accepted) = tokio::join!(TcpStream::connect(addr), bind.accept());
+		let _client = client.unwrap();
+		let (server, peer) = accepted.unwrap();
+
+		let mut listener = SocketListener::from_scripted(vec![
+			Poll::Ready(Err(io::Error::from(io::ErrorKind::ConnectionAborted))),
+			Poll::Ready(Ok((server, peer))),
+		]);
+
+		let accepted = tokio::time::timeout(Duration::from_secs(2), listener.next())
+			.await
+			.expect("listener hung after swallowing a transient accept error")
+			.unwrap()
+			.expect("accept failed");
+		assert_eq!(accepted.1, peer);
+	}
 
 	#[test]
 	fn parse_multiaddresses_tcp() {
@@ -610,6 +793,30 @@ mod tests {
 			event => panic!("unexpected event: {event:?}"),
 		})
 		.await;
+	}
+
+	#[tokio::test]
+	async fn listener_keeps_accepting_after_idle_inbound_sockets() {
+		let address: Multiaddr = "/ip4/127.0.0.1/tcp/0".parse().unwrap();
+		let (mut listener, listen_addresses, _) =
+			SocketListener::new::<TcpAddress>(vec![address], true, false);
+		let Some(Protocol::Tcp(port)) = listen_addresses.first().unwrap().clone().iter().nth(1)
+		else {
+			panic!("invalid address");
+		};
+
+		let mut idle = Vec::new();
+		for _ in 0..4 {
+			idle.push(TcpStream::connect(format!("127.0.0.1:{port}")).await.unwrap());
+		}
+		for _ in 0..4 {
+			assert!(listener.next().await.unwrap().is_ok());
+		}
+		drop(idle);
+
+		let (res1, res2) =
+			tokio::join!(listener.next(), TcpStream::connect(format!("127.0.0.1:{port}")));
+		assert!(res1.unwrap().is_ok() && res2.is_ok());
 	}
 
 	#[tokio::test]
