@@ -5898,6 +5898,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-pubkey"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "qp-dilithium-crypto",
+ "scale-info",
+ "sp-api",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-qpow"
 version = "0.1.0"
 dependencies = [
@@ -7693,6 +7708,7 @@ dependencies = [
  "pallet-mining-rewards",
  "pallet-multisig",
  "pallet-preimage",
+ "pallet-pubkey",
  "pallet-qpow",
  "pallet-ranked-collective",
  "pallet-recovery",

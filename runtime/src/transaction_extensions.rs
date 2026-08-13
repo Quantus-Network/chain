@@ -12,9 +12,177 @@ use qp_wormhole::TransferProofRecorder;
 use scale_info::TypeInfo;
 use sp_core::Get;
 use sp_runtime::{
+	impl_tx_ext_default,
 	traits::{DispatchInfoOf, PostDispatchInfoOf, TransactionExtension},
 	DispatchResult, Weight,
 };
+
+/// Charges signed extrinsics for the two pubkey-cache costs that live outside
+/// any weighted dispatch path:
+///
+/// 1. **Verify** — [`configs::PubkeyCacheVerifyWeight`], the DB work performed by `CachedSignature`
+///    during `UncheckedExtrinsic::check` (one `Pubkeys` read, plus the first-registration insert).
+///    Bare unsigned extrinsics (e.g. wormhole `verify_*`) report `extension_weight = 0`, so they do
+///    not pay this surcharge — they never run `Verify`. Charging via a `TxExtension` rather than
+///    `base_extrinsic` is what makes that distinction; `base_extrinsic` is class-wide and would
+///    also tax unsigned `Normal`/`Operational` paths.
+/// 2. **Reap cleanup** — [`pallet_pubkey::Pallet::reap_cleanup_weight`] per account the call can
+///    reap, counted statically and compositionally by [`Self::count_reaps`] (a `utility.batch` of N
+///    kill-capable calls is charged N). This puts the `Pubkeys::remove` performed by
+///    `pallet_pubkey`'s `OnKilledAccount` hook into the declared weight `CheckWeight` admits
+///    *before* dispatch and into the post-dispatch weight transaction payment computes the fee
+///    from. `post_dispatch_details` then reconciles against [`pallet_pubkey::ExtrinsicReaps`]
+///    (which the hook increments for every reap inside an extrinsic): reservations the dispatch did
+///    not use are refunded — to the fee, because this extension precedes
+///    `ChargeTransactionPayment`, and to block capacity, via the trailing
+///    `frame_system::WeightReclaim`. Every dispatch wrapper in the runtime carries its inner call
+///    in the submitted extrinsic — `Multisig::execute` included, since it requires the executor to
+///    resubmit the stored proposal's call byte-for-byte — so the count is fully compositional and
+///    nothing kill-capable hides behind opaque call bytes. Should a reap ever arrive on a path the
+///    matcher misses entirely, it is still registered against the block as a defense-in-depth
+///    backstop.
+#[derive(Encode, Decode, Clone, Eq, PartialEq, Default, TypeInfo, Debug, DecodeWithMemTracking)]
+pub struct ChargePubkeyCacheVerify;
+
+impl ChargePubkeyCacheVerify {
+	/// Create a new `ChargePubkeyCacheVerify` extension.
+	pub fn new() -> Self {
+		Self
+	}
+
+	/// Price of one account reap's pubkey-cache cleanup inside an extrinsic.
+	fn per_reap_weight() -> Weight {
+		pallet_pubkey::Pallet::<Runtime>::reap_cleanup_weight()
+	}
+
+	/// Statically visible upper bound on the number of account reaps `call` can
+	/// perform, compositional over call wrappers.
+	///
+	/// NOTE: this must stay in sync with the ways a dispatch can drop an account
+	/// below its existential deposit. Counting is deliberately generous — every
+	/// counted-but-unrealized reap is refunded post-dispatch, so overcounting
+	/// costs honest users nothing, while an uncounted reap is only reconciled
+	/// against block capacity, not the fee. Scheduler-enacted reaps happen
+	/// outside extrinsics entirely and are registered by the `OnKilledAccount`
+	/// hook itself. Fee withdrawal cannot reap the payer (`FungibleAdapter`
+	/// withdraws with `Preservation::Preserve`).
+	fn count_reaps(call: &RuntimeCall) -> u64 {
+		match call {
+			// Can drop the source (or, for `force_set_balance`/`burn`, the target
+			// account itself) below the existential deposit.
+			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
+			RuntimeCall::Balances(pallet_balances::Call::force_transfer { .. }) |
+			RuntimeCall::Balances(pallet_balances::Call::transfer_all {
+				keep_alive: false,
+				..
+			}) |
+			RuntimeCall::Balances(pallet_balances::Call::burn { keep_alive: false, .. }) |
+			RuntimeCall::Balances(pallet_balances::Call::force_set_balance { .. }) => 1,
+
+			// Sweeps the recovered account with `transfer_all(keep_alive: false)`,
+			// reaping it. The hold seizures target the same account, so one reap
+			// is the cap.
+			RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::recover_funds { .. },
+			) => 1,
+
+			// A guardian cancel seizes the held funds with `transfer_on_hold`,
+			// which can leave the high-security account reapable. Charged
+			// conservatively; refunded when no reap happens.
+			RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+				..
+			}) => 1,
+
+			// Repatriates the rescuer's reserved recovery deposit, which can reap
+			// the rescuer if that deposit was keeping the account alive.
+			RuntimeCall::Recovery(pallet_recovery::Call::close_recovery { .. }) => 1,
+
+			RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
+			RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) =>
+				calls.iter().map(Self::count_reaps).sum(),
+
+			RuntimeCall::Utility(pallet_utility::Call::dispatch_as { call, .. }) |
+			RuntimeCall::Utility(pallet_utility::Call::dispatch_as_fallible { call, .. }) |
+			RuntimeCall::Utility(pallet_utility::Call::with_weight { call, .. }) |
+			RuntimeCall::Utility(pallet_utility::Call::as_derivative { call, .. }) |
+			RuntimeCall::Recovery(pallet_recovery::Call::as_recovered { call, .. }) =>
+				Self::count_reaps(call),
+
+			// Exactly one branch executes (the fallback only after the main call's
+			// changes were rolled back), so charge the heavier branch.
+			RuntimeCall::Utility(pallet_utility::Call::if_else { main, fallback }) =>
+				Self::count_reaps(main).max(Self::count_reaps(fallback)),
+
+			// `execute` requires the executor to resubmit the stored proposal's
+			// call (verified byte-equal before dispatch), so the inner call is
+			// right here in the submitted extrinsic — recurse like any other
+			// wrapper.
+			RuntimeCall::Multisig(pallet_multisig::Call::execute { call, .. }) =>
+				Self::count_reaps(call),
+
+			_ => 0,
+		}
+	}
+}
+
+impl TransactionExtension<RuntimeCall> for ChargePubkeyCacheVerify {
+	const IDENTIFIER: &'static str = "ChargePubkeyCacheVerify";
+	type Implicit = ();
+	type Val = ();
+	/// `(extrinsic-reap counter snapshot, statically charged reap count)`.
+	type Pre = (u64, u64);
+
+	fn weight(&self, call: &RuntimeCall) -> Weight {
+		configs::PubkeyCacheVerifyWeight::get()
+			.saturating_add(Self::per_reap_weight().saturating_mul(Self::count_reaps(call)))
+	}
+
+	fn prepare(
+		self,
+		_val: Self::Val,
+		_origin: &sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
+		call: &RuntimeCall,
+		_info: &DispatchInfoOf<RuntimeCall>,
+		_len: usize,
+	) -> Result<Self::Pre, TransactionValidityError> {
+		Ok((pallet_pubkey::Pallet::<Runtime>::extrinsic_reaps(), Self::count_reaps(call)))
+	}
+
+	fn post_dispatch_details(
+		pre: Self::Pre,
+		info: &DispatchInfoOf<RuntimeCall>,
+		_post_info: &PostDispatchInfoOf<RuntimeCall>,
+		_len: usize,
+		_result: &DispatchResult,
+	) -> Result<Weight, TransactionValidityError> {
+		let (reaps_before, charged) = pre;
+		// A failed dispatch rolled back its reaps — and the counter with them — so
+		// `actual` is naturally zero and the whole reservation is refunded.
+		let actual =
+			pallet_pubkey::Pallet::<Runtime>::extrinsic_reaps().saturating_sub(reaps_before);
+
+		// Reaps beyond the static charge would mean `count_reaps` missed a
+		// kill-capable path. Defense in depth: keep
+		// block-capacity accounting sound by registering the shortfall
+		// post-hoc — one cheap cleanup per reap, bounded by the (fully
+		// charged) calls that performed the reaps.
+		if actual > charged {
+			frame_system::Pallet::<Runtime>::register_extra_weight_unchecked(
+				Self::per_reap_weight().saturating_mul(actual.saturating_sub(charged)),
+				info.class,
+			);
+		}
+
+		// Unused reservations (never more than was declared, by construction) are
+		// refunded: the fee correction reaches the payer because this extension
+		// precedes `ChargeTransactionPayment`, and the trailing `WeightReclaim`
+		// returns the same amount to block capacity.
+		Ok(Self::per_reap_weight().saturating_mul(charged.saturating_sub(actual)))
+	}
+
+	impl_tx_ext_default!(RuntimeCall; validate);
+}
 
 /// Transaction extension for reversible accounts
 ///
@@ -222,10 +390,9 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		// (an absolute set, not a transfer/mint), which we cannot turn into a transfer proof and
 		// therefore never record.
 		//
-		// Wrappers whose inner call is stored on-chain rather than in the submitted call
-		// (`Multisig::execute`, ...) cannot be counted statically. Proof-recording work they
-		// trigger is reconciled in `post_dispatch`, which registers any weight shortfall
-		// against the block via `register_extra_weight_unchecked`.
+		// Should a recordable transfer ever arrive on a path this matcher misses
+		// entirely, `post_dispatch` registers the shortfall against the block via
+		// `register_extra_weight_unchecked` as a defense-in-depth backstop.
 		match call {
 			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
@@ -267,6 +434,12 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			RuntimeCall::Utility(pallet_utility::Call::with_weight { call, .. }) |
 			RuntimeCall::Utility(pallet_utility::Call::as_derivative { call, .. }) |
 			RuntimeCall::Recovery(pallet_recovery::Call::as_recovered { call, .. }) =>
+				Self::count_transfers(call),
+
+			// `execute` requires the executor to resubmit the stored proposal's call
+			// (verified byte-equal before dispatch), so the inner call is right here
+			// in the submitted extrinsic — recurse like any other wrapper.
+			RuntimeCall::Multisig(pallet_multisig::Call::execute { call, .. }) =>
 				Self::count_transfers(call),
 
 			// Exactly one branch executes: the fallback runs only if the main call failed, in
@@ -481,11 +654,12 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		//    `remark_with_event`), and the decode cost is per record AND per byte present at scan
 		//    time — see `event_scan_weight`.
 		//
-		// 2. Recording shortfall: wrappers that dispatch inner calls stored on-chain
-		//    (`Multisig::execute`, `ReversibleTransfers::recover_funds`, ...) can emit transfer
-		//    events the static `count_transfers` matcher cannot see, so the proof-recording work
-		//    above may exceed the weight reserved by `weight()`. The flat per-transfer price times
-		//    the count difference covers it.
+		// 2. Recording shortfall: a defense-in-depth backstop for transfer events on any path the
+		//    static `count_transfers` matcher misses. No such path is currently known — every
+		//    dispatch wrapper (multisig `execute` included) carries its inner call in the submitted
+		//    extrinsic, and `recover_funds` is charged its worst case — but should the
+		//    proof-recording work above exceed the weight reserved by `weight()`, the flat
+		//    per-transfer price times the count difference covers it.
 		//
 		// "Post-hoc and not fee-charged" is a deliberate, accepted trade-off, not an
 		// oversight (security review 2026-08):
@@ -1311,9 +1485,10 @@ mod tests {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
 
-			// The presented call is opaque to the static matcher (like `Multisig::execute`,
-			// whose inner call lives on-chain), but the dispatch emits a real transfer
-			// event that post_dispatch must record.
+			// The presented call is opaque to the static matcher (simulating a
+			// path it misses; none is currently known — every wrapper, multisig
+			// `execute` included, carries its inner call in the extrinsic), but the
+			// dispatch emits a real transfer event that post_dispatch must record.
 			let opaque_call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
 			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&opaque_call), 0);
 
@@ -2144,11 +2319,12 @@ mod tests {
 			let charlie_account = charlie();
 			let count_before = Wormhole::transfer_count(&charlie_account);
 
-			// Execute the proposal
+			// Execute the proposal, resubmitting the stored call byte-for-byte
 			assert_ok!(Multisig::execute(
 				RuntimeOrigin::signed(alice()),
 				multisig_address.clone(),
 				0, // proposal_id
+				Box::new(inner_call.clone()),
 			));
 
 			// Scan events and record proofs.
@@ -2162,6 +2338,310 @@ mod tests {
 				count_after,
 				count_before + 1,
 				"Transfer count should increment for multisig transfer"
+			);
+		});
+	}
+
+	// =========================================================================
+	// Tests for the reap-cleanup accounting of ChargePubkeyCacheVerify
+	// =========================================================================
+
+	/// Run the pubkey-cache extension lifecycle around `dispatch`, mirroring the
+	/// pipeline's post-dispatch weight handling (`set_extension_weight` before
+	/// `post_dispatch`, as `dispatch_transaction` does) so refunds are visible in
+	/// the returned `PostDispatchInfo`.
+	fn run_pubkey_lifecycle(
+		from: &AccountId,
+		call: RuntimeCall,
+		result: DispatchResult,
+		dispatch: impl FnOnce(),
+	) -> (frame_support::dispatch::DispatchInfo, frame_support::dispatch::PostDispatchInfo) {
+		use sp_runtime::traits::{ExtensionPostDispatchWeightHandler, TxBaseImplication};
+
+		let ext = ChargePubkeyCacheVerify::new();
+		let info = frame_support::dispatch::DispatchInfo {
+			call_weight: Weight::from_parts(1_000_000, 0),
+			extension_weight:
+				<ChargePubkeyCacheVerify as TransactionExtension<RuntimeCall>>::weight(&ext, &call),
+			..Default::default()
+		};
+		let origin = RuntimeOrigin::signed(from.clone());
+
+		let (_, val, _) = ext
+			.validate(
+				origin.clone(),
+				&call,
+				&info,
+				0,
+				(),
+				&TxBaseImplication::<()>(()),
+				frame_support::pallet_prelude::TransactionSource::External,
+			)
+			.expect("validate should succeed");
+		let pre = ext
+			.clone()
+			.prepare(val, &origin, &call, &info, 0)
+			.expect("prepare should succeed");
+
+		dispatch();
+
+		let mut post_info = frame_support::dispatch::PostDispatchInfo::default();
+		post_info.set_extension_weight(&info);
+		<ChargePubkeyCacheVerify as TransactionExtension<RuntimeCall>>::post_dispatch(
+			pre,
+			&info,
+			&mut post_info,
+			0,
+			&result,
+		)
+		.expect("post_dispatch should succeed");
+		(info, post_info)
+	}
+
+	fn reaping_transfer_all() -> RuntimeCall {
+		RuntimeCall::Balances(pallet_balances::Call::transfer_all {
+			dest: MultiAddress::Id(bob()),
+			keep_alive: false,
+		})
+	}
+
+	#[test]
+	fn count_reaps_matches_kill_capable_calls() {
+		type Ext = ChargePubkeyCacheVerify;
+
+		// Keep-alive paths cannot reap and must not be charged.
+		assert_eq!(
+			Ext::count_reaps(&RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+				dest: MultiAddress::Id(bob()),
+				value: UNIT,
+			})),
+			0
+		);
+		assert_eq!(
+			Ext::count_reaps(&RuntimeCall::Balances(pallet_balances::Call::transfer_all {
+				dest: MultiAddress::Id(bob()),
+				keep_alive: true,
+			})),
+			0
+		);
+		assert_eq!(
+			Ext::count_reaps(&RuntimeCall::System(frame_system::Call::remark { remark: vec![] })),
+			0
+		);
+
+		// Allow-death paths are charged one potential reap each.
+		assert_eq!(Ext::count_reaps(&non_whitelisted_transfer()), 1);
+		assert_eq!(Ext::count_reaps(&reaping_transfer_all()), 1);
+		assert_eq!(
+			Ext::count_reaps(&RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::recover_funds { account: charlie() }
+			)),
+			1
+		);
+
+		// Composition: batches sum, wrappers recurse, if_else charges the
+		// heavier branch. A batch of derivative-wrapped reaping sweeps is the
+		// review's multi-reap scenario and must be charged per sweep.
+		let derivative_reap = |index: u16| {
+			RuntimeCall::Utility(pallet_utility::Call::as_derivative {
+				index,
+				call: boxed(reaping_transfer_all()),
+			})
+		};
+		let batch = RuntimeCall::Utility(pallet_utility::Call::batch {
+			calls: vec![derivative_reap(0), derivative_reap(1), derivative_reap(2)],
+		});
+		assert_eq!(Ext::count_reaps(&batch), 3, "each batched reap must be pre-charged");
+
+		let if_else = RuntimeCall::Utility(pallet_utility::Call::if_else {
+			main: boxed(batch),
+			fallback: boxed(non_whitelisted_transfer()),
+		});
+		assert_eq!(Ext::count_reaps(&if_else), 3, "if_else charges its heavier branch");
+	}
+
+	/// Regression (security review 2026-08): `Multisig::execute` must not be an
+	/// opaque wrapper. Since it carries the proposal's call in the submitted
+	/// extrinsic (verified byte-equal to the stored payload before dispatch),
+	/// both static matchers recurse into it and count its side effects exactly
+	/// as they would for the same call submitted directly.
+	#[test]
+	fn multisig_execute_counts_its_resubmitted_call() {
+		let batch_of_reaps = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+			calls: (0u16..3)
+				.map(|index| {
+					RuntimeCall::Utility(pallet_utility::Call::as_derivative {
+						index,
+						call: boxed(reaping_transfer_all()),
+					})
+				})
+				.collect(),
+		});
+		assert_eq!(ChargePubkeyCacheVerify::count_reaps(&batch_of_reaps), 3);
+		assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&batch_of_reaps), 3);
+
+		// Wrapped in `execute`, the counts are identical…
+		let execute = RuntimeCall::Multisig(pallet_multisig::Call::execute {
+			multisig_address: alice(),
+			proposal_id: 0,
+			call: boxed(batch_of_reaps),
+		});
+		assert_eq!(ChargePubkeyCacheVerify::count_reaps(&execute), 3);
+		assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&execute), 3);
+
+		// …and survive further wrapping.
+		let wrapped =
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls: vec![execute] });
+		assert_eq!(ChargePubkeyCacheVerify::count_reaps(&wrapped), 3);
+		assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&wrapped), 3);
+	}
+
+	#[test]
+	fn extension_weight_pre_charges_reap_cleanup() {
+		use sp_runtime::traits::TransactionExtension;
+
+		let ext = ChargePubkeyCacheVerify::new();
+		let base = crate::configs::PubkeyCacheVerifyWeight::get();
+		let per_reap = ChargePubkeyCacheVerify::per_reap_weight();
+
+		// Non-kill-capable calls pay only the verify surcharge.
+		let keep_alive = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+			dest: MultiAddress::Id(bob()),
+			value: UNIT,
+		});
+		assert_eq!(ext.weight(&keep_alive), base);
+
+		// A reap-capable call's declared weight — what `CheckWeight` admits and
+		// transaction payment prices — must carry the cleanup on top.
+		assert_eq!(ext.weight(&reaping_transfer_all()), base.saturating_add(per_reap));
+
+		// Compositionally: three wrapped reaps, three reservations.
+		let batch = RuntimeCall::Utility(pallet_utility::Call::batch {
+			calls: (0u16..3)
+				.map(|index| {
+					RuntimeCall::Utility(pallet_utility::Call::as_derivative {
+						index,
+						call: boxed(reaping_transfer_all()),
+					})
+				})
+				.collect(),
+		});
+		assert_eq!(ext.weight(&batch), base.saturating_add(per_reap.saturating_mul(3)));
+	}
+
+	/// A dispatch that performs the reap it was charged for keeps the
+	/// reservation: nothing is refunded, so the payer's corrected fee includes
+	/// the cleanup — the regression the review demanded.
+	#[test]
+	fn realized_reap_keeps_its_reservation() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			// Enter the extrinsic-application span so the `OnKilledAccount` hook
+			// counts the reap for the extension instead of registering it.
+			System::note_finished_initialize();
+
+			let reaps_before = pallet_pubkey::Pallet::<Runtime>::extrinsic_reaps();
+			let weight_before = frame_system::Pallet::<Runtime>::block_weight().total();
+
+			let (info, post_info) =
+				run_pubkey_lifecycle(&alice(), reaping_transfer_all(), Ok(()), || {
+					assert_ok!(Balances::transfer_all(
+						RuntimeOrigin::signed(alice()),
+						MultiAddress::Id(bob()),
+						false,
+					));
+					assert!(
+						!frame_system::Account::<Runtime>::contains_key(&alice()),
+						"alice must be reaped"
+					);
+				});
+
+			assert_eq!(
+				pallet_pubkey::Pallet::<Runtime>::extrinsic_reaps(),
+				reaps_before + 1,
+				"the reap must have been counted"
+			);
+			assert_eq!(
+				post_info.actual_weight,
+				Some(info.total_weight()),
+				"a realized reap must keep its pre-charged cleanup weight in the \
+				 post-dispatch (fee-bearing) weight"
+			);
+			assert_eq!(
+				frame_system::Pallet::<Runtime>::block_weight().total(),
+				weight_before,
+				"a fully pre-charged reap must not additionally register block weight"
+			);
+		});
+	}
+
+	/// A charged-but-unrealized reap (kill-capable call that did not kill) is
+	/// refunded, so honest non-reaping transfers do not overpay.
+	#[test]
+	fn unrealized_reap_reservation_is_refunded() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			System::note_finished_initialize();
+
+			let (info, post_info) =
+				run_pubkey_lifecycle(&alice(), non_whitelisted_transfer(), Ok(()), || {
+					// A transfer far below alice's balance: allow-death, but nobody dies.
+					assert_ok!(Balances::transfer_allow_death(
+						RuntimeOrigin::signed(alice()),
+						MultiAddress::Id(bob()),
+						EXISTENTIAL_DEPOSIT,
+					));
+					assert!(frame_system::Account::<Runtime>::contains_key(&alice()));
+				});
+
+			assert_eq!(
+				post_info.actual_weight,
+				Some(
+					info.total_weight().saturating_sub(ChargePubkeyCacheVerify::per_reap_weight())
+				),
+				"the unused reap reservation must be refunded"
+			);
+		});
+	}
+
+	/// Defense-in-depth backstop: if a reap ever arrives on a call path
+	/// `count_reaps` misses (no such path is currently known — every wrapper,
+	/// multisig `execute` included, carries its inner call in the extrinsic),
+	/// it is registered against block capacity post-hoc, keeping admission
+	/// accounting sound. Simulated here by dispatching a reap under an
+	/// unrelated presented call.
+	#[test]
+	fn statically_invisible_reap_is_registered_against_the_block() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			System::note_finished_initialize();
+
+			// The presented call is opaque to the matcher…
+			let opaque = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
+			assert_eq!(ChargePubkeyCacheVerify::count_reaps(&opaque), 0);
+
+			let weight_before = frame_system::Pallet::<Runtime>::block_weight().total();
+
+			// …but the dispatch reaps an account anyway.
+			let (info, post_info) = run_pubkey_lifecycle(&alice(), opaque, Ok(()), || {
+				assert_ok!(Balances::transfer_all(
+					RuntimeOrigin::signed(alice()),
+					MultiAddress::Id(bob()),
+					false,
+				));
+			});
+
+			assert_eq!(
+				frame_system::Pallet::<Runtime>::block_weight()
+					.total()
+					.saturating_sub(weight_before),
+				ChargePubkeyCacheVerify::per_reap_weight(),
+				"the uncharged reap's cleanup must be registered as block weight"
+			);
+			assert_eq!(
+				post_info.actual_weight,
+				Some(info.total_weight()),
+				"nothing was over-charged, so nothing is refunded"
 			);
 		});
 	}

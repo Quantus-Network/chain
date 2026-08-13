@@ -29,7 +29,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 pub use pallet::*;
 pub use weights::*;
 
@@ -599,6 +599,20 @@ pub mod pallet {
 			let decoded_call = <T as Config>::RuntimeCall::decode(&mut &call[..])
 				.map_err(|_| Self::err_burn_full_raw(Error::<T>::InvalidCall))?;
 
+			// The stored bytes must be exactly the decoded call's canonical
+			// encoding. Decode does not have to consume its whole input, so
+			// `valid_call.encode() ++ trailing_bytes` would pass every check
+			// above yet be permanently unexecutable: `execute` requires the
+			// executor's typed call to re-encode byte-equal to the stored
+			// payload, and no typed call encodes trailing garbage (or a
+			// non-canonical form). Reject such payloads before any state
+			// change, fee, or deposit.
+			if decoded_call.encode() != call.as_slice() {
+				// Same burn-full reasoning as decode failure: size-dependent
+				// work (decode + encode) has already been done.
+				return Self::err_burn_full(Error::<T>::InvalidCall);
+			}
+
 			// ===== PHASE 3b: Check inner call weight against limit =====
 			// This ensures execute() can safely reserve weight at pre-dispatch time.
 			let call_weight = decoded_call.get_dispatch_info().call_weight;
@@ -1044,31 +1058,48 @@ pub mod pallet {
 		/// Can be called by any signer of the multisig once the proposal has reached
 		/// the approval threshold (status = Approved). The proposal must not be expired.
 		///
+		/// The executor resubmits the proposal's inner call; execution proceeds only
+		/// if it is byte-equal to the payload stored at `proposal_id` — the same
+		/// binding `approve` enforces. This serves two purposes:
+		/// - **Clearsigning:** the executor's (hardware) wallet displays and signs the actual call
+		///   being dispatched, not an opaque proposal id.
+		/// - **Self-describing weight:** the executing extrinsic carries the inner call, so its
+		///   declared weight carries the inner call's own declared weight (refunded to actuals
+		///   post-dispatch) instead of reserving a flat `MaxInnerCallWeight`, and runtime
+		///   transaction extensions can inspect the inner call and price its side effects
+		///   (account-reap cleanup, transfer-proof recording) exactly as they do for directly
+		///   submitted calls. Nothing about the dispatch is invisible to pre-dispatch admission or
+		///   fees. (Only the bookkeeping term is reserved at `MaxCallSize`, since the stored bytes'
+		///   length is unknown pre-dispatch; the unused remainder is refunded.)
+		///
 		/// On execution:
-		/// - The call is decoded and dispatched as the multisig account
+		/// - The call is dispatched as the multisig account
 		/// - Proposal is removed from storage
 		/// - Deposit is returned to the proposer
 		///
 		/// Parameters:
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_id`: ID (nonce) of the proposal to execute
-		///
-		/// Note: The weight charged includes both multisig bookkeeping and MaxInnerCallWeight.
-		/// Actual weight is refunded based on the inner call's post-dispatch info.
-		/// The inner call's weight is validated against MaxInnerCallWeight at propose time.
+		/// - `call`: The proposal's inner call, byte-equal to the stored payload
 		#[pallet::call_index(6)]
 		#[pallet::weight({
-			// Bookkeeping weight (storage reads/writes) + maximum allowed inner call weight.
-			// The inner call weight was validated at propose time to not exceed MaxInnerCallWeight.
-			// Actual weight is refunded post-dispatch based on real call weight.
-			<T as Config>::WeightInfo::execute(T::MaxCallSize::get())
-				.saturating_add(T::MaxInnerCallWeight::get())
+			// Bookkeeping (storage reads/writes) plus the inner call's own declared
+			// weight, refunded post-dispatch to actuals. Bookkeeping is sized by the
+			// larger of the submitted call and `MaxCallSize`: the dispatch reads the
+			// stored proposal bytes, whose length is unknown pre-dispatch (bounded
+			// only by `MaxCallSize`), and no error path may report more weight than
+			// was declared (FRAME clamps and logs such violations).
+			<T as Config>::WeightInfo::execute(
+				T::MaxCallSize::get().max(call.encoded_size() as u32),
+			)
+			.saturating_add(call.get_dispatch_info().call_weight)
 		})]
 		#[allow(clippy::useless_conversion)]
 		pub fn execute(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
 			proposal_id: u32,
+			call: Box<<T as Config>::RuntimeCall>,
 		) -> DispatchResultWithPostInfo {
 			let executor = ensure_signed(origin)?;
 
@@ -1099,8 +1130,10 @@ pub mod pallet {
 				})?;
 
 			// Calculate bookkeeping weight based on real call size - use for ALL paths
-			// after proposal is loaded, since reading the proposal incurs size-dependent cost.
-			let call_size = proposal.call.len() as u32;
+			// after proposal is loaded, since reading the proposal incurs size-dependent
+			// cost. Sized by the larger of stored and submitted encodings so mismatch
+			// error paths also cover the submitted call's encode below.
+			let call_size = (proposal.call.len() as u32).max(call.encoded_size() as u32);
 			let bookkeeping_weight = <T as Config>::WeightInfo::execute(call_size);
 
 			// Must be Approved status
@@ -1120,14 +1153,19 @@ pub mod pallet {
 				);
 			}
 
-			// Decode the call
-			// After decode, we've done size-dependent work, so failures should burn full weight.
-			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
-				.map_err(|_| Self::err_burn_full_raw(Error::<T>::InvalidCall))?;
+			// Bind the submitted call to the stored payload (byte-equal, exactly as
+			// `approve` binds approvals). The stored bytes were validated at propose
+			// time, so dispatching the byte-identical submitted call is dispatching
+			// the approved one — and everything below can operate on the submitted
+			// call without a storage decode.
+			if call.encode() != proposal.call.as_slice() {
+				return Self::err_with_actual_weight(Error::<T>::CallMismatch, bookkeeping_weight);
+			}
 
 			// Re-check call weight at execute time (belt-and-suspenders).
 			// MaxInnerCallWeight could have been lowered via runtime upgrade since propose time.
-			// After decode + get_dispatch_info, don't refund - burn the full reserved weight.
+			// Size-dependent work (encode + get_dispatch_info) has been done - burn the
+			// full declared weight to prevent griefing with repeatedly failing executes.
 			let current_call_weight = call.get_dispatch_info().call_weight;
 			let max_inner_weight = T::MaxInnerCallWeight::get();
 			if current_call_weight.any_gt(max_inner_weight) {
@@ -1138,7 +1176,7 @@ pub mod pallet {
 			// The multisig's HS status may have changed since the proposal was created,
 			// or the whitelist may have been updated via runtime upgrade.
 			// This prevents bypassing HS restrictions by proposing before enabling HS.
-			// After decode + get_dispatch_info, don't refund - burn the full reserved weight.
+			// Same burn-full reasoning as above.
 			if !T::HighSecurity::is_call_allowed(&multisig_address, &call) {
 				return Self::err_burn_full(Error::<T>::CallNotAllowedForHighSecurityMultisig);
 			}

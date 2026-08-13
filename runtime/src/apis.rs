@@ -210,6 +210,12 @@ impl_runtime_apis! {
 		}
 	}
 
+	impl pallet_pubkey::PubkeyApi<Block> for Runtime {
+		fn pubkey_of(account: AccountId) -> Option<qp_dilithium_crypto::DilithiumSigner> {
+			pallet_pubkey::Pallet::<Runtime>::pubkey_of(&account)
+		}
+	}
+
 	impl pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi<Block, Balance> for Runtime {
 		fn query_info(
 			uxt: <Block as BlockT>::Extrinsic,

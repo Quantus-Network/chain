@@ -31,6 +31,7 @@ pallet-balances.workspace = true
 pallet-mining-rewards.workspace = true
 pallet-multisig.workspace = true
 pallet-preimage.workspace = true
+pallet-pubkey.workspace = true
 pallet-qpow.workspace = true
 pallet-ranked-collective.workspace = true
 pallet-recovery.workspace = true
@@ -95,6 +96,7 @@ std = [
 	"pallet-mining-rewards/std",
 	"pallet-multisig/std",
 	"pallet-preimage/std",
+	"pallet-pubkey/std",
 	"pallet-qpow/std",
 	"pallet-ranked-collective/std",
 	"pallet-recovery/std",
@@ -142,6 +144,7 @@ runtime-benchmarks = [
 	"pallet-mining-rewards/runtime-benchmarks",
 	"pallet-multisig/runtime-benchmarks",
 	"pallet-preimage/runtime-benchmarks",
+	"pallet-pubkey/runtime-benchmarks",
 	"pallet-qpow/runtime-benchmarks",
 	"pallet-ranked-collective/runtime-benchmarks",
 	"pallet-recovery/runtime-benchmarks",
@@ -165,6 +168,7 @@ try-runtime = [
 	"pallet-balances/try-runtime",
 	"pallet-mining-rewards/try-runtime",
 	"pallet-multisig/try-runtime",
+	"pallet-pubkey/try-runtime",
 	"pallet-qpow/try-runtime",
 	"pallet-ranked-collective/try-runtime",
 	"pallet-recovery/try-runtime",

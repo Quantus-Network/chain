@@ -72,7 +72,12 @@ mod tests {
 			proposal_id,
 			encoded,
 		));
-		assert_ok!(Multisig::execute(RuntimeOrigin::signed(account(3)), treasury, proposal_id));
+		assert_ok!(Multisig::execute(
+			RuntimeOrigin::signed(account(3)),
+			treasury,
+			proposal_id,
+			Box::new(call),
+		));
 	}
 
 	#[test]

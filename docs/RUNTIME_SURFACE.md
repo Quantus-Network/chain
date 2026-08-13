@@ -7,7 +7,7 @@ the runtime, their dispatchable calls, the runtime APIs, transaction extensions,
 genesis logic, and the workspace primitive crates pulled in.
 
 - **Crate:** `quantus-runtime` (`runtime/`), version `0.7.1-q-day-2`
-- **Spec:** `spec_name = quantus-runtime`, `spec_version = 143`, `transaction_version = 3`, `authoring_version = 1`
+- **Spec:** `spec_name = quantus-runtime`, `spec_version = 145`, `transaction_version = 4`, `authoring_version = 1`
 - **Build:** `no_std` WASM via `substrate-wasm-builder` (`runtime/build.rs`); native `std` build for the node/client
 - **Block time target:** 12s (`TARGET_BLOCK_TIME_MS = 12_000`)
 - **Consensus:** QPoW (quantum-resistant Proof of Work, Poseidon2-based)
@@ -23,7 +23,7 @@ genesis logic, and the workspace primitive crates pulled in.
 | `lib.rs` | Crate root. Core type aliases, `RuntimeVersion`, opaque types, `TxExtension`, `UncheckedExtrinsic`, `Executive`, and the `#[frame_support::runtime]` pallet composition (indices 0–21). |
 | `configs/mod.rs` | All `impl pallet::Config for Runtime` blocks, `parameter_types!`, fee model, `HighSecurityConfig`, and `TryFrom<RuntimeCall>` impls. |
 | `apis.rs` | `impl_runtime_apis!` — every runtime API exposed to the client/RPC. |
-| `transaction_extensions.rs` | Custom transaction extensions: `ReversibleTransactionExtension`, `WormholeProofRecorderExtension`. |
+| `transaction_extensions.rs` | Custom transaction extensions: `ChargePubkeyCacheVerify`, `ReversibleTransactionExtension`, `WormholeProofRecorderExtension`. |
 | `governance/mod.rs` + `governance/definitions.rs` | Referenda tracks (`CommunityTracksInfo`, `TechCollectiveTracksInfo`), preimage deposit model, custom origins, rank converters. |
 | `genesis_config_presets.rs` | Genesis presets: `dev`, `heisenberg`, `planck`; treasury/tech-collective seeding; wormhole endowment. |
 | `benchmarks.rs` | `define_benchmarks!` list (only under `runtime-benchmarks`). |
@@ -32,8 +32,8 @@ genesis logic, and the workspace primitive crates pulled in.
 
 | Type | Definition |
 | --- | --- |
-| `Signature` | `DilithiumSignatureScheme` (post-quantum) |
-| `AccountId` | Derived from the Dilithium signer (`AccountId32`) |
+| `Signature` | `pallet_pubkey::CachedSignature<Runtime>` — `DilithiumSignatureScheme` (post-quantum) backed by the on-chain pubkey cache; `SigOnly` variants omit the ~2 KB public key after an account's first full-signature transaction |
+| `AccountId` | `AccountId32` (Poseidon hash of the Dilithium public key) |
 | `Balance` | `u128` |
 | `AssetId` | `u32` |
 | `Nonce` | `u32` |
@@ -83,6 +83,7 @@ The runtime derives `RuntimeCall`, `RuntimeEvent`, `RuntimeError`, `RuntimeOrigi
 | 20 | `Wormhole` | `pallet-wormhole` | **Local** (`pallets/wormhole`) | yes |
 | 21 | `ZkTree` | `pallet-zk-tree` | **Local** (`pallets/zk-tree`) | no |
 | 22 | `Vesting` | `pallet-vesting` | **Local** (`pallets/vesting`) | yes |
+| 23 | `Pubkey` | `pallet-pubkey` | **Local** (`pallets/pubkey`) | no |
 
 > Indices 4, 10, 12, 17, and 18 are intentionally left vacant after pallet removals so downstream indices stay stable.
 
@@ -165,6 +166,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 ### Index 19 — `Multisig` (`pallet-multisig`, local)
 - `MaxSigners = 100`, `MaxTotalProposalsInStorage = 200`, `MaxCallSize = 10 KB`, `MultisigFee = 0.6 UNIT` (burned), `ProposalDeposit = 1 UNIT`, `ProposalFee = 1 UNIT`, `MaxExpiryDuration ≈ 2 weeks`, `MaxInnerCallWeight = (10^12, 2.5 MB)`, `HighSecurity = HighSecurityConfig`, `PalletId = "py/mltsg"`.
 - **Calls:** `create_multisig`(0), `propose`(1), `approve`(2), `cancel`(3), `remove_expired`(4), `claim_deposits`(5), `execute`(6). Exposes `derive_multisig_address`.
+- **Self-describing `execute`:** the executor resubmits the proposal's inner call; the pallet verifies it is byte-equal to the stored payload (`CallMismatch` otherwise, the same binding `approve` uses) and dispatches the submitted call. The executor therefore clearsigns the actual call (hardware-wallet friendly), the declared weight carries the inner call's own declared weight instead of a flat `MaxInnerCallWeight` reservation (only the bookkeeping term is reserved at `MaxCallSize`, the stored bytes' length being unknown pre-dispatch; everything unused is refunded to actuals), and the runtime's transaction extensions count the inner call's side effects compositionally like any directly submitted call (see §3 weight accounting and TxExtension items 7/9). `propose` requires the stored bytes to be the decoded call's exact canonical encoding (no trailing bytes), so every stored proposal is reachable by an `execute` resubmission.
 
 ### Index 20 — `Wormhole` (`pallet-wormhole`, local)
 - `Currency = Balances`, `AssetId = u32` (native leaves tagged as asset id 0 internally; non-native exits unsupported), `VolumeFeeRateBps = 4` (0.04%; circuit ceil-rounds to ≥0.01 QUAN per exit), `VolumeFeesBurnRate = 50%`, `MintingAccount`, `WormholeAccountId = AccountId32`, `ZkTree = ZkTree`. No separate minimum exit amount. No `pallet-assets` dependency.
@@ -186,6 +188,16 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - **Calls:** `claim`(0) — **permissionless**; pays the largest valid claim from the pot to the schedule's stored beneficiary (never the caller); the only claim path for keyless/high-security beneficiaries. `create_schedule`(1) — admin; validates the schedule and funds the pot from the treasury in the same call. `end_schedule`(2) — admin; quantized unpaid vested part → beneficiary, everything else → treasury, schedule removed. `retarget_schedule`(3) — admin; first settles exactly the payout a permissionless claim could currently force to the old beneficiary, then changes the beneficiary (lost-key remedy independent of claim/retarget ordering).
 - Genesis build validates every schedule (`start ≤ cliff ≤ end`, `start < end`, `total ≥ MinimumPayout`, `total % PayoutQuantum = 0`, beneficiary ≠ pot) and, for a non-empty table, asserts the pot holds exactly `Σ schedule totals + ED`; a misconfigured chain refuses to start. `try_state` validates stored schedules, aligned claims, dust-safe remaining obligations, and—when any schedule exists—`pot balance ≥ Σ(total − claimed) + ED`; an empty schedule table is valid with an unfunded pot.
 
+### Index 23 — `Pubkey` (`pallet-pubkey`, local)
+- On-chain cache of Dilithium public keys keyed by the `AccountId32` they hash to. No dispatchable calls, events, or genesis config; exposes the `PubkeyApi` runtime API (`pubkey_of`).
+- **Storage:** `Pubkeys: AccountId32 → DilithiumSigner`. Written automatically by `CachedSignature` (the runtime `Signature` type) the first time an account's full `SignatureWithPublic` transaction verifies — the successful verify proves both the signature and `Poseidon(pubkey) == account`, so the binding is trusted. Cleared via `frame_system::Config::OnKilledAccount = Pubkey` when the system account is reaped, so a fund → register → reap loop cannot leave unbounded orphan state; the next full-signature transaction re-registers.
+- Once cached, the account may sign with the `Dilithium87SigOnly`/`Dilithium65SigOnly` variants of `DilithiumSignatureScheme`, omitting the ~1.9–2.6 KB public key from every subsequent transaction; verification loads the key from `Pubkeys` and fails (`BadProof`) if none of the matching parameter set is cached. Full-signature transactions remain valid forever with an unchanged wire format, so existing clients keep working; sig-only is an opt-in size optimization (clients can watch `PubkeyApi::pubkey_of` to learn when to switch).
+- **State economics (accepted trade-off):** a cached key parks 1.9–2.6 KB of storage collateralized only by the account's existential deposit (~20× the state-per-ED of a plain account); there is deliberately no storage deposit, keeping registration automatic. Entries exist only for live, ED-holding accounts — reclaiming the ED reaps the account, which deletes the entry via `OnKilledAccount` — so state never outlives its collateral. Adding a deposit later would require a migration for already-registered keys.
+- **Domain separation:** sig-only signatures sign `qp_dilithium_crypto::sig_only_signing_payload(payload)` = `"qsigonly" ‖ payload`, not the raw payload. A signature is therefore valid only in the encoding form its author chose: a third party (a fee-collecting block author in particular) cannot re-encode a sig-only extrinsic into the ~2 KB larger full form — inflating the sender's length fee and changing the extrinsic hash the sender tracks — nor strip an observed full extrinsic down to sig-only.
+- **Weight accounting:**
+  - Verify path (`PubkeyCacheVerifyWeight` = 1 DB read + 1 DB write): charged by the `ChargePubkeyCacheVerify` `TxExtension` as signed-only `extension_weight` (verification runs in `UncheckedExtrinsic::check`, outside any weighted dispatch path). Bare unsigned extrinsics — including wormhole `verify_*` and `Mandatory` inherents — report `extension_weight = 0` and do not pay for a `Verify` they never run. (Folding this into class-wide `base_extrinsic` would incorrectly tax those unsigned `Normal` paths.)
+  - Reap cleanup (`reap_cleanup_weight` = the `Pubkeys::remove` write plus the `ExtrinsicReaps` counter read+write): pre-charged by `ChargePubkeyCacheVerify` per statically visible kill-capable call, compositionally (`count_reaps`: `Balances::{transfer_allow_death, force_transfer, transfer_all/burn with keep_alive = false, force_set_balance}`, `ReversibleTransfers::{cancel, recover_funds}`, `Recovery::close_recovery`, recursing through `Utility` wrappers — so a batch of N kill-capable calls is charged N). This makes the cleanup part of the declared weight `CheckWeight` admits *before* dispatch and of the corrected post-dispatch weight transaction payment bills. Post-dispatch, the extension reconciles against the `ExtrinsicReaps` counter the `OnKilledAccount` hook increments per in-extrinsic reap: unrealized reservations are refunded (fee and block capacity). Every dispatch wrapper carries its inner call in the submitted extrinsic — `Multisig::execute` included, since the executor must resubmit the stored proposal's call byte-for-byte — so the count recurses through all of them and nothing kill-capable hides behind opaque call bytes. Reaps on a path the matcher would still miss are registered via `register_extra_weight_unchecked` as a defense-in-depth backstop (block-capacity soundness only). Reaps outside extrinsics (scheduler-enacted in `on_initialize`) have no fee payer; the hook registers their write directly as `Mandatory`. A first-registration that also reaps therefore pays verify (R+W) plus cleanup (R+2W), both fee-charged.
+
 ---
 
 ## 4. Runtime APIs (`apis.rs`, `impl_runtime_apis!`)
@@ -201,6 +213,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 | `sp_consensus_qpow::QPoWApi` | `verify_nonce_on_import_block`, `verify_nonce_local_mining`, `get_max_reorg_depth`, `get_difficulty`, `get_last_block_time`, `get_last_block_duration`, `get_chain_height`, `get_max_difficulty`, `verify_and_get_achieved_difficulty` |
 | `pallet_zk_tree::ZkTreeApi` | `get_root`, `get_leaf_count`, `get_depth`, `get_merkle_proof` |
 | `frame_system_rpc_runtime_api::AccountNonceApi` | `account_nonce` |
+| `pallet_pubkey::PubkeyApi` | `pubkey_of` — the cached Dilithium key for an account, if any (clients use it to decide when sig-only transactions become valid) |
 | `pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi` | `query_info`, `query_fee_details`, `query_weight_to_fee`, `query_length_to_fee` |
 | `pallet_transaction_payment_rpc_runtime_api::TransactionPaymentCallApi` | `query_call_info`, `query_call_fee_details`, `query_weight_to_fee`, `query_length_to_fee` |
 | `sp_genesis_builder::GenesisBuilder` | `build_state`, `get_preset`, `preset_names` |
@@ -219,9 +232,9 @@ Signed-extension pipeline applied to every extrinsic, in order:
 4. `frame_system::CheckGenesis`
 5. `frame_system::CheckEra`
 6. `frame_system::CheckNonce`
-7. `frame_system::CheckWeight`
+7. `(transaction_extensions::ChargePubkeyCacheVerify, frame_system::CheckWeight)` — nested pair (the `TransactionExtension` tuple impl caps at 12 elements; nesting is wire- and metadata-transparent). `ChargePubkeyCacheVerify` is **custom** and zero-sized: it reserves `PubkeyCacheVerifyWeight` as `extension_weight` on signed extrinsics for the pubkey-cache DB work done during signature verification, plus one `reap_cleanup_weight` per statically visible account reap the call can perform (`count_reaps`, compositional through all dispatch wrappers — `Utility` and `Multisig::execute`, which carries its resubmitted inner call in the extrinsic); post-dispatch it refunds unrealized reap reservations — before `CheckWeight`'s reclaim and before payment finalizes the fee — and registers any reap the matcher missed against the block as a backstop. Bare unsigned extrinsics report `extension_weight = 0` and pay nothing.
 8. `transaction_extensions::ReversibleTransactionExtension` — **custom**: blocks non-whitelisted calls from high-security accounts.
-9. `transaction_extensions::WormholeProofRecorderExtension` — **custom**: in `post_dispatch`, scans emitted native `Balances::Transfer` / `Balances::Minted` / `Balances::TransferOnHold` / `Balances::ReserveRepatriated` events and records transfer proofs into the ZK tree (event-based, covers direct/batch/multisig/recovery native transfers). Statically pre-charged calls (`count_transfers`): `Balances` transfers, `Utility` wrappers, `ReversibleTransfers::{cancel, recover_funds}`, and `Recovery::close_recovery`; uncounted paths are reconciled via `register_extra_weight_unchecked`. Transfers touching the **vesting pot** are skipped: the vesting pallet records its own payouts (covering scheduler-enacted Root calls the extension never sees) and carries that cost in its benchmarked weights. A statically-counted transfer *into* the pot is charged for a leaf insert the scan then skips — an accepted overcharge on a rare bootstrap operation. Per-transfer recording weight is flat, priced at the circuit depth ceiling (`pallet_zk_tree::INSERT_LEAF_*` constants: DB ops, Poseidon path hashing, and per-key PoV). Statically over-charged reservations (failed transfers, short batches, `recover_funds` below the worst case) are returned in `post_dispatch_details`; the extension sits **before** `ChargeTransactionPayment` so the refund reaches the payer's fee, and the trailing `WeightReclaim` returns it to block capacity.
+9. `transaction_extensions::WormholeProofRecorderExtension` — **custom**: in `post_dispatch`, scans emitted native `Balances::Transfer` / `Balances::Minted` / `Balances::TransferOnHold` / `Balances::ReserveRepatriated` events and records transfer proofs into the ZK tree (event-based, covers direct/batch/multisig/recovery native transfers). Statically pre-charged calls (`count_transfers`): `Balances` transfers, `ReversibleTransfers::{cancel, recover_funds}`, `Recovery::close_recovery`, recursing through `Utility` wrappers and `Multisig::execute` (which carries its resubmitted inner call in the extrinsic); paths the matcher would still miss are reconciled via `register_extra_weight_unchecked` as a backstop. Transfers touching the **vesting pot** are skipped: the vesting pallet records its own payouts (covering scheduler-enacted Root calls the extension never sees) and carries that cost in its benchmarked weights. A statically-counted transfer *into* the pot is charged for a leaf insert the scan then skips — an accepted overcharge on a rare bootstrap operation. Per-transfer recording weight is flat, priced at the circuit depth ceiling (`pallet_zk_tree::INSERT_LEAF_*` constants: DB ops, Poseidon path hashing, and per-key PoV). Statically over-charged reservations (failed transfers, short batches, `recover_funds` below the worst case) are returned in `post_dispatch_details`; the extension sits **before** `ChargeTransactionPayment` so the refund reaches the payer's fee, and the trailing `WeightReclaim` returns it to block capacity.
 10. `pallet_transaction_payment::ChargeTransactionPayment`
 11. `frame_metadata_hash_extension::CheckMetadataHash`
 12. `frame_system::WeightReclaim` — re-runs the block-weight reclaim so refunds made by earlier extensions (which `CheckWeight`'s own reclaim runs too early to see) are returned to block capacity.
@@ -288,7 +301,7 @@ Related transaction-payment RPC surface (patched for WASM + node builds):
 
 | Crate | Path | Role in runtime |
 | --- | --- | --- |
-| `qp-dilithium-crypto` | `primitives/dilithium-crypto` | ML-DSA-87/ML-DSA-65 post-quantum signatures; `DilithiumSignatureScheme` = the chain's `Signature`/`AccountId`. |
+| `qp-dilithium-crypto` | `primitives/dilithium-crypto` | ML-DSA-87/ML-DSA-65 post-quantum signatures; `DilithiumSignatureScheme` underlies the chain's `Signature` (wrapped by `pallet_pubkey::CachedSignature`) and `AccountId`. |
 | `qp-header` | `primitives/header` | Custom block `Header` (Poseidon block hash + Blake2 state trie); `ZkTreeRootProvider` trait. |
 | `qp-high-security` | `primitives/high-security` | `HighSecurityInspector` trait shared by multisig, reversible-transfers, tx-extensions (breaks circular dep). |
 | `qp-scheduler` | `primitives/scheduler` | `BlockNumberOrTimestamp`, `DispatchTime`, `ScheduleNamed` trait for delayed dispatch. |

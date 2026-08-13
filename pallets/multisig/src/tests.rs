@@ -1,7 +1,7 @@
 //! Unit tests for pallet-multisig
 
 use crate::{mock::*, Error, Event, Multisigs, ProposalStatus, Proposals};
-use codec::Encode;
+use codec::{Decode, Encode};
 use frame_support::{
 	assert_err_ignore_postinfo, assert_noop, assert_ok,
 	dispatch::GetDispatchInfo,
@@ -102,6 +102,15 @@ fn stored_call(multisig_address: &AccountId32, proposal_id: u32) -> crate::Bound
 	crate::Proposals::<Test>::get(multisig_address, proposal_id)
 		.expect("proposal should exist")
 		.call
+}
+
+/// Helper to fetch and decode a proposal's stored call — what an executor
+/// resubmits so `execute` can bind the dispatch to the approved payload
+fn stored_runtime_call(multisig_address: &AccountId32, proposal_id: u32) -> Box<RuntimeCall> {
+	Box::new(
+		RuntimeCall::decode(&mut &stored_call(multisig_address, proposal_id)[..])
+			.expect("stored call should decode"),
+	)
 }
 
 /// Helper function to get the ID of the last proposal created
@@ -513,7 +522,8 @@ fn approve_sets_approved_when_threshold_reached() {
 		assert_ok!(Multisig::execute(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
-			proposal_id
+			proposal_id,
+			stored_runtime_call(&multisig_address, proposal_id)
 		));
 
 		// Now proposal is removed
@@ -721,7 +731,8 @@ fn cancel_fails_if_already_executed() {
 		assert_ok!(Multisig::execute(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
-			proposal_id
+			proposal_id,
+			stored_runtime_call(&multisig_address, proposal_id)
 		));
 
 		// Try to cancel executed proposal (already removed, so ProposalNotFound)
@@ -817,7 +828,8 @@ fn executed_proposals_removed_from_storage() {
 		assert_ok!(Multisig::execute(
 			RuntimeOrigin::signed(bob()),
 			multisig_address.clone(),
-			proposal_id
+			proposal_id,
+			stored_runtime_call(&multisig_address, proposal_id)
 		));
 
 		// Proposal should be removed
@@ -1268,7 +1280,8 @@ fn only_active_proposals_remain_in_storage() {
 				assert_ok!(Multisig::execute(
 					RuntimeOrigin::signed(charlie()),
 					multisig_address.clone(),
-					id
+					id,
+					stored_runtime_call(&multisig_address, id)
 				));
 			} else if i == 5 {
 				let id = get_last_proposal_id(&multisig_address);
@@ -1732,7 +1745,8 @@ fn propose_with_threshold_one_sets_approved() {
 		assert_ok!(Multisig::execute(
 			RuntimeOrigin::signed(bob()),
 			multisig_address.clone(),
-			proposal_id
+			proposal_id,
+			stored_runtime_call(&multisig_address, proposal_id)
 		));
 
 		// Now the transfer happened
@@ -1811,7 +1825,8 @@ fn propose_with_threshold_two_waits_for_approval() {
 		assert_ok!(Multisig::execute(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
-			proposal_id
+			proposal_id,
+			stored_runtime_call(&multisig_address, proposal_id)
 		));
 
 		// Now proposal removed and transfer happened
@@ -2101,7 +2116,12 @@ fn execute_proposal_that_calls_back_into_multisig() {
 		));
 
 		// Execute - this should work without reentrancy issues
-		assert_ok!(Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0));
+		assert_ok!(Multisig::execute(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			0,
+			stored_runtime_call(&multisig_address, 0)
+		));
 
 		// Verify the inner call succeeded - new multisig should exist
 		let new_multisig_address =
@@ -2395,7 +2415,12 @@ fn execute_succeeds_even_when_inner_call_fails() {
 
 		// Execute - the inner call will fail due to insufficient balance
 		// But execute itself should succeed (return Ok)
-		let result = Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0);
+		let result = Multisig::execute(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			0,
+			stored_runtime_call(&multisig_address, 0),
+		);
 
 		// The extrinsic itself should succeed
 		assert_ok!(result);
@@ -2519,7 +2544,12 @@ fn execute_rejects_non_whitelisted_call_after_hs_enabled() {
 		// Attempt to execute - should FAIL because:
 		// 1. Multisig is now high-security
 		// 2. The proposed call is not whitelisted
-		let result = Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0);
+		let result = Multisig::execute(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			0,
+			stored_runtime_call(&multisig_address, 0),
+		);
 		assert!(result.is_err());
 		let err = result.unwrap_err();
 		assert_eq!(err.error, Error::<Test>::CallNotAllowedForHighSecurityMultisig.into());
@@ -2567,7 +2597,12 @@ fn execute_allows_whitelisted_call_after_hs_enabled() {
 		set_high_security(&multisig_address);
 
 		// Execute should succeed because the call is whitelisted
-		assert_ok!(Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0,));
+		assert_ok!(Multisig::execute(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			0,
+			stored_runtime_call(&multisig_address, 0)
+		));
 
 		// Proposal should be removed
 		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
@@ -2625,7 +2660,12 @@ fn execute_rejects_call_when_max_weight_lowered_after_propose() {
 
 		// Execute should fail with CallWeightExceedsLimit
 		assert_err_ignore_postinfo(
-			Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0),
+			Multisig::execute(
+				RuntimeOrigin::signed(alice()),
+				multisig_address.clone(),
+				0,
+				stored_runtime_call(&multisig_address, 0),
+			),
 			Error::<Test>::CallWeightExceedsLimit.into(),
 		);
 
@@ -2634,5 +2674,172 @@ fn execute_rejects_call_when_max_weight_lowered_after_propose() {
 
 		// Reset for other tests
 		reset_max_inner_call_weight();
+	});
+}
+
+/// `execute` binds the submitted call to the stored proposal byte-for-byte:
+/// a well-formed call that differs from the approved payload is rejected with
+/// `CallMismatch` and the proposal survives, then the correct bytes execute.
+#[test]
+fn execute_rejects_call_that_does_not_match_stored_proposal() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let signers = vec![alice(), bob()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0,
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		let call = RuntimeCall::System(frame_system::Call::remark { remark: b"test".to_vec() });
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			call.encode().try_into().unwrap(),
+			100,
+		));
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			stored_call(&multisig_address, 0)
+		));
+
+		// A different (still valid) call must not execute in the proposal's place.
+		let other =
+			RuntimeCall::System(frame_system::Call::remark { remark: b"tampered".to_vec() });
+		assert_err_ignore_postinfo(
+			Multisig::execute(
+				RuntimeOrigin::signed(alice()),
+				multisig_address.clone(),
+				0,
+				Box::new(other),
+			),
+			Error::<Test>::CallMismatch.into(),
+		);
+		assert!(Proposals::<Test>::contains_key(&multisig_address, 0));
+
+		// The byte-equal call executes normally.
+		assert_ok!(Multisig::execute(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			0,
+			Box::new(call),
+		));
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
+	});
+}
+
+/// A payload with trailing bytes after a valid encoded call decodes fine
+/// (SCALE decode need not consume all input) but could never be executed:
+/// `execute` requires a typed call to re-encode byte-equal to the stored
+/// payload, and no typed call encodes trailing garbage. `propose` must reject
+/// such bytes up front — before any proposal state, fee, or deposit.
+#[test]
+fn propose_rejects_valid_call_with_trailing_bytes() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let signers = vec![alice(), bob()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0,
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		let valid = RuntimeCall::System(frame_system::Call::remark { remark: b"test".to_vec() });
+		let mut padded = valid.encode();
+		padded.push(0xFF);
+		let free_before = Balances::free_balance(alice());
+
+		assert_err_ignore_postinfo(
+			Multisig::propose(
+				RuntimeOrigin::signed(alice()),
+				multisig_address.clone(),
+				padded.try_into().unwrap(),
+				100,
+			),
+			Error::<Test>::InvalidCall.into(),
+		);
+
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
+		assert_eq!(Multisigs::<Test>::get(&multisig_address).unwrap().proposal_nonce, 0);
+		assert_eq!(Balances::reserved_balance(alice()), 0, "no deposit reserved");
+		assert_eq!(Balances::free_balance(alice()), free_before, "no proposal fee charged");
+
+		// The unpadded canonical encoding is accepted.
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			valid.encode().try_into().unwrap(),
+			100,
+		));
+	});
+}
+
+/// FRAME forbids a dispatch from reporting more post-dispatch weight than it
+/// declared (`calc_actual_weight` logs the violation and clamps). The
+/// `CallMismatch` path reads the stored proposal — up to `MaxCallSize` bytes —
+/// while the declaration is computed from the submitted call, so bookkeeping
+/// must be reserved at `MaxCallSize`. Regression: near-max-size stored call,
+/// tiny mismatching submitted call.
+#[test]
+fn execute_mismatch_never_reports_more_weight_than_declared() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let signers = vec![alice(), bob()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0,
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Store a proposal near MaxCallSize (mock: 1024 bytes).
+		let big = RuntimeCall::System(frame_system::Call::remark { remark: vec![7u8; 1000] });
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			big.encode().try_into().unwrap(),
+			100,
+		));
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			stored_call(&multisig_address, 0)
+		));
+
+		// A tiny submitted call cannot match the stored payload.
+		let small = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+		let declared = crate::Call::<Test>::execute {
+			multisig_address: multisig_address.clone(),
+			proposal_id: 0,
+			call: Box::new(small.clone()),
+		}
+		.get_dispatch_info()
+		.call_weight;
+
+		let err = Multisig::execute(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			0,
+			Box::new(small),
+		)
+		.unwrap_err();
+		assert_eq!(err.error, Error::<Test>::CallMismatch.into());
+		let actual = err.post_info.actual_weight.expect("mismatch path reports its actual weight");
+		assert!(
+			actual.all_lte(declared),
+			"post-dispatch weight must not exceed the declaration: \
+			 actual={actual:?} declared={declared:?}"
+		);
 	});
 }
