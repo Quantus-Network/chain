@@ -14,7 +14,7 @@ use sp_runtime::traits::Block as BlockT;
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
 use codec::Encode;
-use qp_header::DIGEST_LOGS_SIZE;
+use qp_header::{check_digest_commitment_window, DIGEST_LOGS_SIZE};
 
 use crate::worker::UntilImportedOrTransaction;
 pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata, RebuildTrigger};
@@ -70,8 +70,8 @@ pub enum Error<B: BlockT> {
 	CheckInherentsUnknownError(sp_inherents::InherentIdentifier),
 	#[error("Multiple pre-runtime digests")]
 	MultiplePreRuntimeDigests,
-	#[error("Header has an encoded digest of {0} bytes, exceeding the {1}-byte commitment window")]
-	DigestTooLong(usize, usize),
+	#[error("Header has an encoded digest of {0} bytes; expected {1}-byte commitment window")]
+	DigestWindowMismatch(usize, usize),
 	#[error(transparent)]
 	Client(sp_blockchain::Error),
 	#[error(transparent)]
@@ -229,19 +229,21 @@ where
 		&self,
 		mut block_import_params: BlockImportParams<B>,
 	) -> Result<ImportResult, Self::Error> {
-		// Reject any header whose canonical (post-seal) digest encodes to more
-		// than the fixed window committed by `Header::hash()`. Past that window
-		// the digest bytes are not covered by the block hash, so silently
-		// truncating (as `hash()` does defensively) would let two distinct
-		// sealed headers collide on the same block hash. Fail closed before
-		// *any* `hash()` call on this header — hashing an oversized digest
-		// trips a debug assertion in `qp-header` — and, for the same reason,
-		// without embedding a hash of the malformed header in the error. The
-		// pre-seal digest is a prefix of the post-seal one, so this bound also
-		// covers the pre-seal `header.hash()` calls below.
-		let encoded_digest_len = block_import_params.post_header().digest().encode().len();
-		if encoded_digest_len > DIGEST_LOGS_SIZE {
-			return Err(Error::<B>::DigestTooLong(encoded_digest_len, DIGEST_LOGS_SIZE).into());
+		// The canonical post-seal digest must encode to exactly the window
+		// committed by `Header::hash()`, except for the one-byte
+		// `RuntimeEnvironmentUpdated` leftover on historical runtime-upgrade
+		// blocks (see `check_digest_commitment_window`). Short encodings are
+		// zero-padded and long encodings are truncated, so either mismatch
+		// would let two distinct sealed headers collide. Fail closed before
+		// *any* `hash()` call on this header, and without embedding a hash of
+		// the malformed header in the error. The pre-seal digest is a prefix
+		// of the post-seal one, so this bound also covers the pre-seal
+		// `header.hash()` calls below.
+		let post_header = block_import_params.post_header();
+		if let Err(encoded_digest_len) = check_digest_commitment_window(post_header.digest()) {
+			return Err(
+				Error::<B>::DigestWindowMismatch(encoded_digest_len, DIGEST_LOGS_SIZE).into()
+			);
 		}
 
 		let parent_hash = *block_import_params.header.parent_hash();
@@ -407,15 +409,14 @@ where
 	B: BlockT<Hash = H256>,
 {
 	// This is the first point in the import pipeline that hashes a
-	// network-supplied header, and hashing a digest longer than the committed
-	// window trips a debug assertion in `qp-header` (the hash would silently
-	// truncate it). Reject the oversized digest before any `hash()` call; the
-	// authoritative check lives in `import_block`, this one only keeps the
-	// hashing below panic-free in debug builds.
-	let encoded_digest_len = block.header.digest().encode().len();
-	if encoded_digest_len > DIGEST_LOGS_SIZE {
+	// network-supplied header. `Header::hash()` pads short encodings and
+	// truncates long ones, so reject anything that is not a permitted
+	// commitment-window length before any `hash()` call. The authoritative
+	// check lives in `import_block`; this one only keeps the hashing below
+	// panic-free in debug builds.
+	if let Err(encoded_digest_len) = check_digest_commitment_window(block.header.digest()) {
 		return Err(format!(
-			"Header has an encoded digest of {encoded_digest_len} bytes, exceeding the {DIGEST_LOGS_SIZE}-byte commitment window"
+			"Header has an encoded digest of {encoded_digest_len} bytes; expected {DIGEST_LOGS_SIZE}-byte commitment window"
 		));
 	}
 
@@ -766,7 +767,27 @@ mod tests {
 		let result = futures::executor::block_on(extract_pow_seal::<TestBlock>(params));
 
 		let err = result.err().expect("oversized digest must be rejected");
-		assert!(err.contains("exceeding the"), "expected the digest-length rejection, got: {err}");
+		assert!(
+			err.contains("commitment window"),
+			"expected the digest-length rejection, got: {err}"
+		);
+	}
+
+	#[test]
+	fn verifier_rejects_undersized_digest() {
+		let digest = Digest { logs: vec![DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64])] };
+		assert!(digest.encode().len() < DIGEST_LOGS_SIZE);
+
+		let params = BlockImportParams::<TestBlock>::new(
+			BlockOrigin::NetworkBroadcast,
+			sealed_header(digest),
+		);
+		let result = futures::executor::block_on(extract_pow_seal::<TestBlock>(params));
+		let err = result.err().expect("undersized digest must be rejected");
+		assert!(
+			err.contains("commitment window"),
+			"expected the digest-length rejection, got: {err}"
+		);
 	}
 
 	/// The canonical digest fits the window exactly and must pass the length
@@ -791,6 +812,38 @@ mod tests {
 		assert!(
 			!result.header.digest().logs.iter().any(|l| matches!(l, DigestItem::Seal(..))),
 			"seal must be removed from the pre-seal header"
+		);
+	}
+
+	/// Runtime-upgrade blocks produced by 0.8.x WASM insert
+	/// `RuntimeEnvironmentUpdated` between the pre-runtime item and the seal
+	/// (111 bytes). 0.9.0 must still import those already-canonical headers.
+	#[test]
+	fn verifier_accepts_runtime_environment_updated_upgrade_digest() {
+		let mut digest = canonical_digest();
+		digest.logs.insert(1, DigestItem::RuntimeEnvironmentUpdated);
+		assert_eq!(digest.encode().len(), DIGEST_LOGS_SIZE + 1);
+
+		let params = BlockImportParams::<TestBlock>::new(
+			BlockOrigin::NetworkBroadcast,
+			sealed_header(digest),
+		);
+		let result = futures::executor::block_on(extract_pow_seal::<TestBlock>(params))
+			.expect("historical upgrade digest must be grandfathered");
+
+		assert_eq!(
+			result.post_digests.last(),
+			Some(&DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64])),
+			"seal must be moved into post_digests"
+		);
+		assert!(
+			result
+				.header
+				.digest()
+				.logs
+				.iter()
+				.any(|l| matches!(l, DigestItem::RuntimeEnvironmentUpdated)),
+			"RuntimeEnvironmentUpdated must remain on the pre-seal header"
 		);
 	}
 }
