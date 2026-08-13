@@ -775,9 +775,7 @@ mod tests {
 
 	#[test]
 	fn verifier_rejects_undersized_digest() {
-		let digest = Digest {
-			logs: vec![DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64])],
-		};
+		let digest = Digest { logs: vec![DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64])] };
 		assert!(digest.encode().len() < DIGEST_LOGS_SIZE);
 
 		let params = BlockImportParams::<TestBlock>::new(
