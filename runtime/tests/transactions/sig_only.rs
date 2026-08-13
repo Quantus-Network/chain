@@ -14,8 +14,8 @@ use quantus_runtime::{
 	transaction_extensions::{
 		ChargePubkeyCacheVerify, ReversibleTransactionExtension, WormholeProofRecorderExtension,
 	},
-	Balances, BalancesCall, Executive, Runtime, RuntimeCall, Signature, SignedPayload, System,
-	TxExtension, UncheckedExtrinsic, UNIT, VERSION,
+	Balances, BalancesCall, Executive, Runtime, RuntimeCall, RuntimeOrigin, Signature,
+	SignedPayload, System, TxExtension, UncheckedExtrinsic, UNIT, VERSION,
 };
 use sp_core::{ByteArray, Pair};
 use sp_runtime::{
@@ -597,5 +597,145 @@ fn batched_derivative_reaps_are_admitted_and_paid_per_reap() {
 		reap_fee - keep_fee,
 		cleanup_fee,
 		"a multi-reap wrapper must pay for every pubkey-cache cleanup it caused"
+	);
+}
+
+/// Regression (security review 2026-08): `Multisig::execute` dispatches a call
+/// stored on-chain, invisible to `count_reaps`, so its reap cleanup must be
+/// handled by an up-front reservation, not post-hoc block registration. Full
+/// pipeline: a threshold-1 multisig proposal wrapping a `batch_all` of three
+/// `as_derivative` `transfer_all(keep_alive = false)` sweeps, executed through
+/// `Executive::apply_extrinsic` with a real signed `execute`. Asserts
+/// (a) admission — the declared weight `CheckWeight` sees carries the full
+/// worst-case stored-call reservation, blind to the stored bytes — and
+/// (b) fees — the payer's `TransactionFeePaid` exceeds the non-reaping
+/// control's by exactly the three realized cleanups, the unrealized remainder
+/// of the reservation having been refunded.
+#[test]
+fn multisig_stored_call_reaps_are_admitted_and_paid_per_reap() {
+	use frame_support::dispatch::GetDispatchInfo;
+	use sp_runtime::traits::TransactionExtension;
+
+	const REAPS: u64 = 3;
+
+	let pair = Dilithium65Pair::from_seed_slice(&[42u8; 32]).expect("valid seed");
+	let account = pair.public().into_account();
+	let cosigner = AccountId32::new([8u8; 32]);
+	let dest = AccountId32::new([9u8; 32]);
+
+	let stored_call = |keep_alive: bool| -> RuntimeCall {
+		let calls = (0..REAPS as u16)
+			.map(|index| {
+				RuntimeCall::Utility(pallet_utility::Call::as_derivative {
+					index,
+					call: Box::new(
+						BalancesCall::transfer_all {
+							dest: MultiAddress::Id(dest.clone()),
+							keep_alive,
+						}
+						.into(),
+					),
+				})
+			})
+			.collect();
+		RuntimeCall::Utility(pallet_utility::Call::batch_all { calls })
+	};
+
+	let run = |keep_alive: bool| {
+		let mut ext = test_ext(&account);
+		ext.execute_with(|| {
+			Balances::make_free_balance_be(&dest, UNIT);
+			Balances::make_free_balance_be(&cosigner, UNIT);
+
+			// Threshold-1 multisig (at least two signers required): `propose`
+			// marks the proposal Approved immediately, but `execute` is still
+			// its own dispatch — sent below as a real signed extrinsic.
+			let signers = vec![account.clone(), cosigner.clone()];
+			assert_ok!(pallet_multisig::Pallet::<Runtime>::create_multisig(
+				RuntimeOrigin::signed(account.clone()),
+				signers.clone(),
+				1,
+				0,
+			));
+			let multisig_address =
+				pallet_multisig::Pallet::<Runtime>::derive_multisig_address(&signers, 1, 0);
+			Balances::make_free_balance_be(&multisig_address, 10 * UNIT);
+
+			// The sweeps run as derivatives *of the multisig*: it is the
+			// origin the stored call is dispatched with.
+			let derivatives: Vec<AccountId32> = (0..REAPS as u16)
+				.map(|index| pallet_utility::derivative_account_id(multisig_address.clone(), index))
+				.collect();
+			for derivative in &derivatives {
+				Balances::make_free_balance_be(derivative, UNIT);
+			}
+
+			let encoded: pallet_multisig::BoundedCallOf<Runtime> =
+				stored_call(keep_alive).encode().try_into().expect("call fits MaxCallSize");
+			assert_ok!(pallet_multisig::Pallet::<Runtime>::propose(
+				RuntimeOrigin::signed(account.clone()),
+				multisig_address.clone(),
+				encoded,
+				System::block_number() + 100,
+			));
+
+			let dest_before = Balances::free_balance(&dest);
+			let execute_call: RuntimeCall = pallet_multisig::Call::execute {
+				multisig_address: multisig_address.clone(),
+				proposal_id: 0,
+			}
+			.into();
+			let xt = signed_call(&pair, account.clone(), execute_call, 0, false);
+			let declared = xt.get_dispatch_info().total_weight();
+			assert_ok!(Executive::apply_extrinsic(xt).expect("extrinsic is valid"));
+
+			// The stored call really ran: the sweeps reached `dest`, and the
+			// derivative accounts died exactly when keep_alive was off.
+			assert!(Balances::free_balance(&dest) > dest_before, "sweeps must have executed");
+			for derivative in &derivatives {
+				assert_eq!(
+					frame_system::Account::<Runtime>::contains_key(derivative),
+					keep_alive,
+					"keep_alive={keep_alive}: derivative reap expectation"
+				);
+			}
+			(declared, fee_paid(&account))
+		})
+	};
+
+	let (keep_declared, keep_fee) = run(true);
+	let (reap_declared, reap_fee) = run(false);
+
+	// (a) Admission: the stored bytes are invisible pre-dispatch, so both
+	// variants declare the same weight, and it carries the full worst-case
+	// stored-call reservation — this is what `CheckWeight` admits against
+	// block limits BEFORE the stored call is even decoded.
+	let cleanup = pallet_pubkey::Pallet::<Runtime>::reap_cleanup_weight();
+	let reservation = cleanup.saturating_mul(ChargePubkeyCacheVerify::max_reaps_per_stored_call());
+	assert_eq!(reap_declared, keep_declared, "the reservation must be blind to stored bytes");
+	let execute_shape: RuntimeCall =
+		pallet_multisig::Call::execute { multisig_address: dest.clone(), proposal_id: 0 }.into();
+	assert_eq!(
+		ChargePubkeyCacheVerify::new().weight(&execute_shape),
+		quantus_runtime::configs::PubkeyCacheVerifyWeight::get().saturating_add(reservation),
+		"execute's extension weight must reserve the stored-call worst case"
+	);
+	assert!(
+		reap_declared.all_gte(reservation),
+		"declared weight must carry the reservation: declared={reap_declared:?} \
+		 reservation={reservation:?}"
+	);
+
+	// (b) Fees: the three realized reaps keep their share of the reservation
+	// in the corrected (fee-bearing) weight; the unrealized remainder was
+	// refunded, so the payer's delta over the non-reaping control is exactly
+	// three cleanups.
+	let cleanup_fee =
+		pallet_transaction_payment::Pallet::<Runtime>::weight_to_fee(cleanup.saturating_mul(REAPS));
+	assert!(cleanup_fee > 0, "the cleanups must convert to a nonzero fee");
+	assert_eq!(
+		reap_fee - keep_fee,
+		cleanup_fee,
+		"a multisig stored call must pay for every pubkey-cache cleanup it caused"
 	);
 }

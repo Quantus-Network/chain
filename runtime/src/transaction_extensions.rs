@@ -35,9 +35,12 @@ use sp_runtime::{
 ///    (which the hook increments for every reap inside an extrinsic): reservations the dispatch did
 ///    not use are refunded — to the fee, because this extension precedes
 ///    `ChargeTransactionPayment`, and to block capacity, via the trailing
-///    `frame_system::WeightReclaim` — while reaps on statically opaque paths (an inner call stored
-///    on-chain, e.g. `Multisig::execute`) are registered against the block, the same accepted
-///    post-hoc pattern as [`WormholeProofRecorderExtension`]'s.
+///    `frame_system::WeightReclaim`. Wrappers whose inner call is stored on-chain rather than in
+///    the submitted extrinsic (`Multisig::execute`) are charged the worst case their bounded
+///    payload could realize ([`Self::max_reaps_per_stored_call`]) and refunded down to the actual
+///    count — the same declare-then-refund pattern the multisig pallet itself uses for the stored
+///    call's `MaxInnerCallWeight`. Should a reap ever arrive on a path the matcher misses entirely,
+///    it is still registered against the block as a defense-in-depth backstop.
 #[derive(Encode, Decode, Clone, Eq, PartialEq, Default, TypeInfo, Debug, DecodeWithMemTracking)]
 pub struct ChargePubkeyCacheVerify;
 
@@ -52,6 +55,24 @@ impl ChargePubkeyCacheVerify {
 		pallet_pubkey::Pallet::<Runtime>::reap_cleanup_weight()
 	}
 
+	/// Sound upper bound on the account reaps one stored multisig call can
+	/// realize, used to reserve cleanup weight for `Multisig::execute` — whose
+	/// inner call lives on-chain, invisible to [`Self::count_reaps`].
+	///
+	/// The cheapest encoding that kills one *distinct* account is
+	/// `Utility::as_derivative { index, call: Balances::burn { value: 1, keep_alive: false } }`:
+	/// 2 outer call-index bytes + 2 derivative-index bytes + 2 inner call-index
+	/// bytes + 1 compact-value byte + 1 `keep_alive` byte = 8 bytes (each
+	/// derivative of the multisig is a distinct account an attacker can
+	/// pre-fund at the existential deposit, which `burn(1)` then kills). A
+	/// `MaxCallSize`-bounded stored call therefore cannot realize more than
+	/// `MaxCallSize / 8` reaps, batching overhead ignored in the bound's favor.
+	pub fn max_reaps_per_stored_call() -> u64 {
+		const MIN_ENCODED_BYTES_PER_REAP: u64 = 8;
+		u64::from(<Runtime as pallet_multisig::Config>::MaxCallSize::get()) /
+			MIN_ENCODED_BYTES_PER_REAP
+	}
+
 	/// Statically visible upper bound on the number of account reaps `call` can
 	/// perform, compositional over call wrappers.
 	///
@@ -59,12 +80,13 @@ impl ChargePubkeyCacheVerify {
 	/// below its existential deposit. Counting is deliberately generous — every
 	/// counted-but-unrealized reap is refunded post-dispatch, so overcounting
 	/// costs honest users nothing, while an uncounted reap is only reconciled
-	/// against block capacity, not the fee. Calls whose inner call is stored
-	/// on-chain rather than in the submitted call (`Multisig::execute`, ...)
-	/// cannot be counted statically and fall through to 0; scheduler-enacted
-	/// reaps happen outside extrinsics entirely and are registered by the
-	/// `OnKilledAccount` hook itself. Fee withdrawal cannot reap the payer
-	/// (`FungibleAdapter` withdraws with `Preservation::Preserve`).
+	/// against block capacity, not the fee. `Multisig::execute`, whose inner
+	/// call is stored on-chain rather than in the submitted call, is charged
+	/// the worst case its payload could realize
+	/// ([`Self::max_reaps_per_stored_call`]); scheduler-enacted reaps happen
+	/// outside extrinsics entirely and are registered by the `OnKilledAccount`
+	/// hook itself. Fee withdrawal cannot reap the payer (`FungibleAdapter`
+	/// withdraws with `Preservation::Preserve`).
 	fn count_reaps(call: &RuntimeCall) -> u64 {
 		match call {
 			// Can drop the source (or, for `force_set_balance`/`burn`, the target
@@ -113,6 +135,20 @@ impl ChargePubkeyCacheVerify {
 			RuntimeCall::Utility(pallet_utility::Call::if_else { main, fallback }) =>
 				Self::count_reaps(main).max(Self::count_reaps(fallback)),
 
+			// `execute` dispatches a proposal's stored call as the multisig
+			// account. The call bytes live on-chain, not in the submitted
+			// extrinsic, so they cannot be inspected here; reserve the worst
+			// case a `MaxCallSize` payload can realize instead — the refund in
+			// `post_dispatch_details` returns everything the dispatch does not
+			// actually reap, so honest executes only lend this weight for the
+			// duration of the extrinsic. The bound cannot compound through
+			// nesting: a stored call that contains another `execute` (directly
+			// or in a batch) declares at least `MaxInnerCallWeight` of call
+			// weight and is rejected by the multisig pallet's
+			// `CallWeightExceedsLimit` check at both propose and execute time.
+			RuntimeCall::Multisig(pallet_multisig::Call::execute { .. }) =>
+				Self::max_reaps_per_stored_call(),
+
 			_ => 0,
 		}
 	}
@@ -154,12 +190,12 @@ impl TransactionExtension<RuntimeCall> for ChargePubkeyCacheVerify {
 		let actual =
 			pallet_pubkey::Pallet::<Runtime>::extrinsic_reaps().saturating_sub(reaps_before);
 
-		// Reaps beyond the static charge came through a call path the matcher
-		// cannot see into (inner call stored on-chain). Keep block-capacity
-		// accounting sound by registering them post-hoc; the shortfall is one
-		// cheap cleanup per reap, bounded by the (fully charged) calls that
-		// performed the reaps — the same accepted trade-off as the wormhole
-		// recorder's (see its `post_dispatch_details`).
+		// Reaps beyond the static charge would mean `count_reaps` missed a
+		// kill-capable path (stored multisig calls are already covered by the
+		// `max_reaps_per_stored_call` reservation). Defense in depth: keep
+		// block-capacity accounting sound by registering the shortfall
+		// post-hoc — one cheap cleanup per reap, bounded by the (fully
+		// charged) calls that performed the reaps.
 		if actual > charged {
 			frame_system::Pallet::<Runtime>::register_extra_weight_unchecked(
 				Self::per_reap_weight().saturating_mul(actual.saturating_sub(charged)),
@@ -2383,6 +2419,54 @@ mod tests {
 		assert_eq!(Ext::count_reaps(&if_else), 3, "if_else charges its heavier branch");
 	}
 
+	/// Regression (security review 2026-08): `Multisig::execute` dispatches a
+	/// stored call the static matcher cannot see, so it must reserve the worst
+	/// case its `MaxCallSize` payload could realize *before* `CheckWeight` —
+	/// and that reservation must still fit the Normal-class budget next to the
+	/// `MaxInnerCallWeight` the pallet already reserves, or the bound would
+	/// make every `execute` inadmissible.
+	#[test]
+	fn multisig_execute_reserves_the_stored_call_worst_case() {
+		use frame_support::dispatch::GetDispatchInfo;
+		use sp_runtime::traits::TransactionExtension;
+
+		type Ext = ChargePubkeyCacheVerify;
+
+		// 10 KiB stored-call bound / 8 bytes per cheapest distinct reap
+		// (`as_derivative(index, burn(1, keep_alive: false))`). Pinned so a
+		// `MaxCallSize` change forces this budget check to be revisited.
+		let bound = Ext::max_reaps_per_stored_call();
+		assert_eq!(bound, 1280);
+
+		let execute = RuntimeCall::Multisig(pallet_multisig::Call::execute {
+			multisig_address: alice(),
+			proposal_id: 0,
+		});
+		assert_eq!(Ext::count_reaps(&execute), bound);
+
+		// Wrapping does not lose the reservation…
+		let wrapped =
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls: vec![execute.clone()] });
+		assert_eq!(Ext::count_reaps(&wrapped), bound);
+
+		// …and the fully reserved extrinsic (bookkeeping + MaxInnerCallWeight
+		// + this reservation) remains admittable in the Normal class.
+		let ext = Ext::new();
+		let declared = execute
+			.get_dispatch_info()
+			.call_weight
+			.saturating_add(<Ext as TransactionExtension<RuntimeCall>>::weight(&ext, &execute));
+		let max_normal = crate::configs::RuntimeBlockWeights::get()
+			.get(frame_support::dispatch::DispatchClass::Normal)
+			.max_total
+			.expect("Normal class has a max_total");
+		assert!(
+			declared.ref_time() < max_normal.ref_time(),
+			"a worst-case-reserved execute must stay admissible: \
+			 declared={declared:?} max_normal={max_normal:?}"
+		);
+	}
+
 	#[test]
 	fn extension_weight_pre_charges_reap_cleanup() {
 		use sp_runtime::traits::TransactionExtension;
@@ -2491,9 +2575,11 @@ mod tests {
 		});
 	}
 
-	/// A reap reached through a call path the static matcher cannot see into
-	/// (inner call stored on-chain, e.g. `Multisig::execute`) is registered
+	/// Defense-in-depth backstop: if a reap ever arrives on a call path
+	/// `count_reaps` misses (no such path is currently known — stored multisig
+	/// calls are covered by `max_reaps_per_stored_call`), it is registered
 	/// against block capacity post-hoc, keeping admission accounting sound.
+	/// Simulated here by dispatching a reap under an unrelated presented call.
 	#[test]
 	fn statically_invisible_reap_is_registered_against_the_block() {
 		new_test_ext().execute_with(|| {
