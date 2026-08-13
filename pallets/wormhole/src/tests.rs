@@ -10,6 +10,21 @@ fn ceil_volume_fee(exit_quanta: u128, fee_bps: u128) -> u128 {
 	exit_quanta.saturating_mul(fee_bps).div_ceil(10_000 - fee_bps) * crate::SCALE_DOWN_FACTOR
 }
 
+/// Expected miner and aggregator credits for a fee, in planck.
+///
+/// Independent re-derivation of the quanta-domain split (mock rates: 50% burn,
+/// 50% of the burn bucket to the aggregator): the burn share rounds UP (so the
+/// miner share rounds down) and the rebate share rounds DOWN — every credit is
+/// a whole number of quanta by construction, sub-quantum shares are burned.
+#[cfg(test)]
+fn expected_fee_credits(fee: u128) -> (u128, u128) {
+	let fee_quanta = fee / crate::SCALE_DOWN_FACTOR;
+	let burn_quanta = fee_quanta.div_ceil(2);
+	let miner_quanta = fee_quanta - burn_quanta;
+	let rebate_quanta = burn_quanta / 2;
+	(miner_quanta * crate::SCALE_DOWN_FACTOR, rebate_quanta * crate::SCALE_DOWN_FACTOR)
+}
+
 #[cfg(test)]
 mod wormhole_tests {
 	use crate::mock::*;
@@ -570,7 +585,7 @@ mod private_batch_proof_tests {
 		mock::*,
 		pallet::{Error, UsedNullifiers},
 	};
-	use frame_support::{assert_noop, assert_ok};
+	use frame_support::{assert_noop, assert_ok, traits::fungible::Inspect};
 	use frame_system::RawOrigin;
 	use qp_wormhole_verifier::{parse_private_batch_public_inputs, ProofWithPublicInputs, C, F};
 	use sp_core::H256;
@@ -1033,7 +1048,7 @@ mod private_batch_proof_tests {
 	}
 
 	#[test]
-	fn test_verify_private_batch_emits_miner_volume_fee_paid() {
+	fn test_verify_private_batch_burns_sub_quantum_miner_fee() {
 		new_test_ext().execute_with(|| {
 			let proof = deserialize_test_proof();
 			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
@@ -1068,27 +1083,28 @@ mod private_batch_proof_tests {
 				.sum();
 			let fee_bps = VolumeFeeRateBps::get() as u128;
 			let total_fee = super::ceil_volume_fee(exit_quanta, fee_bps);
-			let expected_miner_fee = total_fee - total_fee / 2;
-			assert!(expected_miner_fee > 0, "fixture should produce a non-zero miner fee");
+			// The fixture exits 1998 quanta → a one-quantum fee. 50% of that is
+			// sub-quantum, so the miner share is burned rather than credited as a
+			// zero-commitment leaf.
+			let (expected_miner_fee, _) = super::expected_fee_credits(total_fee);
+			assert_eq!(expected_miner_fee, 0, "fixture fee must exercise the sub-quantum split");
 
-			let author_balance_before = Balances::free_balance(expected_author.clone());
+			let author_balance_before = Balances::balance(&expected_author);
 
 			assert_ok!(Wormhole::verify_private_batch(
 				RawOrigin::None.into(),
 				get_test_proof_bytes()
 			));
 
-			System::assert_has_event(
-				crate::Event::<Test>::MinerVolumeFeePaid {
-					miner: expected_author.clone(),
-					amount: expected_miner_fee,
-				}
-				.into(),
+			assert!(
+				!System::events().iter().any(|r| matches!(
+					r.event,
+					RuntimeEvent::Wormhole(crate::Event::<Test>::MinerVolumeFeePaid { .. })
+				)),
+				"sub-quantum miner share must not be credited"
 			);
-			assert_eq!(
-				Balances::free_balance(expected_author),
-				author_balance_before + expected_miner_fee
-			);
+			assert_eq!(Balances::balance(&expected_author), author_balance_before);
+			assert_eq!(Wormhole::transfer_count(&expected_author), 0);
 		});
 	}
 
@@ -1436,11 +1452,19 @@ mod exit_bundle_tests {
 	};
 	use qp_wormhole_verifier::{BlockData, BytesDigest, PublicInputsByAccount};
 	use sp_core::crypto::AccountId32;
-	use sp_runtime::Permill;
 
 	/// Quantized circuit amounts (2 decimals). 2000 => 20 QUAN on-chain.
 	const AMOUNT_A: u32 = 2000;
 	const AMOUNT_B: u32 = 3000;
+	/// Settles a 3-quantum fee (`ceil(5000 · 4 / 9996) = 3`); the miner share
+	/// (fee minus the rounded-up burn) is 1 whole quantum.
+	const AMOUNT_THREE_QUANTUM_FEE: u32 = 5_000;
+	/// Settles a 4-quantum fee (`9996 · 4 / 9996 = 4`); 25% aggregator share
+	/// floors to 1 quantum.
+	const AMOUNT_FOUR_QUANTUM_FEE: u32 = 9_996;
+	/// Settles an 8-quantum fee so a denied-segment test can distinguish
+	/// quantized aggregator rebates (2Q vs 1Q).
+	const AMOUNT_EIGHT_QUANTUM_FEE: u32 = 18_000;
 
 	fn digest(byte: u8) -> BytesDigest {
 		BytesDigest::new_unchecked([byte; 32])
@@ -1621,7 +1645,10 @@ mod exit_bundle_tests {
 
 			let aggregator = AccountId32::new([7u8; 32]);
 			let b = bundle(
-				vec![segment(&[1], &[(10, AMOUNT_A)]), segment(&[3], &[(11, AMOUNT_B)])],
+				vec![
+					segment(&[1], &[(10, AMOUNT_FOUR_QUANTUM_FEE)]),
+					segment(&[3], &[(11, AMOUNT_EIGHT_QUANTUM_FEE)]),
+				],
 				Some(digest(7)),
 			);
 			assert_ok!(Wormhole::process_exit_bundle(b));
@@ -1629,14 +1656,15 @@ mod exit_bundle_tests {
 			// The quantized-ceiling volume fee, computed on the total that EXCLUDES
 			// the denied segment's value.
 			let fee_bps = VolumeFeeRateBps::get() as u128;
-			let fee = super::ceil_volume_fee(AMOUNT_A as u128, fee_bps);
-			let fee_if_denied_included =
-				super::ceil_volume_fee((AMOUNT_A + AMOUNT_B) as u128, fee_bps);
+			let fee = super::ceil_volume_fee(AMOUNT_FOUR_QUANTUM_FEE as u128, fee_bps);
+			let fee_if_denied_included = super::ceil_volume_fee(
+				(AMOUNT_FOUR_QUANTUM_FEE + AMOUNT_EIGHT_QUANTUM_FEE) as u128,
+				fee_bps,
+			);
 			assert_ne!(fee, fee_if_denied_included, "test must distinguish the two totals");
 
-			let burn_bucket = Permill::from_percent(50) * fee;
-			let expected_rebate = Permill::from_percent(50) * burn_bucket;
-			assert!(expected_rebate > 0, "amounts must produce a nonzero rebate");
+			let (_, expected_rebate) = super::expected_fee_credits(fee);
+			assert!(expected_rebate > 0, "amounts must produce a whole-quantum rebate");
 			assert_eq!(
 				Balances::balance(&aggregator),
 				expected_rebate,
@@ -1644,7 +1672,7 @@ mod exit_bundle_tests {
 			);
 
 			// No block author in tests, so the miner share is burned too. Issuance
-			// drops by (burn_bucket - rebate) + (fee - burn_bucket) = fee - rebate.
+			// drops by fee minus the quantized rebate (sub-quantum residue burned).
 			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();
 			assert_eq!(
 				issuance_before - issuance_after,
@@ -1820,6 +1848,112 @@ mod exit_bundle_tests {
 		});
 	}
 
+	/// Security regression (EQ-QNT-WORMHOLE-F-03 leftover): the miner's volume-fee
+	/// share is credited to a hash-derived wormhole address with no signing key.
+	/// Without a zk-tree leaf the credit cannot be exited and is permanently frozen.
+	/// Uses an exit large enough that the 50% miner split is a whole quantum
+	/// (`hash_leaf` would commit 0 for a sub-quantum credit).
+	#[test]
+	fn process_exit_bundle_records_leaf_for_miner_volume_fee() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let miner_preimage = [7u8; 32];
+			set_miner_preimage_digest(miner_preimage);
+			let miner = AccountId32::from(
+				qp_wormhole::derive_wormhole_address(miner_preimage)
+					.expect("test preimage limbs are canonical"),
+			);
+
+			assert_ok!(Wormhole::process_exit_bundle(bundle(
+				vec![segment(&[1], &[(10, AMOUNT_THREE_QUANTUM_FEE)])],
+				None
+			)));
+
+			let fee_bps = VolumeFeeRateBps::get() as u128;
+			let fee = super::ceil_volume_fee(AMOUNT_THREE_QUANTUM_FEE as u128, fee_bps);
+			let (expected_miner_fee, _) = super::expected_fee_credits(fee);
+			assert!(expected_miner_fee > 0, "amounts must produce a whole-quantum miner fee");
+			assert_eq!(Balances::balance(&miner), expected_miner_fee);
+			assert_exitable_native_leaf(&miner, expected_miner_fee);
+		});
+	}
+
+	/// Security regression (EQ-QNT-WORMHOLE-F-03 leftover): the public-batch
+	/// aggregator rebate is credited to a hash-derived account. Same omission as
+	/// the miner fee — a balance with no leaf is permanently frozen.
+	/// Uses an exit large enough that the 25% aggregator split is a whole quantum.
+	#[test]
+	fn process_exit_bundle_records_leaf_for_aggregator_rebate() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let aggregator = AccountId32::new([7u8; 32]);
+			assert_ok!(Wormhole::process_exit_bundle(bundle(
+				vec![segment(&[1], &[(10, AMOUNT_FOUR_QUANTUM_FEE)])],
+				Some(digest(7)),
+			)));
+
+			let fee_bps = VolumeFeeRateBps::get() as u128;
+			let fee = super::ceil_volume_fee(AMOUNT_FOUR_QUANTUM_FEE as u128, fee_bps);
+			let (_, expected_rebate) = super::expected_fee_credits(fee);
+			assert!(expected_rebate > 0, "amounts must produce a whole-quantum rebate");
+			assert_eq!(Balances::balance(&aggregator), expected_rebate);
+			assert_exitable_native_leaf(&aggregator, expected_rebate);
+		});
+	}
+
+	/// Minimum-fee regression: a one-quantum volume fee splits 50/50 into
+	/// sub-quantum miner and aggregator shares. Those must be burned, not credited
+	/// as leaves that `hash_leaf` would commit as amount 0 (permanently frozen).
+	#[test]
+	fn process_exit_bundle_burns_sub_quantum_fee_splits() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			assert_ok!(Balances::mint_into(&account_id(999), 1_000 * UNIT));
+			let issuance_before = <Balances as Inspect<AccountId>>::total_issuance();
+
+			let miner_preimage = [7u8; 32];
+			set_miner_preimage_digest(miner_preimage);
+			let miner = AccountId32::from(
+				qp_wormhole::derive_wormhole_address(miner_preimage)
+					.expect("test preimage limbs are canonical"),
+			);
+			let aggregator = AccountId32::new([8u8; 32]);
+
+			assert_ok!(Wormhole::process_exit_bundle(bundle(
+				vec![segment(&[1], &[(10, AMOUNT_A)])],
+				Some(digest(8)),
+			)));
+
+			let fee_bps = VolumeFeeRateBps::get() as u128;
+			let fee = super::ceil_volume_fee(AMOUNT_A as u128, fee_bps);
+			assert_eq!(fee, crate::SCALE_DOWN_FACTOR, "AMOUNT_A must settle a one-quantum fee");
+			let (miner_credit, aggregator_credit) = super::expected_fee_credits(fee);
+			assert_eq!(miner_credit, 0);
+			assert_eq!(aggregator_credit, 0);
+
+			assert_eq!(Balances::balance(&miner), 0);
+			assert_eq!(Wormhole::transfer_count(&miner), 0);
+			assert_eq!(Balances::balance(&aggregator), 0);
+			assert_eq!(Wormhole::transfer_count(&aggregator), 0);
+			assert!(
+				!System::events().iter().any(|r| matches!(
+					r.event,
+					RuntimeEvent::Wormhole(crate::Event::<Test>::MinerVolumeFeePaid { .. })
+				)),
+				"sub-quantum miner share must not emit MinerVolumeFeePaid"
+			);
+			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();
+			assert_eq!(
+				issuance_before - issuance_after,
+				fee,
+				"the entire one-quantum fee must be burned"
+			);
+		});
+	}
+
 	#[test]
 	fn process_exit_bundle_burns_rebate_when_aggregator_mint_fails() {
 		new_test_ext().execute_with(|| {
@@ -1847,6 +1981,11 @@ mod exit_bundle_tests {
 				Balances::balance(&aggregator),
 				0,
 				"below-ED rebate must not create the aggregator account"
+			);
+			assert_eq!(
+				Wormhole::transfer_count(&aggregator),
+				0,
+				"a failed rebate must not insert a zk-tree leaf"
 			);
 
 			// The whole fee is burned: the rebate fell back into the burn bucket and
@@ -1876,7 +2015,6 @@ mod public_batch_proof_tests {
 		parse_public_batch_public_inputs, ProofWithPublicInputs, PublicBatchPublicInputs, C, F,
 	};
 	use sp_core::{crypto::AccountId32, H256};
-	use sp_runtime::Permill;
 
 	/// The D const parameter for plonky2 proofs (extension degree = 2)
 	const D: usize = 2;
@@ -2033,18 +2171,19 @@ mod public_batch_proof_tests {
 				"Zero nullifiers from dummy padding must not be stored"
 			);
 
-			// Aggregator rebate: quantized-ceiling volume fee, burn bucket = 50% of
-			// fee, and VolumeFeesAggregatorRate (50%) of that goes to the aggregator.
+			// Aggregator rebate: quantized-ceiling volume fee, then 50% of the burn
+			// bucket, floored to a whole quantum. The fixture exits 1998 quanta
+			// (one-quantum fee), so the 25% rebate is sub-quantum and must be burned.
 			let fee_bps = VolumeFeeRateBps::get() as u128;
 			let total_fee = super::ceil_volume_fee(exit_quanta, fee_bps);
-			let burn_bucket = Permill::from_percent(50) * total_fee;
-			let expected_rebate = Permill::from_percent(50) * burn_bucket;
-			assert!(expected_rebate > 0, "Fixture fee should produce a nonzero rebate");
+			let (_, expected_rebate) = super::expected_fee_credits(total_fee);
+			assert_eq!(expected_rebate, 0, "fixture fee must exercise the sub-quantum rebate");
 			assert_eq!(
 				Balances::balance(&aggregator),
-				expected_rebate,
-				"Aggregator should receive its slice of the burn bucket"
+				0,
+				"sub-quantum aggregator rebate must be burned, not credited"
 			);
+			assert_eq!(Wormhole::transfer_count(&aggregator), 0);
 		});
 	}
 

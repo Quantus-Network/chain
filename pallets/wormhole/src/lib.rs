@@ -237,7 +237,7 @@ pub mod pallet {
 		transaction_validity::{
 			InvalidTransaction, TransactionSource, TransactionValidity, ValidTransaction,
 		},
-		Permill,
+		Permill, TokenError,
 	};
 
 	pub type BalanceOf<T> = <T as Config>::NativeBalance;
@@ -818,18 +818,7 @@ pub mod pallet {
 			for (exit_account, exit_balance) in &processed_accounts {
 				// Skip failed credits (e.g. below ED); nullifier already marked, value
 				// excluded from fee settlement / event.
-				//
-				// NOTE: this must stay `Unbalanced::increase_balance` (event-free). The runtime's
-				// `WormholeProofRecorderExtension` records a transfer proof for every
-				// `Balances::Minted` event it scans, and this exit already records its own proof
-				// via `record_transfer` below — switching to `mint_into` (which emits `Minted`)
-				// could double-record the credit. Pinned by the test
-				// `exit_credits_emit_no_scannable_transfer_events`.
-				match <T::Currency as Unbalanced<_>>::increase_balance(
-					exit_account,
-					*exit_balance,
-					frame_support::traits::tokens::Precision::Exact,
-				) {
+				match Self::credit_and_record(exit_account, *exit_balance, &mint_account) {
 					Ok(_) => {},
 					Err(e) => {
 						log::warn!(
@@ -847,16 +836,6 @@ pub mod pallet {
 				}
 
 				minted_exit_amount = minted_exit_amount.saturating_add(*exit_balance);
-
-				// Record transfer proof for the minted tokens
-				let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
-				let to_account: <T as Config>::WormholeAccountId = exit_account.clone().into();
-				Self::record_transfer(
-					T::AssetId::default(),
-					&from_account,
-					&to_account,
-					*exit_balance,
-				);
 			}
 
 			Self::deposit_event(Event::ProofVerified {
@@ -871,38 +850,35 @@ pub mod pallet {
 			let total_fee_u128 =
 				Self::volume_fee_for_exit(total_exit_u128, T::VolumeFeeRateBps::get());
 
-			// Fee distribution: configurable portion burned, remainder to miner
+			// Fee distribution: configurable portion burned, remainder to miner.
 			//
 			// Original deposit locked `input_amount` in an unspendable account (tokens still
 			// exist). On exit we mint `output_amount` to user, where: input >= output + fee
 			//
-			// Fee split (controlled by VolumeFeesBurnRate):
-			//   - burn_amount = fee * burn_rate  (reduces total issuance via Currency::burn)
-			//   - miner_fee = fee - burn_amount  (minted to block author via increase_balance)
+			// The split is computed in whole QUANTA, not planck. The ZK leaf commits
+			// `amount / SCALE_DOWN_FACTOR` as a u32 and fee recipients are keyless
+			// wormhole addresses whose only spend path is that leaf, so any share
+			// that is not a whole number of quanta would be (partly) frozen. The fee
+			// itself is already whole quanta (`volume_fee_for_exit`); splitting the
+			// quanta count keeps every share exitable by construction:
+			//   - burn_quanta  = ceil(burn_rate · fee_quanta)   — rounds against the miner
+			//   - miner_quanta = fee_quanta − burn_quanta
+			//   - rebate_quanta = floor(aggregator_rate · burn_quanta) — rounds against the
+			//     aggregator, remainder stays burned
 			//
 			// Supply accounting:
 			//   - Minting exit amounts: increases balances but NOT issuance by sum(output_amounts)
-			//   - Minting miner fee: increases balance but NOT issuance (increase_balance)
-			//   - Burning: decreases total issuance by burn_amount
-			//   - Net change: +sum(output_amounts) - burn_amount
-			let burn_rate = T::VolumeFeesBurnRate::get();
-			let mut burn_amount_u128 = burn_rate * total_fee_u128;
-			let miner_fee_u128 = total_fee_u128.saturating_sub(burn_amount_u128);
+			//   - Minting miner fee / rebate: increases balance but NOT issuance (increase_balance)
+			//   - Burning: decreases total issuance by burn_quanta · SCALE_DOWN_FACTOR
+			let fee_quanta = total_fee_u128 / crate::SCALE_DOWN_FACTOR;
+			let mut burn_quanta = T::VolumeFeesBurnRate::get().mul_ceil(fee_quanta);
+			let miner_quanta = fee_quanta.saturating_sub(burn_quanta);
 
 			// Public-batch aggregator rebate: redirect part of the burn bucket to the
 			// aggregator. The miner's share is unchanged.
 			if let Some(aggregator_address) = &bundle.aggregator_address {
-				let aggregator_rate = T::VolumeFeesAggregatorRate::get();
-				let aggregator_fee_u128 = aggregator_rate * burn_amount_u128;
-				burn_amount_u128 = burn_amount_u128.saturating_sub(aggregator_fee_u128);
-
-				if aggregator_fee_u128 > 0 {
-					let aggregator_fee: BalanceOf<T> =
-						aggregator_fee_u128.try_into().map_err(|_| {
-							log::error!("Failed to convert aggregator_fee_u128 to BalanceOf");
-							Error::<T>::InvalidProofPublicInputs
-						})?;
-
+				let rebate_quanta = T::VolumeFeesAggregatorRate::get().mul_floor(burn_quanta);
+				if rebate_quanta > 0 {
 					let aggregator_bytes: [u8; 32] = (*aggregator_address)
 						.as_ref()
 						.try_into()
@@ -911,82 +887,60 @@ pub mod pallet {
 						<T as frame_system::Config>::AccountId::decode(&mut &aggregator_bytes[..])
 							.map_err(|_| Error::<T>::InvalidProofPublicInputs)?;
 
-					// A failed rebate mint (e.g. the aggregator account doesn't exist
-					// and the rebate is below the existential deposit) must not revert
-					// the whole bundle - that would drag users' exits down with a
-					// problem the aggregator inflicted on itself. Burn the rebate
-					// instead and process the exits normally.
-					match <T::Currency as Unbalanced<_>>::increase_balance(
+					// A failed rebate mint (e.g. below ED) must not revert the whole
+					// bundle; the share simply stays in the burn bucket.
+					if Self::try_credit_fee_quanta(
 						&aggregator_account,
-						aggregator_fee,
-						frame_support::traits::tokens::Precision::Exact,
-					) {
-						Ok(_) => {},
-						Err(e) => {
-							log::warn!(
-								"Aggregator rebate of {:?} could not be minted ({:?}); burning it instead",
-								aggregator_fee,
-								e
-							);
-							burn_amount_u128 = burn_amount_u128.saturating_add(aggregator_fee_u128);
-						},
+						rebate_quanta,
+						&mint_account,
+					)?
+					.is_some()
+					{
+						burn_quanta = burn_quanta.saturating_sub(rebate_quanta);
 					}
 				}
 			}
 
-			let miner_fee: BalanceOf<T> = miner_fee_u128.try_into().map_err(|_| {
-				log::error!("Failed to convert miner_fee_u128 to BalanceOf");
-				Error::<T>::InvalidProofPublicInputs
-			})?;
-
-			// Mint miner's portion of volume fee to block author
-			// If no author is found, add to burn amount instead of silently losing it
-			if !miner_fee.is_zero() {
+			// Mint miner's portion of volume fee to block author.
+			// If no author is found (or the mint fails), burn it instead of
+			// silently losing it.
+			if miner_quanta > 0 {
 				let digest = frame_system::Pallet::<T>::digest();
-				if let Some(author) = qp_wormhole::extract_author_from_digest::<
+				let credited = match qp_wormhole::extract_author_from_digest::<
 					<T as frame_system::Config>::AccountId,
 					_,
 				>(digest.logs.iter())
 				{
-					// A failed miner-fee mint (e.g. the author account doesn't exist and
-					// the fee is below the existential deposit) must not revert the whole
-					// bundle and drag users' exits down with it. Burn it instead, exactly
-					// like the no-author branch below and the aggregator-rebate fallback.
-					match <T::Currency as Unbalanced<_>>::increase_balance(
-						&author,
-						miner_fee,
-						frame_support::traits::tokens::Precision::Exact,
-					) {
-						Ok(_) => {
+					Some(author) => {
+						let credited =
+							Self::try_credit_fee_quanta(&author, miner_quanta, &mint_account)?;
+						if let Some(amount) = credited {
 							Self::deposit_event(Event::MinerVolumeFeePaid {
 								miner: author,
-								amount: miner_fee,
+								amount,
 							});
-						},
-						Err(e) => {
-							log::warn!(
-								"Miner fee of {:?} could not be minted ({:?}); burning it instead",
-								miner_fee,
-								e
-							);
-							burn_amount_u128 = burn_amount_u128.saturating_add(miner_fee_u128);
-						},
-					}
-				} else {
-					// No block author found - add miner fee to burn amount
-					log::warn!(
-						"No block author found, burning miner fee of {:?} instead",
-						miner_fee
-					);
-					burn_amount_u128 = burn_amount_u128.saturating_add(miner_fee_u128);
+						}
+						credited.is_some()
+					},
+					None => {
+						log::warn!(
+							"No block author found, burning miner fee of {} quanta instead",
+							miner_quanta
+						);
+						false
+					},
+				};
+				if !credited {
+					burn_quanta = burn_quanta.saturating_add(miner_quanta);
 				}
 			}
 
-			// Burn the total burn amount (base burn + any orphaned miner fee)
-			let burn_amount: BalanceOf<T> = burn_amount_u128.try_into().map_err(|_| {
-				log::error!("Failed to convert burn_amount_u128 to BalanceOf");
-				Error::<T>::InvalidProofPublicInputs
-			})?;
+			// Burn the total burn amount (base burn + any uncredited fee shares)
+			let burn_amount: BalanceOf<T> =
+				burn_quanta.saturating_mul(crate::SCALE_DOWN_FACTOR).try_into().map_err(|_| {
+					log::error!("Failed to convert burn amount to BalanceOf");
+					Error::<T>::InvalidProofPublicInputs
+				})?;
 			if !burn_amount.is_zero() {
 				let current = <T::Currency as FungibleInspect<_>>::total_issuance();
 				<T::Currency as Unbalanced<_>>::set_total_issuance(
@@ -1268,6 +1222,73 @@ pub mod pallet {
 				Ok(bytes) => pallet_zk_tree::tree::canonicalize_account_bytes(bytes).into(),
 				Err(_) => to.clone(),
 			}
+		}
+
+		/// Credit a fee share of `quanta` whole quanta to `to`, or leave it for
+		/// the burn bucket.
+		///
+		/// Returns the credited balance, or `None` when the mint failed (e.g. the
+		/// account doesn't exist and the share is below the existential deposit).
+		/// A failed fee credit must not revert the bundle — users' exits would be
+		/// dragged down with it — so the caller burns the share instead.
+		fn try_credit_fee_quanta(
+			to: &<T as frame_system::Config>::AccountId,
+			quanta: u128,
+			mint_account: &<T as frame_system::Config>::AccountId,
+		) -> Result<Option<BalanceOf<T>>, Error<T>> {
+			let amount: BalanceOf<T> =
+				quanta.saturating_mul(crate::SCALE_DOWN_FACTOR).try_into().map_err(|_| {
+					log::error!("Failed to convert fee credit to BalanceOf");
+					Error::<T>::InvalidProofPublicInputs
+				})?;
+			match Self::credit_and_record(to, amount, mint_account) {
+				Ok(_) => Ok(Some(amount)),
+				Err(e) => {
+					log::warn!(
+						"Fee credit of {:?} to {:?} failed ({:?}); burning it instead",
+						amount,
+						to,
+						e
+					);
+					Ok(None)
+				},
+			}
+		}
+
+		/// Credit `amount` to `to` via event-free `increase_balance` and insert a
+		/// zk-tree leaf so the credit is exitable.
+		///
+		/// Must stay paired: wormhole-derived accounts have no signing key, so a
+		/// balance without a leaf is permanently frozen. Must stay
+		/// `Unbalanced::increase_balance` (not `mint_into`): the runtime's
+		/// `WormholeProofRecorderExtension` would otherwise double-record from the
+		/// `Minted` event. Pinned by `exit_credits_emit_no_scannable_transfer_events`
+		/// and the miner-fee / aggregator-rebate leaf tests.
+		///
+		/// `amount` must be a positive multiple of [`SCALE_DOWN_FACTOR`]: the leaf
+		/// hash commits `amount / 10^10`, so a sub-quantum credit would insert a
+		/// zero-commitment leaf and freeze the balance. All callers satisfy this by
+		/// construction (exit balances are quantized circuit outputs; fee shares are
+		/// split in quanta); the check is a backstop for future call sites.
+		fn credit_and_record(
+			to: &<T as frame_system::Config>::AccountId,
+			amount: BalanceOf<T>,
+			mint_account: &<T as frame_system::Config>::AccountId,
+		) -> Result<BalanceOf<T>, DispatchError> {
+			let amount_u128: u128 = amount.try_into().map_err(|_| TokenError::BelowMinimum)?;
+			ensure!(
+				amount_u128 > 0 && amount_u128 % crate::SCALE_DOWN_FACTOR == 0,
+				TokenError::BelowMinimum
+			);
+			let credited = <T::Currency as Unbalanced<_>>::increase_balance(
+				to,
+				amount,
+				frame_support::traits::tokens::Precision::Exact,
+			)?;
+			let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
+			let to_account: <T as Config>::WormholeAccountId = to.clone().into();
+			Self::record_transfer(T::AssetId::default(), &from_account, &to_account, amount);
+			Ok(credited)
 		}
 
 		/// Record a transfer in the ZK tree and emit events.
