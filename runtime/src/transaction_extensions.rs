@@ -17,36 +17,6 @@ use sp_runtime::{
 	DispatchResult, Weight,
 };
 
-/// Cap on the *statically counted* side effects a multisig stored call may
-/// contain: account reaps as counted by `ChargePubkeyCacheVerify::count_reaps`,
-/// and recordable transfers as counted by
-/// `WormholeProofRecorderExtension::count_transfers`.
-///
-/// Enforced by [`StoredMultisigCallFilter`] when a proposal is created and
-/// re-checked when it is executed. This is what makes the flat per-`execute`
-/// reservations in the two matchers sound: `execute` dispatches call bytes
-/// read from storage, invisible to any static matcher, and without this cap
-/// the sound worst case would be derived from `MaxCallSize` — ~1,280 reaps
-/// (8 encoded bytes each: `as_derivative` + `burn`) or ~5,100 recordable
-/// transfers (34-byte `recover_funds` calls charged at `MaxPendingPerAccount
-/// + 1 = 17` records each), the latter ≈ 25 s of leaf-insert ref-time,
-/// unreservable within a 6 s block. With the cap, `execute` reserves
-/// `32 × per_reap` (~7 ms) and `32 × per_transfer` (~160 ms), refunded down
-/// to what the dispatch actually did.
-pub const STORED_CALL_COUNT_CAP: u64 = 32;
-
-/// `pallet_multisig::Config::StoredCallFilter`: admits a decoded stored call
-/// only if its statically counted reaps and recordable transfers both fit
-/// [`STORED_CALL_COUNT_CAP`]. Proposals needing more must be split.
-pub struct StoredMultisigCallFilter;
-impl frame_support::traits::Contains<RuntimeCall> for StoredMultisigCallFilter {
-	fn contains(call: &RuntimeCall) -> bool {
-		ChargePubkeyCacheVerify::count_reaps(call) <= STORED_CALL_COUNT_CAP &&
-			WormholeProofRecorderExtension::<Runtime>::count_transfers(call) <=
-				STORED_CALL_COUNT_CAP
-	}
-}
-
 /// Charges signed extrinsics for the two pubkey-cache costs that live outside
 /// any weighted dispatch path:
 ///
@@ -65,13 +35,12 @@ impl frame_support::traits::Contains<RuntimeCall> for StoredMultisigCallFilter {
 ///    (which the hook increments for every reap inside an extrinsic): reservations the dispatch did
 ///    not use are refunded — to the fee, because this extension precedes
 ///    `ChargeTransactionPayment`, and to block capacity, via the trailing
-///    `frame_system::WeightReclaim`. Wrappers whose inner call is stored on-chain rather than in
-///    the submitted extrinsic (`Multisig::execute`) are charged [`STORED_CALL_COUNT_CAP`] reaps — a
-///    bound [`StoredMultisigCallFilter`] enforces on every stored call at propose time and
-///    re-checks at execute time — and refunded down to the actual count, the same
-///    declare-then-refund pattern the multisig pallet itself uses for the stored call's
-///    `MaxInnerCallWeight`. Should a reap ever arrive on a path the matcher misses entirely, it is
-///    still registered against the block as a defense-in-depth backstop.
+///    `frame_system::WeightReclaim`. Every dispatch wrapper in the runtime carries its inner call
+///    in the submitted extrinsic — `Multisig::execute` included, since it requires the executor to
+///    resubmit the stored proposal's call byte-for-byte — so the count is fully compositional and
+///    nothing kill-capable hides behind opaque call bytes. Should a reap ever arrive on a path the
+///    matcher misses entirely, it is still registered against the block as a defense-in-depth
+///    backstop.
 #[derive(Encode, Decode, Clone, Eq, PartialEq, Default, TypeInfo, Debug, DecodeWithMemTracking)]
 pub struct ChargePubkeyCacheVerify;
 
@@ -93,10 +62,7 @@ impl ChargePubkeyCacheVerify {
 	/// below its existential deposit. Counting is deliberately generous — every
 	/// counted-but-unrealized reap is refunded post-dispatch, so overcounting
 	/// costs honest users nothing, while an uncounted reap is only reconciled
-	/// against block capacity, not the fee. `Multisig::execute`, whose inner
-	/// call is stored on-chain rather than in the submitted call, is charged
-	/// the [`STORED_CALL_COUNT_CAP`] that [`StoredMultisigCallFilter`]
-	/// enforces on every stored call; scheduler-enacted reaps happen
+	/// against block capacity, not the fee. Scheduler-enacted reaps happen
 	/// outside extrinsics entirely and are registered by the `OnKilledAccount`
 	/// hook itself. Fee withdrawal cannot reap the payer (`FungibleAdapter`
 	/// withdraws with `Preservation::Preserve`).
@@ -148,19 +114,12 @@ impl ChargePubkeyCacheVerify {
 			RuntimeCall::Utility(pallet_utility::Call::if_else { main, fallback }) =>
 				Self::count_reaps(main).max(Self::count_reaps(fallback)),
 
-			// `execute` dispatches a proposal's stored call as the multisig
-			// account. The call bytes live on-chain, not in the submitted
-			// extrinsic, so they cannot be inspected here; instead,
-			// `StoredMultisigCallFilter` guarantees at propose time (re-checked
-			// at execute time) that no stored call counts more than
-			// `STORED_CALL_COUNT_CAP` reaps, making the cap a sound flat
-			// reservation. The refund in `post_dispatch_details` returns
-			// everything the dispatch does not actually reap. The cap cannot
-			// compound through nesting: a stored call that contains another
-			// `execute` (directly or in a batch) declares at least
-			// `MaxInnerCallWeight` of call weight and is rejected by the
-			// multisig pallet's `CallWeightExceedsLimit` check.
-			RuntimeCall::Multisig(pallet_multisig::Call::execute { .. }) => STORED_CALL_COUNT_CAP,
+			// `execute` requires the executor to resubmit the stored proposal's
+			// call (verified byte-equal before dispatch), so the inner call is
+			// right here in the submitted extrinsic — recurse like any other
+			// wrapper.
+			RuntimeCall::Multisig(pallet_multisig::Call::execute { call, .. }) =>
+				Self::count_reaps(call),
 
 			_ => 0,
 		}
@@ -204,8 +163,7 @@ impl TransactionExtension<RuntimeCall> for ChargePubkeyCacheVerify {
 			pallet_pubkey::Pallet::<Runtime>::extrinsic_reaps().saturating_sub(reaps_before);
 
 		// Reaps beyond the static charge would mean `count_reaps` missed a
-		// kill-capable path (stored multisig calls are already covered by the
-		// `STORED_CALL_COUNT_CAP` reservation). Defense in depth: keep
+		// kill-capable path. Defense in depth: keep
 		// block-capacity accounting sound by registering the shortfall
 		// post-hoc — one cheap cleanup per reap, bounded by the (fully
 		// charged) calls that performed the reaps.
@@ -431,11 +389,7 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		// (an absolute set, not a transfer/mint), which we cannot turn into a transfer proof and
 		// therefore never record.
 		//
-		// `Multisig::execute`'s inner call is stored on-chain rather than in the submitted
-		// call and cannot be counted statically; it is charged the `STORED_CALL_COUNT_CAP`
-		// that `StoredMultisigCallFilter` enforces on every stored call at propose time
-		// (re-checked at execute time), refunded down to what the dispatch actually
-		// recorded. Should a recordable transfer ever arrive on a path this matcher misses
+		// Should a recordable transfer ever arrive on a path this matcher misses
 		// entirely, `post_dispatch` registers the shortfall against the block via
 		// `register_extra_weight_unchecked` as a defense-in-depth backstop.
 		match call {
@@ -481,11 +435,11 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			RuntimeCall::Recovery(pallet_recovery::Call::as_recovered { call, .. }) =>
 				Self::count_transfers(call),
 
-			// `execute` dispatches a proposal's stored call; the bytes are on-chain, not
-			// in this call, so charge the cap `StoredMultisigCallFilter` guarantees no
-			// stored call exceeds (see the NOTE above). Sound for the same reason the
-			// reap-side arm is, and refunded down to the recorded count post-dispatch.
-			RuntimeCall::Multisig(pallet_multisig::Call::execute { .. }) => STORED_CALL_COUNT_CAP,
+			// `execute` requires the executor to resubmit the stored proposal's call
+			// (verified byte-equal before dispatch), so the inner call is right here
+			// in the submitted extrinsic — recurse like any other wrapper.
+			RuntimeCall::Multisig(pallet_multisig::Call::execute { call, .. }) =>
+				Self::count_transfers(call),
 
 			// Exactly one branch executes: the fallback runs only if the main call failed, in
 			// which case the main call's changes (and its events) were rolled back. Charge the
@@ -700,11 +654,11 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		//    time — see `event_scan_weight`.
 		//
 		// 2. Recording shortfall: a defense-in-depth backstop for transfer events on any path the
-		//    static `count_transfers` matcher misses. No such path is currently known — stored
-		//    multisig calls are covered by the `STORED_CALL_COUNT_CAP` reservation, and
-		//    `recover_funds` is charged its worst case — but should the proof-recording work above
-		//    exceed the weight reserved by `weight()`, the flat per-transfer price times the count
-		//    difference covers it.
+		//    static `count_transfers` matcher misses. No such path is currently known — every
+		//    dispatch wrapper (multisig `execute` included) carries its inner call in the submitted
+		//    extrinsic, and `recover_funds` is charged its worst case — but should the
+		//    proof-recording work above exceed the weight reserved by `weight()`, the flat
+		//    per-transfer price times the count difference covers it.
 		//
 		// "Post-hoc and not fee-charged" is a deliberate, accepted trade-off, not an
 		// oversight (security review 2026-08):
@@ -1470,8 +1424,8 @@ mod tests {
 			System::set_block_number(1);
 
 			// The presented call is opaque to the static matcher (simulating a
-			// path it misses; none is currently known — stored multisig calls
-			// are covered by the `STORED_CALL_COUNT_CAP` reservation), but the
+			// path it misses; none is currently known — every wrapper, multisig
+			// `execute` included, carries its inner call in the extrinsic), but the
 			// dispatch emits a real transfer event that post_dispatch must record.
 			let opaque_call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
 			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&opaque_call), 0);
@@ -2303,11 +2257,12 @@ mod tests {
 			let charlie_account = charlie();
 			let count_before = Wormhole::transfer_count(&charlie_account);
 
-			// Execute the proposal
+			// Execute the proposal, resubmitting the stored call byte-for-byte
 			assert_ok!(Multisig::execute(
 				RuntimeOrigin::signed(alice()),
 				multisig_address.clone(),
 				0, // proposal_id
+				Box::new(inner_call.clone()),
 			));
 
 			// Scan events and record proofs.
@@ -2443,161 +2398,40 @@ mod tests {
 		assert_eq!(Ext::count_reaps(&if_else), 3, "if_else charges its heavier branch");
 	}
 
-	/// Regression (security review 2026-08): `Multisig::execute` dispatches a
-	/// stored call neither static matcher can see, so both must reserve the
-	/// [`STORED_CALL_COUNT_CAP`] the stored-call filter enforces *before*
-	/// `CheckWeight` — and the fully reserved extrinsic must still fit the
-	/// Normal-class budget next to the `MaxInnerCallWeight` the pallet already
-	/// reserves, or the cap would make every `execute` inadmissible.
+	/// Regression (security review 2026-08): `Multisig::execute` must not be an
+	/// opaque wrapper. Since it carries the proposal's call in the submitted
+	/// extrinsic (verified byte-equal to the stored payload before dispatch),
+	/// both static matchers recurse into it and count its side effects exactly
+	/// as they would for the same call submitted directly.
 	#[test]
-	fn multisig_execute_reserves_the_stored_call_cap() {
-		use frame_support::dispatch::GetDispatchInfo;
-		use sp_runtime::traits::TransactionExtension;
+	fn multisig_execute_counts_its_resubmitted_call() {
+		let batch_of_reaps = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+			calls: (0u16..3)
+				.map(|index| {
+					RuntimeCall::Utility(pallet_utility::Call::as_derivative {
+						index,
+						call: boxed(reaping_transfer_all()),
+					})
+				})
+				.collect(),
+		});
+		assert_eq!(ChargePubkeyCacheVerify::count_reaps(&batch_of_reaps), 3);
+		assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&batch_of_reaps), 3);
 
+		// Wrapped in `execute`, the counts are identical…
 		let execute = RuntimeCall::Multisig(pallet_multisig::Call::execute {
 			multisig_address: alice(),
 			proposal_id: 0,
+			call: boxed(batch_of_reaps),
 		});
-		assert_eq!(ChargePubkeyCacheVerify::count_reaps(&execute), STORED_CALL_COUNT_CAP);
-		assert_eq!(
-			WormholeProofRecorderExtension::<Runtime>::count_transfers(&execute),
-			STORED_CALL_COUNT_CAP
-		);
+		assert_eq!(ChargePubkeyCacheVerify::count_reaps(&execute), 3);
+		assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&execute), 3);
 
-		// Wrapping does not lose the reservations…
+		// …and survive further wrapping.
 		let wrapped =
-			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls: vec![execute.clone()] });
-		assert_eq!(ChargePubkeyCacheVerify::count_reaps(&wrapped), STORED_CALL_COUNT_CAP);
-		assert_eq!(
-			WormholeProofRecorderExtension::<Runtime>::count_transfers(&wrapped),
-			STORED_CALL_COUNT_CAP
-		);
-
-		// …and the fully reserved extrinsic (bookkeeping + MaxInnerCallWeight
-		// + both cap reservations) remains admittable in the Normal class.
-		let declared = execute
-			.get_dispatch_info()
-			.call_weight
-			.saturating_add(<ChargePubkeyCacheVerify as TransactionExtension<RuntimeCall>>::weight(
-				&ChargePubkeyCacheVerify::new(),
-				&execute,
-			))
-			.saturating_add(<WormholeProofRecorderExtension<Runtime> as TransactionExtension<
-				RuntimeCall,
-			>>::weight(&WormholeProofRecorderExtension::new(), &execute));
-		let max_normal = crate::configs::RuntimeBlockWeights::get()
-			.get(frame_support::dispatch::DispatchClass::Normal)
-			.max_total
-			.expect("Normal class has a max_total");
-		assert!(
-			declared.ref_time() < max_normal.ref_time(),
-			"a cap-reserved execute must stay admissible: \
-			 declared={declared:?} max_normal={max_normal:?}"
-		);
-	}
-
-	/// The cap reservation is only sound because [`StoredMultisigCallFilter`]
-	/// refuses stored calls that statically count past it — on either axis.
-	#[test]
-	fn stored_call_filter_admits_only_calls_within_the_cap() {
-		use frame_support::traits::Contains;
-
-		let derivative_reaps = |n: u64| {
-			RuntimeCall::Utility(pallet_utility::Call::batch_all {
-				calls: (0..n as u16)
-					.map(|index| {
-						RuntimeCall::Utility(pallet_utility::Call::as_derivative {
-							index,
-							call: boxed(reaping_transfer_all()),
-						})
-					})
-					.collect(),
-			})
-		};
-		// Each reaping `transfer_all` also counts one recordable transfer, so
-		// the transfer axis is exercised by the same calls; `recover_funds`
-		// exceeds the transfer cap alone (17 records each) while staying at 2
-		// on the reap axis.
-		let recover_funds_pair = RuntimeCall::Utility(pallet_utility::Call::batch_all {
-			calls: vec![
-				RuntimeCall::ReversibleTransfers(
-					pallet_reversible_transfers::Call::recover_funds { account: alice() },
-				),
-				RuntimeCall::ReversibleTransfers(
-					pallet_reversible_transfers::Call::recover_funds { account: bob() },
-				),
-			],
-		});
-		assert!(
-			WormholeProofRecorderExtension::<Runtime>::count_transfers(&recover_funds_pair) >
-				STORED_CALL_COUNT_CAP
-		);
-		assert!(ChargePubkeyCacheVerify::count_reaps(&recover_funds_pair) <= STORED_CALL_COUNT_CAP);
-
-		assert!(StoredMultisigCallFilter::contains(&derivative_reaps(STORED_CALL_COUNT_CAP)));
-		assert!(
-			!StoredMultisigCallFilter::contains(&derivative_reaps(STORED_CALL_COUNT_CAP + 1)),
-			"one reap past the cap must be refused"
-		);
-		assert!(
-			!StoredMultisigCallFilter::contains(&recover_funds_pair),
-			"exceeding the transfer axis alone must be refused"
-		);
-	}
-
-	/// End-to-end: the multisig pallet consults the filter, so an over-cap
-	/// call cannot even become a proposal — the guarantee the flat `execute`
-	/// reservations rest on.
-	#[test]
-	fn over_cap_stored_calls_cannot_be_proposed() {
-		use codec::Encode;
-
-		new_test_ext().execute_with(|| {
-			System::set_block_number(1);
-
-			let signers = vec![alice(), bob()];
-			assert_ok!(Multisig::create_multisig(
-				RuntimeOrigin::signed(alice()),
-				signers.clone(),
-				2,
-				0,
-			));
-			let multisig_address =
-				pallet_multisig::Pallet::<Runtime>::derive_multisig_address(&signers, 2, 0);
-
-			let batch_of_reaps = |n: u64| -> pallet_multisig::BoundedCallOf<Runtime> {
-				RuntimeCall::Utility(pallet_utility::Call::batch_all {
-					calls: (0..n as u16)
-						.map(|index| {
-							RuntimeCall::Utility(pallet_utility::Call::as_derivative {
-								index,
-								call: boxed(reaping_transfer_all()),
-							})
-						})
-						.collect(),
-				})
-				.encode()
-				.try_into()
-				.expect("call fits MaxCallSize")
-			};
-
-			frame_support::assert_err_ignore_postinfo!(
-				Multisig::propose(
-					RuntimeOrigin::signed(alice()),
-					multisig_address.clone(),
-					batch_of_reaps(STORED_CALL_COUNT_CAP + 1),
-					100,
-				),
-				pallet_multisig::Error::<Runtime>::StoredCallNotAllowed
-			);
-
-			assert_ok!(Multisig::propose(
-				RuntimeOrigin::signed(alice()),
-				multisig_address.clone(),
-				batch_of_reaps(STORED_CALL_COUNT_CAP),
-				100,
-			));
-		});
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls: vec![execute] });
+		assert_eq!(ChargePubkeyCacheVerify::count_reaps(&wrapped), 3);
+		assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&wrapped), 3);
 	}
 
 	#[test]
@@ -2709,9 +2543,9 @@ mod tests {
 	}
 
 	/// Defense-in-depth backstop: if a reap ever arrives on a call path
-	/// `count_reaps` misses (no such path is currently known — stored multisig
-	/// calls are covered by the `STORED_CALL_COUNT_CAP` reservation), it is
-	/// registered against block capacity post-hoc, keeping admission
+	/// `count_reaps` misses (no such path is currently known — every wrapper,
+	/// multisig `execute` included, carries its inner call in the extrinsic),
+	/// it is registered against block capacity post-hoc, keeping admission
 	/// accounting sound. Simulated here by dispatching a reap under an
 	/// unrelated presented call.
 	#[test]

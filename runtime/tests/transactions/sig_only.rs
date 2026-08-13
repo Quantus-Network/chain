@@ -600,17 +600,17 @@ fn batched_derivative_reaps_are_admitted_and_paid_per_reap() {
 	);
 }
 
-/// Regression (security review 2026-08): `Multisig::execute` dispatches a call
-/// stored on-chain, invisible to `count_reaps`, so its reap cleanup must be
-/// handled by an up-front reservation, not post-hoc block registration. Full
-/// pipeline: a threshold-1 multisig proposal wrapping a `batch_all` of three
-/// `as_derivative` `transfer_all(keep_alive = false)` sweeps, executed through
-/// `Executive::apply_extrinsic` with a real signed `execute`. Asserts
-/// (a) admission — the declared weight `CheckWeight` sees carries the full
-/// worst-case stored-call reservation, blind to the stored bytes — and
-/// (b) fees — the payer's `TransactionFeePaid` exceeds the non-reaping
-/// control's by exactly the three realized cleanups, the unrealized remainder
-/// of the reservation having been refunded.
+/// Regression (security review 2026-08): `Multisig::execute` must not dispatch
+/// work invisible to pre-dispatch admission and fees. Since `execute` carries
+/// the proposal's call in the submitted extrinsic (verified byte-equal to the
+/// stored payload), `count_reaps` recurses into it like any other wrapper.
+/// Full pipeline: a threshold-1 multisig proposal wrapping a `batch_all` of
+/// three `as_derivative` `transfer_all(keep_alive = false)` sweeps, executed
+/// through `Executive::apply_extrinsic` with a real signed `execute`. Asserts
+/// (a) admission — the declared weight `CheckWeight` sees carries exactly the
+/// three counted cleanups on top of the non-reaping control's — and
+/// (b) fees — the payer's `TransactionFeePaid` exceeds the control's by
+/// exactly the three realized cleanups.
 #[test]
 fn multisig_stored_call_reaps_are_admitted_and_paid_per_reap() {
 	use frame_support::dispatch::GetDispatchInfo;
@@ -680,9 +680,12 @@ fn multisig_stored_call_reaps_are_admitted_and_paid_per_reap() {
 			));
 
 			let dest_before = Balances::free_balance(&dest);
+			// The executor resubmits the stored call byte-for-byte — this is
+			// what makes the extrinsic self-describing for admission and fees.
 			let execute_call: RuntimeCall = pallet_multisig::Call::execute {
 				multisig_address: multisig_address.clone(),
 				proposal_id: 0,
+				call: Box::new(stored_call(keep_alive)),
 			}
 			.into();
 			let xt = signed_call(&pair, account.clone(), execute_call, 0, false);
@@ -706,31 +709,32 @@ fn multisig_stored_call_reaps_are_admitted_and_paid_per_reap() {
 	let (keep_declared, keep_fee) = run(true);
 	let (reap_declared, reap_fee) = run(false);
 
-	// (a) Admission: the stored bytes are invisible pre-dispatch, so both
-	// variants declare the same weight, and it carries the full stored-call
-	// cap reservation (`StoredMultisigCallFilter` guarantees at propose time
-	// that no stored call counts past the cap) — this is what `CheckWeight`
-	// admits against block limits BEFORE the stored call is even decoded.
+	// (a) Admission: the resubmitted call is inspected pre-dispatch, so the
+	// reaping variant's declared weight — what `CheckWeight` admits against
+	// block limits — exceeds the non-reaping control's by exactly the three
+	// counted cleanups. (The two variants differ only in the `keep_alive`
+	// bool: same encoded size, same inner call weight, same transfer count.)
 	let cleanup = pallet_pubkey::Pallet::<Runtime>::reap_cleanup_weight();
-	let reservation =
-		cleanup.saturating_mul(quantus_runtime::transaction_extensions::STORED_CALL_COUNT_CAP);
-	assert_eq!(reap_declared, keep_declared, "the reservation must be blind to stored bytes");
-	let execute_shape: RuntimeCall =
-		pallet_multisig::Call::execute { multisig_address: dest.clone(), proposal_id: 0 }.into();
+	assert_eq!(
+		reap_declared,
+		keep_declared.saturating_add(cleanup.saturating_mul(REAPS)),
+		"declared admission weight must count each cleanup in the resubmitted call"
+	);
+	let execute_shape: RuntimeCall = pallet_multisig::Call::execute {
+		multisig_address: dest.clone(),
+		proposal_id: 0,
+		call: Box::new(stored_call(false)),
+	}
+	.into();
 	assert_eq!(
 		ChargePubkeyCacheVerify::new().weight(&execute_shape),
-		quantus_runtime::configs::PubkeyCacheVerifyWeight::get().saturating_add(reservation),
-		"execute's extension weight must reserve the stored-call cap"
-	);
-	assert!(
-		reap_declared.all_gte(reservation),
-		"declared weight must carry the reservation: declared={reap_declared:?} \
-		 reservation={reservation:?}"
+		quantus_runtime::configs::PubkeyCacheVerifyWeight::get()
+			.saturating_add(cleanup.saturating_mul(REAPS)),
+		"execute's extension weight must price the cleanups its inner call can cause"
 	);
 
-	// (b) Fees: the three realized reaps keep their share of the reservation
-	// in the corrected (fee-bearing) weight; the unrealized remainder was
-	// refunded, so the payer's delta over the non-reaping control is exactly
+	// (b) Fees: all three charged cleanups were realized, so nothing is
+	// refunded and the payer's delta over the non-reaping control is exactly
 	// three cleanups.
 	let cleanup_fee =
 		pallet_transaction_payment::Pallet::<Runtime>::weight_to_fee(cleanup.saturating_mul(REAPS));
@@ -738,6 +742,6 @@ fn multisig_stored_call_reaps_are_admitted_and_paid_per_reap() {
 	assert_eq!(
 		reap_fee - keep_fee,
 		cleanup_fee,
-		"a multisig stored call must pay for every pubkey-cache cleanup it caused"
+		"a multisig-executed call must pay for every pubkey-cache cleanup it caused"
 	);
 }

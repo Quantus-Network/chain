@@ -24,8 +24,9 @@ Multisig::propose(Origin::signed(bob), multisig_addr, call.encode(), expiry_bloc
 // 3. Charlie approves (2/2 threshold reached → proposal status becomes Approved)
 Multisig::approve(Origin::signed(charlie), multisig_addr, proposal_id);
 
-// 4. Any signer executes the approved proposal
-Multisig::execute(Origin::signed(charlie), multisig_addr, proposal_id);
+// 4. Any signer executes the approved proposal, resubmitting the call
+//    byte-for-byte (clearsigned: the wallet displays what will be dispatched)
+Multisig::execute(Origin::signed(charlie), multisig_addr, proposal_id, Box::new(call));
 // ✅ Transaction executed! Proposal removed from storage, deposit returned to proposer.
 ```
 
@@ -135,28 +136,29 @@ Cancels a proposal and immediately removes it from storage (proposer only).
 **Note:** ProposalFee is NOT refunded (it was burned at proposal creation).
 
 ### 5. Execute Transaction
-Dispatches an **Approved** proposal. Can be called by any signer of the multisig once the approval threshold has been reached.
+Dispatches an **Approved** proposal. Can be called by any signer of the multisig once the approval threshold has been reached. The executor resubmits the proposal's inner call, which must be byte-equal to the stored payload — the same binding `approve` uses. This means the executor clearsigns the actual call being dispatched (hardware-wallet friendly, no opaque proposal id), and the extrinsic is self-describing: its declared weight and any runtime transaction-extension surcharges are computed from the submitted call, exactly as for a directly submitted call.
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
 - `proposal_id: u32` - ID (nonce) of the proposal to execute (REQUIRED)
+- `call: Box<RuntimeCall>` - The proposal's inner call, byte-equal to the stored payload (REQUIRED; fetch the stored bytes from chain state and decode)
 
 **Validation:**
 - Caller must be a signer
 - Proposal must exist and have status **Approved**
 - Proposal must not be expired (current_block ≤ expiry)
-- Stored call bytes must decode as a valid `RuntimeCall`
+- Submitted call must encode byte-equal to the stored proposal bytes (`CallMismatch` otherwise)
 - If the multisig is high-security at execution time, the call must still be whitelisted
 
 **Effects:**
-- Call is decoded again and dispatched with multisig_address as origin after wrapper-level validation
+- The submitted (= approved) call is dispatched with multisig_address as origin after wrapper-level validation
 - Proposal is **always removed** from storage (regardless of inner call success/failure)
 - ProposalDeposit is returned to the proposer
 - `ProposalExecuted` event is emitted with the inner call's `result` (Ok or Err)
 
 **Important:** After wrapper-level validation succeeds, the `execute` extrinsic itself succeeds even if the inner call fails. The proposal is removed and deposit returned in both cases. Check the `ProposalExecuted` event's `result` field to determine if the inner call succeeded.
 
-**Economic Costs:** Weight charges multisig bookkeeping plus the configured maximum inner-call weight upfront, then refunds based on actual bookkeeping and the inner call's post-dispatch weight.
+**Economic Costs:** Declared weight is multisig bookkeeping (sized by the call bytes) plus the inner call's own declared weight, refunded post-dispatch based on actual bookkeeping and the inner call's post-dispatch weight.
 
 ### 6. Remove Expired
 Manually removes a single expired **Active or Approved** proposal from storage. Only signers can call this. Deposit is returned to the original proposer.
@@ -360,7 +362,6 @@ enum ProposalStatus {
 - `ProposalExpired` - Proposal deadline passed (for approve)
 - `InvalidCall` - Call decoding failed during proposal validation or execution
 - `CallNotAllowedForHighSecurityMultisig` - Call is not whitelisted for a high-security multisig
-- `StoredCallNotAllowed` - Call is rejected by the runtime's `StoredCallFilter` (checked at propose, re-checked at execute)
 - `CallWeightExceedsLimit` - Declared call weight exceeds MaxInnerCallWeight
 - `InsufficientBalance` - Not enough funds for fee/deposit
 - `TooManyProposalsInStorage` - Multisig has MaxTotalProposalsInStorage total proposals (cleanup required to create new)
@@ -487,7 +488,7 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 
 ### Call Execution
 - Calls are decoded and validated at `propose()` time (including an inner-call weight check against `MaxInnerCallWeight`), then stored as bounded call bytes
-- Calls are decoded again at `execute()` time before dispatch, and the inner-call weight is recomputed then (it is not stored)
+- At `execute()` time the executor resubmits the call; it is verified byte-equal to the stored bytes before dispatch, and the inner-call weight is recomputed from it (it is not stored)
 - High-security whitelist enforcement runs at proposal creation for currently high-security multisigs and again at execution time
 - Allowed calls execute with multisig_address as origin
 - Standard multisigs can call any pallet (including recursive multisig calls) as long as the call fits size and weight limits
@@ -522,12 +523,6 @@ impl pallet_multisig::Config for Runtime {
     type PalletId = ConstPalletId(*b"py/mltsg");
     type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
     type HighSecurity = runtime::HighSecurityConfig;
-    // Runtime-defined admission filter for decoded stored calls, checked at
-    // propose and re-checked at execute. Lets the runtime bound statically
-    // countable side effects of stored calls (e.g. account reaps,
-    // transfer-proof recording) so its transaction extensions can reserve
-    // sound flat weights for `execute`. Use `Everything` to disable.
-    type StoredCallFilter = runtime::StoredMultisigCallFilter;
 }
 ```
 

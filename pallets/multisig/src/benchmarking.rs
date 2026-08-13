@@ -50,7 +50,7 @@ where
 )]
 mod benchmarks {
 	use super::*;
-	use codec::Encode;
+	use codec::{Decode, Encode};
 	use frame_support::traits::ReservableCurrency;
 	use frame_system::{pallet_prelude::BlockNumberFor, RawOrigin};
 	use qp_high_security::HighSecurityInspector;
@@ -305,7 +305,7 @@ mod benchmarks {
 		set_block::<T>(100);
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 		// Worst-case approvals decode: MaxSigners approvals (Approved)
-		insert_proposal::<T>(
+		let stored = insert_proposal::<T>(
 			&multisig_address,
 			0,
 			&caller,
@@ -316,9 +316,14 @@ mod benchmarks {
 			10u32.into(),
 		);
 		let executor = signers[0].clone();
+		// Resubmit the stored call, byte-equal.
+		let call = Box::new(
+			<T as Config>::RuntimeCall::decode(&mut &stored[..])
+				.expect("insert_proposal stores a valid encoded call"),
+		);
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(executor), multisig_address.clone(), 0u32);
+		_(RawOrigin::Signed(executor), multisig_address.clone(), 0u32, call);
 
 		assert!(!Proposals::<T>::contains_key(&multisig_address, 0));
 		Ok(())

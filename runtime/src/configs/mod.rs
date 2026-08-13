@@ -763,11 +763,6 @@ impl pallet_multisig::Config for Runtime {
 	type PalletId = MultisigPalletId;
 	type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
 	type HighSecurity = HighSecurityConfig;
-	// Caps the statically countable reaps/recordable transfers of stored calls
-	// (checked at propose, re-checked at execute), so the transaction
-	// extensions can soundly reserve flat per-`execute` weights for work the
-	// stored bytes could otherwise hide from pre-dispatch admission and fees.
-	type StoredCallFilter = crate::transaction_extensions::StoredMultisigCallFilter;
 }
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
