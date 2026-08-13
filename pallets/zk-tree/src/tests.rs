@@ -74,6 +74,24 @@ fn make_account(seed: u8) -> AccountId {
 	AccountId::new([seed; 32])
 }
 
+/// Fold pending leaves into the root, as `on_finalize` does once per block.
+fn settle() {
+	ZkTree::process_pending_leaves();
+}
+
+/// Insert a leaf and immediately settle it, mirroring the pre-batching
+/// "every insert recomputes the root" behavior. Returns `(index, root)`.
+fn insert_and_settle(
+	to: AccountId,
+	transfer_count: u64,
+	asset_id: u32,
+	amount: u128,
+) -> (u64, Hash256) {
+	let index = ZkTree::insert_leaf(to, transfer_count, asset_id, amount);
+	settle();
+	(index, ZkTree::root())
+}
+
 #[test]
 fn test_capacity_at_depth() {
 	assert_eq!(tree::capacity_at_depth(0), 0);
@@ -182,13 +200,21 @@ fn hash_leaf_saturates_oversized_amounts_at_u32_max() {
 fn insert_first_leaf_works() {
 	new_test_ext().execute_with(|| {
 		let to = make_account(1);
-		let (index, root) = ZkTree::insert_leaf(to.clone(), 0, 0u32, 100u128);
+		let index = ZkTree::insert_leaf(to.clone(), 0, 0u32, 100u128);
 
 		assert_eq!(index, 0);
-		assert_ne!(root, [0u8; 32]);
 		assert_eq!(ZkTree::leaf_count(), 1);
+
+		// The insert only appends; the root is computed at end of block.
+		assert_eq!(ZkTree::unprocessed_leaves(), 1);
+		assert_eq!(ZkTree::root(), [0u8; 32]);
+		assert_eq!(ZkTree::depth(), 0);
+
+		settle();
+
+		assert_eq!(ZkTree::unprocessed_leaves(), 0);
+		assert_ne!(ZkTree::root(), [0u8; 32]);
 		assert_eq!(ZkTree::depth(), 1);
-		assert_eq!(ZkTree::root(), root);
 
 		// Check leaf was stored
 		let leaf = ZkTree::leaf(0).unwrap();
@@ -206,7 +232,7 @@ fn insert_multiple_leaves_works() {
 
 		for i in 0..4 {
 			let to = make_account(i + 1);
-			let (index, root) = ZkTree::insert_leaf(to, i as u64, 0u32, (i + 1) as u128 * 100);
+			let (index, root) = insert_and_settle(to, i as u64, 0u32, (i + 1) as u128 * 100);
 			assert_eq!(index, i as u64);
 			roots.push(root);
 		}
@@ -214,7 +240,7 @@ fn insert_multiple_leaves_works() {
 		assert_eq!(ZkTree::leaf_count(), 4);
 		assert_eq!(ZkTree::depth(), 1); // 4 leaves fit in depth 1
 
-		// Each insert should change the root
+		// Each settled insert should change the root
 		for i in 1..roots.len() {
 			assert_ne!(roots[i], roots[i - 1]);
 		}
@@ -229,11 +255,14 @@ fn tree_grows_at_capacity() {
 			let to = make_account(i + 1);
 			ZkTree::insert_leaf(to, i as u64, 0u32, 100u128);
 		}
+		settle();
 		assert_eq!(ZkTree::depth(), 1);
 
-		// 5th leaf should trigger growth to depth 2
+		// 5th leaf starts exactly at the old capacity boundary and should
+		// trigger growth to depth 2 when settled.
 		let to = make_account(5);
 		ZkTree::insert_leaf(to, 4, 0u32, 100u128);
+		settle();
 
 		assert_eq!(ZkTree::leaf_count(), 5);
 		assert_eq!(ZkTree::depth(), 2);
@@ -243,11 +272,13 @@ fn tree_grows_at_capacity() {
 #[test]
 fn tree_grows_multiple_times() {
 	new_test_ext().execute_with(|| {
-		// Insert 20 leaves (need depth 3 to fit: 4^3 = 64)
+		// Insert 20 leaves in ONE batch (need depth 3 to fit: 4^3 = 64), so a
+		// single settlement grows the tree by two levels at once.
 		for i in 0..20 {
 			let to = make_account((i % 255) as u8 + 1);
 			ZkTree::insert_leaf(to, i as u64, 0u32, 100u128);
 		}
+		settle();
 
 		assert_eq!(ZkTree::leaf_count(), 20);
 		assert_eq!(ZkTree::depth(), 3); // 4^2 = 16 < 20 <= 64 = 4^3
@@ -262,6 +293,7 @@ fn merkle_proof_works() {
 			let to = make_account(i + 1);
 			ZkTree::insert_leaf(to, i as u64, 0u32, (i + 1) as u128 * 100);
 		}
+		settle();
 
 		// Get proof for leaf 0
 		let proof = ZkTree::get_merkle_proof(0).unwrap();
@@ -282,6 +314,7 @@ fn merkle_proof_all_leaves() {
 			let to = make_account(i + 1);
 			ZkTree::insert_leaf(to, i as u64, i as u32, (i + 1) as u128 * 100);
 		}
+		settle();
 
 		// Verify proof for each leaf
 		for i in 0..10 {
@@ -300,6 +333,7 @@ fn invalid_proof_fails() {
 			let to = make_account(i + 1);
 			ZkTree::insert_leaf(to, i as u64, 0u32, (i + 1) as u128 * 100);
 		}
+		settle();
 
 		// Get proof for leaf 0
 		let proof = ZkTree::get_merkle_proof(0).unwrap();
@@ -315,18 +349,36 @@ fn invalid_proof_fails() {
 fn proof_for_nonexistent_leaf_fails() {
 	new_test_ext().execute_with(|| {
 		ZkTree::insert_leaf(make_account(1), 0, 0u32, 100u128);
+		settle();
 
 		// Try to get proof for leaf index 5 (doesn't exist)
-		let result = ZkTree::get_merkle_proof(5);
-		assert!(result.is_err());
+		assert!(matches!(ZkTree::get_merkle_proof(5), Err(Error::<Test>::LeafIndexOutOfBounds)));
 	});
 }
 
 #[test]
-fn root_changes_on_insert() {
+fn proof_for_pending_leaf_fails_until_settled() {
 	new_test_ext().execute_with(|| {
-		let (_, root1) = ZkTree::insert_leaf(make_account(1), 0, 0u32, 100u128);
-		let (_, root2) = ZkTree::insert_leaf(make_account(2), 1, 0u32, 200u128);
+		ZkTree::insert_leaf(make_account(1), 0, 0u32, 100u128);
+		settle();
+		ZkTree::insert_leaf(make_account(2), 0, 0u32, 200u128);
+
+		// Leaf 1 is appended but not yet folded into the root: `Nodes` doesn't
+		// cover it, so no valid proof can exist for it yet.
+		assert!(matches!(ZkTree::get_merkle_proof(1), Err(Error::<Test>::LeafNotYetSettled)));
+		// Settled leaves stay provable.
+		assert!(ZkTree::get_merkle_proof(0).is_ok());
+
+		settle();
+		assert!(ZkTree::get_merkle_proof(1).is_ok());
+	});
+}
+
+#[test]
+fn root_changes_on_settle() {
+	new_test_ext().execute_with(|| {
+		let (_, root1) = insert_and_settle(make_account(1), 0, 0u32, 100u128);
+		let (_, root2) = insert_and_settle(make_account(2), 1, 0u32, 200u128);
 
 		assert_ne!(root1, root2);
 		assert_eq!(ZkTree::root(), root2);
@@ -343,7 +395,7 @@ fn different_amounts_give_different_hashes() {
 		let one_dev = 1_000_000_000_000u128; // 10^12
 		let two_dev = 2_000_000_000_000u128; // 2*10^12
 
-		let (_, root1) = ZkTree::insert_leaf(make_account(1), 0, 0u32, one_dev);
+		let (_, root1) = insert_and_settle(make_account(1), 0, 0u32, one_dev);
 
 		// Reset and insert with different amount
 		crate::Leaves::<Test>::remove(0);
@@ -353,7 +405,7 @@ fn different_amounts_give_different_hashes() {
 		// Also reset the internal nodes
 		let _ = crate::Nodes::<Test>::clear(u32::MAX, None);
 
-		let (_, root2) = ZkTree::insert_leaf(make_account(1), 0, 0u32, two_dev);
+		let (_, root2) = insert_and_settle(make_account(1), 0, 0u32, two_dev);
 
 		assert_ne!(root1, root2);
 	});
@@ -363,10 +415,14 @@ fn different_amounts_give_different_hashes() {
 fn zk_tree_root_set_in_frame_system() {
 	new_test_ext().execute_with(|| {
 		ZkTree::insert_leaf(make_account(1), 0, 0u32, 100u128);
-		let expected_root = ZkTree::root();
 
-		// Trigger on_finalize which sets the root in frame_system
+		// on_finalize folds the block's pending leaves into the root and then
+		// publishes it to frame_system for the block header.
 		ZkTree::on_finalize(1);
+
+		let expected_root = ZkTree::root();
+		assert_ne!(expected_root, [0u8; 32], "finalize must fold the pending leaf into the root");
+		assert_eq!(ZkTree::unprocessed_leaves(), 0, "finalize must drain pending leaves");
 
 		// Check that the root was set in frame_system storage using the getter
 		let stored_root: H256 = frame_system::Pallet::<Test>::zk_tree_root();
@@ -383,12 +439,7 @@ fn extract_zk_root_from_frame_system() -> Option<Hash256> {
 
 /// Simulate a transfer by inserting a leaf into the ZK trie.
 /// In production, pallet-wormhole would call this.
-fn simulate_transfer(
-	to: AccountId,
-	transfer_count: u64,
-	asset_id: u32,
-	amount: u128,
-) -> (u64, Hash256) {
+fn simulate_transfer(to: AccountId, transfer_count: u64, asset_id: u32, amount: u128) -> u64 {
 	ZkTree::insert_leaf(to, transfer_count, asset_id, amount)
 }
 
@@ -399,12 +450,14 @@ fn integration_many_transfers_updates_root() {
 		let bob = make_account(2);
 		let charlie = make_account(3);
 
-		// === Insert many transfers and verify tree grows correctly ===
+		// === Insert many transfers (settling per "block") and verify the tree
+		// grows correctly ===
 
-		// First 3 transfers
-		let (idx0, _) = simulate_transfer(alice.clone(), 0, 0, 1000);
-		let (idx1, _) = simulate_transfer(bob.clone(), 0, 0, 2000);
-		let (idx2, _) = simulate_transfer(charlie.clone(), 0, 0, 3000);
+		// First block: 3 transfers
+		let idx0 = simulate_transfer(alice.clone(), 0, 0, 1000);
+		let idx1 = simulate_transfer(bob.clone(), 0, 0, 2000);
+		let idx2 = simulate_transfer(charlie.clone(), 0, 0, 3000);
+		settle();
 
 		assert_eq!(idx0, 0);
 		assert_eq!(idx1, 1);
@@ -420,12 +473,14 @@ fn integration_many_transfers_updates_root() {
 			assert!(ZkTree::verify_proof(&leaf, &proof), "proof {} should verify", idx);
 		}
 
-		// 5 more transfers - tree will grow from depth 1 (capacity 4) to depth 2 (capacity 16)
+		// Second block: 5 more transfers - the batch spans the depth-1 capacity
+		// boundary (4), so this settlement grows the tree to depth 2.
 		simulate_transfer(alice.clone(), 1, 0, 500);
 		simulate_transfer(bob.clone(), 1, 0, 600);
 		simulate_transfer(charlie.clone(), 1, 0, 700);
 		simulate_transfer(alice.clone(), 2, 1, 100); // Different asset
 		simulate_transfer(bob.clone(), 2, 1, 200); // Different asset
+		settle();
 
 		assert_eq!(ZkTree::leaf_count(), 8);
 		assert!(ZkTree::depth() >= 2, "tree should have grown to depth 2");
@@ -440,11 +495,12 @@ fn integration_many_transfers_updates_root() {
 			assert!(ZkTree::verify_proof(&leaf, &proof), "proof {} should verify", idx);
 		}
 
-		// Add 10 more transfers (total 18, tree needs depth 3 for capacity 64)
+		// Third block: 10 more transfers (total 18, tree needs depth 3 for capacity 64)
 		for i in 0..10u64 {
 			let recipient = make_account((i % 5) as u8 + 10);
 			simulate_transfer(recipient, i, 0, (i as u128 + 1) * 1000);
 		}
+		settle();
 
 		assert_eq!(ZkTree::leaf_count(), 18);
 
@@ -502,25 +558,28 @@ fn integration_empty_tree_has_zero_root_in_frame_system() {
 }
 
 #[test]
-fn integration_root_changes_only_on_insert() {
+fn integration_root_changes_only_on_finalize() {
 	new_test_ext().execute_with(|| {
 		let alice = make_account(1);
 
-		// Insert a leaf
+		// Inserting alone must NOT change the root: the batch runs at finalize.
 		simulate_transfer(alice.clone(), 0, 0, 1000);
-		let root_after_insert = ZkTree::root();
+		assert_eq!(ZkTree::root(), [0u8; 32], "insert alone should not change root");
 
-		// Finalize - root should not change
+		// Finalize folds the pending leaf in.
 		ZkTree::on_finalize(1);
-		assert_eq!(ZkTree::root(), root_after_insert, "finalize should not change root");
+		let root_after_block_1 = ZkTree::root();
+		assert_ne!(root_after_block_1, [0u8; 32], "finalize should compute the root");
 
-		// Another finalize - still same root
+		// A block without inserts leaves the root untouched.
 		ZkTree::on_finalize(2);
-		assert_eq!(ZkTree::root(), root_after_insert, "second finalize should not change root");
+		assert_eq!(ZkTree::root(), root_after_block_1, "empty finalize should not change root");
 
-		// Insert another leaf - NOW root should change
+		// Another insert + finalize changes it again.
 		simulate_transfer(alice.clone(), 1, 0, 2000);
-		assert_ne!(ZkTree::root(), root_after_insert, "insert should change root");
+		assert_eq!(ZkTree::root(), root_after_block_1, "root must stay fixed until finalize");
+		ZkTree::on_finalize(3);
+		assert_ne!(ZkTree::root(), root_after_block_1, "finalize should fold the new leaf in");
 	});
 }
 
@@ -532,6 +591,7 @@ fn integration_proof_siblings_at_correct_depth() {
 			let account = make_account(i as u8);
 			simulate_transfer(account, 0, 0, (i as u128 + 1) * 100);
 		}
+		settle();
 
 		assert_eq!(ZkTree::depth(), 2);
 
@@ -551,4 +611,166 @@ fn integration_proof_siblings_at_correct_depth() {
 			assert!(ZkTree::verify_proof(&leaf, &proof), "proof for leaf {} should verify", i);
 		}
 	});
+}
+
+// ============================================================================
+// Batched settlement equivalence
+// ============================================================================
+
+/// Leaf fixture shared by the equivalence tests.
+fn equivalence_leaf(i: u64) -> ZkLeaf<AccountId, u32, u128> {
+	ZkLeaf {
+		to: make_account((i % 250) as u8 + 1),
+		transfer_count: i,
+		asset_id: (i % 3) as u32,
+		amount: (i + 1) as u128 * 100,
+	}
+}
+
+fn insert_equivalence_leaf(i: u64) {
+	let leaf = equivalence_leaf(i);
+	ZkTree::insert_leaf(leaf.to, leaf.transfer_count, leaf.asset_id, leaf.amount);
+}
+
+/// Independent reference: build the whole positional 4-ary tree in memory.
+///
+/// Mirrors the pallet's storage semantics where an absent (never written) node
+/// reads as the zero hash: a subtree with all-empty children stays the zero hash
+/// instead of being hashed.
+fn reference_root(leaf_hashes: &[Hash256]) -> Hash256 {
+	assert!(!leaf_hashes.is_empty());
+	let mut depth = 0u8;
+	while tree::capacity_at_depth(depth) < leaf_hashes.len() as u64 {
+		depth += 1;
+	}
+
+	let mut level = leaf_hashes.to_vec();
+	level.resize(tree::capacity_at_depth(depth) as usize, tree::empty_hash());
+	for _ in 0..depth {
+		level = level
+			.chunks(4)
+			.map(|children| {
+				let children: [Hash256; 4] = [children[0], children[1], children[2], children[3]];
+				if children == [tree::empty_hash(); 4] {
+					tree::empty_hash()
+				} else {
+					tree::hash_node(&children)
+				}
+			})
+			.collect();
+	}
+	level[0]
+}
+
+/// The once-per-block batch must produce exactly the same root as settling after
+/// every single insert (the pre-batching behavior), and both must match an
+/// independent in-memory reference. Sizes cross the depth-1 (4) and depth-2 (16)
+/// capacity boundaries, including multi-level growth inside one batch.
+#[test]
+fn batched_settlement_matches_per_insert_settlement_and_reference() {
+	for n in [1u64, 2, 3, 4, 5, 7, 15, 16, 17, 20, 40, 65] {
+		let batch_root = new_test_ext().execute_with(|| {
+			for i in 0..n {
+				insert_equivalence_leaf(i);
+			}
+			settle();
+			ZkTree::root()
+		});
+
+		let per_insert_root = new_test_ext().execute_with(|| {
+			for i in 0..n {
+				insert_equivalence_leaf(i);
+				settle();
+			}
+			ZkTree::root()
+		});
+
+		let reference = new_test_ext().execute_with(|| {
+			let hashes: Vec<Hash256> =
+				(0..n).map(|i| tree::hash_leaf::<Test>(&equivalence_leaf(i))).collect();
+			reference_root(&hashes)
+		});
+
+		assert_eq!(batch_root, per_insert_root, "batch vs per-insert mismatch for n={n}");
+		assert_eq!(batch_root, reference, "batch vs reference mismatch for n={n}");
+	}
+}
+
+/// Split the same leaf sequence into blocks at every possible point (including
+/// splits landing exactly on capacity boundaries): the final root must never
+/// depend on how the inserts were grouped, and all leaves must stay provable.
+#[test]
+fn root_is_independent_of_block_grouping() {
+	let total = 21u64; // spans the 4 and 16 capacity boundaries
+
+	let all_at_once = new_test_ext().execute_with(|| {
+		for i in 0..total {
+			insert_equivalence_leaf(i);
+		}
+		settle();
+		ZkTree::root()
+	});
+
+	for split in 1..total {
+		let grouped = new_test_ext().execute_with(|| {
+			for i in 0..split {
+				insert_equivalence_leaf(i);
+			}
+			settle();
+			for i in split..total {
+				insert_equivalence_leaf(i);
+			}
+			settle();
+
+			// Every settled leaf must still be provable against the final root.
+			for i in 0..total {
+				let proof = ZkTree::get_merkle_proof(i).expect("proof should exist");
+				let leaf = ZkTree::leaf(i).expect("leaf should exist");
+				assert!(
+					ZkTree::verify_proof(&leaf, &proof),
+					"proof {i} should verify (split={split})"
+				);
+			}
+			ZkTree::root()
+		});
+		assert_eq!(grouped, all_at_once, "root mismatch for split={split}");
+	}
+}
+
+/// A settlement starting exactly at the old capacity (start == 4^depth) relies on
+/// `grow_tree` parking the old root at `(old_depth, 0)`; a settlement spanning
+/// the boundary overwrites the parked value. Both must agree with the reference.
+#[test]
+fn growth_boundary_settlements_are_consistent() {
+	// Exactly at the boundary: 4 leaves settled, then 1 more in its own block.
+	let at_boundary = new_test_ext().execute_with(|| {
+		for i in 0..4 {
+			insert_equivalence_leaf(i);
+		}
+		settle();
+		insert_equivalence_leaf(4);
+		settle();
+		ZkTree::root()
+	});
+
+	// Spanning the boundary: 3 settled, then 2 in one block.
+	let spanning = new_test_ext().execute_with(|| {
+		for i in 0..3 {
+			insert_equivalence_leaf(i);
+		}
+		settle();
+		insert_equivalence_leaf(3);
+		insert_equivalence_leaf(4);
+		settle();
+		ZkTree::root()
+	});
+
+	let reference = new_test_ext().execute_with(|| {
+		let hashes: Vec<Hash256> =
+			(0..5).map(|i| tree::hash_leaf::<Test>(&equivalence_leaf(i))).collect();
+		reference_root(&hashes)
+	});
+
+	assert_eq!(at_boundary, reference);
+	assert_eq!(spanning, reference);
 }

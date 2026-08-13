@@ -3,7 +3,7 @@
 //! This module provides the core tree operations:
 //! - Leaf hashing (8 felts, injective for ≤32-bit values)
 //! - Node hashing (16 felts, 8 bytes/felt compact encoding)
-//! - Path updates on insert
+//! - Batched (once-per-block) folding of appended leaves into the tree
 //! - Proof generation and verification
 //! - Tree growth when capacity is exceeded
 
@@ -96,10 +96,7 @@ fn bytes_to_felts_compact_lossy(input: &[u8]) -> impl Iterator<Item = Goldilocks
 /// the leaf's `to_account` felts to `WA(secret)` (a canonical Poseidon output), so
 /// canonicalizing the recipient never changes who can exit a leaf. The
 /// `debug_assert` below enforces the caller contract in test/dev builds.
-pub fn hash_leaf<T: Config>(leaf: &ZkLeaf<AccountIdOf<T>, T::AssetId, T::Balance>) -> Hash256
-where
-	AccountIdOf<T>: AsRef<[u8]>,
-{
+pub fn hash_leaf<T: Config>(leaf: &ZkLeaf<AccountIdOf<T>, T::AssetId, T::Balance>) -> Hash256 {
 	use qp_poseidon_core::serialization::u64_to_felts;
 
 	let mut felts = Vec::with_capacity(8);
@@ -188,10 +185,7 @@ pub fn empty_hash() -> Hash256 {
 }
 
 /// Get the hash of a leaf by index, or empty hash if not present.
-fn get_leaf_hash<T: Config>(index: u64) -> Hash256
-where
-	AccountIdOf<T>: AsRef<[u8]>,
-{
+fn get_leaf_hash<T: Config>(index: u64) -> Hash256 {
 	match crate::Leaves::<T>::get(index) {
 		Some(leaf) => hash_leaf::<T>(&leaf),
 		None => empty_hash(),
@@ -203,102 +197,90 @@ fn get_node_hash<T: Config>(level: u8, index: u64) -> Hash256 {
 	crate::Nodes::<T>::get((level, index)).unwrap_or_else(empty_hash)
 }
 
-/// Update the path from a leaf to the root after insertion.
+/// Fold the contiguous, freshly appended leaf range `[start, end)` into the tree
+/// in one bottom-up pass and return the new root hash.
 ///
-/// Returns the new root hash.
-pub fn update_path<T: Config>(leaf_index: u64, leaf_hash: Hash256) -> Hash256
-where
-	AccountIdOf<T>: AsRef<[u8]>,
-{
-	let depth = crate::Depth::<T>::get();
+/// Callers must ensure that every leaf `< start` is already reflected in `Nodes`
+/// (and `Root`), that `depth` is large enough to fit `end` leaves, and — when the
+/// tree grew to reach `depth` — that [`grow_tree`] has parked the old root first.
+///
+/// Because the appended leaves are contiguous, the dirty nodes at every level form
+/// a contiguous index range `[lo, hi]`. Each dirty node is hashed exactly once, so
+/// a batch of `n` leaves costs about `n/4 + n/16 + … + depth` node hashes instead
+/// of the `n · depth` a per-insert path update would pay. This is what makes the
+/// once-per-block (`on_finalize`) root computation cheap.
+pub fn update_range<T: Config>(start: u64, end: u64, depth: u8) -> Hash256 {
+	debug_assert!(start < end, "leaf range must be non-empty");
+	debug_assert!(capacity_at_depth(depth) >= end, "depth must fit the whole range");
 
-	if depth == 0 {
-		// Special case: first leaf in empty tree - need to initialize
-		crate::Depth::<T>::put(1);
-		return leaf_hash;
-	}
-
-	// Start from leaf level and work up to root
-	let mut current_index = leaf_index;
-	let mut current_hash = leaf_hash;
+	// Hashes of the dirty nodes at the current level, covering indices [lo, hi].
+	let mut lo = start;
+	let mut hi = end - 1;
+	let mut dirty: Vec<Hash256> = (start..end).map(get_leaf_hash::<T>).collect();
 
 	for level in 1..=depth {
-		// Find which group of 4 this node belongs to
-		let parent_index = current_index / (ARITY as u64);
+		let parent_lo = lo / (ARITY as u64);
+		let parent_hi = hi / (ARITY as u64);
+		let mut parents = Vec::with_capacity((parent_hi - parent_lo + 1) as usize);
 
-		// Get all 4 children for this parent
-		let mut children = [empty_hash(); ARITY];
-
-		if level == 1 {
-			// Children are leaves
-			let base_leaf_index = parent_index * (ARITY as u64);
+		for parent in parent_lo..=parent_hi {
+			let base = parent * (ARITY as u64);
+			let mut children = [empty_hash(); ARITY];
 			for (i, child) in children.iter_mut().enumerate() {
-				let child_leaf_index = base_leaf_index + (i as u64);
-				*child = if child_leaf_index == leaf_index {
-					current_hash
+				let index = base + i as u64;
+				*child = if index >= lo && index <= hi {
+					dirty[(index - lo) as usize]
+				} else if index > hi {
+					// The tree is append-only: everything to the right of the
+					// last appended leaf is still empty — skip the storage read.
+					empty_hash()
+				} else if level == 1 {
+					// Pre-existing leaves sharing the boundary parent with `start`.
+					get_leaf_hash::<T>(index)
 				} else {
-					get_leaf_hash::<T>(child_leaf_index)
+					get_node_hash::<T>(level - 1, index)
 				};
 			}
-		} else {
-			// Children are internal nodes
-			let base_child_index = parent_index * (ARITY as u64);
-			for (i, child) in children.iter_mut().enumerate() {
-				let child_index = base_child_index + (i as u64);
-				*child = if child_index == current_index {
-					current_hash
-				} else {
-					get_node_hash::<T>(level - 1, child_index)
-				};
+
+			let hash = hash_node(&children);
+			// The root lives in `Root`, not `Nodes`.
+			if level < depth {
+				crate::Nodes::<T>::insert((level, parent), hash);
 			}
+			parents.push(hash);
 		}
 
-		// Compute parent hash
-		current_hash = hash_node(&children);
-
-		// Store the node (except at root level, which is stored separately)
-		if level < depth {
-			crate::Nodes::<T>::insert((level, parent_index), current_hash);
-		}
-
-		current_index = parent_index;
+		dirty = parents;
+		lo = parent_lo;
+		hi = parent_hi;
 	}
 
-	current_hash
+	debug_assert_eq!((lo, hi), (0, 0), "range must converge to the root");
+	dirty[0]
 }
 
-/// Grow the tree by one level.
+/// Prepare the tree to grow beyond `old_depth`.
 ///
-/// The current root becomes one of the children of the new root.
-pub fn grow_tree<T: Config>(old_depth: u8, _new_depth: u8) {
+/// The subtree that used to be the whole tree becomes child 0 of the first new
+/// level, so the current `Root` has to move into `Nodes` at `(old_depth, 0)`.
+/// Everything above it is computed by the next [`update_range`] pass: every node
+/// on the new levels sits on the dirty path of the leaves that triggered the
+/// growth. If the pending range also dirties `(old_depth, 0)` itself (i.e. the
+/// range starts inside the old subtree), the parked value is simply overwritten
+/// by that same pass.
+pub fn grow_tree<T: Config>(old_depth: u8) {
 	if old_depth == 0 {
-		// Tree was empty, just set depth
+		// Tree was empty; there is no old root to park.
 		return;
 	}
-
-	// The old root hash becomes child[0] of the new root
-	let old_root = crate::Root::<T>::get();
-
-	// Store the old root as a node at the old depth level, index 0
-	crate::Nodes::<T>::insert((old_depth, 0), old_root);
-
-	// The new root will be computed when the next leaf triggers update_path
-	// For now, compute it with empty siblings
-	let mut children = [empty_hash(); ARITY];
-	children[0] = old_root;
-	let new_root = hash_node(&children);
-
-	crate::Root::<T>::put(new_root);
+	crate::Nodes::<T>::insert((old_depth, 0), crate::Root::<T>::get());
 }
 
 /// Generate a Merkle proof for a leaf at the given index.
 ///
 /// Returns siblings at each level. No path indices needed because children
 /// are sorted before hashing - the verifier can reconstruct by sorting.
-pub fn generate_proof<T: Config>(leaf_index: u64, depth: u8) -> Result<ZkMerkleProof, Error<T>>
-where
-	AccountIdOf<T>: AsRef<[u8]>,
-{
+pub fn generate_proof<T: Config>(leaf_index: u64, depth: u8) -> Result<ZkMerkleProof, Error<T>> {
 	if depth == 0 {
 		return Err(Error::<T>::LeafNotFound);
 	}
@@ -353,10 +335,7 @@ pub fn verify_proof<T: Config>(
 	leaf: &ZkLeaf<AccountIdOf<T>, T::AssetId, T::Balance>,
 	proof: &ZkMerkleProof,
 	expected_root: Hash256,
-) -> bool
-where
-	AccountIdOf<T>: AsRef<[u8]>,
-{
+) -> bool {
 	let mut current_hash = hash_leaf::<T>(leaf);
 
 	for level_siblings in &proof.siblings {

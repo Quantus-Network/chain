@@ -64,10 +64,11 @@ const EXECUTE_TRANSFER_BASE_READS: u64 = 5;
 const EXECUTE_TRANSFER_BASE_WRITES: u64 = 5;
 
 /// `execute_transfer`'s weight: the benchmarked base (compute + non-tree storage)
-/// plus the depth-dependent ZK-tree leaf insert performed by the wormhole proof
-/// recorder. `insert_leaf` walks the tree leaf-to-root, so DB ops and PoV scale
-/// with `tree_ops` via [`pallet_zk_tree::TREE_KEY_POV`], and the path update also
-/// computes one Poseidon hash per level (`tree_hash_time`).
+/// plus the ZK-tree leaf append performed by the wormhole proof recorder, priced at
+/// the flat marginal per-insert share of the block's batched root recomputation
+/// (`tree_ops` DB ops, PoV via [`pallet_zk_tree::TREE_KEY_POV`], Poseidon compute
+/// via `tree_hash_time`); the depth-dependent tail is reserved per block by the
+/// zk-tree pallet's `on_initialize`.
 fn execute_transfer_weight(
 	db: RuntimeDbWeight,
 	(tree_reads, tree_writes): (u64, u64),
@@ -85,8 +86,8 @@ fn execute_transfer_weight(
 
 /// Weights for `pallet_reversible_transfers` using the Substrate node and recommended hardware.
 ///
-/// `execute_transfer` records a wormhole proof (ZK-tree leaf insert); that component is
-/// flat-priced at [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`] via
+/// `execute_transfer` records a wormhole proof (ZK-tree leaf append); that component
+/// is priced at the flat marginal per-insert share via
 /// [`pallet_zk_tree::INSERT_LEAF_*`].
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
@@ -295,7 +296,9 @@ impl WeightInfo for () {
 	/// Proof: `ZkTree::Root` (`max_values`: Some(1), `max_size`: Some(32), added: 527, mode: `MaxEncodedLen`)
 	/// Storage: `ZkTree::Nodes` (r:3·depth w:depth)
 	///
-	/// Tree component flat-priced at [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`].
+	/// (Storage table from the benchmark, generated against the per-insert path
+	/// update.) Tree component priced at the flat marginal per-insert share via
+	/// [`pallet_zk_tree::INSERT_LEAF_DB_OPS`].
 	fn execute_transfer() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `638`
