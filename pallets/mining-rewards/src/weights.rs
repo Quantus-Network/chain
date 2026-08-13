@@ -79,8 +79,10 @@ const BASE_KEY_POV: u64 = 2700;
 /// Weights for `pallet_mining_rewards` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
-	/// Reserved in `on_initialize` before extrinsics run. Leaf inserts are flat-
-	/// priced at [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`].
+	/// Reserved in `on_initialize` before extrinsics run. Leaf appends are priced
+	/// at the flat marginal per-insert share ([`pallet_zk_tree::INSERT_LEAF_DB_OPS`]);
+	/// the batched root recomputation's depth-dependent tail is reserved by the
+	/// zk-tree pallet's own `on_initialize`.
 	fn on_finalize_rewarded_miner() -> Weight {
 		// Minimum execution time: 150_000_000 picoseconds.
 		let (tree_reads, tree_writes) = pallet_zk_tree::INSERT_LEAF_DB_OPS;
@@ -103,7 +105,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 // For backwards compatibility and tests.
 impl WeightInfo for () {
-	/// Same flat circuit-depth pricing as `SubstrateWeight`, with `RocksDbWeight`
+	/// Same marginal per-insert pricing as `SubstrateWeight`, with `RocksDbWeight`
 	/// in place of the runtime's configured `DbWeight`.
 	fn on_finalize_rewarded_miner() -> Weight {
 		// Minimum execution time: 150_000_000 picoseconds.

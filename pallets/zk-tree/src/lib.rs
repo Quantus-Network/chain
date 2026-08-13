@@ -8,6 +8,8 @@
 //! - 4-ary tree (4 children per node) for optimal ZK circuit efficiency
 //! - Leaves hashed as 8 field elements (injective: values are ≤32 bits)
 //! - Internal nodes hashed as 16 field elements (8 bytes/felt compact encoding)
+//! - Inserts only append; the root is recomputed once per block in `on_finalize`, folding all of
+//!   the block's leaves in a single bottom-up pass
 //! - Tree root published in block header for ZK verification
 //!
 //! ## Tree Structure
@@ -68,35 +70,76 @@ pub const MAX_TREE_DEPTH: u8 = 32;
 pub const CIRCUIT_MAX_TREE_DEPTH: u8 = 16;
 
 /// Worst-case `ref_time` (picoseconds) of one Poseidon evaluation
-/// ([`tree::hash_node`] / [`tree::hash_leaf`]). Padded for wasm / slower hardware.
-pub const POSEIDON_EVAL_REF_TIME_PS: u64 = 50_000_000;
-
-/// Flat `(reads, writes)` for one [`Pallet::insert_leaf`], priced at
-/// [`CIRCUIT_MAX_TREE_DEPTH`].
+/// ([`tree::hash_node`] / [`tree::hash_leaf`]).
 ///
-/// The insert's *real* cost is depth-dependent (`update_path` reads 3 siblings and
-/// writes one internal node per level), but metering is deliberately FLAT at the
-/// circuit ceiling so `price × n` is sound for any multi-insert call. Out-deepening
-/// that ceiling would take ~3.2 billion inserts in one block (impossible under block
-/// limits); the trade-off is a modest overcharge while the tree is young. At
-/// `d = CIRCUIT_MAX_TREE_DEPTH`:
-/// - reads: `LeafCount` + `Depth` (twice) + `grow_tree`'s `Root` + `3·d` siblings
-/// - writes: `Leaves` + `LeafCount` + `Root` + `d − 1` internal nodes, plus `grow_tree`'s
-///   `Nodes`/`Root`/`Depth` writes
+/// ~3.3µs/eval is a *native lower bound*, measured on the reference host by the
+/// `#[ignore]`d `measure_hash_node_time` (run it manually; nothing in CI pins
+/// this constant). The runtime executes wasm32, where Goldilocks' u64×u64→u128
+/// products are emulated instead of compiling to a single `mulq`, so the wasm
+/// cost is higher and the margin under this 10µs budget is thinner than the
+/// native 3× suggests. The generated benchmarks bound it from the wasm side
+/// (e.g. vesting `claim` − `create_schedule` leaves a ~43µs delta covering a
+/// whole vested transfer plus the insert's Poseidon work). Still far below the
+/// previous 15× (50µs) pad that capped blocks at ~500 transfers while prepare
+/// took only ~1.5s wall clock. Re-measure when touching the hashing code.
+pub const POSEIDON_EVAL_REF_TIME_PS: u64 = 10_000_000;
+
+/// Flat *marginal* `(reads, writes)` charged per [`Pallet::insert_leaf`].
+///
+/// Root recomputation is batched: inserts only append (`Leaves`, `LeafCount`,
+/// `UnprocessedLeaves`), and `on_finalize` folds all of a block's leaves into the
+/// tree in one bottom-up pass. In that pass dirty parents are shared, so `n`
+/// leaves touch about `n/4 + n/16 + …` internal nodes — bounded by `n/3` — plus a
+/// depth-dependent tail that is the same no matter how many leaves the block has.
+///
+/// The split keeps `price × n` sound for any multi-insert call:
+/// - this constant covers the per-leaf marginal cost: 2 insert-phase reads (`LeafCount`,
+///   `UnprocessedLeaves`) + the finalize-phase `Leaves` read, and 3 insert-phase writes (`Leaves`,
+///   `LeafCount`, `UnprocessedLeaves`) + the amortized `⌈n/3⌉ ≤ n` internal-node writes;
+/// - the depth-dependent tail (boundary siblings, the path above the batch, grow bookkeeping) is
+///   charged once per block by [`FINALIZE_BASE_DB_OPS`], reserved unconditionally in this pallet's
+///   `on_initialize`.
 ///
 /// Charge together with [`INSERT_LEAF_HASH_REF_TIME_PS`].
-pub const INSERT_LEAF_DB_OPS: (u64, u64) = {
-	let d = CIRCUIT_MAX_TREE_DEPTH as u64;
-	(3 * d + 4, d + 5)
-};
+pub const INSERT_LEAF_DB_OPS: (u64, u64) = (3, 4);
 
-/// Flat Poseidon evaluations for one insert (`hash_leaf` + per-level `hash_node` +
-/// grow), priced at [`CIRCUIT_MAX_TREE_DEPTH`].
-pub const INSERT_LEAF_POSEIDON_EVALS: u64 = CIRCUIT_MAX_TREE_DEPTH as u64 + 2;
+/// Marginal Poseidon evaluations per insert: one `hash_leaf` in the finalize
+/// batch (the insert itself hashes nothing — the `LeafInserted` event carries
+/// only the index), plus the amortized share (`≤ 1` for any `n ≥ 1`) of the
+/// batch's internal-node hashes. The depth-dependent remainder is in
+/// [`FINALIZE_BASE_POSEIDON_EVALS`].
+pub const INSERT_LEAF_POSEIDON_EVALS: u64 = 2;
 
-/// Flat insert compute (`ref_time` picoseconds); priced at [`CIRCUIT_MAX_TREE_DEPTH`].
+/// Marginal insert compute (`ref_time` picoseconds).
 pub const INSERT_LEAF_HASH_REF_TIME_PS: u64 =
 	INSERT_LEAF_POSEIDON_EVALS * POSEIDON_EVAL_REF_TIME_PS;
+
+/// Once-per-block `(reads, writes)` ceiling for the batched root recomputation in
+/// `on_finalize`, priced at [`CIRCUIT_MAX_TREE_DEPTH`] and reserved unconditionally
+/// by this pallet's `on_initialize` (see [`Pallet::finalize_base_weight`]).
+///
+/// This is everything the finalize pass costs *beyond* the per-leaf marginal ops
+/// already charged through [`INSERT_LEAF_DB_OPS`]. At `d = CIRCUIT_MAX_TREE_DEPTH`:
+/// - reads: `UnprocessedLeaves` + `LeafCount` + `Depth` + `grow_tree`'s `Root` + the header-publish
+///   `Root` + up to 3 boundary leaves and `3·(d − 1)` boundary sibling nodes (only the parent
+///   containing the batch's first leaf can have pre-existing children; everything right of the
+///   batch is empty and skipped);
+/// - writes: `UnprocessedLeaves` + `Depth` + `grow_tree`'s parked node + `Root` + the
+///   `frame_system` header root + the `≤ d` per-level path tail of node writes not covered by the
+///   amortized per-leaf share.
+///
+/// Out-deepening the circuit ceiling would take ~4.3 billion leaves — see
+/// [`CIRCUIT_MAX_TREE_DEPTH`]; the trade-off is a modest overcharge while the tree
+/// is young.
+pub const FINALIZE_BASE_DB_OPS: (u64, u64) = {
+	let d = CIRCUIT_MAX_TREE_DEPTH as u64;
+	(3 * d + 8, d + 6)
+};
+
+/// Once-per-block Poseidon-evaluation ceiling for the finalize batch beyond the
+/// per-leaf marginal share: up to 3 boundary leaf hashes plus the `≤ d` per-level
+/// path tail, priced at [`CIRCUIT_MAX_TREE_DEPTH`].
+pub const FINALIZE_BASE_POSEIDON_EVALS: u64 = CIRCUIT_MAX_TREE_DEPTH as u64 + 3;
 
 /// Conservative PoV bound (bytes) per ZK-tree storage key touched during a path
 /// update. Tree entries are 32-byte hashes with small keys; comparable to the
@@ -172,7 +215,9 @@ pub mod pallet {
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
-	pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
+	pub trait Config:
+		frame_system::Config<RuntimeEvent: From<Event<Self>>, AccountId: AsRef<[u8]>>
+	{
 		/// Asset ID type.
 		type AssetId: Parameter + Member + Copy + Default + MaxEncodedLen + Into<u128>;
 
@@ -207,15 +252,29 @@ pub mod pallet {
 	pub type Depth<T: Config> = StorageValue<_, u8, ValueQuery>;
 
 	/// Current root hash of the tree.
+	///
+	/// Covers exactly the first `LeafCount - UnprocessedLeaves` leaves: root
+	/// recomputation is batched once per block in `on_finalize`, so during block
+	/// execution this is the root as of the end of the previous block.
 	#[pallet::storage]
 	#[pallet::getter(fn root)]
 	pub type Root<T: Config> = StorageValue<_, Hash256, ValueQuery>;
 
+	/// Number of trailing leaves appended this block but not yet folded into
+	/// `Nodes`/`Root`. Always drained back to 0 by `on_finalize`.
+	#[pallet::storage]
+	#[pallet::getter(fn unprocessed_leaves)]
+	pub type UnprocessedLeaves<T: Config> = StorageValue<_, u64, ValueQuery>;
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// A new leaf was inserted into the tree.
-		LeafInserted { index: u64, leaf_hash: Hash256, new_root: Hash256 },
+		/// A new leaf was inserted into the tree. The root including this leaf is
+		/// computed at the end of the block and published in the block header. The
+		/// leaf hash is deliberately not included: it is derivable from `Leaves`
+		/// (and served by the RPC), and hashing it here would double the per-leaf
+		/// Poseidon work the batched settlement saves.
+		LeafInserted { index: u64 },
 		/// Tree depth increased.
 		TreeGrew { new_depth: u8 },
 	}
@@ -226,24 +285,40 @@ pub mod pallet {
 		LeafIndexOutOfBounds,
 		/// Leaf not found.
 		LeafNotFound,
+		/// Leaf was appended this block and is not yet folded into the root; it
+		/// becomes provable once the block is finalized.
+		LeafNotYetSettled,
 	}
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
+			// Reserve the once-per-block ceiling of the batched root recomputation
+			// in on_finalize. The per-leaf marginal cost is charged to whoever
+			// triggers each insert (see `INSERT_LEAF_DB_OPS`).
+			Self::finalize_base_weight()
+		}
+
 		fn on_finalize(_n: BlockNumberFor<T>) {
+			// Fold all leaves appended during this block into the tree. This must
+			// run after every hook that inserts leaves (e.g. mining-rewards'
+			// on_finalize); on_finalize executes in pallet declaration order, and
+			// this pallet is declared after all inserters in the runtime.
+			Self::process_pending_leaves();
+
 			// Set ZK Merkle tree root in frame_system for inclusion in block header
 			let root: Hash256 = Root::<T>::get();
 			<frame_system::Pallet<T>>::set_zk_tree_root(root.into());
 		}
 	}
 
-	impl<T: Config> Pallet<T>
-	where
-		AccountIdOf<T>: AsRef<[u8]>,
-	{
-		/// Insert a new leaf into the tree.
+	impl<T: Config> Pallet<T> {
+		/// Append a new leaf to the tree.
 		///
-		/// Returns the leaf index and new root hash.
+		/// Returns the leaf index. The leaf is *not* folded into the Merkle root
+		/// here: root recomputation is batched once per block in `on_finalize`
+		/// (see [`Self::process_pending_leaves`]), which is what puts the root
+		/// covering this leaf into this block's header.
 		///
 		/// # Infallibility
 		///
@@ -255,49 +330,77 @@ pub mod pallet {
 			transfer_count: u64,
 			asset_id: T::AssetId,
 			amount: T::Balance,
-		) -> (u64, Hash256) {
+		) -> u64 {
 			let leaf = ZkLeaf { to, transfer_count, asset_id, amount };
 			let leaf_index = LeafCount::<T>::get();
 
-			// Check if we need to grow the tree
-			let current_depth = Depth::<T>::get();
-			let capacity = tree::capacity_at_depth(current_depth);
+			Leaves::<T>::insert(leaf_index, leaf);
+			LeafCount::<T>::put(leaf_index + 1);
+			UnprocessedLeaves::<T>::mutate(|pending| *pending = pending.saturating_add(1));
 
-			if leaf_index >= capacity {
-				// Need to grow the tree
-				// saturating_add ensures we never overflow; MAX_TREE_DEPTH=32 means 4^32 leaves
-				// which is ~18 quintillion - far beyond any practical blockchain state
-				let new_depth = current_depth.saturating_add(1);
-				debug_assert!(
-					new_depth <= MAX_TREE_DEPTH,
-					"ZK tree exceeded max depth - this should never happen in practice"
-				);
+			Self::deposit_event(Event::LeafInserted { index: leaf_index });
 
-				tree::grow_tree::<T>(current_depth, new_depth);
-				Depth::<T>::put(new_depth);
+			leaf_index
+		}
 
-				Self::deposit_event(Event::TreeGrew { new_depth });
+		/// Fold all leaves appended since the last call into `Nodes` and `Root`.
+		///
+		/// Called from `on_finalize`; public so tests can settle the tree without
+		/// running the whole block lifecycle. No-op when nothing is pending.
+		pub fn process_pending_leaves() {
+			let pending = UnprocessedLeaves::<T>::take();
+			if pending == 0 {
+				return;
 			}
 
-			// Store the leaf
-			Leaves::<T>::insert(leaf_index, leaf.clone());
-			LeafCount::<T>::put(leaf_index + 1);
+			let leaf_count = LeafCount::<T>::get();
+			let start = leaf_count.saturating_sub(pending);
 
-			// Compute leaf hash and update tree
-			let leaf_hash = tree::hash_leaf::<T>(&leaf);
-			let new_root = tree::update_path::<T>(leaf_index, leaf_hash);
+			// Grow the tree enough to fit every pending leaf. saturating_add can
+			// never overflow in practice; MAX_TREE_DEPTH=32 means 4^32 leaves,
+			// far beyond any practical blockchain state.
+			let old_depth = Depth::<T>::get();
+			let mut depth = old_depth;
+			while tree::capacity_at_depth(depth) < leaf_count {
+				depth = depth.saturating_add(1);
+			}
+			debug_assert!(
+				depth <= MAX_TREE_DEPTH,
+				"ZK tree exceeded max depth - this should never happen in practice"
+			);
+			if depth > old_depth {
+				tree::grow_tree::<T>(old_depth);
+				Depth::<T>::put(depth);
+				Self::deposit_event(Event::TreeGrew { new_depth: depth });
+			}
 
+			let new_root = tree::update_range::<T>(start, leaf_count, depth);
 			Root::<T>::put(new_root);
+		}
 
-			Self::deposit_event(Event::LeafInserted { index: leaf_index, leaf_hash, new_root });
-
-			(leaf_index, new_root)
+		/// Once-per-block weight ceiling of [`Self::process_pending_leaves`] beyond
+		/// the marginal cost charged per insert; reserved in `on_initialize`.
+		pub fn finalize_base_weight() -> Weight {
+			let (reads, writes) = FINALIZE_BASE_DB_OPS;
+			<T as frame_system::Config>::DbWeight::get()
+				.reads_writes(reads, writes)
+				.saturating_add(Weight::from_parts(
+					FINALIZE_BASE_POSEIDON_EVALS.saturating_mul(POSEIDON_EVAL_REF_TIME_PS),
+					reads.saturating_mul(TREE_KEY_POV),
+				))
 		}
 
 		/// Get a Merkle proof for a leaf at the given index.
+		///
+		/// Only leaves already folded into the root (everything up to the end of
+		/// the previous block; all leaves once `on_finalize` has run) are provable
+		/// — `Nodes` does not yet cover leaves still pending in this block.
 		pub fn get_merkle_proof(leaf_index: u64) -> Result<ZkMerkleProof, Error<T>> {
 			let leaf_count = LeafCount::<T>::get();
 			ensure!(leaf_index < leaf_count, Error::<T>::LeafIndexOutOfBounds);
+
+			let processed = leaf_count.saturating_sub(UnprocessedLeaves::<T>::get());
+			ensure!(leaf_index < processed, Error::<T>::LeafNotYetSettled);
 
 			let depth = Depth::<T>::get();
 			tree::generate_proof::<T>(leaf_index, depth)
@@ -345,18 +448,14 @@ impl<AccountId, AssetId, Balance> ZkTreeRecorder<AccountId, AssetId, Balance> fo
 	}
 }
 
-impl<T: Config> ZkTreeRecorder<T::AccountId, T::AssetId, T::Balance> for Pallet<T>
-where
-	T::AccountId: AsRef<[u8]>,
-{
+impl<T: Config> ZkTreeRecorder<T::AccountId, T::AssetId, T::Balance> for Pallet<T> {
 	fn record_transfer(
 		to: T::AccountId,
 		transfer_count: u64,
 		asset_id: T::AssetId,
 		amount: T::Balance,
 	) -> u64 {
-		let (leaf_index, _root) = Self::insert_leaf(to, transfer_count, asset_id, amount);
-		leaf_index
+		Self::insert_leaf(to, transfer_count, asset_id, amount)
 	}
 }
 
