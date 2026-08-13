@@ -33,8 +33,30 @@ fn test_ext(account: &AccountId32) -> sp_io::TestExternalities {
 	ext.execute_with(|| {
 		Balances::make_free_balance_be(account, 1000 * UNIT);
 		System::set_block_number(1);
+		// Enter the extrinsic-application phase, as `Executive::initialize_block`
+		// does: `pallet_pubkey`'s `OnKilledAccount` hook attributes reap cleanup
+		// by execution phase (counted for the fee inside extrinsics, registered
+		// as block weight outside them).
+		System::note_finished_initialize();
 	});
 	ext
+}
+
+/// The fee `who` paid for the extrinsic just applied, from `TransactionFeePaid`.
+fn fee_paid(who: &AccountId32) -> u128 {
+	System::events()
+		.into_iter()
+		.find_map(|record| match record.event {
+			quantus_runtime::RuntimeEvent::TransactionPayment(
+				pallet_transaction_payment::Event::TransactionFeePaid {
+					who: payer,
+					actual_fee,
+					..
+				},
+			) if payer == *who => Some(actual_fee),
+			_ => None,
+		})
+		.expect("the extrinsic must have paid a fee")
 }
 
 /// The signing payload and transaction extensions for `call` at `nonce`.
@@ -313,10 +335,10 @@ fn full_extrinsic_reencoded_as_sig_only_is_rejected() {
 
 /// Verify-path DB work (one `Pubkeys` read plus the first-registration insert)
 /// is charged by `ChargePubkeyCacheVerify` as signed-only `extension_weight`;
-/// the `Pubkeys::remove` on account reap is registered as block weight by
-/// `pallet_pubkey`'s `OnKilledAccount` hook itself. Together they cover the
-/// worst case — a first full-signature `transfer_all(..., keep_alive = false)`
-/// that registers and reaps in one extrinsic (one read, two writes).
+/// the `Pubkeys::remove` on account reap is pre-charged by the same extension
+/// on kill-capable calls and kept when the reap happens. Together they cover
+/// the worst case — a first full-signature `transfer_all(..., keep_alive =
+/// false)` that registers and reaps in one extrinsic.
 #[test]
 fn first_registration_plus_reap_weight_covers_combined_db_ops() {
 	use frame_support::{
@@ -327,7 +349,7 @@ fn first_registration_plus_reap_weight_covers_combined_db_ops() {
 	use sp_runtime::traits::TransactionExtension;
 
 	let verify = RocksDbWeight::get().reads_writes(1, 1);
-	let cleanup = RocksDbWeight::get().writes(1);
+	let cleanup = pallet_pubkey::Pallet::<Runtime>::reap_cleanup_weight();
 
 	// Signed-only extension weight covers the verify-path work; class-wide
 	// `base_extrinsic` must not, or bare unsigned Normal (wormhole exits) would
@@ -351,18 +373,20 @@ fn first_registration_plus_reap_weight_covers_combined_db_ops() {
 		);
 	}
 
-	// The cleanup write is registered where it happens, so it is covered on
-	// every reap path by construction. Differential check: two otherwise
-	// identical `transfer_all` extrinsics, one of which reaps its sender —
-	// the reaping one must consume at least the cleanup DB write.
+	// The cleanup is pre-charged per kill-capable call and kept when the reap
+	// happens, so a realized reap's block-weight consumption carries it.
+	// Differential check: two otherwise identical `transfer_all` extrinsics,
+	// one of which reaps its sender — the reaping one must consume at least
+	// the reap-cleanup weight.
 	//
 	// Each extrinsic runs as the sole extrinsic of its own externalities so
 	// `WormholeProofRecorderExtension`'s event-scan weight (charged on the
 	// cumulative block event count) cannot confound the differential with a
 	// positional re-scan of a prior extrinsic's events. Even then the reaping
 	// path emits extra events (e.g. `KilledAccount`), so the scan cost still
-	// differs — exact registration of the single write is proven by
-	// `killed_account_registers_cleanup_weight`; here we only require coverage.
+	// differs — the exact fee-side accounting is pinned by
+	// `reaping_transfer_all_pays_the_cleanup_fee`; here we only require
+	// block-weight coverage.
 	let reaper_pair = Dilithium65Pair::from_seed_slice(&[42u8; 32]).expect("valid seed");
 	let reaper = reaper_pair.public().into_account();
 	let keeper_pair = Dilithium65Pair::from_seed_slice(&[43u8; 32]).expect("valid seed");
@@ -435,4 +459,143 @@ fn full_signed_reap_clears_cached_pubkey() {
 			"reaped account must not leave an orphan pubkey cache entry"
 		);
 	});
+}
+
+/// Regression (security review 2026-08): the `Pubkeys::remove` a reap performs
+/// must be billed to the submitter through the corrected post-dispatch weight,
+/// not merely registered against the block after the fact. Two full-pipeline
+/// extrinsics from the same signer, identical in length and call weight and
+/// differing only in `keep_alive`: the reaping one's `TransactionFeePaid`
+/// amount must exceed the non-reaping one's by exactly the reap-cleanup weight
+/// converted to fee.
+#[test]
+fn reaping_transfer_all_pays_the_cleanup_fee() {
+	let pair = Dilithium65Pair::from_seed_slice(&[42u8; 32]).expect("valid seed");
+	let account = pair.public().into_account();
+	let dest = AccountId32::new([9u8; 32]);
+
+	let fee_with = |keep_alive: bool| {
+		let mut ext = test_ext(&account);
+		ext.execute_with(|| {
+			Balances::make_free_balance_be(&dest, UNIT);
+			let xt = signed_call(
+				&pair,
+				account.clone(),
+				BalancesCall::transfer_all { dest: MultiAddress::Id(dest.clone()), keep_alive }
+					.into(),
+				0,
+				false,
+			);
+			assert_ok!(Executive::apply_extrinsic(xt).expect("extrinsic is valid"));
+			assert_eq!(
+				frame_system::Account::<Runtime>::contains_key(&account),
+				keep_alive,
+				"keep_alive={keep_alive}: reap expectation"
+			);
+			fee_paid(&account)
+		})
+	};
+
+	let keep_fee = fee_with(true);
+	let reap_fee = fee_with(false);
+
+	// The runtime's fee multiplier is constant 1, so the adjusted weight fee
+	// difference is exactly the unadjusted conversion of the cleanup weight.
+	let cleanup_fee =
+		pallet_transaction_payment::Pallet::<Runtime>::weight_to_fee(pallet_pubkey::Pallet::<
+			Runtime,
+		>::reap_cleanup_weight());
+	assert!(cleanup_fee > 0, "the cleanup must convert to a nonzero fee");
+	assert_eq!(
+		reap_fee - keep_fee,
+		cleanup_fee,
+		"a reaping transfer_all must pay for its pubkey-cache cleanup"
+	);
+}
+
+/// Regression (security review 2026-08): under call composition a single
+/// extrinsic can reap several accounts — here a `batch_all` of three
+/// `as_derivative`-wrapped `transfer_all(keep_alive = false)` sweeps, each
+/// killing one funded derivative account. Every reap must be (a) admitted
+/// pre-dispatch — the declared weight `CheckWeight` sees carries one cleanup
+/// reservation per sweep — and (b) billed to the payer: the fee exceeds the
+/// non-reaping control's by exactly three cleanups.
+#[test]
+fn batched_derivative_reaps_are_admitted_and_paid_per_reap() {
+	use frame_support::dispatch::GetDispatchInfo;
+
+	const REAPS: u64 = 3;
+
+	let pair = Dilithium65Pair::from_seed_slice(&[42u8; 32]).expect("valid seed");
+	let account = pair.public().into_account();
+	let dest = AccountId32::new([9u8; 32]);
+
+	let batch_call = |keep_alive: bool| -> RuntimeCall {
+		let calls = (0..REAPS as u16)
+			.map(|index| {
+				RuntimeCall::Utility(pallet_utility::Call::as_derivative {
+					index,
+					call: Box::new(
+						BalancesCall::transfer_all {
+							dest: MultiAddress::Id(dest.clone()),
+							keep_alive,
+						}
+						.into(),
+					),
+				})
+			})
+			.collect();
+		RuntimeCall::Utility(pallet_utility::Call::batch_all { calls })
+	};
+
+	let run = |keep_alive: bool| {
+		let mut ext = test_ext(&account);
+		ext.execute_with(|| {
+			Balances::make_free_balance_be(&dest, UNIT);
+			let derivatives: Vec<AccountId32> = (0..REAPS as u16)
+				.map(|index| pallet_utility::derivative_account_id(account.clone(), index))
+				.collect();
+			for derivative in &derivatives {
+				Balances::make_free_balance_be(derivative, UNIT);
+			}
+
+			let xt = signed_call(&pair, account.clone(), batch_call(keep_alive), 0, false);
+			let declared = xt.get_dispatch_info().total_weight();
+			assert_ok!(Executive::apply_extrinsic(xt).expect("extrinsic is valid"));
+
+			for derivative in &derivatives {
+				assert_eq!(
+					frame_system::Account::<Runtime>::contains_key(derivative),
+					keep_alive,
+					"keep_alive={keep_alive}: derivative reap expectation"
+				);
+			}
+			(declared, fee_paid(&account))
+		})
+	};
+
+	let (keep_declared, keep_fee) = run(true);
+	let (reap_declared, reap_fee) = run(false);
+
+	let cleanup = pallet_pubkey::Pallet::<Runtime>::reap_cleanup_weight();
+
+	// (a) Pre-dispatch bound: the reaping batch is admitted with one cleanup
+	// reservation per potential reap — this is what `CheckWeight` checks
+	// against block limits BEFORE dispatch, closing the boundary-overshoot gap.
+	assert_eq!(
+		reap_declared.saturating_sub(keep_declared),
+		cleanup.saturating_mul(REAPS),
+		"declared weight must carry one cleanup reservation per batched reap"
+	);
+
+	// (b) Fee: all three realized reaps stay in the corrected weight the payer
+	// is billed for.
+	let cleanup_fee =
+		pallet_transaction_payment::Pallet::<Runtime>::weight_to_fee(cleanup.saturating_mul(REAPS));
+	assert!(cleanup_fee > 0, "the cleanups must convert to a nonzero fee");
+	assert_eq!(
+		reap_fee - keep_fee,
+		cleanup_fee,
+		"a multi-reap wrapper must pay for every pubkey-cache cleanup it caused"
+	);
 }

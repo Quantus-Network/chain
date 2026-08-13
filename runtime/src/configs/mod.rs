@@ -97,9 +97,10 @@ parameter_types! {
 	/// run `Verify`.
 	///
 	/// Does **not** cover the `Pubkeys::remove` performed when an account is
-	/// reaped: `pallet_pubkey`'s `OnKilledAccount` hook registers that write
-	/// itself via `register_extra_weight_unchecked`, on whichever call path
-	/// killed the account.
+	/// reaped: the same extension pre-charges that cleanup
+	/// (`pallet_pubkey::Pallet::reap_cleanup_weight`) per statically visible
+	/// kill-capable call and reconciles it post-dispatch against the reaps the
+	/// `OnKilledAccount` hook actually counted, refunding unused reservations.
 	pub PubkeyCacheVerifyWeight: Weight =
 		<Runtime as frame_system::Config>::DbWeight::get().reads_writes(1, 1);
 
@@ -237,7 +238,9 @@ impl pallet_balances::Config for Runtime {
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type RuntimeFreezeReason = RuntimeFreezeReason;
 	// Stock weights: the `Pubkeys::remove` triggered when a call reaps an
-	// account is weighted by `pallet_pubkey`'s `OnKilledAccount` hook itself.
+	// account is pre-charged by `ChargePubkeyCacheVerify` on kill-capable calls
+	// (and registered by the `OnKilledAccount` hook itself outside extrinsics),
+	// so these benchmarks need not model it.
 	type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;
 	/// The type for recording an account's balance.
 	type Balance = Balance;

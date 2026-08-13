@@ -209,11 +209,12 @@ fn killed_account_clears_cached_pubkey() {
 	});
 }
 
-/// `on_killed_account` must account for its own `Pubkeys::remove`: it registers
-/// one DB write of block weight, so every reap path — present or future — is
-/// charged by construction.
+/// A reap outside extrinsic application (e.g. a scheduler-enacted transfer in
+/// `on_initialize`) has no fee payer, so `on_killed_account` must register its
+/// own `Pubkeys::remove` — one DB write, booked as `Mandatory` like other
+/// block-lifecycle work — and must not touch the extrinsic-reap counter.
 #[test]
-fn killed_account_registers_cleanup_weight() {
+fn hook_context_reap_registers_cleanup_weight() {
 	use frame_support::{
 		dispatch::DispatchClass,
 		traits::{Get, OnKilledAccount},
@@ -223,9 +224,13 @@ fn killed_account_registers_cleanup_weight() {
 	new_test_ext().execute_with(|| {
 		let account = sp_runtime::AccountId32::new([1u8; 32]);
 
-		let before = *frame_system::Pallet::<Test>::block_weight().get(DispatchClass::Normal);
+		// No `ExecutionPhase` set: outside extrinsic application, like the mock's
+		// bare externalities and like `on_initialize`/`on_finalize` contexts.
+		assert!(frame_system::Pallet::<Test>::execution_phase().is_none());
+
+		let before = *frame_system::Pallet::<Test>::block_weight().get(DispatchClass::Mandatory);
 		Pallet::<Test>::on_killed_account(&account);
-		let after = *frame_system::Pallet::<Test>::block_weight().get(DispatchClass::Normal);
+		let after = *frame_system::Pallet::<Test>::block_weight().get(DispatchClass::Mandatory);
 
 		let expected = <<Test as frame_system::Config>::DbWeight as Get<
 			frame_support::weights::RuntimeDbWeight,
@@ -236,5 +241,39 @@ fn killed_account_registers_cleanup_weight() {
 			"mock DbWeight must be nonzero for this test to be meaningful"
 		);
 		assert_eq!(after.saturating_sub(before), expected);
+		assert_eq!(Pallet::<Test>::extrinsic_reaps(), 0, "hook-context reaps are not counted");
+	});
+}
+
+/// A reap during extrinsic application must increment [`crate::ExtrinsicReaps`]
+/// — the signal the runtime's `ChargePubkeyCacheVerify` extension reconciles its
+/// statically pre-charged reap-cleanup weight against — and must NOT register
+/// block weight itself: the extension already put the cleanup into the
+/// extrinsic's declared weight (admission) and actual weight (fee), so a second
+/// registration here would double-count it.
+#[test]
+fn extrinsic_reap_is_counted_not_registered() {
+	use frame_support::traits::OnKilledAccount;
+
+	new_test_ext().execute_with(|| {
+		let account = sp_runtime::AccountId32::new([1u8; 32]);
+
+		// Enter the extrinsic-application span, exactly as block execution does.
+		frame_system::Pallet::<Test>::note_finished_initialize();
+		assert!(matches!(
+			frame_system::Pallet::<Test>::execution_phase(),
+			Some(frame_system::Phase::ApplyExtrinsic(_))
+		));
+
+		let weight_before = frame_system::Pallet::<Test>::block_weight().total();
+		Pallet::<Test>::on_killed_account(&account);
+		Pallet::<Test>::on_killed_account(&account);
+
+		assert_eq!(Pallet::<Test>::extrinsic_reaps(), 2, "each reap must be counted");
+		assert_eq!(
+			frame_system::Pallet::<Test>::block_weight().total(),
+			weight_before,
+			"in-extrinsic reaps are charged via the extension, not registered by the hook"
+		);
 	});
 }

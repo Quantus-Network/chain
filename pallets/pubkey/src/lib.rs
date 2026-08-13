@@ -57,7 +57,8 @@ mod tests;
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use core::marker::PhantomData;
-use frame_support::{dispatch::DispatchClass, traits::OnKilledAccount};
+use frame_support::{dispatch::DispatchClass, traits::OnKilledAccount, weights::Weight};
+use frame_system::Phase;
 use qp_dilithium_crypto::{
 	sig_only_signing_payload, verify_ml_dsa_65, verify_ml_dsa_87, DilithiumSignatureScheme,
 	DilithiumSigner,
@@ -92,7 +93,31 @@ pub mod pallet {
 	pub type Pubkeys<T: Config> =
 		StorageMap<_, Blake2_128Concat, AccountId32, DilithiumSigner, OptionQuery>;
 
+	/// Number of pubkey-cache cleanups performed by [`OnKilledAccount`] while an
+	/// extrinsic was being applied, monotonically increasing over the chain's life
+	/// (never reset — consumers take differences, like `frame_system`'s event
+	/// count). The runtime's `ChargePubkeyCacheVerify` extension snapshots this
+	/// around each signed extrinsic to reconcile the reap-cleanup weight it
+	/// pre-charged against the reaps the dispatch actually performed: unused
+	/// reservations are refunded, and reaps on statically opaque call paths are
+	/// registered against the block.
+	#[pallet::storage]
+	pub type ExtrinsicReaps<T: Config> = StorageValue<_, u64, ValueQuery>;
+
 	impl<T: Config> Pallet<T> {
+		/// Pubkey-cache cleanups performed inside extrinsics so far (monotonic).
+		pub fn extrinsic_reaps() -> u64 {
+			ExtrinsicReaps::<T>::get()
+		}
+
+		/// Weight of one account reap's pubkey-cache cleanup when it happens inside
+		/// an extrinsic: the [`Pubkeys`] remove plus the [`ExtrinsicReaps`] counter
+		/// read + write. This is the per-reap price the runtime's
+		/// `ChargePubkeyCacheVerify` extension pre-charges on kill-capable calls.
+		pub fn reap_cleanup_weight() -> Weight {
+			T::DbWeight::get().reads_writes(1, 2)
+		}
+
 		/// The cached public key for `who`, if any. Once this returns `Some`,
 		/// `who` can sign transactions with the `SigOnly` signature variants.
 		pub fn pubkey_of(who: &AccountId32) -> Option<DilithiumSigner> {
@@ -119,31 +144,37 @@ pub mod pallet {
 
 	/// Clears the cached public key when the system account is reaped.
 	///
-	/// The storage write is charged here, via
-	/// [`register_extra_weight_unchecked`](frame_system::Pallet::register_extra_weight_unchecked),
-	/// rather than on the weights of kill-capable calls: hooking the weight
-	/// where the write happens covers every reap path — user-signed,
-	/// scheduled, root, or from a pallet added later — by construction.
-	/// "Unchecked" is acceptable for one DB write: reaps only occur inside
-	/// already-weighted dispatches, so the overshoot per extrinsic is bounded.
-	/// Signature-verification base weight does not cover this write — a
-	/// first-registration that also reaps performs both the insert and this
-	/// remove.
+	/// Weight accounting depends on the execution context:
 	///
-	/// Class attribution is deliberately approximate: `OnKilledAccount` has no
-	/// access to the enclosing dispatch's [`DispatchClass`], so the write is
-	/// always booked against [`DispatchClass::Normal`]. Reaps inside Operational
-	/// or Mandatory paths therefore consume Normal budget they did not use; the
-	/// block total stays correct. The remove is also registered on every reap,
-	/// including accounts that never cached a key — an over-charge, not an
-	/// under-charge.
+	/// - **Inside an extrinsic** (`Phase::ApplyExtrinsic`): the cleanup is counted in
+	///   [`ExtrinsicReaps`] and *not* registered here. The runtime's `ChargePubkeyCacheVerify`
+	///   extension pre-charges [`Pallet::reap_cleanup_weight`] per statically visible kill-capable
+	///   call — compositionally, so a `utility.batch` of N reap-capable calls is charged N — which
+	///   makes the cost part of the declared weight `CheckWeight` admits and of the post-dispatch
+	///   weight transaction payment bills, then refunds whatever the dispatch did not actually
+	///   reap. Reaps the static matcher cannot see (e.g. a `Multisig::execute` inner call stored
+	///   on-chain) are reconciled by the same extension against block capacity post-dispatch.
+	/// - **Outside extrinsics** (`Initialization`/`Finalization`, e.g. a scheduler-enacted transfer
+	///   reaping its sender in `on_initialize`): there is no fee payer and no admission decision to
+	///   inform, so the write is registered directly, as [`DispatchClass::Mandatory`] — the class
+	///   block-lifecycle work is booked under. This is the same post-hoc pattern FRAME uses for
+	///   `on_initialize` weight.
+	///
+	/// In both contexts the remove runs on every reap, including accounts that never cached a
+	/// key — an over-charge, never an under-charge. Bare (unsigned) extrinsics run no
+	/// transaction extensions, so a reap they performed would only be counted, not charged;
+	/// no unsigned path in the runtime can reap an account (they only credit balances).
 	impl<T: Config> OnKilledAccount<T::AccountId> for Pallet<T> {
 		fn on_killed_account(who: &T::AccountId) {
 			Pubkeys::<T>::remove(who);
-			frame_system::Pallet::<T>::register_extra_weight_unchecked(
-				T::DbWeight::get().writes(1),
-				DispatchClass::Normal,
-			);
+			match frame_system::Pallet::<T>::execution_phase() {
+				Some(Phase::ApplyExtrinsic(_)) =>
+					ExtrinsicReaps::<T>::mutate(|n| *n = n.saturating_add(1)),
+				_ => frame_system::Pallet::<T>::register_extra_weight_unchecked(
+					T::DbWeight::get().writes(1),
+					DispatchClass::Mandatory,
+				),
+			}
 		}
 	}
 }
@@ -185,9 +216,10 @@ sp_api::decl_runtime_apis! {
 /// invisible to the dispatch path. The runtime charges that worst case via the
 /// signed-only `ChargePubkeyCacheVerify` extension (`PubkeyCacheVerifyWeight`),
 /// so bare unsigned extrinsics do not pay for a `Verify` they never run.
-/// Separately, account reaping runs `Pubkeys::remove` via `OnKilledAccount`,
-/// which registers its own write via `register_extra_weight_unchecked` — a
-/// first-registration that also reaps performs both the insert and the remove.
+/// Separately, account reaping runs `Pubkeys::remove` via `OnKilledAccount`;
+/// the same extension pre-charges that cleanup on kill-capable calls and
+/// reconciles it post-dispatch (see the hook's docs) — a first-registration
+/// that also reaps pays for both the insert and the remove.
 #[derive(Eq, PartialEq, Clone, Encode, Decode, RuntimeDebug, TypeInfo, DecodeWithMemTracking)]
 #[scale_info(skip_type_params(T))]
 pub struct CachedSignature<T>(pub DilithiumSignatureScheme, PhantomData<T>);

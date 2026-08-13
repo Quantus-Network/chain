@@ -167,8 +167,12 @@ pub type Difficulty = U512;
 ///
 /// Nested as `(ChargePubkeyCacheVerify, CheckWeight)` to stay within the
 /// 12-element `TransactionExtension` tuple limit while still charging the
-/// pubkey-cache verify surcharge on signed extrinsics only (bare unsigned
-/// report `extension_weight = 0`).
+/// pubkey-cache verify surcharge — plus the per-reap `Pubkeys` cleanup on
+/// kill-capable calls — on signed extrinsics only (bare unsigned report
+/// `extension_weight = 0`). Within the pair, `ChargePubkeyCacheVerify`'s
+/// post-dispatch refund of unrealized reap reservations lands before
+/// `CheckWeight`'s block-weight reclaim and before `ChargeTransactionPayment`
+/// finalizes the fee, so both see the corrected weight.
 pub type TxExtension = (
 	frame_system::CheckNonZeroSender<Runtime>,
 	frame_system::CheckSpecVersion<Runtime>,
