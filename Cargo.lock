@@ -7625,7 +7625,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.9.0-endless-sky"
+version = "0.10.0"
 dependencies = [
  "clap",
  "frame-benchmarking-cli",
