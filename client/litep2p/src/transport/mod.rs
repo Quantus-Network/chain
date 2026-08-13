@@ -131,6 +131,15 @@ pub(crate) enum TransportEvent {
 		connection_id: ConnectionId,
 	},
 
+	/// Inbound connection failed during handshake (noise/multistream).
+	///
+	/// The connection was counted against pending inbound limits and must be
+	/// released by the transport manager.
+	InboundConnectionFailed {
+		/// Connection ID.
+		connection_id: ConnectionId,
+	},
+
 	/// Connection opened to remote but not yet negotiated.
 	ConnectionOpened {
 		/// Connection ID.

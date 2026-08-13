@@ -517,9 +517,15 @@ impl<B: BlockT + 'static, H: ExHashT> NetworkBackend<B, H> for Litep2pNetworkBac
 			.with_libp2p_ping(ping_config)
 			.with_libp2p_identify(identify_config)
 			.with_libp2p_kademlia(kademlia_config)
-			.with_connection_limits(ConnectionLimitsConfig::default().max_incoming_connections(
-				Some(crate::MAX_CONNECTIONS_ESTABLISHED_INCOMING as usize),
-			))
+			.with_connection_limits(
+				ConnectionLimitsConfig::default()
+					.max_incoming_connections(Some(
+						crate::MAX_CONNECTIONS_ESTABLISHED_INCOMING as usize,
+					))
+					.max_pending_incoming_connections(Some(
+						crate::MAX_CONNECTIONS_PENDING_INCOMING as usize,
+					)),
+			)
 			// This has the same effect as `libp2p::Swarm::with_idle_connection_timeout` which is
 			// set to 10 seconds as well.
 			.with_keep_alive_timeout(KEEP_ALIVE_TIMEOUT)
