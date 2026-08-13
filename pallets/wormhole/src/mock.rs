@@ -166,7 +166,15 @@ pub fn set_miner_preimage_digest(preimage: [u8; 32]) {
 ///
 /// Wormhole-derived accounts have no signing key; the only spend path is a
 /// zk-tree leaf. A credit without one is permanently frozen.
+///
+/// `amount` must be a positive multiple of [`crate::SCALE_DOWN_FACTOR`]:
+/// `hash_leaf` commits `amount / 10^10`, so a sub-quantum credit would store a
+/// nonzero balance whose circuit amount is zero and cannot be withdrawn.
 pub fn assert_exitable_native_leaf(to: &AccountId, amount: Balance) {
+	assert!(
+		amount > 0 && amount % crate::SCALE_DOWN_FACTOR == 0,
+		"credited amount {amount} must be a positive whole number of quanta"
+	);
 	let matching: Vec<u64> = System::events()
 		.into_iter()
 		.filter_map(|r| match r.event {
@@ -188,4 +196,15 @@ pub fn assert_exitable_native_leaf(to: &AccountId, amount: Balance) {
 	let leaf = ZkTree::leaf(matching[0]).expect("recorded leaf_index must exist in the zk-tree");
 	assert_eq!(leaf.amount, amount, "leaf amount must match the credited balance");
 	assert_eq!(leaf.asset_id, 0, "fee credits are native");
+	let zeroed = pallet_zk_tree::ZkLeaf {
+		to: leaf.to.clone(),
+		transfer_count: leaf.transfer_count,
+		asset_id: leaf.asset_id,
+		amount: 0,
+	};
+	assert_ne!(
+		pallet_zk_tree::tree::hash_leaf::<Test>(&leaf),
+		pallet_zk_tree::tree::hash_leaf::<Test>(&zeroed),
+		"committed circuit amount must be nonzero (hash_leaf divides by 10^10)"
+	);
 }
