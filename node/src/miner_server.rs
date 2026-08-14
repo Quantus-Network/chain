@@ -174,6 +174,16 @@ impl MinerServer {
 		}
 	}
 
+	/// Clear the stored job so miners connecting while mining is paused (major
+	/// sync, no peers) don't receive stale work on connect. Already-connected
+	/// miners keep grinding their last job — the protocol has no cancel
+	/// message — until the next broadcast supersedes it.
+	pub async fn clear_current_job(&self) {
+		if self.current_job.write().await.take().is_some() {
+			log::debug!("Cleared pending miner job while mining is paused");
+		}
+	}
+
 	/// Wait for a mining result with a timeout.
 	pub async fn recv_result_timeout(&self, timeout: Duration) -> Option<MiningResult> {
 		let mut rx = self.result_rx.lock().await;
@@ -929,6 +939,48 @@ mod tests {
 			rx.recv().await.unwrap();
 		}
 		assert_eq!(drops, 0, "counter must be reset by the last successful forward");
+	}
+
+	fn test_server() -> MinerServer {
+		let (result_tx, result_rx) = mpsc::channel::<MiningResult>(64);
+		MinerServer {
+			miners: Arc::new(RwLock::new(HashMap::new())),
+			result_rx: tokio::sync::Mutex::new(result_rx),
+			result_tx,
+			current_job: Arc::new(RwLock::new(None)),
+			next_miner_id: AtomicU64::new(1),
+			auth_token: "token".to_string(),
+			unauth_slots: Arc::new(Semaphore::new(MAX_UNAUTHENTICATED_CONNECTIONS)),
+		}
+	}
+
+	fn dummy_job(job_id: &str) -> MiningRequest {
+		MiningRequest {
+			job_id: job_id.to_string(),
+			mining_hash: "00".repeat(32),
+			difficulty: "1".to_string(),
+		}
+	}
+
+	/// A job broadcast before a sync/offline pause must not be handed to miners
+	/// that connect during the pause: with no cancel message in the protocol
+	/// they would grind the stale job for the entire sync.
+	#[tokio::test]
+	async fn clearing_the_current_job_stops_serving_it_to_new_miners() {
+		let server = test_server();
+		server.broadcast_job(dummy_job("1")).await;
+		assert!(server.get_current_job().await.is_some());
+
+		server.clear_current_job().await;
+		assert!(
+			server.get_current_job().await.is_none(),
+			"miners connecting during a pause must not receive the pre-pause job"
+		);
+
+		// Idempotent, and the next broadcast serves fresh work again.
+		server.clear_current_job().await;
+		server.broadcast_job(dummy_job("2")).await;
+		assert_eq!(server.get_current_job().await.unwrap().job_id, "2");
 	}
 
 	fn temp_token_path(name: &str) -> PathBuf {

@@ -346,19 +346,21 @@ async fn mining_loop(
 	let mut mining_start_time = std::time::Instant::now();
 	let mut job_counter: u64 = 0;
 
-	// Track when we first detected offline status for grace period
-	let mut offline_since: Option<std::time::Instant> = None;
-	const OFFLINE_GRACE_PERIOD: Duration = Duration::from_secs(30);
-
 	loop {
 		if cancellation_token.is_cancelled() {
 			log::info!("⛏️ QPoW Mining task shutting down gracefully");
 			break;
 		}
 
-		// Don't mine if we're still syncing
+		// Don't mine if we're still syncing. Also drop the stored job so miners
+		// connecting during the sync don't receive stale work on connect —
+		// the protocol has no cancel message, so they would grind it until the
+		// post-sync broadcast supersedes it.
 		if sync_service.is_major_syncing() {
 			log::debug!(target: "pow", "Mining paused: node is still syncing with network");
+			if let Some(ref server) = miner_server {
+				server.clear_current_job().await;
+			}
 			tokio::select! {
 				_ = tokio::time::sleep(Duration::from_secs(5)) => {}
 				_ = cancellation_token.cancelled() => continue
@@ -366,36 +368,18 @@ async fn mining_loop(
 			continue;
 		}
 
-		// Don't mine if we have no peers (unless --dev or --force-authoring)
-		// Use a grace period to handle brief network hiccups
+		// Don't mine if we have no peers (unless --dev or --force-authoring).
+		// This must pause immediately, without a grace period: at startup
+		// `is_major_syncing()` is still false before the first peers connect,
+		// so any grace window hands external miners a job built on a stale
+		// local best block, which they then grind for the entire sync.
 		if !allow_mining_without_peers && sync_service.is_offline() {
-			let now = std::time::Instant::now();
-			match offline_since {
-				None => {
-					// First time detecting offline, start grace period
-					offline_since = Some(now);
-					log::debug!(target: "pow", "No peers detected, starting {}s grace period before pausing mining", OFFLINE_GRACE_PERIOD.as_secs());
-				},
-				Some(since) if now.duration_since(since) >= OFFLINE_GRACE_PERIOD => {
-					// Grace period exceeded, pause mining
-					log::warn!(target: "pow", "Mining paused: no connected peers for {}s (node is offline)", OFFLINE_GRACE_PERIOD.as_secs());
-					tokio::select! {
-						_ = tokio::time::sleep(Duration::from_secs(5)) => {}
-						_ = cancellation_token.cancelled() => continue
-					}
-					continue;
-				},
-				Some(_) => {
-					// Still within grace period, continue mining but log
-					log::debug!(target: "pow", "No peers but still within grace period, continuing mining");
-				},
+			log::info!(target: "pow", "Mining paused: waiting for peers");
+			tokio::select! {
+				_ = tokio::time::sleep(Duration::from_secs(5)) => {}
+				_ = cancellation_token.cancelled() => continue
 			}
-		} else {
-			// We have peers (or are in dev mode), reset offline tracking
-			if offline_since.is_some() {
-				log::info!(target: "pow", "Peers reconnected, resuming normal mining");
-			}
-			offline_since = None;
+			continue;
 		}
 
 		// Wait for mining metadata to be available. We are past the sync check,
