@@ -307,7 +307,6 @@ impl pallet_scheduler::Config for Test {
 impl pallet_utility::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type RuntimeCall = RuntimeCall;
-	type PalletsOrigin = OriginCaller;
 	type WeightInfo = ();
 	type HighSecurity = ();
 }

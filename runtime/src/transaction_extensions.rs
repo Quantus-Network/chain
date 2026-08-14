@@ -42,7 +42,8 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 	const IDENTIFIER: &'static str = "ReversibleTransactionExtension";
 
 	fn weight(&self, _call: &RuntimeCall) -> Weight {
-		// One `is_high_security` storage read for the flat whitelist check.
+		// One `is_high_security` storage read. Walking `batch_all` children in
+		// `is_whitelisted` is in-memory only.
 		T::DbWeight::get().reads(1)
 	}
 
@@ -70,9 +71,10 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 		let who = ensure_signed(origin.clone())
 			.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::BadSigner))?;
 
-		// Enforce the high-security whitelist on the top-level signer. Origin-rewriting wrappers
-		// (`as_derivative`/`as_recovered`) re-check the whitelist at the effective origin inside
-		// their own pallets at dispatch time, so this flat check needs no call traversal.
+		// Enforce the high-security whitelist on the top-level signer.
+		// `is_whitelisted` walks `batch_all` children so a mixed batch is rejected here.
+		// Origin-rewriting wrappers (`as_recovered`) re-check the whitelist at the
+		// effective origin inside their own pallets at dispatch time.
 		if !crate::configs::HighSecurityConfig::is_call_allowed(&who, call) {
 			return Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(1)));
 		}
@@ -90,7 +92,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 /// - Automatically catches ALL transfers dispatched inside a transaction, regardless of how they're
 ///   initiated:
 ///   - Direct transfers (transfer, transfer_keep_alive, transfer_all, etc.)
-///   - Batch transfers (utility.batch, batch_all, force_batch)
+///   - Batch transfers (utility.batch_all)
 ///   - Multisig transfers (multisig.execute)
 ///   - Recovery transfers (recovery.as_recovered)
 ///   - Held-fund seizures/recoveries (reversible_transfers.cancel / recover_funds, which move value
@@ -256,24 +258,11 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			// path the deposit is unreserved instead — an overcharge, never a shortfall.)
 			RuntimeCall::Recovery(pallet_recovery::Call::close_recovery { .. }) => 1,
 
-			RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
-			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
-			RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) =>
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) =>
 				calls.iter().map(Self::count_transfers).sum(),
 
-			RuntimeCall::Utility(pallet_utility::Call::dispatch_as { call, .. }) |
-			RuntimeCall::Utility(pallet_utility::Call::dispatch_as_fallible { call, .. }) |
-			RuntimeCall::Utility(pallet_utility::Call::with_weight { call, .. }) |
-			RuntimeCall::Utility(pallet_utility::Call::as_derivative { call, .. }) |
 			RuntimeCall::Recovery(pallet_recovery::Call::as_recovered { call, .. }) =>
 				Self::count_transfers(call),
-
-			// Exactly one branch executes: the fallback runs only if the main call failed, in
-			// which case the main call's changes (and its events) were rolled back. Charge the
-			// worst case across the two branches; overcharge is never refunded, so summing
-			// would systematically overprice the honest path.
-			RuntimeCall::Utility(pallet_utility::Call::if_else { main, fallback }) =>
-				Self::count_transfers(main).max(Self::count_transfers(fallback)),
 
 			// Vesting calls fall through to 0 deliberately: the pallet records its
 			// payouts itself (so Root calls enacted by the scheduler are captured too)
@@ -518,9 +507,9 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 
 		// The converse of the shortfall: `weight()` reserves the worst case, and any
 		// statically over-charged transfers are unspent — `recover_funds` is charged
-		// `MaxPendingPerAccount + 1` regardless of how many holds were pending, `if_else`
-		// is charged its heavier branch, and a short-circuited `batch` never executes its
-		// remaining children. The per-transfer price is flat, so the unspent amount is
+		// `MaxPendingPerAccount + 1` regardless of how many holds were pending, and a
+		// `batch_all` that fails after some children still reserved weight for every
+		// child in the submitted call. The per-transfer price is flat, so the unspent amount is
 		// exactly the count difference times that price (and by construction never exceeds
 		// this extension's declared weight).
 		Ok(Self::per_transfer_weight().saturating_mul(charged_transfers.saturating_sub(recorded)))
@@ -789,11 +778,79 @@ mod tests {
 		});
 	}
 
+	#[test]
+	fn test_high_security_batch_all_of_whitelisted_calls_is_allowed() {
+		new_test_ext().execute_with(|| {
+			let call = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+				calls: vec![
+					RuntimeCall::ReversibleTransfers(
+						pallet_reversible_transfers::Call::schedule_transfer {
+							dest: MultiAddress::Id(bob()),
+							amount: 10 * EXISTENTIAL_DEPOSIT,
+						},
+					),
+					RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+						tx_id: Default::default(),
+					}),
+				],
+			});
+			assert_ok!(check_call(call));
+		});
+	}
+
+	#[test]
+	fn test_high_security_batch_all_rejects_non_whitelisted_child() {
+		new_test_ext().execute_with(|| {
+			let call = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+				calls: vec![
+					RuntimeCall::ReversibleTransfers(
+						pallet_reversible_transfers::Call::schedule_transfer {
+							dest: MultiAddress::Id(bob()),
+							amount: 10 * EXISTENTIAL_DEPOSIT,
+						},
+					),
+					RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+						dest: MultiAddress::Id(bob()),
+						value: 10 * EXISTENTIAL_DEPOSIT,
+					}),
+				],
+			});
+			assert_eq!(
+				check_call(call).unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
+			);
+		});
+	}
+
+	#[test]
+	fn high_security_account_can_dispatch_batch_all_of_schedule_transfers() {
+		new_test_ext().execute_with(|| {
+			assert_ok!(Utility::batch_all(
+				RuntimeOrigin::signed(charlie()),
+				vec![
+					RuntimeCall::ReversibleTransfers(
+						pallet_reversible_transfers::Call::schedule_transfer {
+							dest: MultiAddress::Id(bob()),
+							amount: 10 * EXISTENTIAL_DEPOSIT,
+						},
+					),
+					RuntimeCall::ReversibleTransfers(
+						pallet_reversible_transfers::Call::schedule_transfer {
+							dest: MultiAddress::Id(bob()),
+							amount: 11 * EXISTENTIAL_DEPOSIT,
+						},
+					),
+				],
+			));
+			assert_eq!(ReversibleTransfers::next_transaction_id(), 2);
+		});
+	}
+
 	// =========================================================================
 	// Origin-rewriting wrappers must not bypass high-security restrictions.
-	// `as_recovered` / `as_derivative` re-check the whitelist at the effective
-	// (rewritten) origin inside their own pallets, so a non-whitelisted call
-	// cannot be dispatched as a high-security account, including under `batch`.
+	// `as_recovered` re-checks the whitelist at the effective (rewritten) origin
+	// inside its own pallet, so a non-whitelisted call cannot be dispatched as a
+	// high-security account, including under `batch_all`.
 	// =========================================================================
 
 	fn boxed(call: RuntimeCall) -> alloc::boxed::Box<RuntimeCall> {
@@ -840,48 +897,11 @@ mod tests {
 	}
 
 	#[test]
-	fn as_derivative_high_security_call_is_blocked() {
+	fn batch_all_wrapped_high_security_call_is_blocked() {
 		new_test_ext().execute_with(|| {
-			// Make alice's index-0 derivative a high-security account.
-			let derivative = pallet_utility::derivative_account_id(alice(), 0u16);
-			Balances::make_free_balance_be(&derivative, EXISTENTIAL_DEPOSIT * 100);
-			assert_ok!(ReversibleTransfers::set_high_security(
-				RuntimeOrigin::signed(derivative.clone()),
-				qp_scheduler::BlockNumberOrTimestamp::BlockNumber(10),
-				bob(),
-			));
-
-			// A non-whitelisted call dispatched as the high-security derivative is rejected.
-			assert_err_ignore_postinfo!(
-				Utility::as_derivative(
-					RuntimeOrigin::signed(alice()),
-					0,
-					boxed(non_whitelisted_transfer()),
-				),
-				pallet_utility::Error::<Runtime>::CallNotAllowedForHighSecurity
-			);
-
-			// A whitelisted call as the derivative is allowed.
-			assert_ok!(Utility::as_derivative(
-				RuntimeOrigin::signed(alice()),
-				0,
-				boxed(whitelisted_schedule()),
-			));
-
-			// A different, non-high-security derivative is unaffected.
-			assert_ok!(Utility::as_derivative(
-				RuntimeOrigin::signed(alice()),
-				1,
-				boxed(RuntimeCall::System(frame_system::Call::remark { remark: vec![1] })),
-			));
-		});
-	}
-
-	#[test]
-	fn batch_wrapped_high_security_call_is_blocked() {
-		new_test_ext().execute_with(|| {
-			// Wrapping the origin-rewriter in a batch does not bypass the check: `batch_all`
-			// re-dispatches `as_recovered`, whose own check rejects the non-whitelisted call.
+			// Wrapping the origin-rewriter in `batch_all` does not bypass the check:
+			// `batch_all` re-dispatches `as_recovered`, whose own check rejects the
+			// non-whitelisted call.
 			pallet_recovery::Proxy::<Runtime>::insert(bob(), charlie());
 			let inner = RuntimeCall::Recovery(pallet_recovery::Call::as_recovered {
 				account: MultiAddress::Id(charlie()),
@@ -925,7 +945,7 @@ mod tests {
 			// A transfer is charged the per-transfer proof-recording cost.
 			assert!(weight.ref_time() > base_weight.ref_time());
 
-			let batch = RuntimeCall::Utility(pallet_utility::Call::batch {
+			let batch = RuntimeCall::Utility(pallet_utility::Call::batch_all {
 				calls: vec![
 					RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
 						dest: MultiAddress::Id(bob()),
@@ -941,61 +961,6 @@ mod tests {
 				RuntimeCall,
 			>>::weight(&ext, &batch);
 			assert!(batch_weight.ref_time() > weight.ref_time());
-		});
-	}
-
-	#[test]
-	fn wormhole_proof_recorder_counts_as_derivative_wrapped_transfers() {
-		new_test_ext().execute_with(|| {
-			let ext = WormholeProofRecorderExtension::<Runtime>::new();
-
-			// A transfer hidden behind `as_derivative` (possibly batched) must be charged the
-			// same per-transfer weight as a direct transfer.
-			let wrapped = RuntimeCall::Utility(pallet_utility::Call::as_derivative {
-				index: 0,
-				call: boxed(RuntimeCall::Utility(pallet_utility::Call::batch {
-					calls: vec![non_whitelisted_transfer(), non_whitelisted_transfer()],
-				})),
-			});
-			let weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
-				RuntimeCall,
-			>>::weight(&ext, &wrapped);
-			assert_eq!(
-				weight,
-				WormholeProofRecorderExtension::<Runtime>::per_transfer_weight().saturating_mul(2),
-				"as_derivative-wrapped transfers must be statically counted"
-			);
-		});
-	}
-
-	#[test]
-	fn wormhole_proof_recorder_counts_if_else_wrapped_transfers() {
-		new_test_ext().execute_with(|| {
-			// `if_else` executes exactly one branch: the fallback runs only if the main call
-			// failed, in which case the main call's changes (and events) were rolled back. The
-			// static charge must therefore cover the worst case across the two branches.
-			let call = RuntimeCall::Utility(pallet_utility::Call::if_else {
-				main: boxed(RuntimeCall::Utility(pallet_utility::Call::batch {
-					calls: vec![non_whitelisted_transfer(), non_whitelisted_transfer()],
-				})),
-				fallback: boxed(non_whitelisted_transfer()),
-			});
-			assert_eq!(
-				WormholeProofRecorderExtension::<Runtime>::count_transfers(&call),
-				2,
-				"if_else must charge for the transfer-heavier branch (main)"
-			);
-
-			// The worst case can also sit in the fallback branch.
-			let call = RuntimeCall::Utility(pallet_utility::Call::if_else {
-				main: boxed(RuntimeCall::System(frame_system::Call::remark { remark: vec![1] })),
-				fallback: boxed(non_whitelisted_transfer()),
-			});
-			assert_eq!(
-				WormholeProofRecorderExtension::<Runtime>::count_transfers(&call),
-				1,
-				"if_else must charge for the transfer-heavier branch (fallback)"
-			);
 		});
 	}
 
@@ -1036,23 +1001,6 @@ mod tests {
 			}));
 			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
 			assert_eq!(Wormhole::transfer_count(&alice()), count_before);
-		});
-	}
-
-	#[test]
-	fn wormhole_proof_recorder_counts_dispatch_as_fallible_wrapped_transfers() {
-		new_test_ext().execute_with(|| {
-			let call = RuntimeCall::Utility(pallet_utility::Call::dispatch_as_fallible {
-				as_origin: alloc::boxed::Box::new(OriginCaller::system(
-					frame_system::RawOrigin::Signed(alice()),
-				)),
-				call: boxed(non_whitelisted_transfer()),
-			});
-			assert_eq!(
-				WormholeProofRecorderExtension::<Runtime>::count_transfers(&call),
-				1,
-				"dispatch_as_fallible-wrapped transfers must be statically counted"
-			);
 		});
 	}
 
@@ -1325,7 +1273,7 @@ mod tests {
 	}
 
 	/// `weight()` reserves the static worst case, so a dispatch that performs fewer
-	/// proof inserts than charged (short-circuited `batch`, `if_else`'s lighter branch,
+	/// proof inserts than charged (`batch_all` of two transfers that only records one,
 	/// `recover_funds` with fewer pending holds than `MaxPendingPerAccount`) must have
 	/// the difference refunded via `post_dispatch_details`, not kept forever.
 	#[test]
@@ -1333,10 +1281,9 @@ mod tests {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
 
-			// A batch of two transfers is charged two per-transfer reservations, but a
-			// short-circuiting `batch` stops at the first failure: simulate a dispatch
-			// that only completed the first transfer.
-			let call = RuntimeCall::Utility(pallet_utility::Call::batch {
+			// A batch_all of two transfers is charged two per-transfer reservations.
+			// Simulate a dispatch that only completed the first transfer.
+			let call = RuntimeCall::Utility(pallet_utility::Call::batch_all {
 				calls: vec![non_whitelisted_transfer(), non_whitelisted_transfer()],
 			});
 			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&call), 2);
@@ -1760,7 +1707,7 @@ mod tests {
 	}
 
 	#[test]
-	fn event_based_proof_recording_batch_transfers() {
+	fn event_based_proof_recording_batch_all_transfers() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
 
@@ -1770,8 +1717,8 @@ mod tests {
 			let charlie_count_before = Wormhole::transfer_count(&charlie_account);
 
 			// Alice has EXISTENTIAL_DEPOSIT * 10000, use smaller amounts
-			// Execute a batch with multiple transfers
-			assert_ok!(Utility::batch(
+			// Execute a batch_all with multiple transfers
+			assert_ok!(Utility::batch_all(
 				RuntimeOrigin::signed(alice()),
 				vec![
 					RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {

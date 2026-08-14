@@ -1769,8 +1769,8 @@ fn next_transaction_id_increments_correctly() {
 		let tx_id = ReversibleTransfers::next_transaction_id();
 		assert_eq!(tx_id, 1);
 
-		// batch call should have all unique tx ids and increment counter
-		assert_ok!(Utility::batch(
+		// batch_all call should have all unique tx ids and increment counter
+		assert_ok!(Utility::batch_all(
 			RuntimeOrigin::signed(reversible_account.clone()),
 			vec![
 				ReversibleTransfersCall::schedule_transfer { dest: receiver.clone(), amount }

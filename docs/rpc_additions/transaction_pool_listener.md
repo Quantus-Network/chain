@@ -12,7 +12,7 @@ A notification means a transaction **requesting** a transfer to your address ent
 
 - **The transaction may never be included in a block.** It can be dropped, replaced, or invalidated (e.g. the sender's balance is drained by a competing transaction).
 - **The transfer can fail at execution** even after inclusion: insufficient balance, keep-alive violations, frozen or insufficient asset balances, etc. You will still have received a notification.
-- **Batch semantics are not modeled.** Transfers found inside `Utility::batch` / `batch_all` / `force_batch` are each announced, but on-chain `batch` stops at the first failing item, `batch_all` rolls back the *entire* transaction if any item fails, and `force_batch` skips failed items. A batch that looks like several payments can execute none of them.
+- **Batch semantics are not modeled.** Transfers found inside `Utility::batch_all` are each announced, but on-chain `batch_all` rolls back the *entire* transaction if any item fails. A batch that looks like several payments can execute none of them.
 - **This is attacker-reachable.** Anyone can deliberately submit a transaction that triggers a convincing notification (any address, any amount) but never moves funds, paying at most a transaction fee -- e.g. a `batch_all` containing one real-looking transfer and one transfer that must fail.
 
 > **Never release goods, mark an invoice paid, or credit a balance based on a `txWatch_transfer` notification alone.** Treat it as "customer initiated a payment". Before fulfilling, verify the transfer actually executed: wait for the transaction to be included in a finalized block (`chain_subscribeFinalizedHeads`) and check the resulting `Balances.Transfer` / `Assets.Transferred` event or the account balance. If you choose to accept zero-conf payments for speed, that is a deliberate risk decision -- only do so for amounts you can afford to lose.
@@ -47,7 +47,7 @@ A notification means a transaction **requesting** a transfer to your address ent
 
 - `Balances::transfer_keep_alive` / `transfer_allow_death` (native QTU)
 - `Assets::transfer` / `transfer_keep_alive` (fungible assets)
-- All of the above inside `Utility::batch` / `batch_all` / `force_batch` (nested up to 4 levels; see the batch caveat above)
+- All of the above inside `Utility::batch_all` (nested up to 4 levels; see the batch caveat above)
 
 ## Error Codes
 
@@ -160,4 +160,4 @@ watcher.unsubscribe();
 - **One subscription per address is enough.** Multiple payments to the same address all arrive on the same subscription.
 - **Reconnect on disconnect.** WebSocket connections can drop. Implement reconnect logic with backoff.
 - **Subscription limits.** `txWatch` has no cap of its own; like the built-in Substrate subscriptions it is bounded by the node's server-level limits (`--rpc-max-connections`, default 100, and `--rpc-max-subscriptions-per-connection`, default 1024). There is no shared per-method pool, so one client cannot exhaust `txWatch` capacity for others. Still, unsubscribe from addresses you no longer need. Because the RPC is unauthenticated, operators exposing it publicly should front it with connection/rate limits (e.g. a reverse proxy) or restrict access, exactly as for the standard subscription endpoints.
-- **Batch payments.** If a customer pays via a `Utility::batch` call containing multiple transfers, each matching transfer produces a separate notification within the same `tx_hash` -- remember these reflect the batch's call data, not its execution outcome.
+- **Batch payments.** If a customer pays via a `Utility::batch_all` call containing multiple transfers, each matching transfer produces a separate notification within the same `tx_hash` -- remember these reflect the batch's call data, not its execution outcome.

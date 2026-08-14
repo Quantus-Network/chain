@@ -492,7 +492,6 @@ impl pallet_transaction_payment::Config for Runtime {
 impl pallet_utility::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 	type RuntimeEvent = RuntimeEvent;
-	type PalletsOrigin = OriginCaller;
 	type WeightInfo = pallet_utility::weights::SubstrateWeight<Runtime>;
 	type HighSecurity = HighSecurityConfig;
 }
@@ -672,6 +671,8 @@ parameter_types! {
 /// - `recover_funds`: Guardian-initiated recovery
 /// - `Vesting::claim`: safe because the payout goes to the schedule's stored beneficiary, never to
 ///   the caller
+/// - `Utility::batch_all`: allowed only when every child is itself whitelisted. The pallet still
+///   re-checks each child at dispatch so a same-tx enrollment cannot smuggle a later drain.
 pub struct HighSecurityConfig;
 
 impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSecurityConfig {
@@ -681,15 +682,17 @@ impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSec
 	}
 
 	fn is_whitelisted(call: &RuntimeCall) -> bool {
-		matches!(
-			call,
+		match call {
 			RuntimeCall::ReversibleTransfers(
-				pallet_reversible_transfers::Call::schedule_transfer { .. }
-			) | RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. }) |
-				RuntimeCall::ReversibleTransfers(
-					pallet_reversible_transfers::Call::recover_funds { .. }
-				) | RuntimeCall::Vesting(pallet_vesting::Call::claim { .. })
-		)
+				pallet_reversible_transfers::Call::schedule_transfer { .. } |
+				pallet_reversible_transfers::Call::cancel { .. } |
+				pallet_reversible_transfers::Call::recover_funds { .. },
+			) |
+			RuntimeCall::Vesting(pallet_vesting::Call::claim { .. }) => true,
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) =>
+				calls.iter().all(Self::is_whitelisted),
+			_ => false,
+		}
 	}
 
 	fn guardian(who: &AccountId) -> Option<AccountId> {
