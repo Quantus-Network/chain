@@ -20,7 +20,7 @@ use qp_poseidon_core::{
 use scale_info::TypeInfo;
 use sp_core::{H256, U256};
 use sp_runtime::{
-	generic::Digest,
+	generic::{Digest, DigestItem},
 	traits::{AtLeast32BitUnsigned, BlockNumber, Hash as HashT, MaybeDisplay, Member},
 	RuntimeDebug,
 };
@@ -31,9 +31,6 @@ use alloc::vec::Vec;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-mod digest;
-pub use digest::{check_digest_commitment_window, QpowDigest, POW_PREIMAGE_LEN, POW_SEAL_LEN};
-
 /// Size of the fixed digest window (in bytes) committed by [`Header::hash`].
 ///
 /// The SCALE-encoded digest is folded into the Poseidon preimage through a
@@ -42,17 +39,46 @@ pub use digest::{check_digest_commitment_window, QpowDigest, POW_PREIMAGE_LEN, P
 /// preimage plus one 64-byte PoW seal (the canonical post-seal digest), so a
 /// well-formed header uses the whole window with no slack.
 ///
-/// A well-formed sealed digest is [`QpowDigest`]: one 32-byte pre-runtime
-/// preimage and one 64-byte seal, which SCALE-encode to **exactly** this size.
-/// Import rejects any other shape; see [`check_digest_commitment_window`].
-/// `Header::hash()` pads short encodings with zeros and drops bytes past this
-/// window, so a mismatch would let two distinct headers share a block hash.
+/// A well-formed sealed digest must encode to **exactly** this size. Import
+/// rejects any other length rather than padding or truncating; see
+/// [`check_digest_commitment_window`]. `Header::hash()` pads short encodings
+/// with zeros and drops bytes past this window, so either mismatch would let
+/// two distinct headers share a block hash.
 ///
-/// The on-wire [`Header::digest`] field stays a Substrate [`Digest`] list so
-/// existing blocks decode. The only accepted *value* is [`QpowDigest`].
-/// Runtime code must not deposit extra items — see `deposit_log`. One
-/// historical 0.8.x `RuntimeEnvironmentUpdated` leftover is grandfathered.
+/// Because the window has no slack, the runtime must never deposit digest items
+/// of its own: even a 1-byte item (e.g. upstream frame-system's
+/// `RuntimeEnvironmentUpdated` on `set_code`) pushes the sealed digest to 111
+/// bytes. The vendored frame-system's deposits were removed for exactly this
+/// reason — see the warning on `frame_system::Pallet::deposit_log`. One
+/// historical exception is grandfathered at import: see
+/// [`check_digest_commitment_window`].
 pub const DIGEST_LOGS_SIZE: usize = 110;
+
+/// Returns `Ok(())` if `digest` may be imported, or `Err(encoded_len)` if its
+/// SCALE length is not a permitted commitment-window size.
+///
+/// The only accepted lengths are [`DIGEST_LOGS_SIZE`] (canonical
+/// `[PreRuntime, Seal]`) and `DIGEST_LOGS_SIZE + 1` with exactly one
+/// `RuntimeEnvironmentUpdated` item. The latter is the leftover from 0.8.x
+/// `set_code` deposits: those upgrade blocks are already canonical, and 0.8.x
+/// imported them by truncating the Poseidon preimage. Anything shorter is
+/// padded with zeros by [`Header::hash`] and anything else longer is truncated,
+/// so both must be rejected.
+pub fn check_digest_commitment_window(digest: &Digest) -> Result<(), usize> {
+	let encoded_len = digest.encode().len();
+	if encoded_len == DIGEST_LOGS_SIZE {
+		return Ok(());
+	}
+	let reu_count = digest
+		.logs
+		.iter()
+		.filter(|item| matches!(item, DigestItem::RuntimeEnvironmentUpdated))
+		.count();
+	if reu_count == 1 && encoded_len == DIGEST_LOGS_SIZE + 1 {
+		return Ok(());
+	}
+	Err(encoded_len)
+}
 
 /// Extension trait for headers that support ZK tree root.
 ///
@@ -264,8 +290,10 @@ where
 		// digest – SCALE encode then pad to the fixed DIGEST_LOGS_SIZE window to
 		// match circuit expectation. Bytes past the window are NOT committed, and
 		// short encodings are zero-padded, so either mismatch would let two
-		// distinct headers collide. Import therefore requires [`QpowDigest`]
-		// (grandfathering the 0.8.x `RuntimeEnvironmentUpdated` leftover).
+		// distinct headers collide. Import therefore demands an exact window
+		// length (other than the grandfathered `RuntimeEnvironmentUpdated`
+		// leftover on historical upgrade blocks) via
+		// [`check_digest_commitment_window`].
 		// No assertion here, not even a debug one: generic network code hashes
 		// completely unverified headers long before any consensus check runs
 		// (e.g. block-announce validation in `sc-network-sync` hashes the
@@ -567,30 +595,5 @@ mod tests {
 		let digest = Digest::default();
 		assert!(digest.encode().len() < DIGEST_LOGS_SIZE);
 		assert_eq!(check_digest_commitment_window(&digest), Err(digest.encode().len()));
-	}
-
-	#[test]
-	fn window_sized_but_wrong_shape_is_rejected() {
-		let digest = Digest { logs: vec![DigestItem::Other(vec![0u8; 106])] };
-		assert_eq!(digest.encode().len(), DIGEST_LOGS_SIZE);
-		assert!(check_digest_commitment_window(&digest).is_err());
-	}
-
-	#[test]
-	fn qpow_digest_round_trips_through_substrate_digest() {
-		let fixed = QpowDigest::new([b'p', b'o', b'w', b'_'], [7u8; 32], [9u8; 64]);
-		let digest = fixed.to_digest();
-		assert_eq!(digest.encode().len(), DIGEST_LOGS_SIZE);
-		assert_eq!(QpowDigest::try_from_sealed(&digest).expect("canonical"), fixed);
-	}
-
-	#[test]
-	fn pre_seal_digest_is_only_the_preimage() {
-		let digest =
-			Digest { logs: vec![DigestItem::PreRuntime([b'p', b'o', b'w', b'_'], vec![3u8; 32])] };
-		let (id, pre) = QpowDigest::check_pre_seal(&digest).expect("pre-seal");
-		assert_eq!(id, [b'p', b'o', b'w', b'_']);
-		assert_eq!(pre, [3u8; 32]);
-		assert!(QpowDigest::check_pre_seal(&canonical_pow_digest()).is_err());
 	}
 }

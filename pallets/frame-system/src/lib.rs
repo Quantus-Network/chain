@@ -2130,12 +2130,17 @@ impl<T: Config> Pallet<T> {
 	///
 	/// # WARNING: the QPoW digest window has no spare capacity
 	///
-	/// Import accepts only [`qp_header::QpowDigest`]: one 32-byte pre-runtime
-	/// preimage and one 64-byte seal. A runtime-deposited item does not fail
-	/// this call — it makes the finished block unimportable after mining.
-	/// `set_code` / `set_heap_pages` therefore do not deposit
-	/// `RuntimeEnvironmentUpdated`. Do not deposit digest items from runtime
-	/// logic.
+	/// `qp_header::Header::hash()` commits the digest through a fixed
+	/// `DIGEST_LOGS_SIZE` window that the client-injected pre-runtime item plus the
+	/// PoW seal fill **exactly**, and block import rejects any sealed header whose
+	/// encoded digest exceeds it (truncating would let distinct headers share a
+	/// hash). A digest item deposited from runtime code therefore does not fail the
+	/// call — it makes the finished block **unimportable by the entire network**,
+	/// silently, after mining. This is why the fork's `set_code` /
+	/// `set_heap_pages` paths do not deposit `RuntimeEnvironmentUpdated` the way
+	/// upstream does. Do not deposit digest items from runtime logic unless the
+	/// header format and the wormhole circuit's digest field are resized in the
+	/// same release.
 	pub fn deposit_log(item: generic::DigestItem) {
 		<Digest<T>>::append(item);
 	}
