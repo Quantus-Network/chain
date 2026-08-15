@@ -34,7 +34,7 @@ use qp_dilithium_crypto::{
 use serde_json::Value;
 use sp_core::{crypto::Ss58Codec, Pair};
 use sp_genesis_builder::{self, PresetId};
-use sp_runtime::{traits::IdentifyAccount, Permill};
+use sp_runtime::traits::IdentifyAccount;
 
 /// Minimum tech-collective size the tech-referenda approval/support curves in
 /// [`crate::governance::definitions`] are designed for (see the 5-member analysis on
@@ -151,13 +151,11 @@ fn heisenberg_treasury_account() -> AccountId {
 	)
 }
 
-/// Treasury genesis params per profile. The portion only configures the ongoing mining-reward
-/// split; the treasury receives NO genesis endowment (no pre-mine) and accumulates solely from
-/// its share of block rewards.
+/// Treasury genesis params per profile. The account is configured here; any
+/// balance comes from the ordinary genesis endowment list, not from mining.
 #[derive(Clone)]
 struct TreasuryGenesis {
 	account: AccountId,
-	portion: Permill,
 }
 
 /// Two extra well-known Dilithium accounts (public seeds `[3u8; 32]` / `[4u8; 32]`) that pad the
@@ -224,9 +222,6 @@ fn genesis_template(
 		.collect::<Vec<_>>();
 	balances.extend(extra_balances);
 
-	// No pre-mine: the treasury starts at zero balance and is funded only by its share of
-	// mining rewards. It is intentionally NOT added to `balances`.
-
 	// The pot must hold exactly the sum of all schedule totals plus its existential-
 	// deposit buffer (asserted by the vesting pallet's genesis build). It is endowed
 	// with at least the ED even when no schedules exist, so `create_schedule` works on
@@ -250,7 +245,6 @@ fn genesis_template(
 		balances: BalancesConfig { balances, dev_accounts: None },
 		treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
 			treasury_account: Some(treasury.account),
-			treasury_portion: Some(treasury.portion),
 		},
 		vesting: pallet_vesting::GenesisConfig::<crate::Runtime> { schedules: vesting_schedules },
 		..Default::default()
@@ -383,8 +377,7 @@ pub fn development_config_genesis() -> Value {
 			initial_high_security_accounts: vec![(multisig_address, guardian, delay)],
 		};
 
-		let treasury =
-			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
+		let treasury = TreasuryGenesis { account: treasury_account };
 		let mut template_value = genesis_template(
 			endowed_accounts,
 			treasury,
@@ -414,8 +407,7 @@ pub fn development_config_genesis() -> Value {
 
 	#[cfg(not(feature = "runtime-benchmarks"))]
 	{
-		let treasury =
-			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
+		let treasury = TreasuryGenesis { account: treasury_account };
 		genesis_template(endowed_accounts, treasury, tech_collective, vec![], vesting_schedules)
 	}
 }
@@ -434,8 +426,7 @@ pub fn heisenberg_config_genesis() -> Value {
 	);
 	let vesting_schedules = testnet_vesting_schedules();
 	log_vesting_schedules("heisenberg", &vesting_schedules);
-	let treasury =
-		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
+	let treasury = TreasuryGenesis { account: treasury_account };
 	genesis_template(endowed_accounts, treasury, tech_collective, vec![], vesting_schedules)
 }
 
@@ -571,8 +562,7 @@ pub fn planck_config_genesis() -> Value {
 	// No vesting allocations on Planck; the pot still receives its ED buffer so
 	// `create_schedule` works post-genesis.
 	log_vesting_schedules("planck", &[]);
-	let treasury =
-		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(50) };
+	let treasury = TreasuryGenesis { account: treasury_account };
 	genesis_template(endowed_accounts, treasury, tech_collective, signer_fee_seed, vec![])
 }
 

@@ -142,7 +142,6 @@ impl pallet_mining_rewards::Config for Runtime {
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
 	type MaxSupply = ConstU128<{ MAX_SUPPLY }>;
 	type EmissionDivisor = ConstU128<15_163_560>; // Divide remaining supply by this amount
-	type Treasury = pallet_treasury::Pallet<Runtime>;
 	type MintingAccount = MintingAccount;
 	type Unit = MiningUnit;
 }
@@ -384,7 +383,8 @@ impl pallet_scheduler::Config for Runtime {
 //
 // Fee Destination:
 // - 100% of transaction fees go to the block miner
-// - Block rewards are split: 70% miner, 30% treasury
+// - Block rewards go 100% to the miner (quantized to the wormhole leaf quantum; any sub-quantum
+//   remainder stays in CollectedFees for the next miner)
 //
 // Spam Prevention:
 // - Existential deposit: 0.001 UNIT

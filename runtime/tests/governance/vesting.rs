@@ -16,7 +16,7 @@ mod tests {
 		System, Vesting, Wormhole, EXISTENTIAL_DEPOSIT, UNIT,
 	};
 	use sp_core::crypto::AccountId32;
-	use sp_runtime::{BuildStorage, DispatchError, Permill};
+	use sp_runtime::{BuildStorage, DispatchError};
 
 	const END_MS: u64 = 1_000_000;
 	const GRANT: Balance = 100 * UNIT;
@@ -35,12 +35,9 @@ mod tests {
 
 	fn new_test_ext(treasury: Option<AccountId>) -> sp_io::TestExternalities {
 		let mut t = frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
-		pallet_treasury::GenesisConfig::<Runtime> {
-			treasury_account: treasury.clone(),
-			treasury_portion: treasury.map(|_| Permill::from_percent(50)),
-		}
-		.assimilate_storage(&mut t)
-		.unwrap();
+		pallet_treasury::GenesisConfig::<Runtime> { treasury_account: treasury.clone() }
+			.assimilate_storage(&mut t)
+			.unwrap();
 		let mut ext = sp_io::TestExternalities::new(t);
 		ext.execute_with(|| {
 			System::set_block_number(1);

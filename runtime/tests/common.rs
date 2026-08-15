@@ -1,7 +1,7 @@
 use frame_support::traits::{Currency, OnFinalize, OnInitialize};
 use quantus_runtime::{configs::TreasuryPalletId, Balances, Runtime, System, UNIT};
 use sp_core::crypto::AccountId32;
-use sp_runtime::{traits::AccountIdConversion, BuildStorage, Permill};
+use sp_runtime::{traits::AccountIdConversion, BuildStorage};
 
 pub struct TestCommons;
 
@@ -21,7 +21,7 @@ impl TestCommons {
 	///
 	/// This initializes:
 	/// - Test accounts 1-4 with 1000 UNIT each
-	/// - Treasury pallet storage (account and portion)
+	/// - Treasury pallet storage (account)
 	/// - Treasury account balance
 	pub fn new_test_ext() -> sp_io::TestExternalities {
 		let mut t = frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
@@ -30,7 +30,6 @@ impl TestCommons {
 		let treasury_account = Self::treasury_account();
 		pallet_treasury::GenesisConfig::<Runtime> {
 			treasury_account: Some(treasury_account.clone()),
-			treasury_portion: Some(Permill::from_percent(50)), // 50% to treasury, 50% to miner
 		}
 		.assimilate_storage(&mut t)
 		.unwrap();

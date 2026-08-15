@@ -107,12 +107,13 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 /// hook-context credit therefore needs — and has — an explicit
 /// `TransferProofRecorder::record_transfer_proof` call instead:
 ///   - reversible-transfers' scheduled execution records its transfer in `do_execute_transfer`;
-///   - mining rewards and the treasury share record theirs in `on_finalize`
-///     (`pallet_mining_rewards`). Those credits use `mint_into`, which *does* emit
-///     `Balances::Minted` (the same event this scanner records); they are safe from
-///     double-recording only because distribution runs in `on_finalize`, outside every extrinsic's
-///     scan window. Moving that distribution into `on_initialize` or a signed path without also
-///     suppressing the scan (or the explicit record) would inflate wormhole exit capacity.
+///   - mining rewards record theirs in `on_finalize` (`pallet_mining_rewards`). Sub-quantum
+///     remainder stays in `CollectedFees` for the next miner (no leaf). Those credits use
+///     `mint_into`, which *does* emit `Balances::Minted` (the same event this scanner records);
+///     they are safe from double-recording only because distribution runs in `on_finalize`, outside
+///     every extrinsic's scan window. Moving that distribution into `on_initialize` or a signed
+///     path without also suppressing the scan (or the explicit record) would inflate wormhole exit
+///     capacity.
 ///
 /// The one remaining hook-context path is a governance-enacted call: referenda enactment
 /// dispatches the approved call via the scheduler in `on_initialize` (e.g. a Root
@@ -558,12 +559,11 @@ mod tests {
 		.assimilate_storage(&mut t)
 		.unwrap();
 
-		// Treasury account + portion are required for mining-reward distribution. Both
+		// Treasury account is required for mining-reward fallback credits. It
 		// must be explicit: the genesis default no longer configures anything (the old
 		// default account was the keyless `[1u8; 32]` minting sentinel).
 		pallet_treasury::GenesisConfig::<Runtime> {
 			treasury_account: Some(AccountId32::from([9u8; 32])),
-			treasury_portion: Some(sp_runtime::Permill::from_percent(50)),
 		}
 		.assimilate_storage(&mut t)
 		.unwrap();

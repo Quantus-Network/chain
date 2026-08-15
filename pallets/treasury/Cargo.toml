@@ -1,6 +1,6 @@
 [package]
 authors.workspace = true
-description = "Treasury configuration pallet - address and mining reward portion"
+description = "Treasury configuration pallet - account that holds the genesis endowment"
 edition.workspace = true
 homepage.workspace = true
 license = "Apache-2.0"

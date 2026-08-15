@@ -1,4 +1,4 @@
-//! Tests for the treasury config pallet (account + portion for mining-rewards).
+//! Tests for the treasury config pallet (account for mining-reward fallbacks).
 
 #[cfg(test)]
 mod tests {
@@ -7,7 +7,7 @@ mod tests {
 	use quantus_runtime::{
 		configs::TreasuryPalletId, AccountId, Runtime, System, TreasuryPallet, UNIT,
 	};
-	use sp_runtime::{traits::AccountIdConversion, BuildStorage, Permill};
+	use sp_runtime::{traits::AccountIdConversion, BuildStorage};
 
 	fn treasury_account_id() -> AccountId {
 		TreasuryPalletId::get().into_account_truncating()
@@ -23,12 +23,9 @@ mod tests {
 		.assimilate_storage(&mut t)
 		.unwrap();
 
-		pallet_treasury::GenesisConfig::<Runtime> {
-			treasury_account: Some(treasury_account_id()),
-			treasury_portion: Some(Permill::from_percent(50)),
-		}
-		.assimilate_storage(&mut t)
-		.unwrap();
+		pallet_treasury::GenesisConfig::<Runtime> { treasury_account: Some(treasury_account_id()) }
+			.assimilate_storage(&mut t)
+			.unwrap();
 
 		let mut ext = sp_io::TestExternalities::new(t);
 		ext.execute_with(|| System::set_block_number(1));
@@ -39,7 +36,6 @@ mod tests {
 	fn genesis_sets_treasury_config() {
 		new_test_ext().execute_with(|| {
 			assert_eq!(TreasuryPallet::account_id(), treasury_account_id());
-			assert_eq!(TreasuryPallet::portion(), Permill::from_percent(50));
 		});
 	}
 
@@ -66,29 +62,6 @@ mod tests {
 				),
 				sp_runtime::DispatchError::BadOrigin
 			);
-		});
-	}
-
-	#[test]
-	fn set_treasury_portion_works() {
-		new_test_ext().execute_with(|| {
-			assert_ok!(TreasuryPallet::set_treasury_portion(
-				RawOrigin::Root.into(),
-				Permill::from_percent(30)
-			));
-			assert_eq!(TreasuryPallet::portion(), Permill::from_percent(30));
-		});
-	}
-
-	#[test]
-	fn set_treasury_portion_accepts_100_percent() {
-		new_test_ext().execute_with(|| {
-			// 100% is the upper bound
-			assert_ok!(TreasuryPallet::set_treasury_portion(
-				RawOrigin::Root.into(),
-				Permill::one()
-			));
-			assert_eq!(TreasuryPallet::portion(), Permill::one());
 		});
 	}
 }

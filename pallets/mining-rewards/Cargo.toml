@@ -22,7 +22,6 @@ frame-benchmarking = { optional = true, workspace = true, default-features = fal
 frame-support.workspace = true
 frame-system.workspace = true
 log.workspace = true
-pallet-treasury = { path = "../treasury", default-features = false }
 pallet-zk-tree.workspace = true
 qp-wormhole.workspace = true
 scale-info = { workspace = true, default-features = false, features = ["derive"] }
@@ -47,7 +46,6 @@ std = [
 	"frame-benchmarking?/std",
 	"frame-support/std",
 	"frame-system/std",
-	"pallet-treasury/std",
 	"pallet-zk-tree/std",
 	"qp-wormhole/std",
 	"scale-info/std",

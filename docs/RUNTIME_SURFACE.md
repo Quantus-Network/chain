@@ -117,8 +117,8 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - No dispatchable calls. Implements `Hooks` (`on_initialize`/`on_finalize`) to track block timing and recompute difficulty. Powers the `QPoWApi` runtime API.
 
 ### Index 6 — `MiningRewards` (`pallet-mining-rewards`, local)
-- `Currency = Balances`, `ProofRecorder = Wormhole`, `MaxSupply = 21_000_000 * UNIT`, `EmissionDivisor = 15_163_560`, `Treasury = pallet_treasury::Pallet`, `MintingAccount`, `Unit = UNIT`.
-- No dispatchable calls. Exposes `TransactionFeesCollector` + `collect_transaction_fees`. `on_finalize` mints block reward (70% miner / 30% treasury split per fee-structure docs).
+- `Currency = Balances`, `ProofRecorder = Wormhole`, `MaxSupply = 21_000_000 * UNIT`, `EmissionDivisor = 15_163_560`, `MintingAccount`, `Unit = UNIT`. Miner credits are aligned to the ZK-tree leaf quantum (`AMOUNT_SCALE_DOWN_FACTOR` = 10^10).
+- No dispatchable calls. Exposes `TransactionFeesCollector` + `collect_transaction_fees`. `on_finalize` requires a miner in the digest, combines transaction fees and the block reward into one miner credit, and rounds it down to the wormhole leaf quantum. A missing miner or a sub-quantum remainder stays in `CollectedFees` for the next miner — nothing is minted to treasury.
 
 ### Index 7 — `Preimage` (`pallet-preimage`)
 - `ManagerOrigin = EnsureRoot`, `Consideration = PreimageDeposit` (custom: 0.1 UNIT base + 0.0001 UNIT/byte, see `governance/definitions.rs`).
@@ -156,7 +156,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 
 ### Index 15 — `TreasuryPallet` (`pallet-treasury`, local)
 - Minimal local treasury. Config only sets `WeightInfo`.
-- **Calls:** `set_treasury_account`(0, root), `set_treasury_portion`(1, root). Exposes `account_id()` / `portion()`.
+- **Calls:** `set_treasury_account`(0, root). Exposes `account_id()`. Treasury is not paid from mining rewards.
 
 ### Index 16 — `Recovery` (`pallet-recovery`)
 - `ConfigDepositBase = 10 UNIT`, `FriendDepositFactor = 1 UNIT`, `MaxFriends = 9`, `RecoveryDeposit = 10 UNIT`.
@@ -250,7 +250,7 @@ The high-security whitelist (`HighSecurityConfig::is_whitelisted`, extension 8) 
   - `planck` — public testnet (live treasury signers + faucet).
 - **Vesting genesis:** every preset endows the vesting pot with `Σ schedule totals + ED` (ED alone when the table is empty, as on `planck`). Because the pot is part of the balances genesis endowment, standard genesis proof generation creates a block-1 Wormhole leaf for it; that leaf is unspendable because the pot is keyless. `dev`/`heisenberg` seed example schedules (one account with two schedules; `dev` also vests the keyless test wormhole address, claimable only via third-party ping). A mainnet preset (4-of-6 treasury multisig, launch-gated allocation table) is planned as a separate PR.
 - Dilithium well-known accounts: `crystal_alice`, `dilithium_bob`, `crystal_charlie` (public seeds `[0]` / `[1]` / `[2]`). Used by `dev` and **intentionally also by `heisenberg`** so integrators and CI can exercise governance, treasury, and transfer flows without distributing secrets. Those private keys are public by design; do **not** reuse this pattern on a mainnet or any value-bearing chain (Planck already uses distinct live treasury signers).
-- Treasury = 2-of-3 multisig of the three signers for `dev`/`heisenberg` (distinct nonce per preset); no genesis endowment (funded from mining-reward share only).
+- Treasury = 2-of-3 multisig of the three signers for `dev`/`heisenberg` (distinct nonce per preset); no dedicated treasury genesis balance (endowments are a separate list).
 - Tech-collective seeded via the chain-spec-only `tech_collective_seed_members` JSON field (`prepare_genesis_build_input` + `seed_tech_collective`).
 - Endows all genesis balances with wormhole transfer proofs (ZK-spendable). `dev` also endows `TEST_WORMHOLE_SECRET`'s address.
 
