@@ -13,8 +13,7 @@ use sp_consensus_qpow::{QPoWApi, Seal as RawSeal};
 use sp_runtime::traits::Block as BlockT;
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
-use codec::Encode;
-use qp_header::{check_digest_commitment_window, DIGEST_LOGS_SIZE};
+use qp_header::{check_digest_commitment_window, QpowDigest, DIGEST_LOGS_SIZE};
 
 use crate::worker::UntilImportedOrTransaction;
 pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata, RebuildTrigger};
@@ -70,7 +69,9 @@ pub enum Error<B: BlockT> {
 	CheckInherentsUnknownError(sp_inherents::InherentIdentifier),
 	#[error("Multiple pre-runtime digests")]
 	MultiplePreRuntimeDigests,
-	#[error("Header has an encoded digest of {0} bytes; expected {1}-byte commitment window")]
+	#[error(
+		"Header digest is not the fixed QPoW log (32-byte preimage + 64-byte seal); encoded length {0}, expected {1}"
+	)]
 	DigestWindowMismatch(usize, usize),
 	#[error(transparent)]
 	Client(sp_blockchain::Error),
@@ -229,16 +230,8 @@ where
 		&self,
 		mut block_import_params: BlockImportParams<B>,
 	) -> Result<ImportResult, Self::Error> {
-		// The canonical post-seal digest must encode to exactly the window
-		// committed by `Header::hash()`, except for the one-byte
-		// `RuntimeEnvironmentUpdated` leftover on historical runtime-upgrade
-		// blocks (see `check_digest_commitment_window`). Short encodings are
-		// zero-padded and long encodings are truncated, so either mismatch
-		// would let two distinct sealed headers collide. Fail closed before
-		// *any* `hash()` call on this header, and without embedding a hash of
-		// the malformed header in the error. The pre-seal digest is a prefix
-		// of the post-seal one, so this bound also covers the pre-seal
-		// `header.hash()` calls below.
+		// Sealed digest must be QpowDigest (or the grandfathered 0.8.x REU
+		// leftover). Fail closed before any `hash()` call.
 		let post_header = block_import_params.post_header();
 		if let Err(encoded_digest_len) = check_digest_commitment_window(post_header.digest()) {
 			return Err(
@@ -408,15 +401,9 @@ async fn extract_pow_seal<B>(
 where
 	B: BlockT<Hash = H256>,
 {
-	// This is the first point in the import pipeline that hashes a
-	// network-supplied header. `Header::hash()` pads short encodings and
-	// truncates long ones, so reject anything that is not a permitted
-	// commitment-window length before any `hash()` call. The authoritative
-	// check lives in `import_block`; this one only keeps the hashing below
-	// panic-free in debug builds.
 	if let Err(encoded_digest_len) = check_digest_commitment_window(block.header.digest()) {
 		return Err(format!(
-			"Header has an encoded digest of {encoded_digest_len} bytes; expected {DIGEST_LOGS_SIZE}-byte commitment window"
+			"Header digest is not the fixed QPoW log (32-byte preimage + 64-byte seal); encoded length {encoded_digest_len}, expected {DIGEST_LOGS_SIZE}"
 		));
 	}
 
@@ -678,6 +665,14 @@ where
 		},
 	};
 
+	if QpowDigest::check_pre_seal(proposal.block.header().digest()).is_err() {
+		warn!(
+			target: LOG_TARGET,
+			"Discarding proposal whose digest is not a single 32-byte QPoW preimage"
+		);
+		return None;
+	}
+
 	// Check if best_hash changed during building
 	if client.info().best_hash != best_hash {
 		info!(target: LOG_TARGET, "Best hash changed during block building, discarding proposal");
@@ -720,6 +715,7 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use codec::Encode;
 	use sp_consensus::BlockOrigin;
 	use sp_runtime::{traits::BlakeTwo256, OpaqueExtrinsic};
 
@@ -767,10 +763,7 @@ mod tests {
 		let result = futures::executor::block_on(extract_pow_seal::<TestBlock>(params));
 
 		let err = result.err().expect("oversized digest must be rejected");
-		assert!(
-			err.contains("commitment window"),
-			"expected the digest-length rejection, got: {err}"
-		);
+		assert!(err.contains("fixed QPoW log"), "expected the digest-shape rejection, got: {err}");
 	}
 
 	#[test]
@@ -784,10 +777,7 @@ mod tests {
 		);
 		let result = futures::executor::block_on(extract_pow_seal::<TestBlock>(params));
 		let err = result.err().expect("undersized digest must be rejected");
-		assert!(
-			err.contains("commitment window"),
-			"expected the digest-length rejection, got: {err}"
-		);
+		assert!(err.contains("fixed QPoW log"), "expected the digest-shape rejection, got: {err}");
 	}
 
 	/// The canonical digest fits the window exactly and must pass the length
@@ -813,6 +803,20 @@ mod tests {
 			!result.header.digest().logs.iter().any(|l| matches!(l, DigestItem::Seal(..))),
 			"seal must be removed from the pre-seal header"
 		);
+	}
+
+	#[test]
+	fn verifier_rejects_window_sized_wrong_shape() {
+		let digest = Digest { logs: vec![DigestItem::Other(vec![0u8; 106])] };
+		assert_eq!(digest.encode().len(), DIGEST_LOGS_SIZE);
+
+		let params = BlockImportParams::<TestBlock>::new(
+			BlockOrigin::NetworkBroadcast,
+			sealed_header(digest),
+		);
+		let result = futures::executor::block_on(extract_pow_seal::<TestBlock>(params));
+		let err = result.err().expect("wrong-shape digest must be rejected");
+		assert!(err.contains("fixed QPoW log"), "expected the digest-shape rejection, got: {err}");
 	}
 
 	/// Runtime-upgrade blocks produced by 0.8.x WASM insert
