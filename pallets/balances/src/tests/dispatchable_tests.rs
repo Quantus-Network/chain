@@ -44,6 +44,29 @@ fn default_indexing_on_new_accounts_should_not_work2() {
 		});
 }
 
+/// A below-ED transfer to a dead dest must fail even when the sender would be reaped.
+///
+/// The well-funded case above leaves `dust = 0`, so it does not exercise the transfer helper
+/// widening `can_deposit` to `amount + dust`. With a sender at ED, that widened gate would
+/// admit the call, debit the sender, credit nothing, emit `Transfer`, and leave
+/// `total_issuance` above the sum of balances.
+#[test]
+fn transfer_below_ed_from_reapable_sender_to_dead_dest_must_fail() {
+	ExtBuilder::default().existential_deposit(10).build_and_execute_with(|| {
+		let _ = Balances::mint_into(&1, 10);
+		let issuance_before = Balances::total_issuance();
+
+		assert_noop!(
+			Balances::transfer_allow_death(Some(1).into(), 5, 9),
+			TokenError::BelowMinimum,
+		);
+
+		assert_eq!(Balances::free_balance(1), 10);
+		assert_eq!(Balances::free_balance(5), 0);
+		assert_eq!(Balances::total_issuance(), issuance_before);
+	});
+}
+
 #[test]
 fn dust_account_removal_should_work() {
 	ExtBuilder::default()
