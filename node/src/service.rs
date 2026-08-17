@@ -651,6 +651,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 	let import_queue = sc_consensus_qpow::import_queue::<Block, FullClient>(
 		Box::new(pow_block_import.clone()),
 		None,
+		Arc::clone(&client),
 		&task_manager.spawn_essential_handle(),
 		config.prometheus_registry(),
 	)?;

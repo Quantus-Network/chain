@@ -439,16 +439,64 @@ where
 /// The PoW import queue type.
 pub type PowImportQueue<B> = BasicQueue<B>;
 
-/// Minimal verifier that extracts the PoW seal from header to post_digests.
-struct SimplePowVerifier;
+/// Verifier that extracts the PoW seal from the header and checks the
+/// proof-of-work before the block reaches `import_block`.
+///
+/// The check lives here, in the `Verifier` the import queue calls, so that a
+/// bad seal surfaces as `BlockImportError::VerificationFailed` — the variant
+/// that carries the peer id and lets the sync layer penalise and drop the
+/// sending peer. It also runs before the expensive `check_inherents` call in
+/// `import_block`, so a junk block is discarded for one runtime call instead
+/// of a full-body inherent check.
+struct PowVerifier<C> {
+	client: Arc<C>,
+}
+
+impl<C> PowVerifier<C> {
+	fn new(client: Arc<C>) -> Self {
+		Self { client }
+	}
+}
 
 #[async_trait::async_trait]
-impl<B> Verifier<B> for SimplePowVerifier
+impl<B, C> Verifier<B> for PowVerifier<C>
 where
 	B: BlockT<Hash = H256>,
+	C: ProvideRuntimeApi<B> + Send + Sync,
+	C::Api: QPoWApi<B>,
 {
 	async fn verify(&self, block: BlockImportParams<B>) -> Result<BlockImportParams<B>, String> {
-		extract_pow_seal::<B>(block).await
+		// Pop the seal into `post_digests` and reject an oversized digest. After
+		// this the header is the pre-seal header, so `hash()` yields the pre-hash
+		// the nonce was mined against.
+		let block = extract_pow_seal::<B>(block).await?;
+
+		let parent_hash = *block.header.parent_hash();
+		let pre_hash = block.header.hash();
+		let inner_seal = fetch_seal::<B>(block.post_digests.last(), pre_hash)?;
+
+		let nonce: [u8; 64] = inner_seal
+			.as_slice()
+			.try_into()
+			.map_err(|_| Error::<B>::Runtime("Seal does not have exactly 64 bytes".to_string()))?;
+
+		let (verified, _achieved_difficulty) = self
+			.client
+			.runtime_api()
+			.verify_and_get_achieved_difficulty(parent_hash, pre_hash.0, nonce)
+			.map_err(|e| {
+				Error::<B>::Runtime(format!(
+					"API error in verify_and_get_achieved_difficulty: {:?}",
+					e
+				))
+			})?;
+
+		if !verified {
+			log::error!("Invalid Seal {:?} for parent hash {:?}", inner_seal, parent_hash);
+			return Err(Error::<B>::InvalidSeal.into());
+		}
+
+		Ok(block)
 	}
 }
 
@@ -456,6 +504,7 @@ where
 pub fn import_queue<B, C>(
 	block_import: BoxBlockImport<B>,
 	justification_import: Option<BoxJustificationImport<B>>,
+	client: Arc<C>,
 	spawner: &impl sp_core::traits::SpawnEssentialNamed,
 	registry: Option<&Registry>,
 ) -> Result<PowImportQueue<B>, sp_consensus::Error>
@@ -464,7 +513,7 @@ where
 	C: ProvideRuntimeApi<B> + BlockBackend<B> + Send + Sync + 'static,
 	C::Api: QPoWApi<B>,
 {
-	let verifier = SimplePowVerifier;
+	let verifier = PowVerifier::new(client);
 	Ok(BasicQueue::new(verifier, block_import, justification_import, spawner, registry))
 }
 
@@ -792,5 +841,101 @@ mod tests {
 			!result.header.digest().logs.iter().any(|l| matches!(l, DigestItem::Seal(..))),
 			"seal must be removed from the pre-seal header"
 		);
+	}
+
+	// The mock macro references the block type as `Block` in a few of the
+	// common trait impls it generates, so alias it here.
+	type Block = TestBlock;
+
+	/// Mock runtime API whose seal verdict is fixed at construction, so the
+	/// verifier can be exercised without a real client or runtime.
+	#[derive(Clone)]
+	struct MockRuntimeApi {
+		seal_valid: bool,
+	}
+
+	sp_api::mock_impl_runtime_apis! {
+		impl QPoWApi<Block> for MockRuntimeApi {
+			fn get_max_reorg_depth() -> u32 { 0 }
+			fn get_max_difficulty() -> U512 { U512::one() }
+			fn get_difficulty() -> U512 { U512::one() }
+			fn get_last_block_time() -> u64 { 0 }
+			fn get_last_block_duration() -> u64 { 0 }
+			fn get_chain_height() -> u32 { 0 }
+			fn verify_nonce_on_import_block(&self, _block_hash: [u8; 32], _nonce: [u8; 64]) -> bool {
+				self.seal_valid
+			}
+			fn verify_nonce_local_mining(&self, _block_hash: [u8; 32], _nonce: [u8; 64]) -> bool {
+				self.seal_valid
+			}
+			fn verify_and_get_achieved_difficulty(
+				&self,
+				_block_hash: [u8; 32],
+				_nonce: [u8; 64],
+			) -> (bool, U512) {
+				(self.seal_valid, U512::one())
+			}
+		}
+	}
+
+	// The mock implements the API traits on the value itself; wire up
+	// `ProvideRuntimeApi` so it can stand in for a client.
+	impl ProvideRuntimeApi<Block> for MockRuntimeApi {
+		type Api = Self;
+
+		fn runtime_api(&self) -> sp_api::ApiRef<'_, Self::Api> {
+			self.clone().into()
+		}
+	}
+
+	fn verify_canonical(seal_valid: bool) -> Result<BlockImportParams<TestBlock>, String> {
+		let params = BlockImportParams::<TestBlock>::new(
+			BlockOrigin::NetworkBroadcast,
+			sealed_header(canonical_digest()),
+		);
+		let verifier = PowVerifier::new(Arc::new(MockRuntimeApi { seal_valid }));
+		futures::executor::block_on(verifier.verify(params))
+	}
+
+	/// The core regression test for report 88219: a block whose proof-of-work
+	/// does not verify must be rejected *by the verifier*, so the failure
+	/// surfaces as `VerificationFailed` and the peer can be penalised.
+	#[test]
+	fn verifier_rejects_invalid_pow() {
+		let err = verify_canonical(false).err().expect("invalid PoW must be rejected");
+		assert!(err.contains("invalid seal"), "expected the seal rejection, got: {err}");
+	}
+
+	/// A block with valid proof-of-work passes the verifier, with the seal
+	/// moved into `post_digests` for `import_block`.
+	#[test]
+	fn verifier_accepts_valid_pow() {
+		let result = verify_canonical(true).expect("valid PoW must pass the verifier");
+		assert_eq!(
+			result.post_digests.last(),
+			Some(&DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64])),
+			"seal must be moved into post_digests"
+		);
+	}
+
+	/// A seal that is not exactly 64 bytes is rejected before the runtime call,
+	/// so a malformed seal cannot reach proof-of-work verification.
+	#[test]
+	fn verifier_rejects_wrong_length_seal() {
+		let digest = Digest {
+			logs: vec![
+				DigestItem::PreRuntime(POW_ENGINE_ID, vec![1u8; 32]),
+				DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 32]),
+			],
+		};
+		let params = BlockImportParams::<TestBlock>::new(
+			BlockOrigin::NetworkBroadcast,
+			sealed_header(digest),
+		);
+		let verifier = PowVerifier::new(Arc::new(MockRuntimeApi { seal_valid: true }));
+		let err = futures::executor::block_on(verifier.verify(params))
+			.err()
+			.expect("a wrong-length seal must be rejected");
+		assert!(err.contains("64 bytes"), "expected the length rejection, got: {err}");
 	}
 }
