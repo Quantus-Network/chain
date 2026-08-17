@@ -151,6 +151,49 @@ mod wormhole_tests {
 		});
 	}
 
+	/// A self-directed credit moves no value, but recording it would still append a
+	/// ZK-tree leaf, advance the recipient's transfer count, and emit an event.
+	/// `transfer_on_hold` has no `source == dest` short-circuit, and hook-context
+	/// recorders can key off dispatch `Ok` for a no-op self-transfer, so the
+	/// recorder must drop these and report them as not recorded.
+	#[test]
+	fn self_directed_credit_is_not_recorded() {
+		use qp_wormhole::TransferProofRecorder;
+
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let who = account_id(1);
+
+			assert!(
+				!<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+					None,
+					who.clone(),
+					who.clone(),
+					1_000 * UNIT,
+				),
+				"a self-directed credit must report as not recorded"
+			);
+			assert_eq!(ZkTree::leaf_count(), 0, "no ZK-tree leaf for a self-directed credit");
+			assert_eq!(
+				Wormhole::transfer_count(&who),
+				0,
+				"the account's transfer count must not advance"
+			);
+
+			let other = account_id(2);
+			assert!(
+				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+					None,
+					who,
+					other.clone(),
+					1,
+				)
+			);
+			assert_eq!(ZkTree::leaf_count(), 1);
+			assert_eq!(Wormhole::transfer_count(&other), 1);
+		});
+	}
+
 	#[test]
 	fn record_transfer_increments_count() {
 		new_test_ext().execute_with(|| {

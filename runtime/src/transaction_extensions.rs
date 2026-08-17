@@ -346,7 +346,9 @@ impl pallet_transaction_payment::OnChargeTransaction<Runtime> for HighSecurityFu
 ///   - Multisig transfers (multisig.execute)
 ///   - Recovery transfers (recovery.as_recovered)
 ///   - Held-fund seizures/recoveries (reversible_transfers.cancel / recover_funds, which move value
-///     with `transfer_on_hold` instead of a free-balance transfer)
+///     with `transfer_on_hold` instead of a free-balance transfer). Owner cancel of a one-time
+///     schedule uses `release` instead — hold → free on the same account, not a credit — so it
+///     emits no `TransferOnHold` and records no leaf.
 ///   - Recovery-deposit seizures (recovery.close_recovery, which moves the rescuer's deposit with
 ///     `repatriate_reserved`)
 ///   - Future call-based mechanisms automatically covered, since wrapper calls emit their inner
@@ -356,7 +358,8 @@ impl pallet_transaction_payment::OnChargeTransaction<Runtime> for HighSecurityFu
 /// never sees events emitted from hooks (`on_initialize` / `on_finalize`). Every
 /// hook-context credit therefore needs — and has — an explicit
 /// `TransferProofRecorder::record_transfer_proof` call instead:
-///   - reversible-transfers' scheduled execution records its transfer in `do_execute_transfer`;
+///   - reversible-transfers' scheduled execution records its transfer in `do_execute_transfer`
+///     (skipped when `from == to`, which moves no value);
 ///   - mining rewards record theirs in `on_finalize` (`pallet_mining_rewards`). Sub-quantum
 ///     remainder stays in `CollectedFees` for the next miner (no leaf). Those credits use
 ///     `mint_into`, which *does* emit `Balances::Minted` (the same event this scanner records);
@@ -484,8 +487,12 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::force_transfer { .. }) => 1,
 
-			// A successful cancel releases the held funds to the recipient with
-			// `transfer_on_hold`, emitting exactly one `TransferOnHold` the scan records.
+			// Guardian cancel seizes the hold with `transfer_on_hold` and emits one
+			// `TransferOnHold` the scan records. Owner self-cancel of a one-time
+			// schedule uses `release` instead (hold → free on the same account) and
+			// records zero proofs. The static count of one is a conservative
+			// reservation: `weight()` cannot see which branch will run, and
+			// post-dispatch reconciliation refunds the unused charge.
 			RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
 				..
 			}) => 1,
@@ -595,8 +602,11 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 						// seized/recovered funds to the guardian with `transfer_on_hold`
 						// (`Restriction::Free`), so the destination receives ordinary free
 						// balance — a genuine credit that needs a leaf exactly like a
-						// `Transfer`, it just emits a different event. (`TransferAndHold`
-						// is deliberately not matched: nothing in the runtime emits it.)
+						// `Transfer`, it just emits a different event. Owner self-cancel
+						// uses `release` instead of `transfer_on_hold`, so it never reaches
+						// this arm; `record_transfer_proof` also drops `source == dest` as
+						// a backstop. (`TransferAndHold` is deliberately not matched:
+						// nothing in the runtime emits it.)
 						RuntimeEvent::Balances(pallet_balances::Event::TransferOnHold {
 							source,
 							dest,
@@ -821,6 +831,29 @@ mod tests {
 		.unwrap();
 
 		sp_io::TestExternalities::new(t)
+	}
+
+	fn run_scheduler_to(n: u32) {
+		use frame_support::traits::{OnFinalize, OnInitialize};
+		while System::block_number() < n {
+			let b = System::block_number();
+			Scheduler::on_finalize(b);
+			System::set_block_number(b + 1);
+			Scheduler::on_initialize(b + 1);
+		}
+	}
+
+	fn newest_leaf() -> pallet_zk_tree::ZkLeaf<AccountId, AssetId, Balance> {
+		let n = ZkTree::leaf_count();
+		assert!(n > 0, "expected at least one leaf");
+		pallet_zk_tree::Leaves::<Runtime>::get(n - 1).expect("newest leaf exists")
+	}
+
+	fn scan_since(event_count_before: u32) -> u64 {
+		WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(
+			event_count_before,
+		)
+		.0
 	}
 
 	#[test]
@@ -1582,10 +1615,10 @@ mod tests {
 	#[test]
 	fn wormhole_proof_recorder_counts_reversible_cancel_and_close_recovery() {
 		new_test_ext().execute_with(|| {
-			// `ReversibleTransfers::cancel` releases the held funds with `transfer_on_hold`,
-			// emitting exactly one `TransferOnHold` that the scanner turns into a proof. The
-			// call is statically visible, so the proof must be fee-charged, not just
-			// reconciled post-hoc against block capacity.
+			// `ReversibleTransfers::cancel` is statically visible, so the proof reservation
+			// is fee-charged rather than only reconciled post-hoc against block capacity.
+			// Guardian cancel records one `TransferOnHold`; owner self-cancel records
+			// zero (it `release`s). The count of one is the conservative reservation.
 			let cancel =
 				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
 					tx_id: Default::default(),
@@ -2213,6 +2246,8 @@ mod tests {
 			let transfer_amount = EXISTENTIAL_DEPOSIT * 100;
 			let bob_account = bob();
 			let count_before = Wormhole::transfer_count(&bob_account);
+			let leaves_before = ZkTree::leaf_count();
+			let events_before = frame_system::Pallet::<Runtime>::event_count();
 
 			// Execute a transfer (this emits pallet_balances::Event::Transfer)
 			assert_ok!(Balances::transfer_keep_alive(
@@ -2221,13 +2256,12 @@ mod tests {
 				transfer_amount,
 			));
 
-			// Simulate what post_dispatch does - scan events and record proofs.
-			// Use 0 as the before count for tests (all events are "new").
-			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
-
-			// Verify transfer was recorded (proof is now in ZK trie)
-			let count_after = Wormhole::transfer_count(&bob_account);
-			assert_eq!(count_after, count_before + 1, "Transfer count should increment");
+			assert_eq!(scan_since(events_before), 1, "a plain transfer records exactly one proof");
+			assert_eq!(ZkTree::leaf_count(), leaves_before + 1);
+			assert_eq!(Wormhole::transfer_count(&bob_account), count_before + 1);
+			let leaf = newest_leaf();
+			assert_eq!(leaf.to, bob_account);
+			assert_eq!(leaf.amount, transfer_amount);
 		});
 	}
 
@@ -2325,6 +2359,7 @@ mod tests {
 			let amount = EXISTENTIAL_DEPOSIT * 10;
 			let guardian = alice();
 			let count_before = Wormhole::transfer_count(&guardian);
+			let leaves_before = ZkTree::leaf_count();
 
 			// charlie is high-security (guardian = alice, from genesis); scheduling a
 			// transfer places the funds on hold.
@@ -2340,17 +2375,211 @@ mod tests {
 			// the guardian via `transfer_on_hold`, which emits `Balances::TransferOnHold`
 			// — not a free-balance `Transfer`. The credit is real spendable value landing
 			// on the guardian's free balance, so the recorder must create a leaf for it
-			// exactly as it would for a plain transfer.
+			// exactly as it would for a plain transfer. The pallet itself must not also
+			// call ProofRecorder (that would double-insert).
 			let events_before = frame_system::Pallet::<Runtime>::event_count();
 			assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(guardian.clone()), tx_id));
 
-			let (recorded, _) =
-				WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(
-					events_before,
-				);
-
-			assert_eq!(recorded, 1, "hold-transfer seizure must be recorded as a transfer proof");
+			assert_eq!(
+				scan_since(events_before),
+				1,
+				"hold-transfer seizure must record exactly one proof"
+			);
+			assert_eq!(ZkTree::leaf_count(), leaves_before + 1);
 			assert_eq!(Wormhole::transfer_count(&guardian), count_before + 1);
+			let leaf = newest_leaf();
+			assert_eq!(leaf.to, guardian);
+			let fee = <Runtime as pallet_reversible_transfers::Config>::VolumeFee::get() * amount;
+			assert_eq!(leaf.amount, amount - fee);
+		});
+	}
+
+	#[test]
+	fn event_based_proof_recording_owner_self_cancel_is_not_a_credit() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let amount = EXISTENTIAL_DEPOSIT * 10;
+			let sender = alice();
+			let dest = bob();
+			let leaves_before = ZkTree::leaf_count();
+			let count_before = Wormhole::transfer_count(&sender);
+
+			assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+				RuntimeOrigin::signed(sender.clone()),
+				MultiAddress::Id(dest),
+				amount,
+				qp_scheduler::BlockNumberOrTimestamp::BlockNumber(2),
+			));
+			let tx_id =
+				pallet_reversible_transfers::PendingTransfersBySender::<Runtime>::get(&sender)[0];
+
+			let events_before = frame_system::Pallet::<Runtime>::event_count();
+			assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(sender.clone()), tx_id));
+
+			assert_eq!(
+				scan_since(events_before),
+				0,
+				"owner self-cancel releases the hold to the sender and must not record a leaf"
+			);
+			assert_eq!(ZkTree::leaf_count(), leaves_before);
+			assert_eq!(Wormhole::transfer_count(&sender), count_before);
+		});
+	}
+
+	#[test]
+	fn event_based_proof_recording_self_transfer_is_not_a_credit() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let leaves_before = ZkTree::leaf_count();
+			let events_before = frame_system::Pallet::<Runtime>::event_count();
+			assert_ok!(Balances::transfer_keep_alive(
+				RuntimeOrigin::signed(alice()),
+				MultiAddress::Id(alice()),
+				EXISTENTIAL_DEPOSIT * 10,
+			));
+
+			assert_eq!(
+				scan_since(events_before),
+				0,
+				"a self-directed transfer_keep_alive emits no Transfer and records no leaf"
+			);
+			assert_eq!(ZkTree::leaf_count(), leaves_before);
+		});
+	}
+
+	#[test]
+	fn event_based_proof_recording_self_directed_transfer_on_hold_is_dropped() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let leaves_before = ZkTree::leaf_count();
+			let events_before = frame_system::Pallet::<Runtime>::event_count();
+			System::deposit_event(RuntimeEvent::Balances(pallet_balances::Event::TransferOnHold {
+				reason: pallet_reversible_transfers::HoldReason::ScheduledTransfer.into(),
+				source: alice(),
+				dest: alice(),
+				amount: EXISTENTIAL_DEPOSIT * 10,
+			}));
+
+			assert_eq!(
+				scan_since(events_before),
+				0,
+				"a self-directed TransferOnHold is not a credit and must be dropped at the chokepoint"
+			);
+			assert_eq!(ZkTree::leaf_count(), leaves_before);
+		});
+	}
+
+	#[test]
+	fn recover_funds_records_one_proof_per_real_credit() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let amount = EXISTENTIAL_DEPOSIT * 10;
+			let guardian = alice();
+			let leaves_before = ZkTree::leaf_count();
+			let guardian_count_before = Wormhole::transfer_count(&guardian);
+
+			assert_ok!(ReversibleTransfers::schedule_transfer(
+				RuntimeOrigin::signed(charlie()),
+				MultiAddress::Id(bob()),
+				amount,
+			));
+
+			let events_before = frame_system::Pallet::<Runtime>::event_count();
+			assert_ok!(ReversibleTransfers::recover_funds(
+				RuntimeOrigin::signed(guardian.clone()),
+				charlie(),
+			));
+
+			// One TransferOnHold (pending seizure) plus one Transfer (free-balance sweep).
+			// The pallet must not also call ProofRecorder on the hold path, or this
+			// would be 3.
+			assert_eq!(
+				scan_since(events_before),
+				2,
+				"recover_funds records exactly one proof per real credit"
+			);
+			assert_eq!(ZkTree::leaf_count(), leaves_before + 2);
+			assert_eq!(Wormhole::transfer_count(&guardian), guardian_count_before + 2);
+		});
+	}
+
+	#[test]
+	fn scheduled_execution_records_exactly_one_proof() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let amount = EXISTENTIAL_DEPOSIT * 10;
+			let dest = bob();
+			let dest_count_before = Wormhole::transfer_count(&dest);
+			let leaves_before = ZkTree::leaf_count();
+
+			assert_ok!(ReversibleTransfers::schedule_transfer(
+				RuntimeOrigin::signed(charlie()),
+				MultiAddress::Id(dest.clone()),
+				amount,
+			));
+			assert_eq!(
+				ZkTree::leaf_count(),
+				leaves_before,
+				"scheduling holds funds and must not record a leaf"
+			);
+
+			// Charlie's genesis delay is 10 blocks; schedule at block 1 executes at 11.
+			run_scheduler_to(11);
+
+			assert_eq!(
+				ZkTree::leaf_count(),
+				leaves_before + 1,
+				"scheduled execution records exactly one leaf via ProofRecorder"
+			);
+			assert_eq!(Wormhole::transfer_count(&dest), dest_count_before + 1);
+			let leaf = newest_leaf();
+			assert_eq!(leaf.to, dest);
+			assert_eq!(leaf.amount, amount);
+
+			// Hook-context events sit below every extrinsic's prepare() snapshot, so a
+			// later scan must not double-record the inner transfer_keep_alive.
+			let snapshot = frame_system::Pallet::<Runtime>::event_count();
+			assert_eq!(scan_since(snapshot), 0);
+			assert_eq!(ZkTree::leaf_count(), leaves_before + 1);
+		});
+	}
+
+	#[test]
+	fn self_directed_scheduled_execution_records_no_proof() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let sender = alice();
+			let amount = EXISTENTIAL_DEPOSIT * 10;
+			let leaves_before = ZkTree::leaf_count();
+			let count_before = Wormhole::transfer_count(&sender);
+			let free_before = Balances::free_balance(&sender);
+
+			assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+				RuntimeOrigin::signed(sender.clone()),
+				MultiAddress::Id(sender.clone()),
+				amount,
+				qp_scheduler::BlockNumberOrTimestamp::BlockNumber(2),
+			));
+
+			run_scheduler_to(3);
+
+			assert_eq!(
+				ZkTree::leaf_count(),
+				leaves_before,
+				"a self-directed scheduled execution moves no value and must not record a leaf"
+			);
+			assert_eq!(Wormhole::transfer_count(&sender), count_before);
+			assert_eq!(Balances::free_balance(&sender), free_before);
+
+			let snapshot = frame_system::Pallet::<Runtime>::event_count();
+			assert_eq!(scan_since(snapshot), 0);
+			assert_eq!(ZkTree::leaf_count(), leaves_before);
 		});
 	}
 

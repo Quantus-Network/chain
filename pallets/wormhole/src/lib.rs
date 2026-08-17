@@ -1375,6 +1375,15 @@ pub mod pallet {
 			if amount.is_zero() {
 				return false;
 			}
+			// A self-directed credit moves no value either: nothing is debited from one
+			// account and credited to another. Recording it would still advance the
+			// recipient's transfer count, enlarge the ZK tree, and emit a transfer event
+			// for nothing. Reachable from `transfer_on_hold(A, A)` (FRAME has no
+			// self-short-circuit on the hold path) and from hook-context recorders that
+			// key off dispatch `Ok` rather than a moved amount.
+			if from == to {
+				return false;
+			}
 			// The wormhole tags native leaves with `asset_id == 0`, but `pallet_assets` uses
 			// id 0 for an unrelated, independently-mintable token. Genuine native reaches us as
 			// `None` (from `Balances` events); a `pallet_assets` asset-0 credit reaches us as

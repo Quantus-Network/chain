@@ -1639,6 +1639,41 @@ fn reversible_transfer_records_transfer_proof_on_execution() {
 }
 
 #[test]
+fn self_directed_scheduled_transfer_does_not_record_proof() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		MockProofRecorder::clear();
+
+		let user = charlie();
+		let amount = 50;
+		let delay = BlockNumberOrTimestamp::BlockNumber(10);
+		let start_block = BlockNumberOrTimestamp::BlockNumber(System::block_number());
+		let execute_block = start_block.saturating_add(&delay).unwrap();
+		let free_before = Balances::free_balance(&user);
+
+		assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+			RuntimeOrigin::signed(user.clone()),
+			user.clone(),
+			amount,
+			delay,
+		));
+		assert!(MockProofRecorder::get_recorded_proofs().is_empty());
+
+		run_to_block(execute_block.as_block_number().unwrap());
+
+		assert!(
+			MockProofRecorder::get_recorded_proofs().is_empty(),
+			"a self-directed execution moves no value and must not record a proof"
+		);
+		assert_eq!(
+			Balances::free_balance(&user),
+			free_before,
+			"a self-directed execution must restore the sender's free balance"
+		);
+	});
+}
+
+#[test]
 fn cancelled_reversible_transfer_does_not_record_proof() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
@@ -1664,6 +1699,33 @@ fn cancelled_reversible_transfer_does_not_record_proof() {
 		assert!(
 			MockProofRecorder::get_recorded_proofs().is_empty(),
 			"Cancelled transfer should not record any proof"
+		);
+	});
+}
+
+#[test]
+fn owner_cancel_of_one_time_schedule_does_not_record_proof() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		MockProofRecorder::clear();
+
+		let user = charlie();
+		let dest = dave();
+		let amount = 50;
+		let call = transfer_call(dest.clone(), amount);
+		let tx_id = calculate_tx_id::<Test>(user.clone(), &call);
+
+		assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+			RuntimeOrigin::signed(user.clone()),
+			dest,
+			amount,
+			BlockNumberOrTimestamp::BlockNumber(5),
+		));
+		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(user), tx_id));
+
+		assert!(
+			MockProofRecorder::get_recorded_proofs().is_empty(),
+			"owner cancel must not record via ProofRecorder; the runtime scanner is the only recorder, and a self-release is not a credit"
 		);
 	});
 }

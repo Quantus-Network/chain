@@ -815,8 +815,10 @@ pub mod pallet {
 			let post_info =
 				call.dispatch(frame_system::RawOrigin::Signed(pending.from.clone()).into());
 
-			// Record transfer proof if dispatch was successful
-			if post_info.is_ok() {
+			// Record only when value actually moved. `transfer_keep_alive` treats
+			// `source == dest` as a no-op that still returns `Ok`, and this path runs
+			// in scheduler hook context so the event scanner never sees it.
+			if post_info.is_ok() && pending.from != pending.to {
 				T::ProofRecorder::record_transfer_proof(
 					pending.asset_id.clone(),
 					pending.from.clone(),
@@ -1033,16 +1035,30 @@ pub mod pallet {
 				Fortitude::Polite,
 			)?;
 
-			// Transfer remaining amount to recipient
-			pallet_balances::Pallet::<T>::transfer_on_hold(
-				&HoldReason::ScheduledTransfer.into(),
-				&pending.from,
-				recipient,
-				remaining_amount,
-				Precision::Exact,
-				Restriction::Free,
-				Fortitude::Polite,
-			)?;
+			// Transfer remaining amount to recipient. A self-directed release (owner
+			// cancel of a one-time schedule) is hold → free on the same account: use
+			// `release` so we do not emit `TransferOnHold { source: A, dest: A }`, which
+			// is not a credit. Cross-account seizures still use `transfer_on_hold`
+			// (`Restriction::Free`) so the destination receives free balance and the
+			// runtime event scanner records a leaf.
+			if recipient == &pending.from {
+				pallet_balances::Pallet::<T>::release(
+					&HoldReason::ScheduledTransfer.into(),
+					&pending.from,
+					remaining_amount,
+					Precision::Exact,
+				)?;
+			} else {
+				pallet_balances::Pallet::<T>::transfer_on_hold(
+					&HoldReason::ScheduledTransfer.into(),
+					&pending.from,
+					recipient,
+					remaining_amount,
+					Precision::Exact,
+					Restriction::Free,
+					Fortitude::Polite,
+				)?;
+			}
 
 			Ok(())
 		}
