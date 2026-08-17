@@ -165,6 +165,10 @@ pub type TxExtension = (
 	// turn — the wormhole recorder's refund of statically over-charged per-transfer
 	// weight only reaches the payer's fee if it lands first.
 	transaction_extensions::WormholeProofRecorderExtension<Runtime>,
+	// The high-security zero-tip policy is NOT enforced here: it lives in
+	// `transaction_extensions::HighSecurityFungibleAdapter` (the configured
+	// `OnChargeTransaction`), which every fee path of this extension goes
+	// through, so no refactor of this tuple can silently reopen the tip channel.
 	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
 	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
 	// Must stay last: re-runs the block-weight reclaim so that refunds made by the

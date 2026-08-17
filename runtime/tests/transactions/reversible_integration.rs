@@ -1,5 +1,5 @@
 use crate::common::TestCommons;
-use frame_support::{assert_err, assert_ok};
+use frame_support::{assert_err, assert_ok, traits::Currency};
 use qp_scheduler::BlockNumberOrTimestamp;
 use quantus_runtime::{Balances, ReversibleTransfers, RuntimeOrigin, System, EXISTENTIAL_DEPOSIT};
 use sp_runtime::MultiAddress;
@@ -418,5 +418,361 @@ fn chained_guardian_high_security_account_flow() {
 			bal_2_after_own_recovery + bal_1_before_recovery,
 			"Account 2 should receive all of account 1's funds"
 		);
+	});
+}
+
+/// The guardian holds instant, total seizure power (`recover_funds` sweeps
+/// every hold plus the whole free balance to it, with no delay and no second
+/// approver), so the recommended deployment is a multisig guardian. This pins
+/// that the full guardian lifecycle actually works when the guardian is a
+/// `pallet_multisig` address: cancelling a pending transfer and recovering
+/// funds, each dispatched as the multisig through propose/approve/execute.
+#[test]
+fn multisig_guardian_protects_high_security_account() {
+	use codec::Encode;
+	use quantus_runtime::{Multisig, Runtime, RuntimeCall, RuntimeEvent};
+
+	// Dispatch `call` as the multisig via the full 2-of-2 propose/approve/
+	// execute round-trip and assert the inner dispatch succeeded.
+	fn dispatch_as_multisig(
+		multisig_address: &sp_core::crypto::AccountId32,
+		proposal_id: u32,
+		call: RuntimeCall,
+	) {
+		let encoded: pallet_multisig::BoundedCallOf<Runtime> = call.encode().try_into().unwrap();
+		let expiry = System::block_number() + 100;
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(acc(2)),
+			multisig_address.clone(),
+			encoded.clone(),
+			expiry,
+		));
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(acc(3)),
+			multisig_address.clone(),
+			proposal_id,
+			encoded,
+		));
+		assert_ok!(Multisig::execute(
+			RuntimeOrigin::signed(acc(2)),
+			multisig_address.clone(),
+			proposal_id,
+		));
+		let inner_result = System::events()
+			.iter()
+			.rev()
+			.find_map(|record| {
+				if let RuntimeEvent::Multisig(pallet_multisig::Event::ProposalExecuted {
+					proposal_id: id,
+					result,
+					..
+				}) = &record.event
+				{
+					(*id == proposal_id).then_some(*result)
+				} else {
+					None
+				}
+			})
+			.expect("ProposalExecuted event should be emitted");
+		assert_ok!(inner_result);
+	}
+
+	let mut ext = TestCommons::new_test_ext();
+	ext.execute_with(|| {
+		System::set_block_number(1);
+
+		// Accounts 2 and 3 form the 2-of-2 guardian multisig; account 1 is
+		// the protected user, account 4 the transfer recipient.
+		let signers = vec![acc(2), acc(3)];
+		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(acc(2)), signers.clone(), 2, 0));
+		let guardian_multisig = Multisig::derive_multisig_address(&signers, 2, 0);
+		// The multisig account must exist to receive a recovery sweep.
+		assert_ok!(Balances::transfer_keep_alive(
+			RuntimeOrigin::signed(acc(3)),
+			MultiAddress::Id(guardian_multisig.clone()),
+			10 * EXISTENTIAL_DEPOSIT,
+		));
+
+		// Enroll with the multisig address as guardian.
+		assert_ok!(ReversibleTransfers::set_high_security(
+			RuntimeOrigin::signed(acc(1)),
+			BlockNumberOrTimestamp::BlockNumber(5),
+			guardian_multisig.clone(),
+		));
+		assert_eq!(
+			ReversibleTransfers::is_high_security(&acc(1)).map(|data| data.guardian),
+			Some(guardian_multisig.clone())
+		);
+
+		// The multisig cancels a pending transfer during the delay window.
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(acc(1)),
+			MultiAddress::Id(acc(4)),
+			10 * EXISTENTIAL_DEPOSIT,
+		));
+		let tx_id = System::events()
+			.iter()
+			.find_map(|record| {
+				if let RuntimeEvent::ReversibleTransfers(
+					pallet_reversible_transfers::Event::TransactionScheduled { tx_id, .. },
+				) = &record.event
+				{
+					Some(*tx_id)
+				} else {
+					None
+				}
+			})
+			.expect("TransactionScheduled event should be emitted");
+		dispatch_as_multisig(
+			&guardian_multisig,
+			0,
+			RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::<Runtime>::cancel { tx_id },
+			),
+		);
+		assert!(
+			pallet_reversible_transfers::PendingTransfers::<Runtime>::get(tx_id).is_none(),
+			"multisig guardian cancel must remove the pending transfer"
+		);
+		let recipient_start = 1000 * quantus_runtime::UNIT;
+		assert_eq!(Balances::free_balance(acc(4)), recipient_start, "recipient got nothing");
+
+		// The multisig seizes the account: holds and free balance sweep to it.
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(acc(1)),
+			MultiAddress::Id(acc(4)),
+			10 * EXISTENTIAL_DEPOSIT,
+		));
+		let user_funds_before = Balances::free_balance(acc(1));
+		let multisig_funds_before = Balances::free_balance(&guardian_multisig);
+		dispatch_as_multisig(
+			&guardian_multisig,
+			1,
+			RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::<Runtime>::recover_funds { account: acc(1) },
+			),
+		);
+		assert_eq!(Balances::free_balance(acc(1)), 0, "recovery must drain the protected account");
+		assert!(
+			Balances::free_balance(&guardian_multisig) > multisig_funds_before + user_funds_before,
+			"the sweep (free balance plus released holds, less the volume fee) \
+			 must land on the multisig"
+		);
+	});
+}
+
+/// A multisig guardian cannot be locked out by the high-security transaction
+/// quota, even when the multisig address is itself enrolled as high-security
+/// and its quota ring is completely full.
+///
+/// The quota lives in `ReversibleTransactionExtension` and keys on the *outer
+/// signer* of each extrinsic. A multisig acts through `propose` / `approve` /
+/// `execute` signed by its individual signers — the derived address never
+/// signs anything, so its ring is never consulted. (An HS multisig is instead
+/// constrained by pallet-multisig's propose-time whitelist check, which admits
+/// `cancel` and `recover_funds`.) A single-key high-security guardian does
+/// share its quota with its own traffic — that limitation is documented, and
+/// this test pins that the recommended multisig deployment is immune.
+///
+/// Everything guardian-side runs through the full signed pipeline
+/// (`Executive::apply_extrinsic`), which the quota actually gates.
+#[test]
+fn high_security_multisig_guardian_is_immune_to_quota_lockout() {
+	use codec::Encode;
+	use qp_dilithium_crypto::Dilithium65Pair;
+	use quantus_runtime::{Executive, Multisig, Runtime, RuntimeCall, RuntimeEvent, UNIT};
+	use sp_core::Pair;
+	use sp_runtime::traits::IdentifyAccount;
+
+	let signer_a_pair = Dilithium65Pair::from_seed_slice(&[52u8; 32]).expect("valid seed");
+	let signer_b_pair = Dilithium65Pair::from_seed_slice(&[53u8; 32]).expect("valid seed");
+	let signer_a = signer_a_pair.public().into_account();
+	let signer_b = signer_b_pair.public().into_account();
+
+	// Sign with the production extension tuple and require both inclusion and
+	// successful dispatch.
+	fn apply_signed(
+		pair: &Dilithium65Pair,
+		sender: sp_core::crypto::AccountId32,
+		call: RuntimeCall,
+		nonce: u32,
+	) {
+		let xt = TestCommons::signed_extrinsic(pair, sender, call, nonce, 0);
+		let outcome =
+			Executive::apply_extrinsic(xt).expect("guardian-side extrinsic must pass validation");
+		assert_ok!(outcome);
+	}
+
+	fn assert_proposal_executed_ok(proposal_id: u32) {
+		let inner_result = System::events()
+			.iter()
+			.rev()
+			.find_map(|record| {
+				if let RuntimeEvent::Multisig(pallet_multisig::Event::ProposalExecuted {
+					proposal_id: id,
+					result,
+					..
+				}) = &record.event
+				{
+					(*id == proposal_id).then_some(*result)
+				} else {
+					None
+				}
+			})
+			.expect("ProposalExecuted event should be emitted");
+		assert_ok!(inner_result);
+	}
+
+	let mut ext = TestCommons::new_test_ext();
+	ext.execute_with(|| {
+		System::set_block_number(1);
+		Balances::make_free_balance_be(&signer_a, 1000 * UNIT);
+		Balances::make_free_balance_be(&signer_b, 1000 * UNIT);
+
+		// 2-of-2 multisig of the Dilithium signers, funded so it can receive
+		// a recovery sweep.
+		let signers = vec![signer_a.clone(), signer_b.clone()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(signer_a.clone()),
+			signers.clone(),
+			2,
+			0
+		));
+		let guardian_multisig = Multisig::derive_multisig_address(&signers, 2, 0);
+		assert_ok!(Balances::transfer_keep_alive(
+			RuntimeOrigin::signed(signer_b.clone()),
+			MultiAddress::Id(guardian_multisig.clone()),
+			10 * EXISTENTIAL_DEPOSIT,
+		));
+
+		// The multisig itself enrolls as high-security...
+		assert_ok!(ReversibleTransfers::set_high_security(
+			RuntimeOrigin::signed(guardian_multisig.clone()),
+			BlockNumberOrTimestamp::BlockNumber(5),
+			acc(3),
+		));
+		// ...and its own quota ring is filled to the brim: a single-key
+		// guardian in this state would be mute for up to a day.
+		while ReversibleTransfers::high_security_tx_quota(&guardian_multisig).len() < 16 {
+			assert_ok!(ReversibleTransfers::record_high_security_tx(&guardian_multisig));
+		}
+		assert!(!ReversibleTransfers::high_security_tx_quota_allows(&guardian_multisig));
+
+		// The protected user enrolls with the multisig as guardian and
+		// schedules a transfer.
+		assert_ok!(ReversibleTransfers::set_high_security(
+			RuntimeOrigin::signed(acc(1)),
+			BlockNumberOrTimestamp::BlockNumber(5),
+			guardian_multisig.clone(),
+		));
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(acc(1)),
+			MultiAddress::Id(acc(4)),
+			10 * EXISTENTIAL_DEPOSIT,
+		));
+		let tx_id = System::events()
+			.iter()
+			.find_map(|record| {
+				if let RuntimeEvent::ReversibleTransfers(
+					pallet_reversible_transfers::Event::TransactionScheduled { tx_id, .. },
+				) = &record.event
+				{
+					Some(*tx_id)
+				} else {
+					None
+				}
+			})
+			.expect("TransactionScheduled event should be emitted");
+
+		// Cancel through the full signed pipeline: propose (signer A),
+		// approve (signer B), execute (signer A).
+		let cancel = RuntimeCall::ReversibleTransfers(
+			pallet_reversible_transfers::Call::<Runtime>::cancel { tx_id },
+		);
+		let encoded_cancel: pallet_multisig::BoundedCallOf<Runtime> =
+			cancel.encode().try_into().unwrap();
+		let expiry = System::block_number() + 100;
+		apply_signed(
+			&signer_a_pair,
+			signer_a.clone(),
+			RuntimeCall::Multisig(pallet_multisig::Call::propose {
+				multisig_address: guardian_multisig.clone(),
+				call: encoded_cancel.clone(),
+				expiry,
+			}),
+			0,
+		);
+		apply_signed(
+			&signer_b_pair,
+			signer_b.clone(),
+			RuntimeCall::Multisig(pallet_multisig::Call::approve {
+				multisig_address: guardian_multisig.clone(),
+				proposal_id: 0,
+				call: encoded_cancel,
+			}),
+			0,
+		);
+		apply_signed(
+			&signer_a_pair,
+			signer_a.clone(),
+			RuntimeCall::Multisig(pallet_multisig::Call::execute {
+				multisig_address: guardian_multisig.clone(),
+				proposal_id: 0,
+			}),
+			1,
+		);
+		assert_proposal_executed_ok(0);
+		assert!(
+			pallet_reversible_transfers::PendingTransfers::<Runtime>::get(tx_id).is_none(),
+			"quota-full HS multisig guardian must still cancel via the signed pipeline"
+		);
+
+		// Recover through the same pipeline.
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(acc(1)),
+			MultiAddress::Id(acc(4)),
+			10 * EXISTENTIAL_DEPOSIT,
+		));
+		let recover =
+			RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::<Runtime>::recover_funds { account: acc(1) },
+			);
+		let encoded_recover: pallet_multisig::BoundedCallOf<Runtime> =
+			recover.encode().try_into().unwrap();
+		apply_signed(
+			&signer_a_pair,
+			signer_a.clone(),
+			RuntimeCall::Multisig(pallet_multisig::Call::propose {
+				multisig_address: guardian_multisig.clone(),
+				call: encoded_recover.clone(),
+				expiry,
+			}),
+			2,
+		);
+		apply_signed(
+			&signer_b_pair,
+			signer_b.clone(),
+			RuntimeCall::Multisig(pallet_multisig::Call::approve {
+				multisig_address: guardian_multisig.clone(),
+				proposal_id: 1,
+				call: encoded_recover,
+			}),
+			1,
+		);
+		apply_signed(
+			&signer_a_pair,
+			signer_a.clone(),
+			RuntimeCall::Multisig(pallet_multisig::Call::execute {
+				multisig_address: guardian_multisig.clone(),
+				proposal_id: 1,
+			}),
+			3,
+		);
+		assert_proposal_executed_ok(1);
+		assert_eq!(Balances::free_balance(acc(1)), 0, "recovery must drain the protected account");
+
+		// The multisig's own ring was never consulted or touched: still full.
+		assert_eq!(ReversibleTransfers::high_security_tx_quota(&guardian_multisig).len(), 16);
+		assert!(!ReversibleTransfers::high_security_tx_quota_allows(&guardian_multisig));
 	});
 }

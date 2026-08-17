@@ -1524,220 +1524,22 @@ fn schedule_transfer_with_timestamp_delay_executes_correctly() {
 	});
 }
 
+/// There is deliberately no on-chain guardian index: a guardian can protect
+/// any number of accounts, so a stranger cannot exhaust a popular guardian's
+/// capacity with unwanted enrollments. Discovery of "which accounts do I
+/// guard?" is offchain (Subsquid) via `HighSecuritySet` events.
 #[test]
-fn guardian_index_works_with_guardian() {
+fn guardian_capacity_is_unbounded() {
 	new_test_ext().execute_with(|| {
-		let reversible_account = account_id(100);
-		let guardian = account_id(101);
+		let guardian = account_id(99);
 		let delay = BlockNumberOrTimestamp::BlockNumber(10);
-
-		// Initially, guardian should have empty list
-		assert_eq!(ReversibleTransfers::guardian_index(&guardian).len(), 0);
-
-		// Set up reversibility with explicit reverser
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(reversible_account.clone()),
-			delay,
-			guardian.clone(),
-		));
-
-		// Verify guardian index is updated
-		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
-		assert_eq!(guardian_accounts.len(), 1);
-		assert_eq!(guardian_accounts[0], reversible_account.clone());
-
-		// Verify account has correct reversibility data
-		assert_eq!(
-			ReversibleTransfers::is_high_security(&reversible_account),
-			Some(HighSecurityAccountData { delay, guardian: guardian.clone() })
-		);
-	});
-}
-
-#[test]
-fn guardian_index_handles_multiple_accounts() {
-	new_test_ext().execute_with(|| {
-		let guardian = account_id(100);
-		let account1 = account_id(101);
-		let account2 = account_id(102);
-		let account3 = account_id(103);
-		let delay = BlockNumberOrTimestamp::BlockNumber(10);
-
-		// Set up multiple accounts with same guardian
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(account1.clone()),
-			delay,
-			guardian.clone(),
-		));
-
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(account2.clone()),
-			delay,
-			guardian.clone(),
-		));
-
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(account3.clone()),
-			delay,
-			guardian.clone(),
-		));
-
-		// Verify guardian index contains all accounts
-		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
-		assert_eq!(guardian_accounts.len(), 3);
-		assert!(guardian_accounts.contains(&account1));
-		assert!(guardian_accounts.contains(&account2));
-		assert!(guardian_accounts.contains(&account3));
-	});
-}
-
-#[test]
-fn guardian_index_prevents_duplicates() {
-	new_test_ext().execute_with(|| {
-		let reversible_account = account_id(100);
-		let guardian = account_id(101);
-		let delay = BlockNumberOrTimestamp::BlockNumber(10);
-
-		// Set up reversibility with explicit reverser
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(reversible_account.clone()),
-			delay,
-			guardian.clone(),
-		));
-
-		// Verify initial state
-		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
-		assert_eq!(guardian_accounts.len(), 1);
-		assert_eq!(guardian_accounts[0], reversible_account.clone());
-
-		// Try to add the same account again (this should fail due to AccountAlreadyReversible)
-		assert_err!(
-			ReversibleTransfers::set_high_security(
-				RuntimeOrigin::signed(reversible_account.clone()),
-				delay,
-				guardian.clone(),
-			),
-			Error::<Test>::AccountAlreadyHighSecurity
-		);
-
-		// Verify no duplicates in guardian index
-		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
-		assert_eq!(guardian_accounts.len(), 1);
-	});
-}
-
-#[test]
-fn guardian_index_respects_max_limit() {
-	new_test_ext().execute_with(|| {
-		let guardian = account_id(100);
-		let delay = BlockNumberOrTimestamp::BlockNumber(10);
-
-		// Add accounts up to the limit (MaxGuardianAccounts = 10 in mock)
-		for i in 101..=110 {
+		for i in 100..150 {
 			assert_ok!(ReversibleTransfers::set_high_security(
 				RuntimeOrigin::signed(account_id(i)),
 				delay,
 				guardian.clone(),
 			));
 		}
-
-		// Verify we have the maximum number of accounts
-		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
-		assert_eq!(guardian_accounts.len(), 10);
-
-		// Try to add one more account - should fail
-		assert_err!(
-			ReversibleTransfers::set_high_security(
-				RuntimeOrigin::signed(account_id(111)),
-				delay,
-				guardian.clone(),
-			),
-			Error::<Test>::TooManyGuardianAccounts
-		);
-
-		// Verify count didn't change
-		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
-		assert_eq!(guardian_accounts.len(), 10);
-	});
-}
-
-#[test]
-fn guardian_index_empty_for_non_guardians() {
-	new_test_ext().execute_with(|| {
-		let non_guardian = account_id(100);
-		let reversible_account = account_id(101);
-		let delay = BlockNumberOrTimestamp::BlockNumber(10);
-
-		// Set up account without explicit reverser
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(reversible_account.clone()),
-			delay,
-			account_id(201),
-		));
-
-		// Verify non-guardian has empty list
-		assert_eq!(ReversibleTransfers::guardian_index(&non_guardian).len(), 0);
-		assert_eq!(ReversibleTransfers::guardian_index(&reversible_account).len(), 0);
-	});
-}
-
-#[test]
-fn guardian_index_different_guardians_separate_lists() {
-	new_test_ext().execute_with(|| {
-		let guardian1 = account_id(101);
-		let guardian2 = account_id(102);
-		let account1 = account_id(102);
-		let account2 = account_id(103);
-		let delay = BlockNumberOrTimestamp::BlockNumber(10);
-
-		// Set up accounts with different guardians
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(account1.clone()),
-			delay,
-			guardian1.clone(),
-		));
-
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(account2.clone()),
-			delay,
-			guardian2.clone(),
-		));
-
-		// Verify each guardian has their own separate list
-		let guardian1_accounts = ReversibleTransfers::guardian_index(&guardian1);
-		assert_eq!(guardian1_accounts.len(), 1);
-		assert_eq!(guardian1_accounts[0], account1);
-
-		let guardian2_accounts = ReversibleTransfers::guardian_index(&guardian2);
-		assert_eq!(guardian2_accounts.len(), 1);
-		assert_eq!(guardian2_accounts[0], account2);
-	});
-}
-
-#[test]
-fn guardian_index_works_with_policy() {
-	new_test_ext().execute_with(|| {
-		let reversible_account = account_id(100);
-		let guardian = account_id(101);
-		let delay = BlockNumberOrTimestamp::BlockNumber(10);
-
-		// Set up reversibility with Intercept policy and explicit reverser
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(reversible_account.clone()),
-			delay,
-			guardian.clone(),
-		));
-
-		// Verify guardian index is updated regardless of policy
-		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
-		assert_eq!(guardian_accounts.len(), 1);
-		assert_eq!(guardian_accounts[0], reversible_account.clone());
-
-		// Verify account has correct policy
-		assert_eq!(
-			ReversibleTransfers::is_high_security(&reversible_account),
-			Some(HighSecurityAccountData { delay, guardian: guardian.clone() })
-		);
 	});
 }
 

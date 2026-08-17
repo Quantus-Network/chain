@@ -410,3 +410,58 @@ fn recover_funds_weight_charges_agenda_per_pending_transfer() {
 		"recover_funds(n) must charge one Scheduler::Agenda proof per pending transfer"
 	);
 }
+
+#[test]
+fn high_security_tx_quota_is_a_rolling_window_of_sixteen() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let hs = alice();
+		let normal = charlie();
+
+		assert!(ReversibleTransfers::high_security_tx_quota_allows(&hs));
+		assert!(ReversibleTransfers::high_security_tx_quota_allows(&normal));
+
+		for _ in 0..16 {
+			assert_ok!(ReversibleTransfers::record_high_security_tx(&hs));
+		}
+		assert!(!ReversibleTransfers::high_security_tx_quota_allows(&hs));
+		assert_err!(ReversibleTransfers::record_high_security_tx(&hs), ());
+
+		// Normal accounts are not recorded and stay unlimited.
+		assert_ok!(ReversibleTransfers::record_high_security_tx(&normal));
+		assert!(ReversibleTransfers::high_security_tx_quota(&normal).is_empty());
+		assert_eq!(ReversibleTransfers::high_security_tx_quota(&hs).len(), 16);
+
+		// One block short of the window: still full.
+		System::set_block_number(1 + HighSecurityTxWindowBlocks::get() - 1);
+		assert!(!ReversibleTransfers::high_security_tx_quota_allows(&hs));
+
+		// All 16 were recorded in the same block, so they expire together.
+		// Each subsequent record evicts one expired head (O(1)) and a full
+		// new set of 16 is admitted.
+		System::set_block_number(1 + HighSecurityTxWindowBlocks::get());
+		assert!(ReversibleTransfers::high_security_tx_quota_allows(&hs));
+		for _ in 0..16 {
+			assert_ok!(ReversibleTransfers::record_high_security_tx(&hs));
+		}
+		assert_eq!(ReversibleTransfers::high_security_tx_quota(&hs).len(), 16);
+		assert!(!ReversibleTransfers::high_security_tx_quota_allows(&hs));
+	});
+}
+
+#[test]
+fn zero_capacity_quota_window_rejects_instead_of_panicking() {
+	// A misconfigured `MaxHighSecurityTxsPerWindow = 0` means the ring is at
+	// capacity while empty: there is no head to evict, so recording must fail
+	// with `Err` — never panic inside block execution.
+	struct ZeroCapacity;
+	impl frame_support::pallet_prelude::Get<u32> for ZeroCapacity {
+		fn get() -> u32 {
+			0
+		}
+	}
+	let mut ring: frame_support::pallet_prelude::BoundedVec<u64, ZeroCapacity> = Default::default();
+	assert!(!ReversibleTransfers::hs_ring_has_room(&ring, 1));
+	assert_err!(ReversibleTransfers::hs_ring_record(&mut ring, 1), ());
+	assert!(ring.is_empty());
+}

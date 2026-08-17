@@ -49,13 +49,13 @@ use frame_system::{
 	EnsureRoot, EnsureRootWithSuccess,
 };
 use pallet_ranked_collective::Linear;
-use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
+use pallet_transaction_payment::{ConstFeeMultiplier, Multiplier};
 use smallvec::smallvec;
 
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
 	traits::{BlakeTwo256, One},
-	AccountId32, Perbill, Permill,
+	AccountId32, MultiAddress, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
 
@@ -476,8 +476,11 @@ parameter_types! {
 
 impl pallet_transaction_payment::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type OnChargeTransaction =
-		FungibleAdapter<Balances, pallet_mining_rewards::TransactionFeesCollector<Runtime>>;
+	// Wraps `FungibleAdapter<Balances, TransactionFeesCollector>` and rejects
+	// any non-zero tip from a high-security signer. Enforced here rather than
+	// in the extension tuple so no `TxExtension` refactor can silently reopen
+	// the tip channel.
+	type OnChargeTransaction = crate::transaction_extensions::HighSecurityFungibleAdapter;
 	/// Converts compute weight (ref_time) to fee. Uses identity (1:1) mapping,
 	/// so 1 second of compute costs approximately 1 UNIT.
 	type WeightToFee = IdentityFee<Balance>;
@@ -486,7 +489,9 @@ impl pallet_transaction_payment::Config for Runtime {
 	type LengthToFee = LengthToFeeMultiplier;
 	type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
 	type OperationalFeeMultiplier = ConstU8<5>;
-	type WeightInfo = pallet_transaction_payment::weights::SubstrateWeight<Runtime>;
+	// Stock weights plus the two `HighSecurityAccounts` reads performed by the
+	// tip policy in `HighSecurityFungibleAdapter` on tipped transactions.
+	type WeightInfo = crate::transaction_extensions::PaymentWeightsWithTipPolicy;
 }
 
 impl pallet_utility::Config for Runtime {
@@ -524,11 +529,40 @@ parameter_types! {
 	pub const ReversibleTransfersPalletIdValue: PalletId = PalletId(*b"rtpallet");
 	pub const DefaultDelay: BlockNumberOrTimestamp<BlockNumber, Moment> = BlockNumberOrTimestamp::BlockNumber(DAYS);
 	pub const MinDelayPeriodBlocks: BlockNumber = 2;
-	pub const MaxGuardianAccounts: u32 = 32;
 	pub const MaxPendingPerAccount: u32 = 16;
+	/// Maximum leaf calls in a high-security `batch_all`. Deliberately its own
+	/// constant rather than reusing `MaxPendingPerAccount`: a future bump of
+	/// pending-transfer capacity must not silently widen the maximum fee
+	/// surface of a single high-security extrinsic.
+	pub const MaxHighSecurityBatchLen: u32 = 16;
+	/// Rolling 24h cap on signed extrinsics from a high-security account.
+	pub const MaxHighSecurityTxsPerWindow: u32 = 16;
+	pub const HighSecurityTxWindowBlocks: BlockNumber = DAYS;
 	/// Volume fee for reversed transactions from high-security accounts only (1% fee is burned)
 	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
 }
+
+/// Max encoded bytes of a high-security signer's extrinsic; larger ones are rejected
+/// before any fee is withdrawn, capping the length fee.
+///
+/// The largest legitimate one is a flat `batch_all` of [`MaxHighSecurityBatchLen`]
+/// `schedule_transfer`s (~7.2 KiB Dilithium sig+pubkey + ~0.8 KiB call ≈ 8.1 KiB).
+/// 10 KiB leaves headroom; revisit if that ceiling grows.
+pub const MAX_HIGH_SECURITY_EXTRINSIC_LEN: u32 = 10 * 1024;
+
+/// Max zero-tip inclusion fee of a high-security signer's extrinsic; costlier
+/// ones are rejected before any fee is withdrawn.
+///
+/// Unlike the per-call shape rules (Id-only dest, flat batch, arity, the
+/// length cap above), this bounds the fee itself, so a future whitelisted
+/// call with an unforeseen length or weight surface cannot reopen the
+/// fee-drain channel. The costliest legitimate extrinsic today is
+/// `recover_funds` at ~0.098 UNIT (17 statically charged wormhole proof
+/// reservations); a 16-leaf `batch_all` of `schedule_transfer`s is
+/// ~0.021 UNIT. 1 UNIT gives ~10x headroom for re-benchmarking drift and
+/// caps the worst-case drain at `MaxHighSecurityTxsPerWindow` UNIT per
+/// rolling day. Deterministic: `FeeMultiplierUpdate` is a constant one.
+pub const MAX_HIGH_SECURITY_INCLUSION_FEE: Balance = UNIT;
 
 impl pallet_reversible_transfers::Config for Runtime {
 	type AssetId = AssetId;
@@ -544,8 +578,9 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type Moment = Moment;
 	type TimeProvider = Timestamp;
-	type MaxGuardianAccounts = MaxGuardianAccounts;
 	type MaxPendingPerAccount = MaxPendingPerAccount;
+	type MaxHighSecurityTxsPerWindow = MaxHighSecurityTxsPerWindow;
+	type HighSecurityTxWindowBlocks = HighSecurityTxWindowBlocks;
 	type VolumeFee = HighSecurityVolumeFee;
 	type ProofRecorder = Wormhole;
 }
@@ -665,15 +700,55 @@ parameter_types! {
 /// - Multisig pallet: validates calls in `propose()` extrinsic
 /// - Transaction extensions: validates calls for high-security EOAs
 ///
-/// Whitelist includes only delayed, reversible operations plus vesting claims:
-/// - `schedule_transfer`: Schedule delayed native token transfer
+/// Whitelist includes only delayed, reversible operations:
+/// - `schedule_transfer`: delayed native transfer; dest must be `MultiAddress::Id` so a stolen key
+///   cannot pad `MultiAddress::Raw` and exfiltrate via the length fee
 /// - `cancel`: Cancel pending delayed transfer
 /// - `recover_funds`: Guardian-initiated recovery
-/// - `Vesting::claim`: safe because the payout goes to the schedule's stored beneficiary, never to
-///   the caller
-/// - `Utility::batch_all`: allowed only when every child is itself whitelisted. The pallet still
-///   re-checks each child at dispatch so a same-tx enrollment cannot smuggle a later drain.
+/// - `Utility::batch_all`: a flat, non-empty batch of at most [`MaxHighSecurityBatchLen`] leaf
+///   calls, each of which must itself be whitelisted. Nested `batch_all` is rejected so a packed
+///   wrapper cannot inflate the inclusion fee. The pallet still re-checks each child at dispatch so
+///   a same-tx enrollment cannot smuggle a later drain.
+///
+/// `Vesting::claim` is not listed: it is permissionless, so a third party can
+/// claim on behalf of a high-security beneficiary. The HS signer does not need
+/// it, and leaving it on the list was only another no-op fee path.
+///
+/// The tip is not part of `RuntimeCall`. High-security signers are forced to a
+/// zero tip by `transaction_extensions::HighSecurityFungibleAdapter` inside
+/// `OnChargeTransaction`, which every fee path goes through.
+/// Signed extrinsics from a high-security account are also capped at 16 per
+/// rolling day by `ReversibleTransactionExtension` (see `HighSecurityTxQuota`),
+/// and at [`MAX_HIGH_SECURITY_EXTRINSIC_LEN`] encoded bytes so the length fee
+/// cannot be inflated through any variable-length field.
+///
+/// The quota keys on the outer signer, so a *single-key* high-security
+/// guardian shares it with its own traffic and can be quota-locked out of
+/// `cancel`/`recover_funds` for up to a day. Documented limitation: an
+/// exemption for live guardian interventions would be farmable (enrollment
+/// needs no guardian consent), and the recommended multisig guardian is
+/// immune — its derived address never signs an extrinsic, so the quota never
+/// applies to it, even when the multisig is itself high-security.
 pub struct HighSecurityConfig;
+
+impl HighSecurityConfig {
+	/// Leaf whitelist: reversible-transfer calls only. `batch_all` is a wrapper
+	/// and is never a valid child, so nesting cannot pad fees.
+	/// `schedule_transfer` dest must be `MultiAddress::Id` so a stolen key
+	/// cannot pad `Raw` and inflate the length fee.
+	fn is_whitelisted_leaf(call: &RuntimeCall) -> bool {
+		match call {
+			RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_transfer { dest, .. },
+			) => matches!(dest, MultiAddress::Id(_)),
+			RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::cancel { .. } |
+				pallet_reversible_transfers::Call::recover_funds { .. },
+			) => true,
+			_ => false,
+		}
+	}
+}
 
 impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSecurityConfig {
 	fn is_high_security(who: &AccountId) -> bool {
@@ -683,15 +758,13 @@ impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSec
 
 	fn is_whitelisted(call: &RuntimeCall) -> bool {
 		match call {
-			RuntimeCall::ReversibleTransfers(
-				pallet_reversible_transfers::Call::schedule_transfer { .. } |
-				pallet_reversible_transfers::Call::cancel { .. } |
-				pallet_reversible_transfers::Call::recover_funds { .. },
-			) |
-			RuntimeCall::Vesting(pallet_vesting::Call::claim { .. }) => true,
-			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) =>
-				calls.iter().all(Self::is_whitelisted),
-			_ => false,
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) => {
+				let n = calls.len() as u32;
+				n > 0 &&
+					n <= MaxHighSecurityBatchLen::get() &&
+					calls.iter().all(Self::is_whitelisted_leaf)
+			},
+			_ => Self::is_whitelisted_leaf(call),
 		}
 	}
 
