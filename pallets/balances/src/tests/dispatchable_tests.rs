@@ -18,15 +18,9 @@
 //! Tests regarding the functionality of the dispatchables/extrinsics.
 
 use super::*;
-use crate::{
-	AdjustmentDirection::{Decrease as Dec, Increase as Inc},
-	Event,
-};
-use frame_support::traits::{fungible::Unbalanced, tokens::Preservation::Expendable};
+use crate::Event;
+use frame_support::traits::tokens::Preservation::Expendable;
 use fungible::{hold::Mutate as HoldMutate, Inspect, Mutate};
-
-/// Alice account ID for more readable tests.
-const ALICE: u64 = 1;
 
 #[test]
 fn default_indexing_on_new_accounts_should_not_work2() {
@@ -95,17 +89,6 @@ fn balance_transfer_works() {
 }
 
 #[test]
-fn force_transfer_works() {
-	ExtBuilder::default().build_and_execute_with(|| {
-		let _ = Balances::mint_into(&1, 111);
-		assert_noop!(Balances::force_transfer(Some(2).into(), 1, 2, 69), BadOrigin,);
-		assert_ok!(Balances::force_transfer(RawOrigin::Root.into(), 1, 2, 69));
-		assert_eq!(Balances::total_balance(&1), 42);
-		assert_eq!(Balances::total_balance(&2), 69);
-	});
-}
-
-#[test]
 fn balance_transfer_when_on_hold_should_not_work() {
 	ExtBuilder::default().build_and_execute_with(|| {
 		let _ = Balances::mint_into(&1, 111);
@@ -133,7 +116,7 @@ fn transfer_keep_alive_works() {
 #[test]
 fn transfer_keep_alive_all_free_succeed() {
 	ExtBuilder::default().existential_deposit(100).build_and_execute_with(|| {
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1, 300));
+		set_free_balance(1, 300);
 		assert_ok!(Balances::hold(&TestId::Foo, &1, 100));
 		assert_ok!(Balances::transfer_keep_alive(Some(1).into(), 2, 100));
 		assert_eq!(Balances::total_balance(&1), 200);
@@ -145,8 +128,8 @@ fn transfer_keep_alive_all_free_succeed() {
 fn transfer_all_works_1() {
 	ExtBuilder::default().existential_deposit(100).build().execute_with(|| {
 		// setup
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1, 200));
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 2, 0));
+		set_free_balance(1, 200);
+		set_free_balance(2, 0);
 		// transfer all and allow death
 		assert_ok!(Balances::transfer_all(Some(1).into(), 2, false));
 		assert_eq!(Balances::total_balance(&1), 0);
@@ -158,8 +141,8 @@ fn transfer_all_works_1() {
 fn transfer_all_works_2() {
 	ExtBuilder::default().existential_deposit(100).build().execute_with(|| {
 		// setup
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1, 200));
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 2, 0));
+		set_free_balance(1, 200);
+		set_free_balance(2, 0);
 		// transfer all and keep alive
 		assert_ok!(Balances::transfer_all(Some(1).into(), 2, true));
 		assert_eq!(Balances::total_balance(&1), 100);
@@ -171,9 +154,9 @@ fn transfer_all_works_2() {
 fn transfer_all_works_3() {
 	ExtBuilder::default().existential_deposit(100).build().execute_with(|| {
 		// setup
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1, 210));
+		set_free_balance(1, 210);
 		assert_ok!(Balances::hold(&TestId::Foo, &1, 10));
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 2, 0));
+		set_free_balance(2, 0);
 		// transfer all and allow death w/ reserved
 		assert_ok!(Balances::transfer_all(Some(1).into(), 2, false));
 		assert_eq!(Balances::total_balance(&1), 110);
@@ -185,9 +168,9 @@ fn transfer_all_works_3() {
 fn transfer_all_works_4() {
 	ExtBuilder::default().existential_deposit(100).build().execute_with(|| {
 		// setup
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1, 210));
+		set_free_balance(1, 210);
 		assert_ok!(Balances::hold(&TestId::Foo, &1, 10));
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 2, 0));
+		set_free_balance(2, 0);
 		// transfer all and keep alive w/ reserved
 		assert_ok!(Balances::transfer_all(Some(1).into(), 2, true));
 		assert_eq!(Balances::total_balance(&1), 110);
@@ -195,34 +178,11 @@ fn transfer_all_works_4() {
 	});
 }
 
-#[test]
-fn set_balance_handles_killing_account() {
-	ExtBuilder::default().build_and_execute_with(|| {
-		let _ = Balances::mint_into(&1, 111);
-		assert_ok!(frame_system::Pallet::<Test>::inc_consumers(&1));
-		assert_noop!(
-			Balances::force_set_balance(RuntimeOrigin::root(), 1, 0),
-			DispatchError::ConsumerRemaining,
-		);
-	});
-}
-
-#[test]
-fn set_balance_handles_total_issuance() {
-	ExtBuilder::default().build_and_execute_with(|| {
-		let old_total_issuance = pallet_balances::TotalIssuance::<Test>::get();
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1337, 69));
-		assert_eq!(pallet_balances::TotalIssuance::<Test>::get(), old_total_issuance + 69);
-		assert_eq!(Balances::total_balance(&1337), 69);
-		assert_eq!(Balances::free_balance(&1337), 69);
-	});
-}
-
 /// The `ensure_upgraded` failsafe tops a reserved-but-providerless legacy account up to
 /// the existential deposit. That top-up mints new funds, so it must be counted in
 /// `TotalIssuance` — otherwise every such upgrade silently inflates effective supply.
 #[test]
-fn upgrade_accounts_failsafe_mint_is_counted_in_total_issuance() {
+fn ensure_upgraded_failsafe_mint_is_counted_in_total_issuance() {
 	ExtBuilder::default()
 		.existential_deposit(10)
 		.monied(true)
@@ -247,7 +207,7 @@ fn upgrade_accounts_failsafe_mint_is_counted_in_total_issuance() {
 			assert_eq!(System::providers(&7), 0);
 
 			let ti_before = TotalIssuance::<Test>::get();
-			assert_ok!(Balances::upgrade_accounts(Some(1).into(), vec![7]));
+			assert!(Balances::ensure_upgraded(&7));
 
 			// The failsafe minted an ED of free balance and restored the provider ref...
 			assert_eq!(get_test_account_data(7).free, 10);
@@ -262,7 +222,7 @@ fn upgrade_accounts_failsafe_mint_is_counted_in_total_issuance() {
 }
 
 #[test]
-fn upgrade_accounts_should_work() {
+fn ensure_upgraded_should_work() {
 	ExtBuilder::default()
 		.existential_deposit(1)
 		.monied(true)
@@ -283,7 +243,7 @@ fn upgrade_accounts_should_work() {
 			assert!(!get_test_account_data(7).flags.is_new_logic());
 			assert_eq!(System::providers(&7), 1);
 			assert_eq!(System::consumers(&7), 0);
-			assert_ok!(Balances::upgrade_accounts(Some(1).into(), vec![7]));
+			assert!(Balances::ensure_upgraded(&7));
 			assert!(get_test_account_data(7).flags.is_new_logic());
 			assert_eq!(System::providers(&7), 1);
 			assert_eq!(System::consumers(&7), 1);
@@ -297,117 +257,11 @@ fn upgrade_accounts_should_work() {
 }
 
 #[test]
-#[docify::export]
-fn force_adjust_total_issuance_example() {
-	ExtBuilder::default().build_and_execute_with(|| {
-		// First we set the TotalIssuance to 64 by giving Alice a balance of 64.
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), ALICE, 64));
-		let old_ti = pallet_balances::TotalIssuance::<Test>::get();
-		assert_eq!(old_ti, 64, "TI should be 64");
-
-		// Now test the increase:
-		assert_ok!(Balances::force_adjust_total_issuance(RawOrigin::Root.into(), Inc, 32));
-		let new_ti = pallet_balances::TotalIssuance::<Test>::get();
-		assert_eq!(old_ti + 32, new_ti, "Should increase by 32");
-
-		// If Alice tries to call it, it errors:
-		assert_noop!(
-			Balances::force_adjust_total_issuance(RawOrigin::Signed(ALICE).into(), Inc, 32),
-			BadOrigin,
-		);
-	});
-}
-
-#[test]
-fn force_adjust_total_issuance_works() {
-	ExtBuilder::default().build_and_execute_with(|| {
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1337, 64));
-		let ti = pallet_balances::TotalIssuance::<Test>::get();
-
-		// Increase works:
-		assert_ok!(Balances::force_adjust_total_issuance(RawOrigin::Root.into(), Inc, 32));
-		assert_eq!(pallet_balances::TotalIssuance::<Test>::get(), ti + 32);
-		System::assert_last_event(RuntimeEvent::Balances(Event::TotalIssuanceForced {
-			old: 64,
-			new: 96,
-		}));
-
-		// Decrease works:
-		assert_ok!(Balances::force_adjust_total_issuance(RawOrigin::Root.into(), Dec, 64));
-		assert_eq!(pallet_balances::TotalIssuance::<Test>::get(), ti - 32);
-		System::assert_last_event(RuntimeEvent::Balances(Event::TotalIssuanceForced {
-			old: 96,
-			new: 32,
-		}));
-	});
-}
-
-#[test]
-fn force_adjust_total_issuance_saturates() {
-	ExtBuilder::default().build_and_execute_with(|| {
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1337, 64));
-		let ti = pallet_balances::TotalIssuance::<Test>::get();
-		let max = <Test as Config>::Balance::max_value();
-		assert_eq!(ti, 64);
-
-		// Increment saturates:
-		assert_ok!(Balances::force_adjust_total_issuance(RawOrigin::Root.into(), Inc, max));
-		assert_ok!(Balances::force_adjust_total_issuance(RawOrigin::Root.into(), Inc, 123));
-		assert_eq!(pallet_balances::TotalIssuance::<Test>::get(), max);
-
-		// Decrement saturates:
-		assert_ok!(Balances::force_adjust_total_issuance(RawOrigin::Root.into(), Dec, max));
-		assert_ok!(Balances::force_adjust_total_issuance(RawOrigin::Root.into(), Dec, 123));
-		assert_eq!(pallet_balances::TotalIssuance::<Test>::get(), 0);
-	});
-}
-
-#[test]
-fn force_adjust_total_issuance_rejects_zero_delta() {
-	ExtBuilder::default().build_and_execute_with(|| {
-		assert_noop!(
-			Balances::force_adjust_total_issuance(RawOrigin::Root.into(), Inc, 0),
-			Error::<Test>::DeltaZero,
-		);
-		assert_noop!(
-			Balances::force_adjust_total_issuance(RawOrigin::Root.into(), Dec, 0),
-			Error::<Test>::DeltaZero,
-		);
-	});
-}
-
-#[test]
-fn force_adjust_total_issuance_rejects_more_than_inactive() {
-	ExtBuilder::default().build_and_execute_with(|| {
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1337, 64));
-		Balances::deactivate(16u32.into());
-
-		assert_eq!(pallet_balances::TotalIssuance::<Test>::get(), 64);
-		assert_eq!(Balances::active_issuance(), 48);
-
-		// Works with up to 48:
-		assert_ok!(Balances::force_adjust_total_issuance(RawOrigin::Root.into(), Dec, 40),);
-		assert_ok!(Balances::force_adjust_total_issuance(RawOrigin::Root.into(), Dec, 8),);
-		assert_eq!(pallet_balances::TotalIssuance::<Test>::get(), 16);
-		assert_eq!(Balances::active_issuance(), 0);
-		// Errors with more than 48:
-		assert_noop!(
-			Balances::force_adjust_total_issuance(RawOrigin::Root.into(), Dec, 1),
-			Error::<Test>::IssuanceDeactivated,
-		);
-		// Increasing again increases the inactive issuance:
-		assert_ok!(Balances::force_adjust_total_issuance(RawOrigin::Root.into(), Inc, 10),);
-		assert_eq!(pallet_balances::TotalIssuance::<Test>::get(), 26);
-		assert_eq!(Balances::active_issuance(), 10);
-	});
-}
-
-#[test]
 fn burn_works() {
 	ExtBuilder::default().build().execute_with(|| {
 		// Prepare account with initial balance
 		let (account, init_balance) = (1, 37);
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), account, init_balance));
+		set_free_balance(account, init_balance);
 		let init_issuance = pallet_balances::TotalIssuance::<Test>::get();
 		let (keep_alive, allow_death) = (true, false);
 

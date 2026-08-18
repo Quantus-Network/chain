@@ -25,7 +25,6 @@ use crate::Pallet as Balances;
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
 use sp_runtime::traits::Bounded;
-use types::ExtraFlags;
 
 const SEED: u32 = 0;
 // existential deposit multiplier
@@ -141,69 +140,6 @@ mod benchmarks {
 		assert_eq!(Balances::<T, I>::free_balance(&recipient), transfer_amount);
 	}
 
-	// Benchmark `force_set_balance` coming from ROOT account. This always creates an account.
-	#[benchmark]
-	fn force_set_balance_creating() {
-		let user: T::AccountId = account("user", 0, SEED);
-		let user_lookup = T::Lookup::unlookup(user.clone());
-
-		let existential_deposit: T::Balance = minimum_balance::<T, I>();
-		let balance_amount = existential_deposit.saturating_mul(ED_MULTIPLIER.into());
-
-		#[extrinsic_call]
-		force_set_balance(RawOrigin::Root, user_lookup, balance_amount);
-
-		assert_eq!(Balances::<T, I>::free_balance(&user), balance_amount);
-	}
-
-	// Benchmark `force_set_balance` coming from ROOT account. This always kills an account.
-	#[benchmark]
-	fn force_set_balance_killing() {
-		let user: T::AccountId = account("user", 0, SEED);
-		let user_lookup = T::Lookup::unlookup(user.clone());
-
-		// Give the user some initial balance.
-		let existential_deposit: T::Balance = minimum_balance::<T, I>();
-		let balance_amount = existential_deposit.saturating_mul(ED_MULTIPLIER.into());
-		let _ = <Balances<T, I> as Currency<_>>::make_free_balance_be(&user, balance_amount);
-
-		#[extrinsic_call]
-		force_set_balance(RawOrigin::Root, user_lookup, Zero::zero());
-
-		assert!(Balances::<T, I>::free_balance(&user).is_zero());
-	}
-
-	// Benchmark `force_transfer` extrinsic with the worst possible conditions:
-	// * Transfer will kill the sender account.
-	// * Transfer will create the recipient account.
-	#[benchmark]
-	fn force_transfer() {
-		let existential_deposit: T::Balance = minimum_balance::<T, I>();
-		let source: T::AccountId = account("source", 0, SEED);
-		let source_lookup = T::Lookup::unlookup(source.clone());
-
-		// Give some multiple of the existential deposit
-		let balance = existential_deposit.saturating_mul(ED_MULTIPLIER.into());
-		let _ = <Balances<T, I> as Currency<_>>::make_free_balance_be(&source, balance);
-
-		// Transfer `e - 1` existential deposits + 1 unit, which guarantees to create one account,
-		// and reap this user.
-		let recipient: T::AccountId = account("recipient", 0, SEED);
-		let recipient_lookup = T::Lookup::unlookup(recipient.clone());
-		let transfer_amount =
-			existential_deposit.saturating_mul((ED_MULTIPLIER - 1).into()) + 1u32.into();
-
-		#[extrinsic_call]
-		_(RawOrigin::Root, source_lookup, recipient_lookup, transfer_amount);
-
-		assert_eq!(
-			Balances::<T, I>::free_balance(&source),
-			expected_leftover::<T, I>(balance, transfer_amount)
-		);
-
-		assert_eq!(Balances::<T, I>::free_balance(&recipient), transfer_amount);
-	}
-
 	// This benchmark performs the same operation as `transfer` in the worst case scenario,
 	// but additionally introduces many new users into the storage, increasing the the merkle
 	// trie and PoV size.
@@ -261,78 +197,6 @@ mod benchmarks {
 
 		assert!(Balances::<T, I>::free_balance(&caller).is_zero());
 		assert_eq!(Balances::<T, I>::free_balance(&recipient), balance);
-	}
-
-	#[benchmark]
-	fn force_unreserve() -> Result<(), BenchmarkError> {
-		let user: T::AccountId = account("user", 0, SEED);
-		let user_lookup = T::Lookup::unlookup(user.clone());
-
-		// Give some multiple of the existential deposit
-		let ed = minimum_balance::<T, I>();
-		let balance = ed + ed;
-		let _ = <Balances<T, I> as Currency<_>>::make_free_balance_be(&user, balance);
-
-		// Reserve the balance
-		<Balances<T, I> as ReservableCurrency<_>>::reserve(&user, ed)?;
-		assert_eq!(Balances::<T, I>::reserved_balance(&user), ed);
-		assert_eq!(Balances::<T, I>::free_balance(&user), ed);
-
-		#[extrinsic_call]
-		_(RawOrigin::Root, user_lookup, balance);
-
-		assert!(Balances::<T, I>::reserved_balance(&user).is_zero());
-		assert_eq!(Balances::<T, I>::free_balance(&user), ed + ed);
-
-		Ok(())
-	}
-
-	#[benchmark]
-	fn upgrade_accounts(u: Linear<1, 1_000>) {
-		let caller: T::AccountId = whitelisted_caller();
-		let who = (0..u)
-			.into_iter()
-			.map(|i| -> T::AccountId {
-				let user = account("old_user", i, SEED);
-				let account = AccountData {
-					free: minimum_balance::<T, I>(),
-					reserved: minimum_balance::<T, I>(),
-					frozen: Zero::zero(),
-					flags: ExtraFlags::old_logic(),
-				};
-				frame_system::Pallet::<T>::inc_providers(&user);
-				assert!(T::AccountStore::try_mutate_exists(&user, |a| -> DispatchResult {
-					*a = Some(account);
-					Ok(())
-				})
-				.is_ok());
-				assert!(!Balances::<T, I>::account(&user).flags.is_new_logic());
-				assert_eq!(frame_system::Pallet::<T>::providers(&user), 1);
-				assert_eq!(frame_system::Pallet::<T>::consumers(&user), 0);
-				user
-			})
-			.collect();
-
-		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), who);
-
-		for i in 0..u {
-			let user: T::AccountId = account("old_user", i, SEED);
-			assert!(Balances::<T, I>::account(&user).flags.is_new_logic());
-			assert_eq!(frame_system::Pallet::<T>::providers(&user), 1);
-			assert_eq!(frame_system::Pallet::<T>::consumers(&user), 1);
-		}
-	}
-
-	#[benchmark]
-	fn force_adjust_total_issuance() {
-		let ti = TotalIssuance::<T, I>::get();
-		let delta = 123u32.into();
-
-		#[extrinsic_call]
-		_(RawOrigin::Root, AdjustmentDirection::Increase, delta);
-
-		assert_eq!(TotalIssuance::<T, I>::get(), ti + delta);
 	}
 
 	/// Benchmark `burn` extrinsic with the worst possible condition - burn kills the account.
@@ -396,11 +260,9 @@ mod benchmarks {
 		type Bench = Balances<Test, ()>;
 		ExtBuilder::default().existential_deposit(150).build().execute_with(|| {
 			assert_ok!(Bench::test_benchmark_transfer_allow_death());
-			assert_ok!(Bench::test_benchmark_force_transfer());
 			assert_ok!(Bench::test_benchmark_transfer_all());
 			assert_ok!(Bench::test_benchmark_burn_allow_death());
 			assert_ok!(Bench::test_benchmark_transfer_keep_alive());
-			assert_ok!(Bench::test_benchmark_force_unreserve());
 		});
 	}
 }

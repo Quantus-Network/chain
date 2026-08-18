@@ -40,11 +40,17 @@ use scale_info::TypeInfo;
 use sp_core::{hexdisplay::HexDisplay, sr25519::Pair as SrPair, Pair};
 use sp_io;
 use sp_runtime::{
-	traits::{BadOrigin, Zero},
-	ArithmeticError, BuildStorage, DispatchError, DispatchResult, FixedPointNumber, RuntimeDebug,
-	TokenError,
+	traits::Zero, ArithmeticError, BuildStorage, DispatchError, DispatchResult, FixedPointNumber,
+	RuntimeDebug, TokenError,
 };
 use std::{collections::BTreeSet, sync::OnceLock};
+
+/// Sets `who`'s free balance, adjusting total issuance by the difference — the
+/// setup role `force_set_balance` played before that call was removed.
+pub fn set_free_balance(who: u64, amount: u64) {
+	let _ =
+		<Pallet<Test> as frame_support::traits::Currency<u64>>::make_free_balance_be(&who, amount);
+}
 
 /// Genesis `dev_accounts` count used by [`ExtBuilder`] when dev accounts are enabled.
 ///
@@ -365,8 +371,9 @@ fn weights_sane() {
 	let info = crate::Call::<Test>::transfer_allow_death { dest: 10, value: 4 }.get_dispatch_info();
 	assert_eq!(<() as crate::WeightInfo>::transfer_allow_death(), info.call_weight);
 
-	let info = crate::Call::<Test>::force_unreserve { who: 10, amount: 4 }.get_dispatch_info();
-	assert_eq!(<() as crate::WeightInfo>::force_unreserve(), info.call_weight);
+	let info =
+		crate::Call::<Test>::transfer_all { dest: 10, keep_alive: false }.get_dispatch_info();
+	assert_eq!(<() as crate::WeightInfo>::transfer_all(), info.call_weight);
 }
 
 #[test]

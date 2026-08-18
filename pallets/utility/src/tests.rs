@@ -314,30 +314,21 @@ fn batch_all_works() {
 fn batch_all_with_root_works() {
 	new_test_ext().execute_with(|| {
 		let k = b"a".to_vec();
+		let k2 = b"b".to_vec();
 		let call = RuntimeCall::System(frame_system::Call::set_storage {
 			items: vec![(k.clone(), k.clone())],
 		});
 		assert!(!TestBaseCallFilter::contains(&call));
-		assert_eq!(Balances::free_balance(1), 10);
-		assert_eq!(Balances::free_balance(2), 10);
 		assert_ok!(Utility::batch_all(
 			RuntimeOrigin::root(),
 			vec![
-				RuntimeCall::Balances(BalancesCall::force_transfer {
-					source: 1,
-					dest: 2,
-					value: 5
-				}),
-				RuntimeCall::Balances(BalancesCall::force_transfer {
-					source: 1,
-					dest: 2,
-					value: 5
+				RuntimeCall::System(frame_system::Call::set_storage {
+					items: vec![(k2.clone(), k2.clone())],
 				}),
 				call, // Check filters are correctly bypassed
 			]
 		));
-		assert_eq!(Balances::free_balance(1), 0);
-		assert_eq!(Balances::free_balance(2), 20);
+		assert_eq!(storage::unhashed::get_raw(&k2), Some(k2));
 		assert_eq!(storage::unhashed::get_raw(&k), Some(k));
 	});
 }

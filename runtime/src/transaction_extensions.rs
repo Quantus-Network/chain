@@ -369,8 +369,8 @@ impl pallet_transaction_payment::OnChargeTransaction<Runtime> for HighSecurityFu
 ///     capacity.
 ///
 /// The one remaining hook-context path is a governance-enacted call: referenda enactment
-/// dispatches the approved call via the scheduler in `on_initialize` (e.g. a Root
-/// `force_transfer`), so its events are not scanned and no leaf is recorded. This is a
+/// dispatches the approved call via the scheduler in `on_initialize`, so its events are
+/// not scanned and no leaf is recorded. This is a
 /// known, accepted gap rather than an oversight: the scheduler's `ScheduleOrigin` is
 /// Root, the tech-referenda track only accepts Root proposal origins, and sudo is
 /// removed — so only Root can reach it, and Root can already forge or delete leaves
@@ -472,10 +472,7 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 
 	fn count_transfers(call: &RuntimeCall) -> u64 {
 		// NOTE: this must stay in sync with the events matched by `record_proofs_from_events_since`
-		// — we only weight calls whose emitted events we actually record. In particular
-		// `Balances::force_set_balance` is deliberately NOT counted here: it emits `BalanceSet`
-		// (an absolute set, not a transfer/mint), which we cannot turn into a transfer proof and
-		// therefore never record.
+		// — we only weight calls whose emitted events we actually record.
 		//
 		// Wrappers whose inner call is stored on-chain rather than in the submitted call
 		// (`Multisig::execute`, ...) cannot be counted statically. Proof-recording work they
@@ -484,8 +481,7 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		match call {
 			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
-			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) |
-			RuntimeCall::Balances(pallet_balances::Call::force_transfer { .. }) => 1,
+			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) => 1,
 
 			// Guardian cancel seizes the hold with `transfer_on_hold` and emits one
 			// `TransferOnHold` the scan records. Owner self-cancel of a one-time
@@ -535,8 +531,8 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			// hottest call in the runtime to spare a handful of one-off bootstrap
 			// transfers, and the direction is conservative. Pot-as-*source* needs no
 			// handling at all: the pot is a keyless pallet account, so no signed call
-			// this extension weighs can move funds out of it (`force_transfer` from it
-			// is Root-only, enacted by the scheduler outside this pipeline).
+			// this extension weighs can move funds out of it (the runtime has no
+			// force-transfer extrinsic at all).
 			_ => 0,
 		}
 	}
@@ -2661,25 +2657,16 @@ mod tests {
 			let mint_amount = 1000 * UNIT;
 			let count_before = Wormhole::transfer_count(&recipient);
 
-			// Mint tokens (requires root origin)
-			// This emits pallet_balances::Event::Minted
-			assert_ok!(Balances::force_set_balance(
-				RuntimeOrigin::root(),
-				MultiAddress::Id(recipient.clone()),
-				mint_amount,
-			));
+			// Mint tokens directly; this emits pallet_balances::Event::Minted.
+			use frame_support::traits::fungible::Mutate as _;
+			assert_ok!(Balances::mint_into(&recipient, mint_amount));
 
 			// Scan events and record proofs.
 			// Use 0 as the before count for tests (all events are "new").
 			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
 
-			// Note: force_set_balance emits Minted event, which we scan for
-			// The proof should use MintingAccount as 'from'
+			// The Minted event is scanned; the proof uses MintingAccount as 'from'.
 			let count_after = Wormhole::transfer_count(&recipient);
-
-			// Check if count increased (depends on whether Minted event is emitted)
-			// force_set_balance may emit BalanceSet instead of Minted
-			// This test documents the expected behavior - proofs are now in ZK trie
 			assert!(count_after >= count_before, "Transfer count should not decrease");
 		});
 	}

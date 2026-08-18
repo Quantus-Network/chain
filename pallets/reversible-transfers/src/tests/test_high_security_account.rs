@@ -237,11 +237,10 @@ fn recover_funds_keeps_cancellations_when_final_sweep_fails() {
 		// `u128::MAX`, so the subsequent `transfer_all` of the remaining free balance
 		// overflows the guardian's balance.
 		let release_amount = amount - amount / 100;
-		assert_ok!(Balances::force_set_balance(
-			RuntimeOrigin::root(),
-			guardian.clone(),
-			u128::MAX - release_amount
-		));
+		let _ = <Balances as frame_support::traits::Currency<_>>::make_free_balance_be(
+			&guardian,
+			u128::MAX - release_amount,
+		);
 
 		// The recovery itself must succeed even though the sweep cannot.
 		assert_ok!(ReversibleTransfers::recover_funds(
