@@ -44,10 +44,28 @@ mod tests;
 
 pub mod weights;
 
-use codec::{Decode, Encode, MaxEncodedLen};
+use codec::{Decode, DecodeLimit, Encode, MaxEncodedLen};
 use frame_support::{traits::Get, BoundedBTreeMap, BoundedVec};
 use scale_info::TypeInfo;
 use sp_runtime::RuntimeDebug;
+
+/// Maximum decode nesting depth allowed when turning a stored opaque call
+/// (`BoundedCallOf`) back into a `RuntimeCall`.
+///
+/// The outer extrinsic is decoded by FRAME's Executive with
+/// `decode_all_with_depth_limit(MAX_EXTRINSIC_DEPTH, ..)`, but that limit only
+/// applies to the signed envelope; the inner call is carried as opaque bytes and
+/// escapes it. Without a bound here, a signer can store a deeply nested call
+/// (e.g. chained `Utility::batch_all`) that passes pool validation and then
+/// exhausts the runtime stack when `propose`/`execute` decode it during block
+/// construction. We reuse the same ceiling as the outer envelope: Executive
+/// already performs a decode at this depth on every extrinsic, so it is proven
+/// safe, and no value that exceeds it could have entered as a top-level call.
+///
+/// This bounds recursion depth only; it intentionally does not require the input
+/// to be fully consumed, preserving the prior decoder's tolerance of trailing
+/// bytes after the (well-formed) call.
+pub const MAX_MULTISIG_CALL_DEPTH: u32 = frame_support::MAX_EXTRINSIC_DEPTH;
 
 /// Multisig account data
 #[derive(Encode, Decode, MaxEncodedLen, Clone, TypeInfo, RuntimeDebug, PartialEq, Eq)]
@@ -595,9 +613,16 @@ pub mod pallet {
 			// This catches malformed calls at propose time rather than execute time,
 			// providing consistent error behavior for both HS and non-HS multisigs.
 			// NOTE: Decode cost is O(inner_call_count) for nested calls, not O(bytes).
+			// The opaque bytes bypass Executive's outer depth limiter, so we bound the
+			// decode recursion here to keep a deeply nested call from exhausting the
+			// runtime stack. This is depth-bounded but not all-consuming, matching the
+			// previous decoder's tolerance of trailing bytes.
 			// On decode failure, we burn the full reserved weight to prevent griefing.
-			let decoded_call = <T as Config>::RuntimeCall::decode(&mut &call[..])
-				.map_err(|_| Self::err_burn_full_raw(Error::<T>::InvalidCall))?;
+			let decoded_call = <T as Config>::RuntimeCall::decode_with_depth_limit(
+				MAX_MULTISIG_CALL_DEPTH,
+				&mut &call[..],
+			)
+			.map_err(|_| Self::err_burn_full_raw(Error::<T>::InvalidCall))?;
 
 			// ===== PHASE 3b: Check inner call weight against limit =====
 			// This ensures execute() can safely reserve weight at pre-dispatch time.
@@ -1122,8 +1147,15 @@ pub mod pallet {
 
 			// Decode the call
 			// After decode, we've done size-dependent work, so failures should burn full weight.
-			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
-				.map_err(|_| Self::err_burn_full_raw(Error::<T>::InvalidCall))?;
+			// Bound the decode recursion for the same stack-exhaustion reason as `propose`:
+			// the stored bytes are opaque and never passed through Executive's outer depth
+			// limiter. Depth-bounded but not all-consuming, matching the stored payload's
+			// tolerance of trailing bytes at propose time.
+			let call = <T as Config>::RuntimeCall::decode_with_depth_limit(
+				MAX_MULTISIG_CALL_DEPTH,
+				&mut &proposal.call[..],
+			)
+			.map_err(|_| Self::err_burn_full_raw(Error::<T>::InvalidCall))?;
 
 			// Re-check call weight at execute time (belt-and-suspenders).
 			// MaxInnerCallWeight could have been lowered via runtime upgrade since propose time.

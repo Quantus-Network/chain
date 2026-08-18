@@ -1038,6 +1038,69 @@ fn remove_expired_unblocks_undecodable_approved_proposal() {
 	});
 }
 
+/// A canonical but deeply nested call must be rejected at `propose` by the inner
+/// decode depth limit, not accepted and later trapped during block construction.
+///
+/// Each `Utility::batch_all` wrapper is three bytes in this mock runtime
+/// (RuntimeCall::Utility = pallet index 6, batch_all = call index 2, compact
+/// vec-length 1 = 0x04). The terminal `System::remark { remark: vec![] }` is
+/// three bytes (0, 0, 0). The payload is well under `MaxCallSize` (1024) yet
+/// nests far deeper than `MAX_MULTISIG_CALL_DEPTH`, so the outer extrinsic depth
+/// limiter (which only sees opaque bytes) never rejects it.
+#[test]
+fn propose_rejects_deeply_nested_call_via_depth_limit() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// 340 wrappers => 340 * 3 + 3 = 1023 bytes <= MaxCallSize (1024), depth >> 256.
+		let mut poison = Vec::with_capacity(1023);
+		for _ in 0..340 {
+			poison.extend_from_slice(&[6u8, 2, 4]);
+		}
+		poison.extend_from_slice(&[0u8, 0, 0]);
+		assert!(poison.len() <= <Test as crate::Config>::MaxCallSize::get() as usize);
+		let poison_call: crate::BoundedCallOf<Test> = poison.try_into().unwrap();
+
+		assert_err_ignore_postinfo(
+			Multisig::propose(
+				RuntimeOrigin::signed(bob()),
+				multisig_address.clone(),
+				poison_call,
+				100,
+			),
+			Error::<Test>::InvalidCall.into(),
+		);
+
+		// Nothing was stored and no deposit was taken.
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
+		assert_eq!(Balances::reserved_balance(bob()), 0);
+
+		// A shallowly nested batch_all (depth well within the limit) still decodes
+		// and is accepted, so the depth bound does not reject legitimate nesting.
+		let mut shallow = Vec::new();
+		for _ in 0..4 {
+			shallow.extend_from_slice(&[6u8, 2, 4]);
+		}
+		shallow.extend_from_slice(&[0u8, 0, 0]);
+		let shallow_call: crate::BoundedCallOf<Test> = shallow.try_into().unwrap();
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address,
+			shallow_call,
+			100,
+		));
+	});
+}
+
 #[test]
 fn claim_deposits_works() {
 	new_test_ext().execute_with(|| {
