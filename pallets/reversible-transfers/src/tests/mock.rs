@@ -95,9 +95,6 @@ mod runtime {
 	#[runtime::pallet_index(4)]
 	pub type Balances = pallet_balances::Pallet<Test>;
 
-	#[runtime::pallet_index(5)]
-	pub type Recovery = pallet_recovery::Pallet<Test>;
-
 	#[runtime::pallet_index(6)]
 	pub type Utility = pallet_utility::Pallet<Test>;
 
@@ -261,26 +258,6 @@ impl pallet_reversible_transfers::Config for Test {
 	type HighSecurityTxWindowBlocks = HighSecurityTxWindowBlocks;
 	type VolumeFee = HighSecurityVolumeFee;
 	type ProofRecorder = MockProofRecorder;
-}
-
-parameter_types! {
-	pub const ConfigDepositBase: Balance = 1;
-	pub const FriendDepositFactor: Balance = 1;
-	pub const MaxFriends: u32 = 9;
-	pub const RecoveryDeposit: Balance = 1;
-}
-
-impl pallet_recovery::Config for Test {
-	type WeightInfo = ();
-	type RuntimeCall = RuntimeCall;
-	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
-	type ConfigDepositBase = ConfigDepositBase;
-	type FriendDepositFactor = FriendDepositFactor;
-	type MaxFriends = MaxFriends;
-	type RecoveryDeposit = RecoveryDeposit;
-	type BlockNumberProvider = System;
-	type HighSecurity = ();
 }
 
 impl pallet_preimage::Config for Test {

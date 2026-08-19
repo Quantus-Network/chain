@@ -176,7 +176,7 @@ quantus runtime compare --wasm-file "$WASM" --node-url "$HEISENBERG_WS"
 ## Step 2 — Run the chain tests (exercise suite)
 
 `quantus exercise` runs the chain exercise suite against a live node (balances,
-reversible, multisig, recovery, preimage, negative, fuzz, wormhole, …). It uses ephemeral
+reversible, multisig, preimage, negative, fuzz, wormhole, …). It uses ephemeral
 accounts plus the `crystal_alice/bob/charlie` dev accounts.
 
 ```bash
@@ -194,8 +194,9 @@ quantus exercise --skip governance --json --fail-fast --node-url "$HEISENBERG_WS
 quantus exercise --skip governance --node-url "$PLANCK_WS"
 ```
 
-Available phases: `reads, balances, reversible, multisig, recovery, preimage, governance,
-negative, fuzz, wormhole, upgrade` (default = all except `upgrade`).
+Available phases: `reads, balances, reversible, multisig, preimage, governance,
+negative, fuzz, wormhole, upgrade` (default = all except `upgrade`). The `recovery`
+phase is gone with `pallet-recovery`.
 
 **In-repo shell smoke test** (single Alice→Bob transfer + tx-pool watch), as an
 alternative minimal check:

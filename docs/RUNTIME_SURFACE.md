@@ -7,7 +7,7 @@ the runtime, their dispatchable calls, the runtime APIs, transaction extensions,
 genesis logic, and the workspace primitive crates pulled in.
 
 - **Crate:** `quantus-runtime` (`runtime/`), version `0.7.1-q-day-2`
-- **Spec:** `spec_name = quantus-runtime`, `spec_version = 145`, `transaction_version = 4`, `authoring_version = 1`
+- **Spec:** `spec_name = quantus-runtime`, `spec_version = 147`, `transaction_version = 6`, `authoring_version = 1`
 - **Build:** `no_std` WASM via `substrate-wasm-builder` (`runtime/build.rs`); native `std` build for the node/client
 - **Block time target:** 12s (`TARGET_BLOCK_TIME_MS = 12_000`)
 - **Consensus:** QPoW (quantum-resistant Proof of Work, Poseidon2-based)
@@ -76,7 +76,7 @@ The runtime derives `RuntimeCall`, `RuntimeEvent`, `RuntimeError`, `RuntimeOrigi
 | 13 | `TechCollective` | `pallet-ranked-collective` `45.0.0` | **Inlined** (`pallets/ranked-collective`) | yes |
 | 14 | `TechReferenda` | `pallet-referenda::Pallet<Runtime, Instance1>` `45.0.0` | **Inlined** (2nd instance) | yes |
 | 15 | `TreasuryPallet` | `pallet-treasury` | **Local** (`pallets/treasury`) | yes |
-| 16 | `Recovery` | `pallet-recovery` `45.0.0` | **Inlined** (`pallets/recovery`) | yes |
+| 16 | — | *(vacant; was `pallet-recovery`)* | — | — |
 | 17 | — | *(vacant; was `pallet-assets`)* | — | — |
 | 18 | — | *(vacant; was `pallet-assets-holder`)* | — | — |
 | 19 | `Multisig` | `pallet-multisig` | **Local** (`pallets/multisig`) | yes |
@@ -84,7 +84,7 @@ The runtime derives `RuntimeCall`, `RuntimeEvent`, `RuntimeError`, `RuntimeOrigi
 | 21 | `ZkTree` | `pallet-zk-tree` | **Local** (`pallets/zk-tree`) | no |
 | 22 | `Vesting` | `pallet-vesting` | **Local** (`pallets/vesting`) | yes |
 
-> Indices 4, 10, 12, 17, and 18 are intentionally left vacant after pallet removals so downstream indices stay stable.
+> Indices 4, 10, 12, 16, 17, and 18 are intentionally left vacant after pallet removals so downstream indices stay stable.
 
 ---
 
@@ -160,9 +160,8 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - Minimal local treasury. Config only sets `WeightInfo`.
 - **Calls:** `set_treasury_account`(0, root). Exposes `account_id()`. Treasury is not paid from mining rewards.
 
-### Index 16 — `Recovery` (`pallet-recovery`)
-- `ConfigDepositBase = 10 UNIT`, `FriendDepositFactor = 1 UNIT`, `MaxFriends = 9`, `RecoveryDeposit = 10 UNIT`.
-- **Calls:** `as_recovered`, `set_recovered`, `create_recovery`, `initiate_recovery`, `vouch_recovery`, `claim_recovery`, `close_recovery`, `remove_recovery`, `cancel_recovered`.
+### Index 16 — `Recovery` (`pallet-recovery`) — **removed**
+- Social recovery (`as_recovered`, `create_recovery`, …) was removed. High-security fund recovery remains `ReversibleTransfers::recover_funds`.
 
 ### Index 19 — `Multisig` (`pallet-multisig`, local)
 - `MaxSigners = 100`, `MaxTotalProposalsInStorage = 200`, `MaxCallSize = 10 KB`, `MultisigFee = 0.6 UNIT` (burned), `ProposalDeposit = 1 UNIT`, `ProposalFee = 1 UNIT`, `MaxExpiryDuration ≈ 2 weeks`, `MaxInnerCallWeight = (10^12, 2.5 MB)`, `HighSecurity = HighSecurityConfig`, `PalletId = "py/mltsg"`.
@@ -223,7 +222,7 @@ Signed-extension pipeline applied to every extrinsic, in order:
 6. `frame_system::CheckNonce`
 7. `frame_system::CheckWeight`
 8. `transaction_extensions::ReversibleTransactionExtension` — **custom**: blocks non-whitelisted calls from high-security accounts, and rejects a high-security signer that has already included 16 extrinsics in the rolling 24h window (`HighSecurityTxQuota`: ring of 16 block numbers, O(1) update).
-9. `transaction_extensions::WormholeProofRecorderExtension` — **custom**: in `post_dispatch`, scans emitted native `Balances::Transfer` / `Balances::Minted` / `Balances::TransferOnHold` / `Balances::ReserveRepatriated` events and records transfer proofs into the ZK tree (event-based, covers direct/batch/multisig/recovery native transfers). Statically pre-charged calls (`count_transfers`): `Balances` transfers, `Utility::batch_all`, `ReversibleTransfers::{cancel, recover_funds}`, and `Recovery::close_recovery`; uncounted paths are reconciled via `register_extra_weight_unchecked`. Transfers touching the **vesting pot** are skipped: the vesting pallet records its own payouts (covering scheduler-enacted Root calls the extension never sees) and carries that cost in its benchmarked weights. A statically-counted transfer *into* the pot is charged for a leaf insert the scan then skips — an accepted overcharge on a rare bootstrap operation. Per-transfer recording weight is flat, priced at the circuit depth ceiling (`pallet_zk_tree::INSERT_LEAF_*` constants: DB ops, Poseidon path hashing, and per-key PoV). Statically over-charged reservations (failed transfers, short batches, `recover_funds` below the worst case) are returned in `post_dispatch_details`; the extension sits **before** `ChargeTransactionPayment` so the refund reaches the payer's fee, and the trailing `WeightReclaim` returns it to block capacity.
+9. `transaction_extensions::WormholeProofRecorderExtension` — **custom**: in `post_dispatch`, scans emitted native `Balances::Transfer` / `Balances::Minted` / `Balances::TransferOnHold` / `Balances::ReserveRepatriated` events and records transfer proofs into the ZK tree (event-based, covers direct/batch/multisig native transfers). Statically pre-charged calls (`count_transfers`): `Balances` transfers, `Utility::batch_all`, and `ReversibleTransfers::{cancel, recover_funds}`; uncounted paths are reconciled via `register_extra_weight_unchecked`. Transfers touching the **vesting pot** are skipped: the vesting pallet records its own payouts (covering scheduler-enacted Root calls the extension never sees) and carries that cost in its benchmarked weights. A statically-counted transfer *into* the pot is charged for a leaf insert the scan then skips — an accepted overcharge on a rare bootstrap operation. Per-transfer recording weight is flat, priced at the circuit depth ceiling (`pallet_zk_tree::INSERT_LEAF_*` constants: DB ops, Poseidon path hashing, and per-key PoV). Statically over-charged reservations (failed transfers, short batches, `recover_funds` below the worst case) are returned in `post_dispatch_details`; the extension sits **before** `ChargeTransactionPayment` so the refund reaches the payer's fee, and the trailing `WeightReclaim` returns it to block capacity.
 10. `pallet_transaction_payment::ChargeTransactionPayment` — **stock**. The high-security zero-tip policy is not on this extension: it is enforced by `transaction_extensions::HighSecurityFungibleAdapter`, the configured `OnChargeTransaction`, which sees both the signer and the tip on every fee path (`can_withdraw_fee` during mempool and consensus validation, `withdraw_fee` at inclusion) and rejects any non-zero tip from a high-security signer — so no refactor of the extension tuple can silently reopen the tip channel.
 11. `frame_metadata_hash_extension::CheckMetadataHash`
 12. `frame_system::WeightReclaim` — re-runs the block-weight reclaim so refunds made by earlier extensions (which `CheckWeight`'s own reclaim runs too early to see) are returned to block capacity.

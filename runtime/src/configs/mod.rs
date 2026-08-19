@@ -388,7 +388,7 @@ impl pallet_scheduler::Config for Runtime {
 //
 // Spam Prevention:
 // - Existential deposit: 0.001 UNIT
-// - Various pallet-specific deposits (multisig, governance, recovery, etc.)
+// - Various pallet-specific deposits (multisig, governance, etc.)
 // - Miners can reject transactions below their minimum fee threshold
 //
 // ============================================================================
@@ -498,30 +498,6 @@ impl pallet_utility::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_utility::weights::SubstrateWeight<Runtime>;
-	type HighSecurity = HighSecurityConfig;
-}
-
-parameter_types! {
-	/// Base deposit for creating a recovery configuration
-	pub const ConfigDepositBase: Balance = 10 * UNIT;
-	/// Deposit required per friend
-	pub const FriendDepositFactor: Balance = UNIT;
-	/// Maximum number of friends allowed in a recovery configuration
-	pub const MaxFriends: u32 = 9;
-	/// Deposit required to initiate a recovery
-	pub const RecoveryDeposit: Balance = 10 * UNIT;
-}
-
-impl pallet_recovery::Config for Runtime {
-	type WeightInfo = pallet_recovery::weights::SubstrateWeight<Runtime>;
-	type RuntimeCall = RuntimeCall;
-	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
-	type ConfigDepositBase = ConfigDepositBase;
-	type FriendDepositFactor = FriendDepositFactor;
-	type MaxFriends = MaxFriends;
-	type RecoveryDeposit = RecoveryDeposit;
-	type BlockNumberProvider = System;
 	type HighSecurity = HighSecurityConfig;
 }
 

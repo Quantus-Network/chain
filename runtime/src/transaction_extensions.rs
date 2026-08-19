@@ -130,7 +130,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 
 		// Enforce the high-security whitelist on the top-level signer.
 		// `is_whitelisted` walks `batch_all` children so a mixed batch is rejected here.
-		// Origin-rewriting wrappers (`as_recovered`) re-check the whitelist at the
+		// Origin-rewriting wrappers (multisig execution) re-check the whitelist at the
 		// effective origin inside their own pallets at dispatch time.
 		if !crate::configs::HighSecurityConfig::is_call_allowed_given(is_high_security, call) {
 			return Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(1)));
@@ -344,13 +344,10 @@ impl pallet_transaction_payment::OnChargeTransaction<Runtime> for HighSecurityFu
 ///   - Direct transfers (transfer, transfer_keep_alive, transfer_all, etc.)
 ///   - Batch transfers (utility.batch_all)
 ///   - Multisig transfers (multisig.execute)
-///   - Recovery transfers (recovery.as_recovered)
 ///   - Held-fund seizures/recoveries (reversible_transfers.cancel / recover_funds, which move value
 ///     with `transfer_on_hold` instead of a free-balance transfer). Owner cancel of a one-time
 ///     schedule uses `release` instead — hold → free on the same account, not a credit — so it
 ///     emits no `TransferOnHold` and records no leaf.
-///   - Recovery-deposit seizures (recovery.close_recovery, which moves the rescuer's deposit with
-///     `repatriate_reserved`)
 ///   - Future call-based mechanisms automatically covered, since wrapper calls emit their inner
 ///     events within the same extrinsic's event range
 ///
@@ -507,16 +504,8 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			)
 			.saturating_add(1),
 
-			// Closing a recovery repatriates the rescuer's reserved deposit to the caller,
-			// emitting exactly one `ReserveRepatriated` the scan records. (On the failure
-			// path the deposit is unreserved instead — an overcharge, never a shortfall.)
-			RuntimeCall::Recovery(pallet_recovery::Call::close_recovery { .. }) => 1,
-
 			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) =>
 				calls.iter().map(Self::count_transfers).sum(),
-
-			RuntimeCall::Recovery(pallet_recovery::Call::as_recovered { call, .. }) =>
-				Self::count_transfers(call),
 
 			// Vesting calls fall through to 0 deliberately: the pallet records its
 			// payouts itself (so Root calls enacted by the scheduler are captured too)
@@ -609,12 +598,11 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 							amount,
 							..
 						}) => Some((None, source, dest, amount)),
-						// Reserved-balance repatriations. `pallet_recovery::close_recovery`
-						// seizes the rescuer's recovery deposit into the rescued account with
-						// `repatriate_reserved`, which emits this instead of a `Transfer`. The
-						// event is only emitted for cross-account moves (self-repatriations
-						// return early), and the credit belongs to `to` whether it lands free
-						// or reserved, so record it unconditionally.
+						// Reserved-balance repatriations. `repatriate_reserved` emits this
+						// instead of a `Transfer`. The event is only emitted for
+						// cross-account moves (self-repatriations return early), and the
+						// credit belongs to `to` whether it lands free or reserved, so
+						// record it unconditionally.
 						RuntimeEvent::Balances(pallet_balances::Event::ReserveRepatriated {
 							from,
 							to,
@@ -777,10 +765,7 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use frame_support::{
-		assert_err_ignore_postinfo, assert_noop, assert_ok,
-		pallet_prelude::TransactionValidityError, traits::Currency,
-	};
+	use frame_support::{assert_ok, pallet_prelude::TransactionValidityError};
 	use pallet_transaction_payment::WeightInfo;
 	use sp_runtime::{traits::TxBaseImplication, AccountId32};
 	fn alice() -> AccountId {
@@ -1052,19 +1037,6 @@ mod tests {
 			let result = check_call(call);
 
 			// High-security accounts cannot make balance transfers
-			assert_eq!(
-				result.unwrap_err(),
-				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
-			);
-		});
-	}
-
-	#[test]
-	fn test_high_security_remove_recovery() {
-		new_test_ext().execute_with(|| {
-			// make sure high security account can't remove the recovery
-			let call = RuntimeCall::Recovery(pallet_recovery::Call::remove_recovery {});
-			let result = check_call(call);
 			assert_eq!(
 				result.unwrap_err(),
 				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
@@ -1451,74 +1423,6 @@ mod tests {
 	}
 
 	// =========================================================================
-	// Origin-rewriting wrappers must not bypass high-security restrictions.
-	// `as_recovered` re-checks the whitelist at the effective (rewritten) origin
-	// inside its own pallet, so a non-whitelisted call cannot be dispatched as a
-	// high-security account, including under `batch_all`.
-	// =========================================================================
-
-	fn boxed(call: RuntimeCall) -> alloc::boxed::Box<RuntimeCall> {
-		alloc::boxed::Box::new(call)
-	}
-
-	fn non_whitelisted_transfer() -> RuntimeCall {
-		RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
-			dest: MultiAddress::Id(bob()),
-			value: 10 * EXISTENTIAL_DEPOSIT,
-		})
-	}
-
-	fn whitelisted_schedule() -> RuntimeCall {
-		RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::schedule_transfer {
-			dest: MultiAddress::Id(bob()),
-			amount: 10 * EXISTENTIAL_DEPOSIT,
-		})
-	}
-
-	#[test]
-	fn as_recovered_high_security_call_is_blocked() {
-		new_test_ext().execute_with(|| {
-			// bob is charlie's recovery proxy; charlie is high-security (from genesis).
-			pallet_recovery::Proxy::<Runtime>::insert(bob(), charlie());
-
-			// A non-whitelisted call dispatched as the high-security account is rejected.
-			assert_noop!(
-				Recovery::as_recovered(
-					RuntimeOrigin::signed(bob()),
-					MultiAddress::Id(charlie()),
-					boxed(non_whitelisted_transfer()),
-				),
-				pallet_recovery::Error::<Runtime>::CallNotAllowedForHighSecurity
-			);
-
-			// A whitelisted call is allowed through as the high-security account.
-			assert_ok!(Recovery::as_recovered(
-				RuntimeOrigin::signed(bob()),
-				MultiAddress::Id(charlie()),
-				boxed(whitelisted_schedule()),
-			));
-		});
-	}
-
-	#[test]
-	fn batch_all_wrapped_high_security_call_is_blocked() {
-		new_test_ext().execute_with(|| {
-			// Wrapping the origin-rewriter in `batch_all` does not bypass the check:
-			// `batch_all` re-dispatches `as_recovered`, whose own check rejects the
-			// non-whitelisted call.
-			pallet_recovery::Proxy::<Runtime>::insert(bob(), charlie());
-			let inner = RuntimeCall::Recovery(pallet_recovery::Call::as_recovered {
-				account: MultiAddress::Id(charlie()),
-				call: boxed(non_whitelisted_transfer()),
-			});
-			assert_err_ignore_postinfo!(
-				Utility::batch_all(RuntimeOrigin::signed(bob()), vec![inner]),
-				pallet_recovery::Error::<Runtime>::CallNotAllowedForHighSecurity
-			);
-		});
-	}
-
-	// =========================================================================
 	// Tests for event-based WormholeProofRecorderExtension
 	// =========================================================================
 	//
@@ -1609,7 +1513,7 @@ mod tests {
 	}
 
 	#[test]
-	fn wormhole_proof_recorder_counts_reversible_cancel_and_close_recovery() {
+	fn wormhole_proof_recorder_counts_reversible_cancel() {
 		new_test_ext().execute_with(|| {
 			// `ReversibleTransfers::cancel` is statically visible, so the proof reservation
 			// is fee-charged rather than only reconciled post-hoc against block capacity.
@@ -1623,17 +1527,6 @@ mod tests {
 				WormholeProofRecorderExtension::<Runtime>::count_transfers(&cancel),
 				1,
 				"cancel seizes held funds via transfer_on_hold and must be charged one proof"
-			);
-
-			// `Recovery::close_recovery` repatriates the rescuer's reserved deposit,
-			// emitting exactly one `ReserveRepatriated` that the scanner records.
-			let close = RuntimeCall::Recovery(pallet_recovery::Call::close_recovery {
-				rescuer: MultiAddress::Id(bob()),
-			});
-			assert_eq!(
-				WormholeProofRecorderExtension::<Runtime>::count_transfers(&close),
-				1,
-				"close_recovery repatriates the recovery deposit and must be charged one proof"
 			);
 		});
 	}
@@ -1887,8 +1780,12 @@ mod tests {
 
 			// A batch_all of two transfers is charged two per-transfer reservations.
 			// Simulate a dispatch that only completed the first transfer.
+			let transfer = RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+				dest: MultiAddress::Id(bob()),
+				value: 10 * EXISTENTIAL_DEPOSIT,
+			});
 			let call = RuntimeCall::Utility(pallet_utility::Call::batch_all {
-				calls: vec![non_whitelisted_transfer(), non_whitelisted_transfer()],
+				calls: vec![transfer.clone(), transfer],
 			});
 			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&call), 2);
 
@@ -2580,37 +2477,23 @@ mod tests {
 	}
 
 	#[test]
-	fn event_based_proof_recording_recovery_deposit_repatriation() {
+	fn event_based_proof_recording_reserve_repatriation() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
-
-			// alice makes her account recoverable; bob (say, maliciously) initiates a
-			// recovery, reserving the recovery deposit on his own account. The recovery
-			// deposits are UNIT-denominated, so fund both well past the genesis balances.
-			Balances::make_free_balance_be(&alice(), 100 * crate::UNIT);
-			Balances::make_free_balance_be(&bob(), 100 * crate::UNIT);
-			assert_ok!(Recovery::create_recovery(
-				RuntimeOrigin::signed(alice()),
-				vec![charlie()],
-				1,
-				0,
-			));
-			assert_ok!(Recovery::initiate_recovery(
-				RuntimeOrigin::signed(bob()),
-				MultiAddress::Id(alice()),
-			));
 
 			let count_before = Wormhole::transfer_count(&alice());
 			let events_before = frame_system::Pallet::<Runtime>::event_count();
 
-			// Closing the recovery seizes the rescuer's reserved deposit into alice's
-			// free balance via `repatriate_reserved`, which emits
-			// `Balances::ReserveRepatriated` — not a free-balance `Transfer`. The
-			// credit is real spendable value landing on alice, so the recorder must
-			// create a leaf for it.
-			assert_ok!(Recovery::close_recovery(
-				RuntimeOrigin::signed(alice()),
-				MultiAddress::Id(bob()),
+			// `repatriate_reserved` emits `ReserveRepatriated` instead of `Transfer`.
+			// The credit is real spendable value landing on alice, so the recorder
+			// must create a leaf for it.
+			System::deposit_event(RuntimeEvent::Balances(
+				pallet_balances::Event::ReserveRepatriated {
+					from: bob(),
+					to: alice(),
+					amount: EXISTENTIAL_DEPOSIT * 100,
+					destination_status: frame_support::traits::tokens::BalanceStatus::Free,
+				},
 			));
 
 			let (recorded, _) =
