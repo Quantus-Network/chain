@@ -25,6 +25,11 @@ extern crate alloc;
 
 pub use pallet::*;
 
+/// Smallest leaf-quantum count at which a 4 bps Wormhole volume fee is exact
+/// (`2500 * 4 / 10_000 = 1`). Non-final claims pay a multiple of
+/// `NON_FINAL_PAYOUT_QUANTA * PayoutQuantum` (25 QUAN at the runtime leaf quantum).
+pub const NON_FINAL_PAYOUT_QUANTA: u128 = 2_500;
+
 #[cfg(test)]
 mod mock;
 
@@ -54,7 +59,7 @@ pub mod pallet {
 	use qp_wormhole::TransferProofRecorder;
 	use sp_arithmetic::{helpers_128bit::multiply_by_rational_with_rounding, Rounding};
 	use sp_runtime::{
-		traits::{AccountIdConversion, CheckedAdd, CheckedSub, Zero},
+		traits::{AccountIdConversion, CheckedAdd, CheckedSub, Saturating, Zero},
 		ArithmeticError, SaturatedConversion,
 	};
 
@@ -321,7 +326,9 @@ pub mod pallet {
 		/// Pay the largest valid claim on `schedule_id` to its beneficiary. Payouts are
 		/// rounded down to [`Config::PayoutQuantum`], must meet [`Config::MinimumPayout`],
 		/// and reserve at least one minimum-sized final claim unless the schedule is fully
-		/// vested.
+		/// vested. Non-final payouts are further rounded down to
+		/// [`NON_FINAL_PAYOUT_QUANTA`] leaf quanta; the leftover stays on the schedule
+		/// until a later claim or the exact final payout.
 		///
 		/// Permissionless: any signed account may call this for any schedule; the payout
 		/// always goes to the stored beneficiary. This is the only claim path for
@@ -537,6 +544,9 @@ pub mod pallet {
 			let owed = vested.checked_sub(&schedule.claimed).ok_or(ArithmeticError::Underflow)?;
 			let candidate = Self::quantize_down(owed);
 			let minimum = T::MinimumPayout::get();
+			// Checked before the dust-reservation branch: with nothing claimable
+			// accrued, the answer is NothingToClaim even on a schedule whose
+			// remainder is too small to ever support a non-final payout.
 			if candidate < minimum {
 				return Ok(ClaimPlan::NothingToClaim);
 			}
@@ -548,7 +558,16 @@ pub mod pallet {
 				if max_non_final < minimum {
 					return Ok(ClaimPlan::WouldLeaveDust);
 				}
-				candidate.min(max_non_final)
+				let payable = Self::quantize_down_to(
+					candidate.min(max_non_final),
+					Self::non_final_payout_quantum(),
+				);
+				// The fee alignment can round a valid candidate below the minimum;
+				// hold until a full aligned payout has accrued.
+				if payable < minimum {
+					return Ok(ClaimPlan::NothingToClaim);
+				}
+				payable
 			};
 			if let Some(last) = schedule.last_claim_at {
 				let elapsed = now.checked_sub(last).ok_or(ArithmeticError::Underflow)?;
@@ -559,10 +578,17 @@ pub mod pallet {
 			Ok(ClaimPlan::Pay(payable))
 		}
 
+		fn non_final_payout_quantum() -> BalanceOf<T> {
+			T::PayoutQuantum::get().saturating_mul(NON_FINAL_PAYOUT_QUANTA.saturated_into())
+		}
+
 		/// Round down to a multiple of the payout quantum.
 		fn quantize_down(amount: BalanceOf<T>) -> BalanceOf<T> {
-			let remainder = amount % T::PayoutQuantum::get();
-			amount.checked_sub(&remainder).expect("remainder never exceeds the dividend")
+			Self::quantize_down_to(amount, T::PayoutQuantum::get())
+		}
+
+		fn quantize_down_to(amount: BalanceOf<T>, quantum: BalanceOf<T>) -> BalanceOf<T> {
+			amount.saturating_sub(amount % quantum)
 		}
 
 		/// Pay `amount` to the schedule's beneficiary and advance the schedule to match:
