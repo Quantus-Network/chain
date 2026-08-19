@@ -553,11 +553,16 @@ fn spawn_authority_tasks(
 // Type Definitions
 // ============================================================================
 
-pub(crate) type FullClient = sc_service::TFullClient<
-	Block,
-	RuntimeApi,
-	sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
->;
+/// WASM host functions. The `runtime-benchmarks` build adds `ext_benchmarking_*`.
+#[cfg(not(feature = "runtime-benchmarks"))]
+pub type HostFunctions = sp_io::SubstrateHostFunctions;
+
+#[cfg(feature = "runtime-benchmarks")]
+pub type HostFunctions =
+	(sp_io::SubstrateHostFunctions, frame_benchmarking::benchmarking::HostFunctions);
+
+pub(crate) type FullClient =
+	sc_service::TFullClient<Block, RuntimeApi, sc_executor::WasmExecutor<HostFunctions>>;
 type FullBackend = sc_service::TFullBackend<Block>;
 pub type PowBlockImport = sc_consensus_qpow::PowBlockImport<
 	Block,
@@ -596,7 +601,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		})
 		.transpose()?;
 
-	let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
+	let executor = sc_service::new_wasm_executor::<HostFunctions>(&config.executor);
 	let (client, backend, keystore_container, task_manager) =
 		sc_service::new_full_parts::<Block, RuntimeApi, _>(
 			config,
