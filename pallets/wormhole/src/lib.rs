@@ -429,9 +429,9 @@ pub mod pallet {
 		/// nullifier that is already used (or the single segment of a private-batch
 		/// proof does).
 		NullifierAlreadyUsed,
-		/// The bundle contains only dummy (all-zero) padding segments, so there is
-		/// nothing to exit. Distinct from [`Error::NullifierAlreadyUsed`], which is a
-		/// replay of real segments.
+		/// The bundle has nothing to settle: only dummy (all-zero) padding, or
+		/// every valid segment exits zero. Distinct from [`Error::NullifierAlreadyUsed`],
+		/// which is a replay of real segments.
 		NoValidSegments,
 		BlockNotFound,
 		VerifierNotAvailable,
@@ -607,7 +607,7 @@ pub mod pallet {
 				},
 			};
 
-			Self::process_exit_bundle(bundle)
+			Self::settle_exit_bundle(bundle, ExitSettlementKind::Private)
 		}
 
 		/// Verify a public-batch wormhole proof and process all valid exit segments.
@@ -642,8 +642,15 @@ pub mod pallet {
 				},
 			};
 
-			Self::process_exit_bundle(bundle)
+			Self::settle_exit_bundle(bundle, ExitSettlementKind::Public)
 		}
+	}
+
+	/// Which verify path settled the bundle. Selects the ZK / pre-validate base
+	/// and the declared-weight cap for the success refund.
+	pub(crate) enum ExitSettlementKind {
+		Private,
+		Public,
 	}
 
 	impl<T: Config> Pallet<T> {
@@ -664,8 +671,9 @@ pub mod pallet {
 		/// well-formed batch never repeats a real nullifier, so this only rejects replays.
 		/// (The circuit now also enforces this, but the check is cheap and kept here as an
 		/// in-consensus defense that does not trust the aggregation circuit's constraints.)
-		/// Zero nullifiers (from dummy leaf padding inside a real private batch) mint
-		/// nothing and are exempt from the collision checks entirely.
+		/// All-zero nullifiers (public-batch dummy inner padding) mint nothing and
+		/// are skipped. Dummy *leaf* padding inside a real private batch produces
+		/// non-zero `H(H(p))` nullifiers that are persisted; those are not exempt.
 		pub(crate) fn segment_validity(bundle: &ExitBundle) -> Result<Vec<bool>, Error<T>> {
 			let mut claimed = alloc::collections::BTreeSet::<[u8; 32]>::new();
 			let mut validity = Vec::with_capacity(bundle.segments.len());
@@ -709,14 +717,28 @@ pub mod pallet {
 			Ok(validity)
 		}
 
-		/// Reject a bundle in which no segment is valid, distinguishing an all-dummy
-		/// bundle (nothing to exit) from a replay of real segments.
+		/// Reject a bundle that cannot settle any value: all-dummy padding, a replay
+		/// of real segments, or valid segments that all exit zero.
 		fn ensure_any_segment_valid(
 			bundle: &ExitBundle,
 			validity: &[bool],
 		) -> Result<(), Error<T>> {
 			if validity.iter().any(|v| *v) {
-				return Ok(());
+				// Mirrors the mint-loop skip condition exactly: a slot mints only if
+				// the amount is nonzero AND the exit account is nonzero (the circuit
+				// zeroes deduplicated exit accounts).
+				let mintable =
+					bundle.segments.iter().zip(validity.iter()).any(|(segment, valid)| {
+						*valid &&
+							segment.account_data.iter().any(|account| {
+								account.summed_output_amount > 0 &&
+									account.exit_account.as_ref() != &[0u8; 32]
+							})
+					});
+				if mintable {
+					return Ok(());
+				}
+				return Err(Error::<T>::NoValidSegments);
 			}
 			if bundle.segments.iter().all(Self::segment_is_inert) {
 				Err(Error::<T>::NoValidSegments)
@@ -725,16 +747,26 @@ pub mod pallet {
 			}
 		}
 
+		/// Settle a private-batch bundle; test-only shorthand for [`Self::settle_exit_bundle`].
+		#[cfg(test)]
+		pub(crate) fn process_exit_bundle(bundle: ExitBundle) -> DispatchResultWithPostInfo {
+			Self::settle_exit_bundle(bundle, ExitSettlementKind::Private)
+		}
+
 		/// Process a validated exit bundle: mark nullifiers, mint exits, distribute fees.
 		///
 		/// Invalid segments (a nullifier already used on-chain, or colliding with an earlier
 		/// valid segment of this bundle) are denied as a whole — none of their exits are
 		/// minted and none of their nullifiers are marked — while the remaining segments
-		/// are processed normally. The bundle is rejected outright if no segment is valid.
+		/// are processed normally. The bundle is rejected outright if no segment is
+		/// valid or if every valid segment exits zero.
 		///
 		/// Validity is recomputed here rather than reused from `validate_proof` because
 		/// chain state may have changed between pool validation and block inclusion.
-		pub(crate) fn process_exit_bundle(bundle: ExitBundle) -> DispatchResultWithPostInfo {
+		pub(crate) fn settle_exit_bundle(
+			bundle: ExitBundle,
+			kind: ExitSettlementKind,
+		) -> DispatchResultWithPostInfo {
 			let validity = Self::segment_validity(&bundle)?;
 			Self::ensure_any_segment_valid(&bundle, &validity)?;
 
@@ -743,6 +775,7 @@ pub mod pallet {
 
 			let mut nullifier_list = Vec::<[u8; 32]>::new();
 			let mut denied_segments = Vec::<u32>::new();
+			let mut extra_leaf_inserts: u64 = 0;
 			let mut processed_accounts: Vec<(
 				<T as frame_system::Config>::AccountId,
 				BalanceOf<T>,
@@ -838,6 +871,7 @@ pub mod pallet {
 				minted_exit_amount = minted_exit_amount.saturating_add(*exit_balance);
 			}
 
+			let nullifier_writes = nullifier_list.len() as u64;
 			Self::deposit_event(Event::ProofVerified {
 				exit_amount: minted_exit_amount,
 				nullifiers: nullifier_list,
@@ -896,6 +930,7 @@ pub mod pallet {
 					)?
 					.is_some()
 					{
+						extra_leaf_inserts = extra_leaf_inserts.saturating_add(1);
 						burn_quanta = burn_quanta.saturating_sub(rebate_quanta);
 					}
 				}
@@ -915,6 +950,7 @@ pub mod pallet {
 						let credited =
 							Self::try_credit_fee_quanta(&author, miner_quanta, &mint_account)?;
 						if let Some(amount) = credited {
+							extra_leaf_inserts = extra_leaf_inserts.saturating_add(1);
 							Self::deposit_event(Event::MinerVolumeFeePaid {
 								miner: author,
 								amount,
@@ -948,8 +984,30 @@ pub mod pallet {
 				);
 			}
 
-			// Success - use declared weight (actual_weight: None means use declared weight)
-			Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
+			// Declaration is worst-case; report actual work so unused block quota
+			// is reclaimed. `Pays::No` — this is not a user fee refund. Nullifier
+			// writes are counted separately from exits: a valid zero-output
+			// segment writes nullifiers but mints nothing.
+			let exits = processed_accounts.len() as u64;
+			let (settled, declared) = match kind {
+				ExitSettlementKind::Private => (
+					<T as Config>::WeightInfo::verify_private_batch_settled(
+						exits,
+						nullifier_writes,
+						extra_leaf_inserts,
+					),
+					<T as Config>::WeightInfo::verify_private_batch(),
+				),
+				ExitSettlementKind::Public => (
+					<T as Config>::WeightInfo::verify_public_batch_settled(
+						exits,
+						nullifier_writes,
+						extra_leaf_inserts,
+					),
+					<T as Config>::WeightInfo::verify_public_batch(),
+				),
+			};
+			Ok(PostDispatchInfo { actual_weight: Some(settled.min(declared)), pays_fee: Pays::No })
 		}
 	}
 

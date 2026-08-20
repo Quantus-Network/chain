@@ -221,23 +221,29 @@ type InnerFeeAdapter = pallet_transaction_payment::FungibleAdapter<
 /// declares both reads unconditionally.
 pub struct HighSecurityFungibleAdapter;
 
-/// `pallet_transaction_payment` weights adjusted for the tip policy in
-/// [`HighSecurityFungibleAdapter`]: a tipped transaction reads
-/// `HighSecurityAccounts` once in `can_withdraw_fee` (validation) and once in
-/// `withdraw_fee` (inclusion), work the stock benchmark never measures. Many
-/// distinct tipped signers can appear in one block, so the reads must be
-/// declared, not waved off as warm-cache hits.
+/// `pallet_transaction_payment` weights adjusted for Quantus-owned work the
+/// stock kitchensink benchmark never measures:
 ///
-/// Charged unconditionally: the payment extension has no tip-keyed refund
-/// hook, so zero-tip traffic overpays these two reads (~50µs ref_time) — an
-/// error in the safe direction.
+/// * two `HighSecurityAccounts` reads from the tip policy in [`HighSecurityFungibleAdapter`]
+///   (`can_withdraw_fee` then `withdraw_fee` on a tipped transaction). Many distinct tipped signers
+///   can appear in one block, so these are not warm-cache hits.
+/// * one unique-key `CollectedFees` read and write from
+///   [`pallet_mining_rewards::TransactionFeesCollector`] on every nonzero corrected fee. The
+///   follow-on `get` for the event is same-key.
+///
+/// The high-security reads are charged unconditionally: the payment extension
+/// has no tip-keyed refund hook, so zero-tip traffic overpays those two reads
+/// (~50µs ref_time) — an error in the safe direction. The collector access
+/// runs on every paid extrinsic, so it is not an overcharge.
 pub struct PaymentWeightsWithTipPolicy;
 
 impl pallet_transaction_payment::WeightInfo for PaymentWeightsWithTipPolicy {
 	fn charge_transaction_payment() -> Weight {
+		let db = <Runtime as frame_system::Config>::DbWeight::get();
 		pallet_transaction_payment::weights::SubstrateWeight::<Runtime>::charge_transaction_payment(
 		)
-		.saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads(2))
+		.saturating_add(db.reads(2))
+		.saturating_add(db.reads_writes(1, 1))
 	}
 }
 
@@ -1196,10 +1202,13 @@ mod tests {
 
 		// A tipped transaction additionally reads `HighSecurityAccounts` in
 		// both `can_withdraw_fee` and `withdraw_fee` of the fee adapter.
+		// Every paid extrinsic also mutates `CollectedFees` in the collector
+		// (one unique-key read + write; the follow-on get is same-key).
 		assert_eq!(
 			<PaymentWeightsWithTipPolicy as pallet_transaction_payment::WeightInfo>::charge_transaction_payment(),
 			pallet_transaction_payment::weights::SubstrateWeight::<Runtime>::charge_transaction_payment()
 				.saturating_add(db.reads(2))
+				.saturating_add(db.reads_writes(1, 1))
 		);
 	}
 

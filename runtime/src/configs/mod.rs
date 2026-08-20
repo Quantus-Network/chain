@@ -489,8 +489,8 @@ impl pallet_transaction_payment::Config for Runtime {
 	type LengthToFee = LengthToFeeMultiplier;
 	type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
 	type OperationalFeeMultiplier = ConstU8<5>;
-	// Stock weights plus the two `HighSecurityAccounts` reads performed by the
-	// tip policy in `HighSecurityFungibleAdapter` on tipped transactions.
+	// Stock weights plus the two `HighSecurityAccounts` reads from the tip
+	// policy and the `CollectedFees` read/write from `TransactionFeesCollector`.
 	type WeightInfo = crate::transaction_extensions::PaymentWeightsWithTipPolicy;
 }
 

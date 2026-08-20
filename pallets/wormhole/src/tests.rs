@@ -1753,6 +1753,80 @@ mod exit_bundle_tests {
 	}
 
 	#[test]
+	fn process_exit_bundle_rejects_zero_value_real_spend() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			// A non-dummy leaf with a real block hash and outputs (0, 0) is a
+			// valid circuit spend. Dummy leaf slots in the same private batch
+			// carry non-zero H(H(p)) nullifiers, so the segment is not inert —
+			// but nothing is minted, so the settlement is griefing.
+			let b = bundle(vec![segment(&[1, 2, 3, 4, 5, 6, 7], &[(10, 0), (11, 0)])], None);
+			let result = Wormhole::process_exit_bundle(b);
+			assert!(result.is_err());
+			assert_eq!(result.unwrap_err().error, Error::<Test>::NoValidSegments.into());
+			for byte in 1..=7 {
+				assert!(
+					!UsedNullifiers::<Test>::contains_key(nullifier_bytes(byte)),
+					"zero-value settlement must not occupy nullifier {byte}"
+				);
+			}
+		});
+	}
+
+	#[test]
+	fn process_exit_bundle_charges_nullifier_writes_of_zero_output_segments() {
+		use crate::weights::WeightInfo;
+
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			// Segment 1 is a valid real spend that exits zero: it writes its two
+			// nullifiers but mints nothing, so it must not shrink the settled
+			// weight down to the one-exit tail.
+			let b =
+				bundle(vec![segment(&[1], &[(10, AMOUNT_A)]), segment(&[2, 3], &[(11, 0)])], None);
+			let info = Wormhole::process_exit_bundle(b).expect("one segment mints");
+
+			let expected =
+				<Test as crate::Config>::WeightInfo::verify_private_batch_settled(1, 3, 0);
+			assert_eq!(
+				info.actual_weight,
+				Some(expected),
+				"settled weight must count all 3 nullifier writes, not just the 1 exit"
+			);
+			for byte in 1..=3 {
+				assert!(
+					UsedNullifiers::<Test>::contains_key(nullifier_bytes(byte)),
+					"nullifier {byte} must be marked used"
+				);
+			}
+		});
+	}
+
+	#[test]
+	fn process_exit_bundle_rejects_valued_slots_with_zeroed_exit_accounts() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			// The circuit zeroes deduplicated exit accounts; the mint loop skips
+			// such slots even when the amount is nonzero. A bundle whose only
+			// valued slots are account-zeroed mints nothing and must be rejected
+			// before its nullifiers are marked.
+			let b = bundle(vec![segment(&[1, 2, 3], &[(0, AMOUNT_A), (10, 0)])], None);
+			let result = Wormhole::process_exit_bundle(b);
+			assert!(result.is_err());
+			assert_eq!(result.unwrap_err().error, Error::<Test>::NoValidSegments.into());
+			for byte in 1..=3 {
+				assert!(
+					!UsedNullifiers::<Test>::contains_key(nullifier_bytes(byte)),
+					"account-zeroed settlement must not occupy nullifier {byte}"
+				);
+			}
+		});
+	}
+
+	#[test]
 	fn process_exit_bundle_skips_below_ed_exit_without_reverting_others() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
@@ -2227,6 +2301,38 @@ mod public_batch_proof_tests {
 				"sub-quantum aggregator rebate must be burned, not credited"
 			);
 			assert_eq!(Wormhole::transfer_count(&aggregator), 0);
+		});
+	}
+
+	#[test]
+	fn test_verify_public_batch_refunds_unused_exit_weight() {
+		use crate::weights::WeightInfo;
+
+		new_test_ext().execute_with(|| {
+			let inputs = parse_test_inputs();
+			setup_matching_block_state(&inputs);
+
+			let info =
+				Wormhole::verify_public_batch(RawOrigin::None.into(), get_test_proof_bytes())
+					.expect("fixture public batch must succeed");
+
+			// Fixture: one real exit; its segment writes NUM_LEAF_PROOFS nullifiers
+			// (dummy leaves in a real private batch carry non-zero H(H(p)) ones).
+			let expected = <Test as crate::Config>::WeightInfo::verify_public_batch_settled(
+				1,
+				crate::circuit_config::NUM_LEAF_PROOFS as u64,
+				0,
+			);
+			assert_eq!(
+				info.actual_weight,
+				Some(expected),
+				"one-exit public batch must refund the unused 742-exit tail"
+			);
+			assert!(
+				expected.ref_time() * 10 <
+					<Test as crate::Config>::WeightInfo::verify_public_batch().ref_time(),
+				"settled one-exit weight must be far below the declared public-batch weight"
+			);
 		});
 	}
 

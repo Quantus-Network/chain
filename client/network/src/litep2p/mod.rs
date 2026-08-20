@@ -1202,6 +1202,8 @@ impl<B: BlockT + 'static, H: ExHashT> NetworkBackend<B, H> for Litep2pNetworkBac
 									NegotiationError::WebSocket(_) => "webscoket-error",
 									NegotiationError::BadSignature => "bad-signature",
 									NegotiationError::SigningFailed(_) => "signing-failed",
+									NegotiationError::InvalidHandshakeFrameLength(_) =>
+										"invalid-handshake-frame",
 								}
 							};
 

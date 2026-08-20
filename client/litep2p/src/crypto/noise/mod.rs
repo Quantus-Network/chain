@@ -117,16 +117,13 @@ impl fmt::Debug for NoiseContext {
 }
 
 impl NoiseContext {
-	/// Assemble Noise payload and return [`NoiseContext`].
-	fn assemble(
-		session: ClatterSession,
-		kem_keypair: protocol::Keypair,
-		id_keys: &Keypair,
-		role: Role,
-	) -> Result<Self, NegotiationError> {
-		// Sign the ML-KEM public key with the Dilithium identity key
+	/// Sign the local ML-KEM public key and build the identity payload.
+	///
+	/// Deferred until the peer has sent a real handshake frame so a stalled
+	/// `/noise` negotiation cannot force an ML-DSA-87 signature.
+	fn assemble_identity(&mut self, id_keys: &Keypair) -> Result<(), NegotiationError> {
 		let signature = id_keys
-			.sign(&[STATIC_KEY_DOMAIN.as_bytes(), kem_keypair.public().as_ref()].concat())
+			.sign(&[STATIC_KEY_DOMAIN.as_bytes(), self.kem_keypair.public().as_ref()].concat())
 			.map_err(|e| NegotiationError::SigningFailed(e.to_string()))?;
 
 		let noise_payload = handshake_schema::NoiseHandshakePayload {
@@ -137,21 +134,19 @@ impl NoiseContext {
 
 		let mut payload = Vec::with_capacity(noise_payload.encoded_len());
 		noise_payload.encode(&mut payload).map_err(ParseError::from)?;
-
-		Ok(Self { noise: NoiseState::Handshake(session), kem_keypair, payload, role })
+		self.payload = payload;
+		Ok(())
 	}
 
-	/// Create a new NoiseContext for the pqXX handshake.
-	pub fn new(keypair: &Keypair, role: Role) -> Result<Self, NegotiationError> {
+	/// Create a new NoiseContext for the pqXX handshake (KEM keygen + session only).
+	pub fn new(role: Role) -> Result<Self, NegotiationError> {
 		tracing::trace!(target: LOG_TARGET, ?role, "create new noise configuration (pqXX + ML-KEM 768)");
 
-		// Generate ML-KEM 768 keypair for Noise static key
 		let kem_keypair = protocol::Keypair::new();
-
 		let is_initiator = matches!(role, Role::Dialer);
 		let session = ClatterSession::new(&[], is_initiator, &kem_keypair)?;
 
-		Self::assemble(session, kem_keypair, keypair, role)
+		Ok(Self { noise: NoiseState::Handshake(session), kem_keypair, payload: Vec::new(), role })
 	}
 
 	/// Get first message (pqXX message 1: -> e).
@@ -196,6 +191,11 @@ impl NoiseContext {
 			return Err(NegotiationError::StateMismatch);
 		};
 
+		if self.payload.is_empty() {
+			tracing::error!(target: LOG_TARGET, "identity payload missing before handshake write");
+			return Err(NegotiationError::StateMismatch);
+		}
+
 		// pqXX message 2 or 3 with identity payload
 		// Buffer needs space for:
 		// - ML-KEM ciphertext: 1088 bytes
@@ -237,20 +237,9 @@ impl NoiseContext {
 		Ok(size)
 	}
 
-	/// Read handshake message from the wire.
-	async fn read_handshake_message<T: AsyncRead + AsyncWrite + Unpin>(
-		&mut self,
-		io: &mut T,
-	) -> Result<Bytes, NegotiationError> {
-		let mut size = BytesMut::zeroed(2);
-		io.read_exact(&mut size).await?;
-		let size = size.get_u16();
-
-		let mut message = BytesMut::zeroed(size as usize);
-		io.read_exact(&mut message).await?;
-
-		let mut out = BytesMut::new();
-		out.resize(message.len() + HANDSHAKE_BUFFER_SIZE, 0u8);
+	/// Decrypt an already-read handshake frame.
+	fn decrypt_handshake_message(&mut self, message: &[u8]) -> Result<Bytes, NegotiationError> {
+		let mut out = BytesMut::zeroed(HANDSHAKE_BUFFER_SIZE);
 
 		let NoiseState::Handshake(ref mut session) = self.noise else {
 			tracing::error!(target: LOG_TARGET, "invalid state to read handshake message");
@@ -258,10 +247,19 @@ impl NoiseContext {
 			return Err(NegotiationError::StateMismatch);
 		};
 
-		let nread = session.read_message(&message, &mut out)?;
+		let nread = session.read_message(message, &mut out)?;
 		out.truncate(nread);
 
 		Ok(out.freeze())
+	}
+
+	/// Read handshake message from the wire.
+	async fn read_handshake_message<T: AsyncRead + AsyncWrite + Unpin>(
+		&mut self,
+		io: &mut T,
+	) -> Result<Bytes, NegotiationError> {
+		let message = read_handshake_frame(io).await?;
+		self.decrypt_handshake_message(&message)
 	}
 
 	/// Read a message (works in both handshake and transport mode).
@@ -756,6 +754,32 @@ pub enum HandshakeTransport {
 	WebSocket,
 }
 
+/// Read a length-prefixed handshake frame without creating a Noise session.
+///
+/// The listener uses this before any ML-KEM / ML-DSA work so a stalled `/noise`
+/// negotiation or an oversized length prefix cannot force PQ crypto.
+async fn read_handshake_frame<T: AsyncRead + AsyncWrite + Unpin>(
+	io: &mut T,
+) -> Result<BytesMut, NegotiationError> {
+	let mut size = BytesMut::zeroed(2);
+	io.read_exact(&mut size).await?;
+	let size = size.get_u16();
+
+	if size == 0 || size as usize > HANDSHAKE_BUFFER_SIZE {
+		tracing::debug!(
+			target: LOG_TARGET,
+			size,
+			max = HANDSHAKE_BUFFER_SIZE,
+			"rejecting handshake frame outside protocol maximum"
+		);
+		return Err(NegotiationError::InvalidHandshakeFrameLength(size));
+	}
+
+	let mut message = BytesMut::zeroed(size as usize);
+	io.read_exact(&mut message).await?;
+	Ok(message)
+}
+
 /// Perform Noise handshake using pqXX pattern (4 messages).
 pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
 	mut io: S,
@@ -769,9 +793,12 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
 	let handle_handshake = async move {
 		tracing::debug!(target: LOG_TARGET, ?role, ?ty, "start noise handshake (pqXX + ML-KEM 768)");
 
-		let mut noise = NoiseContext::new(keypair, role)?;
-		let payload = match role {
+		let (noise, payload) = match role {
 			Role::Dialer => {
+				// Keygen is required to send message 1. The identity signature
+				// waits until the responder actually replies.
+				let mut noise = NoiseContext::new(role)?;
+
 				// pqXX Message 1: -> e (ephemeral KEM public key)
 				tracing::debug!(target: LOG_TARGET, "pqXX dialer: sending message 1 (-> e)");
 				let first_message = noise.first_message(Role::Dialer)?;
@@ -791,6 +818,8 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
 					})?;
 				tracing::debug!(target: LOG_TARGET, "pqXX dialer: message 2 decoded successfully");
 
+				noise.assemble_identity(keypair)?;
+
 				// pqXX Message 3: -> skem, s, se + local identity payload
 				tracing::debug!(target: LOG_TARGET, "pqXX dialer: sending message 3 (-> skem, s, se)");
 				let third_message = noise.second_message()?;
@@ -802,15 +831,26 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
 				// pqXX Message 4: <- sks (final KEM, empty payload)
 				let _final_message = noise.read_handshake_message(&mut io).await?;
 				tracing::debug!(target: LOG_TARGET, "pqXX dialer: received message 4, handshake complete");
-				// Message 4 should be empty (or contain no identity payload)
 
-				payload
+				(noise, payload)
 			},
 			Role::Listener => {
-				// pqXX Message 1: <- e (remote's ephemeral KEM public key)
+				// Read message 1 before any PQ work.
 				tracing::debug!(target: LOG_TARGET, "pqXX listener: waiting for message 1");
-				let _ = noise.read_handshake_message(&mut io).await?;
+				let frame = read_handshake_frame(&mut io).await?;
+
+				// pqXX message 1 carries at least the raw ML-KEM-768 ephemeral
+				// public key; a shorter frame can never decrypt, so reject it
+				// before it can trigger KEM keygen.
+				if frame.len() < protocol::ML_KEM_768_PUBLIC_KEY_SIZE {
+					return Err(NegotiationError::InvalidHandshakeFrameLength(frame.len() as u16));
+				}
+
+				let mut noise = NoiseContext::new(role)?;
+				noise.decrypt_handshake_message(&frame)?;
 				tracing::debug!(target: LOG_TARGET, "pqXX listener: received message 1");
+
+				noise.assemble_identity(keypair)?;
 
 				// pqXX Message 2: -> ekem, e, es + local identity payload
 				tracing::debug!(target: LOG_TARGET, "pqXX listener: sending message 2");
@@ -833,7 +873,7 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
 				io.flush().await?;
 				tracing::debug!(target: LOG_TARGET, "pqXX listener: handshake complete");
 
-				payload
+				(noise, payload)
 			},
 		};
 
@@ -926,5 +966,57 @@ mod tests {
 		assert_eq!(sent, 12);
 		assert_eq!(received, 12);
 		assert_eq!(&buf[..received], b"hello, world");
+	}
+
+	/// Drive a listener handshake against a peer that sends `prefix` as the frame
+	/// length (plus a matching body when in range) and assert it is rejected
+	/// before any PQ work.
+	async fn expect_length_prefix_rejected(prefix: u16) {
+		let keypair = Keypair::generate();
+		let listener = TcpListener::bind("[::1]:0".parse::<SocketAddr>().unwrap()).await.unwrap();
+
+		let (client, accepted) =
+			tokio::join!(TcpStream::connect(listener.local_addr().unwrap()), listener.accept());
+		let mut client = TokioAsyncWriteCompatExt::compat_write(client.unwrap());
+		client.write_all(&prefix.to_be_bytes()).await.unwrap();
+		if prefix > 0 && prefix as usize <= HANDSHAKE_BUFFER_SIZE {
+			client.write_all(&vec![0u8; prefix as usize]).await.unwrap();
+		}
+		client.flush().await.unwrap();
+
+		let io = Box::new(TokioAsyncWriteCompatExt::compat_write(accepted.unwrap().0));
+		let result = handshake(
+			io,
+			&keypair,
+			Role::Listener,
+			MAX_READ_AHEAD_FACTOR,
+			MAX_WRITE_BUFFER_SIZE,
+			std::time::Duration::from_secs(5),
+			HandshakeTransport::Tcp,
+		)
+		.await;
+
+		match result {
+			Err(NegotiationError::InvalidHandshakeFrameLength(size)) => assert_eq!(size, prefix),
+			Err(error) => panic!("unexpected handshake error: {error:?}"),
+			Ok(_) => panic!("handshake succeeded"),
+		}
+	}
+
+	#[tokio::test]
+	async fn handshake_rejects_oversized_length_prefix() {
+		expect_length_prefix_rejected(u16::MAX).await;
+	}
+
+	#[tokio::test]
+	async fn handshake_rejects_empty_length_prefix() {
+		expect_length_prefix_rejected(0).await;
+	}
+
+	/// An in-range frame too short to carry the ML-KEM-768 ephemeral key must be
+	/// rejected before the listener runs KEM keygen.
+	#[tokio::test]
+	async fn handshake_rejects_undersized_first_message() {
+		expect_length_prefix_rejected(protocol::ML_KEM_768_PUBLIC_KEY_SIZE as u16 - 1).await;
 	}
 }
