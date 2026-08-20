@@ -19,9 +19,9 @@ pub trait WeightInfo {
 /// ZK-tree storage ops the benchmark itself performed, per the storage tables in
 /// [`crate::weights_generated`]: `LeafCount` + `Depth` + 3×`Leaves` reads (= 5), and
 /// `LeafCount` + `Leaves` + `Root` writes (= 3); `Depth` is written too once the insert
-/// grows the tree, which the shallow benchmark tree does for `end_schedule` /
-/// `retarget_schedule` (= 4) but not for `claim` (= 3). They are subtracted back out so
-/// the flat circuit-depth insert cost can replace them;
+/// grows the tree, which the shallow benchmark tree does for `end_schedule` (= 4) but
+/// not for `claim` (= 3). They are subtracted back out so the flat circuit-depth insert
+/// cost can replace them;
 /// [`tests::payout_weight_never_undercharges_the_benchmarked_base`] pins that the
 /// replacement never under-charges the measured base.
 const BENCHMARK_TREE_READS: u64 = 5;
@@ -77,14 +77,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		)
 	}
 
+	// No payout augmentation: retargeting only swaps the stored beneficiary and
+	// never records a wormhole leaf.
 	fn retarget_schedule() -> Weight {
-		payout_weight(
-			<generated::SubstrateWeight<T> as generated::WeightInfo>::retarget_schedule(),
-			T::DbWeight::get(),
-			BENCHMARK_TREE_WRITES,
-			pallet_zk_tree::INSERT_LEAF_DB_OPS,
-			pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
-		)
+		<generated::SubstrateWeight<T> as generated::WeightInfo>::retarget_schedule()
 	}
 }
 
@@ -114,13 +110,7 @@ impl WeightInfo for () {
 	}
 
 	fn retarget_schedule() -> Weight {
-		payout_weight(
-			<() as generated::WeightInfo>::retarget_schedule(),
-			RocksDbWeight::get(),
-			BENCHMARK_TREE_WRITES,
-			pallet_zk_tree::INSERT_LEAF_DB_OPS,
-			pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
-		)
+		<() as generated::WeightInfo>::retarget_schedule()
 	}
 }
 
@@ -130,11 +120,10 @@ mod tests {
 
 	/// Every payout call, paired with the benchmark tree writes `payout_weight`
 	/// subtracts back out for it.
-	fn payout_bases() -> [(Weight, u64); 3] {
+	fn payout_bases() -> [(Weight, u64); 2] {
 		[
 			(<() as generated::WeightInfo>::claim(), CLAIM_BENCHMARK_TREE_WRITES),
 			(<() as generated::WeightInfo>::end_schedule(), BENCHMARK_TREE_WRITES),
-			(<() as generated::WeightInfo>::retarget_schedule(), BENCHMARK_TREE_WRITES),
 		]
 	}
 
