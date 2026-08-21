@@ -1,7 +1,7 @@
 //! Custom signed extensions for the runtime.
 extern crate alloc;
 use crate::*;
-use codec::{Decode, DecodeWithMemTracking, Encode};
+use codec::{Decode, DecodeLimit, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use core::marker::PhantomData;
 use frame_support::pallet_prelude::{
 	InvalidTransaction, TransactionValidityError, ValidTransaction,
@@ -476,11 +476,56 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	fn count_transfers(call: &RuntimeCall) -> u64 {
 		// NOTE: this must stay in sync with the events matched by `record_proofs_from_events_since`
 		// — we only weight calls whose emitted events we actually record.
-		//
-		// Wrappers whose inner call is stored on-chain rather than in the submitted call
-		// (`Multisig::execute`, ...) cannot be counted statically. Proof-recording work they
-		// trigger is reconciled in `post_dispatch`, which registers any weight shortfall
-		// against the block via `register_extra_weight_unchecked`.
+		match call {
+			// `execute` carries only `(multisig_address, proposal_id)`. The stored
+			// call is immutable after propose, so walk it with the same matcher —
+			// a byte-density bound under-counts `recover_funds` (17 credits in 34
+			// bytes) composed with packed transfers. Missing / undecodable
+			// proposals charge 0; execute will fail on them anyway. Nested
+			// stored `execute` is not chased: the inner call is dispatched as
+			// the derived address, which is not a signer, so it cannot succeed.
+			RuntimeCall::Multisig(pallet_multisig::Call::execute {
+				multisig_address,
+				proposal_id,
+			}) => Self::count_stored_execute(multisig_address, *proposal_id),
+			_ => Self::count_visible_transfers(call),
+		}
+	}
+
+	fn count_stored_execute(multisig_address: &AccountId, proposal_id: u32) -> u64 {
+		let Some(proposal) =
+			pallet_multisig::Proposals::<Runtime>::get(multisig_address, proposal_id)
+		else {
+			return 0;
+		};
+		let Ok(inner) = RuntimeCall::decode_with_depth_limit(
+			pallet_multisig::MAX_MULTISIG_CALL_DEPTH,
+			&mut &proposal.call[..],
+		) else {
+			return 0;
+		};
+		Self::count_visible_transfers(&inner)
+	}
+
+	/// One `Proposals` read plus a worst-case decode/walk of the stored call.
+	/// Charged twice on `execute`: `weight()` walks to reserve proof inserts, and
+	/// `validate()` walks again to carry the count into `prepare` so that path
+	/// does not perform a third traversal.
+	fn execute_proposal_walk_weight() -> Weight {
+		let max_call = u64::from(<Runtime as pallet_multisig::Config>::MaxCallSize::get());
+		let proposal_pov = pallet_multisig::ProposalDataOf::<Runtime>::max_encoded_len() as u64;
+		T::DbWeight::get().reads(1).saturating_add(Weight::from_parts(
+			Self::EVENT_SCAN_DECODE_REF_TIME_PS
+				.saturating_add(Self::EVENT_SCAN_DECODE_BYTE_REF_TIME_PS.saturating_mul(max_call)),
+			proposal_pov,
+		))
+	}
+
+	fn is_multisig_execute(call: &RuntimeCall) -> bool {
+		matches!(call, RuntimeCall::Multisig(pallet_multisig::Call::execute { .. }))
+	}
+
+	fn count_visible_transfers(call: &RuntimeCall) -> u64 {
 		match call {
 			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
@@ -511,7 +556,7 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			.saturating_add(1),
 
 			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) =>
-				calls.iter().map(Self::count_transfers).sum(),
+				calls.iter().map(Self::count_visible_transfers).sum(),
 
 			// Vesting calls fall through to 0 deliberately: the pallet records its
 			// payouts itself (so Root calls enacted by the scheduler are captured too)
@@ -646,45 +691,55 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 	/// is sufficient because the per-transfer price is flat (see
 	/// [`Self::per_transfer_weight`]).
 	type Pre = (u32, u64);
-	type Val = ();
+	/// Transfer count from the `validate()` walk; `prepare()` must not re-read the
+	/// stored proposal.
+	type Val = u64;
 	type Implicit = ();
 
 	const IDENTIFIER: &'static str = "WormholeProofRecorderExtension";
 
 	fn weight(&self, call: &RuntimeCall) -> Weight {
 		let n = Self::count_transfers(call);
-		if n > 0 {
-			Self::per_transfer_weight().saturating_mul(n)
+		let proofs =
+			if n > 0 { Self::per_transfer_weight().saturating_mul(n) } else { Weight::zero() };
+		if Self::is_multisig_execute(call) {
+			// Always reserve two worst-case proposal walks: `weight()` itself
+			// walks to size the proof reservation, and `validate()` walks to
+			// carry the count into `prepare`. A 10 KiB no-transfer proposal
+			// must not be free — the pallet can reject a non-signer after one
+			// `Multisigs` read, and that error path must not refund this work.
+			proofs.saturating_add(Self::execute_proposal_walk_weight().saturating_mul(2))
 		} else {
-			Weight::zero()
+			proofs
 		}
 	}
 
 	fn prepare(
 		self,
-		_val: Self::Val,
+		val: Self::Val,
 		_origin: &sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
-		call: &RuntimeCall,
+		_call: &RuntimeCall,
 		_info: &sp_runtime::traits::DispatchInfoOf<RuntimeCall>,
 		_len: usize,
 	) -> Result<Self::Pre, TransactionValidityError> {
 		// Snapshot current event count so we only process events added by this tx
-		// (and any events from previous txs in the same block), and remember how many transfer
-		// proofs were statically charged for so post_dispatch can reconcile.
-		Ok((frame_system::Pallet::<Runtime>::event_count(), Self::count_transfers(call)))
+		// (and any events from previous txs in the same block). The transfer
+		// count comes from `validate()` so a stored `execute` proposal is not
+		// read and decoded a third time.
+		Ok((frame_system::Pallet::<Runtime>::event_count(), val))
 	}
 
 	fn validate(
 		&self,
 		origin: sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
-		_call: &RuntimeCall,
+		call: &RuntimeCall,
 		_info: &DispatchInfoOf<RuntimeCall>,
 		_len: usize,
 		_self_implicit: Self::Implicit,
 		_inherited_implication: &impl sp_runtime::traits::Implication,
 		_source: frame_support::pallet_prelude::TransactionSource,
 	) -> sp_runtime::traits::ValidateResult<Self::Val, RuntimeCall> {
-		Ok((ValidTransaction::default(), (), origin))
+		Ok((ValidTransaction::default(), Self::count_transfers(call), origin))
 	}
 
 	fn post_dispatch_details(
@@ -697,11 +752,12 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		let (event_count_before, charged_transfers) = pre;
 
 		// A failed dispatch rolled back its events: nothing is scanned and nothing is
-		// recorded, so the entire static per-transfer reservation is unspent. Returning
-		// it refunds both the fee (this extension precedes
-		// `ChargeTransactionPayment` in `TxExtension`, so payment sees
-		// the corrected weight) and block capacity
-		// (via the trailing `WeightReclaim`).
+		// recorded, so the static per-transfer reservation is unspent. Returning it
+		// refunds both the fee (this extension precedes `ChargeTransactionPayment`
+		// in `TxExtension`, so payment sees the corrected weight) and block
+		// capacity (via the trailing `WeightReclaim`). The execute proposal-walk
+		// reservation is not returned: that work already ran in `weight()` /
+		// `validate()`, including on the non-signer reject path.
 		if result.is_err() {
 			return Ok(Self::per_transfer_weight().saturating_mul(charged_transfers));
 		}
@@ -721,11 +777,11 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		//    `remark_with_event`), and the decode cost is per record AND per byte present at scan
 		//    time — see `event_scan_weight`.
 		//
-		// 2. Recording shortfall: wrappers that dispatch inner calls stored on-chain
-		//    (`Multisig::execute`, `ReversibleTransfers::recover_funds`, ...) can emit transfer
-		//    events the static `count_transfers` matcher cannot see, so the proof-recording work
-		//    above may exceed the weight reserved by `weight()`. The flat per-transfer price times
-		//    the count difference covers it.
+		// 2. Recording shortfall: a stored inner call that is denser than the static bound, or a
+		//    new opaque wrapper, can still emit more transfer events than `weight()` reserved. The
+		//    flat per-transfer price times the count difference covers the block. `recover_funds`
+		//    is charged its worst case up front, and `Multisig::execute` walks the stored call, so
+		//    they refund rather than shortfall on the honest path.
 		//
 		// "Post-hoc and not fee-charged" is a deliberate, accepted trade-off, not an
 		// oversight (security review 2026-08):
@@ -759,11 +815,13 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 
 		// The converse of the shortfall: `weight()` reserves the worst case, and any
 		// statically over-charged transfers are unspent — `recover_funds` is charged
-		// `MaxPendingPerAccount + 1` regardless of how many holds were pending, and a
-		// `batch_all` that fails after some children still reserved weight for every
-		// child in the submitted call. The per-transfer price is flat, so the unspent amount is
-		// exactly the count difference times that price (and by construction never exceeds
-		// this extension's declared weight).
+		// `MaxPendingPerAccount + 1` regardless of how many holds were pending,
+		// `Multisig::execute` walks the stored call (so a one-transfer proposal is
+		// charged one, not a packed-blob guess), and a `batch_all` that fails after
+		// some children still reserved weight for every child in the submitted call.
+		// The per-transfer price is flat, so the unspent amount is exactly the count
+		// difference times that price (and by construction never exceeds this
+		// extension's declared weight).
 		Ok(Self::per_transfer_weight().saturating_mul(charged_transfers.saturating_sub(recorded)))
 	}
 }
@@ -783,6 +841,38 @@ mod tests {
 	}
 	fn charlie() -> AccountId {
 		AccountId32::from([3; 32])
+	}
+	fn dave() -> AccountId {
+		AccountId32::from([4; 32])
+	}
+
+	fn funded_threshold1_multisig() -> AccountId {
+		let signers = vec![alice(), bob()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			1,
+			0,
+		));
+		let multisig_address =
+			pallet_multisig::Pallet::<Runtime>::derive_multisig_address(&signers, 1, 0);
+		assert_ok!(Balances::transfer_keep_alive(
+			RuntimeOrigin::signed(alice()),
+			MultiAddress::Id(multisig_address.clone()),
+			EXISTENTIAL_DEPOSIT * 1000,
+		));
+		multisig_address
+	}
+
+	fn propose_inner(multisig_address: &AccountId, inner: RuntimeCall) {
+		let encoded: pallet_multisig::BoundedCallOf<Runtime> =
+			inner.encode().try_into().expect("test inner call fits MaxCallSize");
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			encoded,
+			System::block_number() + 100,
+		));
 	}
 
 	// Build genesis storage according to the mock runtime.
@@ -1541,6 +1631,199 @@ mod tests {
 	}
 
 	#[test]
+	fn wormhole_proof_recorder_execute_without_proposal_still_reserves_the_walk() {
+		new_test_ext().execute_with(|| {
+			let ext = WormholeProofRecorderExtension::<Runtime>::new();
+			let call = RuntimeCall::Multisig(pallet_multisig::Call::execute {
+				multisig_address: alice(),
+				proposal_id: 0,
+			});
+			assert_eq!(
+				WormholeProofRecorderExtension::<Runtime>::count_transfers(&call),
+				0,
+				"execute with no stored proposal must not reserve a packed-blob guess"
+			);
+			assert_eq!(
+				<WormholeProofRecorderExtension<Runtime> as TransactionExtension<RuntimeCall>>::weight(
+					&ext,
+					&call
+				),
+				WormholeProofRecorderExtension::<Runtime>::execute_proposal_walk_weight()
+					.saturating_mul(2),
+				"a missing proposal still pays for the two proposal walks"
+			);
+		});
+	}
+
+	/// A 10 KiB no-transfer proposal plus a non-signer execute used to reserve
+	/// zero extension weight, then refund that zero after the pallet rejected
+	/// on the `Multisigs` read. The two proposal walks must stay charged.
+	#[test]
+	fn multisig_execute_failed_non_signer_keeps_proposal_walk_weight() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let multisig_address = funded_threshold1_multisig();
+			let inner =
+				RuntimeCall::System(frame_system::Call::remark { remark: vec![0u8; 8 * 1024] });
+			propose_inner(&multisig_address, inner);
+
+			let execute = RuntimeCall::Multisig(pallet_multisig::Call::execute {
+				multisig_address: multisig_address.clone(),
+				proposal_id: 0,
+			});
+			assert_eq!(
+				WormholeProofRecorderExtension::<Runtime>::count_transfers(&execute),
+				0,
+				"a remark proposal records no proofs"
+			);
+			let walk = WormholeProofRecorderExtension::<Runtime>::execute_proposal_walk_weight()
+				.saturating_mul(2);
+			let (info, post_info) = run_lifecycle_with_result(
+				&charlie(),
+				execute,
+				Err(sp_runtime::DispatchError::BadOrigin),
+				|| {
+					assert!(
+						Multisig::execute(RuntimeOrigin::signed(charlie()), multisig_address, 0,)
+							.is_err(),
+						"charlie is not a signer"
+					);
+				},
+			);
+			assert_eq!(info.extension_weight, walk);
+			assert_eq!(
+				post_info.actual_weight,
+				Some(info.total_weight()),
+				"failed execute must not refund the proposal-walk reservation"
+			);
+		});
+	}
+
+	/// A one-transfer stored call is charged exactly one transfer plus the
+	/// proposal walks; there is no packed-blob over-reservation left to refund.
+	#[test]
+	fn multisig_execute_charges_the_stored_inner_call() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let multisig_address = funded_threshold1_multisig();
+			propose_inner(
+				&multisig_address,
+				RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+					dest: MultiAddress::Id(charlie()),
+					value: EXISTENTIAL_DEPOSIT * 100,
+				}),
+			);
+
+			let execute = RuntimeCall::Multisig(pallet_multisig::Call::execute {
+				multisig_address: multisig_address.clone(),
+				proposal_id: 0,
+			});
+			assert_eq!(
+				WormholeProofRecorderExtension::<Runtime>::count_transfers(&execute),
+				1,
+				"execute must walk the stored transfer, not charge a MaxCallSize guess"
+			);
+
+			let (info, post_info) = run_lifecycle_with_result(&alice(), execute, Ok(()), || {
+				assert_ok!(Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address, 0,));
+			});
+
+			assert_eq!(Wormhole::transfer_count(&charlie()), 1);
+			let walk = WormholeProofRecorderExtension::<Runtime>::execute_proposal_walk_weight()
+				.saturating_mul(2);
+			assert_eq!(
+				info.extension_weight,
+				walk.saturating_add(
+					WormholeProofRecorderExtension::<Runtime>::per_transfer_weight()
+				),
+				"execute reserves the proposal walks plus the one stored transfer"
+			);
+			assert_eq!(
+				post_info.actual_weight,
+				Some(info.total_weight()),
+				"a one-transfer stored call has no unused recorder reservation"
+			);
+		});
+	}
+
+	/// The old `MaxCallSize / 36` execute bound under-counted a stored
+	/// `batch_all` of `recover_funds` (17 credits in 34 bytes) plus transfers.
+	/// Walking the stored call must charge the composition so recorded <= charged.
+	#[test]
+	fn multisig_execute_mixed_recover_funds_and_transfers_records_at_most_charged() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let multisig_address = funded_threshold1_multisig();
+			assert_ok!(Balances::transfer_keep_alive(
+				RuntimeOrigin::signed(alice()),
+				MultiAddress::Id(dave()),
+				EXISTENTIAL_DEPOSIT * 200,
+			));
+			assert_ok!(ReversibleTransfers::set_high_security(
+				RuntimeOrigin::signed(dave()),
+				qp_scheduler::BlockNumberOrTimestamp::BlockNumber(10),
+				multisig_address.clone(),
+			));
+
+			let pending = 3u64;
+			for _ in 0..pending {
+				assert_ok!(ReversibleTransfers::schedule_transfer(
+					RuntimeOrigin::signed(dave()),
+					MultiAddress::Id(bob()),
+					EXISTENTIAL_DEPOSIT * 10,
+				));
+			}
+
+			let extra_transfers = 2u64;
+			let mut calls = vec![RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::recover_funds { account: dave() },
+			)];
+			for _ in 0..extra_transfers {
+				calls.push(RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+					dest: MultiAddress::Id(bob()),
+					value: 1,
+				}));
+			}
+			propose_inner(
+				&multisig_address,
+				RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }),
+			);
+
+			let execute = RuntimeCall::Multisig(pallet_multisig::Call::execute {
+				multisig_address: multisig_address.clone(),
+				proposal_id: 0,
+			});
+			let max_pending = u64::from(
+				<Runtime as pallet_reversible_transfers::Config>::MaxPendingPerAccount::get(),
+			);
+			let charged = WormholeProofRecorderExtension::<Runtime>::count_transfers(&execute);
+			assert_eq!(
+				charged,
+				max_pending + 1 + extra_transfers,
+				"execute must walk recover_funds plus every stored transfer"
+			);
+
+			let leaves_before = ZkTree::leaf_count();
+			run_lifecycle_with_result(&alice(), execute, Ok(()), || {
+				assert_ok!(Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address, 0,));
+			});
+			let recorded = ZkTree::leaf_count().saturating_sub(leaves_before);
+			assert_eq!(
+				recorded,
+				pending + 1 + extra_transfers,
+				"maxed-hold recover plus the extra transfers must each create a leaf"
+			);
+			assert!(
+				recorded <= charged,
+				"mixed recover_funds + transfers must not record more proofs than charged"
+			);
+		});
+	}
+
+	#[test]
 	fn wormhole_proof_recorder_counts_recover_funds_at_worst_case() {
 		new_test_ext().execute_with(|| {
 			// `recover_funds` seizes every pending hold to the guardian (one `TransferOnHold`
@@ -1703,9 +1986,9 @@ mod tests {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
 
-			// The presented call is opaque to the static matcher (like `Multisig::execute`,
-			// whose inner call lives on-chain), but the dispatch emits a real transfer
-			// event that post_dispatch must record.
+			// The presented call is opaque to the static matcher (a `remark` has no
+			// transfer children), but the dispatch emits a real transfer event that
+			// post_dispatch must record.
 			let opaque_call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
 			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&opaque_call), 0);
 
@@ -2099,7 +2382,8 @@ mod tests {
 			let origin = RuntimeOrigin::signed(alice());
 
 			// Prepare should succeed and return current event count
-			let result = ext.prepare((), &origin, &call, &Default::default(), 0);
+			let charged = WormholeProofRecorderExtension::<Runtime>::count_transfers(&call);
+			let result = ext.prepare(charged, &origin, &call, &Default::default(), 0);
 			assert_ok!(result);
 		});
 	}
