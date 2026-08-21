@@ -32,7 +32,7 @@ mod wormhole_tests {
 		assert_ok,
 		traits::{
 			fungible::{Inspect, Mutate, Unbalanced},
-			Currency,
+			Currency, ReservableCurrency,
 		},
 	};
 	use sp_core::crypto::AccountId32;
@@ -570,9 +570,9 @@ mod wormhole_tests {
 	// =========================================================================
 	//
 	// There is no separate wormhole endowment list at genesis: `on_initialize(1)` derives
-	// a transfer proof from every account that exists with a balance. An exitable leaf
-	// that isn't backed by actually-issued value is therefore unrepresentable — the leaf
-	// amount IS the genesis balance.
+	// a transfer proof from every account that exists with a free balance. An exitable
+	// leaf that isn't backed by spendable issuance is therefore unrepresentable — the
+	// leaf amount IS the genesis free balance. Reserved funds are omitted.
 
 	#[test]
 	fn genesis_proofs_derive_from_balances() {
@@ -592,6 +592,44 @@ mod wormhole_tests {
 				assert_eq!(Wormhole::transfer_count(&addr1), 1);
 				assert_eq!(Wormhole::transfer_count(&addr2), 1);
 			});
+	}
+
+	/// Reserved genesis funds must not become an exitable leaf: an exit mints
+	/// free balance without consuming the reserve, so `total_balance` would
+	/// turn a lock into a second spendable copy.
+	#[test]
+	fn genesis_leaf_excludes_reserved_balance() {
+		use frame_support::traits::Hooks;
+
+		let who = account_id(100);
+		let free = 15 * UNIT;
+		let reserved = 5 * UNIT;
+
+		new_test_ext_with_endowments(vec![(who.clone(), free + reserved)]).execute_with(|| {
+			assert_ok!(<Balances as ReservableCurrency<AccountId>>::reserve(&who, reserved));
+			assert_eq!(<Balances as Currency<AccountId>>::free_balance(&who), free);
+			assert_eq!(<Balances as Currency<AccountId>>::total_balance(&who), free + reserved);
+
+			System::set_block_number(1);
+			Wormhole::on_initialize(1);
+
+			assert_eq!(
+				<Balances as ReservableCurrency<AccountId>>::reserved_balance(&who),
+				reserved,
+				"the reserve must still sit on the original account"
+			);
+			assert_exitable_native_leaf(&who, free);
+			System::assert_last_event(
+				crate::Event::<Test>::NativeTransferred {
+					from: MINTING_ACCOUNT,
+					to: who,
+					amount: free,
+					transfer_count: 0,
+					leaf_index: 0,
+				}
+				.into(),
+			);
+		});
 	}
 
 	// =========================================================================

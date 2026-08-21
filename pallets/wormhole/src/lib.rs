@@ -454,13 +454,15 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		/// On block 1, record a transfer proof for every account that exists with a
-		/// balance — i.e. exactly the genesis balances.
+		/// free balance — i.e. exactly the spendable genesis endowments.
 		///
 		/// The genesis state is the single source of truth: proofs are *derived* from the
-		/// balances actually issued (there is no separate endowment list that could
+		/// free balances actually issued (there is no separate endowment list that could
 		/// disagree with them), so an exitable leaf that isn't backed by real issuance is
-		/// unrepresentable. This runs before any extrinsic has ever executed, so the
-		/// account set observed here is precisely the genesis set.
+		/// unrepresentable. Reserved funds are omitted: an exit mints free balance and
+		/// does not consume the source reserve, so including them would turn a lock into
+		/// a second, spendable copy. This runs before any extrinsic has ever executed, so
+		/// the account set observed here is precisely the genesis set.
 		///
 		/// We do this at block 1 rather than in a genesis build because events emitted
 		/// during genesis are not persisted (Substrate limitation); recording here emits
@@ -477,7 +479,7 @@ pub mod pallet {
 
 			for who in frame_system::Account::<T>::iter_keys() {
 				accounts_seen = accounts_seen.saturating_add(1);
-				let amount = <T::Currency as Currency<_>>::total_balance(&who);
+				let amount = <T::Currency as Currency<_>>::free_balance(&who);
 				if amount.is_zero() {
 					continue;
 				}

@@ -135,8 +135,8 @@ pub fn new_test_ext() -> sp_state_machine::TestExternalities<BlakeTwo256> {
 
 /// Build test externalities with genesis balance endowments.
 ///
-/// TransferProofs are *derived* from these balances in `on_initialize` at block 1 (the
-/// wormhole pallet records a proof for every account existing with a balance), enabling
+/// TransferProofs are *derived* from these free balances in `on_initialize` at block 1
+/// (the wormhole pallet records a proof for every account with a free balance), enabling
 /// each address to spend via ZK proofs. Tests should call `System::set_block_number(1)`
 /// and then trigger `Wormhole::on_initialize(1)` to process them.
 pub fn new_test_ext_with_endowments(
