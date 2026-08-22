@@ -64,18 +64,22 @@ impl_opaque_keys! {
 	}
 }
 
-// To learn more about runtime versioning, see:
-// https://docs.substrate.io/main-docs/build/upgrade#runtime-versioning
+// Runtime versioning: https://docs.substrate.io/main-docs/build/upgrade#runtime-versioning
+//
+// Do not increment `spec_version` (or `runtime/Cargo.toml`) in feature PRs.
+// The Quantus - Release Proposal workflow does that when `is_runtime_upgrade`
+// is set, and ships the matching node binary + wasm together. Native execution
+// substitutes for on-chain Wasm only when spec_name, spec_version, and
+// authoring_version all match, so leaving this number alone on main does not
+// activate a new verifier on a live chain. See docs/RUNTIME_UPDATE.md.
+//
+// Bump `transaction_version` only when the signed extrinsic encoding changes
+// (TxExtension set or payload layout) — not for verifier-rule changes.
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: alloc::borrow::Cow::Borrowed("quantus-runtime"),
 	impl_name: alloc::borrow::Cow::Borrowed("quantus-runtime"),
 	authoring_version: 1,
-	// The version of the runtime specification. A full node will not attempt to use its native
-	//   runtime in substitute for the on-chain Wasm runtime unless all of `spec_name`,
-	//   `spec_version`, and `authoring_version` are the same between Wasm and native.
-	// This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
-	//   the compatible custom types.
 	spec_version: 147,
 	impl_version: 1,
 	apis: apis::RUNTIME_API_VERSIONS,

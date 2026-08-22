@@ -15,6 +15,27 @@ See also: [`RUNTIME_UPGRADE_VIA_GOVERNANCE.md`](./RUNTIME_UPGRADE_VIA_GOVERNANCE
 generic single-network procedure) and [`RUNTIME_SURFACE.md`](./RUNTIME_SURFACE.md) (why
 sudo is gone and how the Tech track is configured).
 
+## Version numbers
+
+Do **not** increment `spec_version` or the crate version in `runtime/Cargo.toml`
+in feature or security PRs. A consensus-critical change (new verifier rules,
+changed weights, new dispatchables) still merges at the current
+`spec_version`. Reviewers asking for a bump on that PR: the bump is not
+missing.
+
+- **`spec_version`** is incremented by the **Quantus - Release Proposal**
+  workflow (`.github/workflows/quantus-release-proposal.yml`) when
+  `is_runtime_upgrade` is set. That PR updates `VERSION` in
+  `runtime/src/lib.rs` and `runtime/Cargo.toml`, and is the binary + wasm
+  that get released together. A node uses its native runtime only when
+  `spec_name`, `spec_version`, and `authoring_version` all match the
+  on-chain Wasm, so a `main` binary with an unreleased verifier does not
+  silently replace the live runtime.
+- **`transaction_version`** is not touched by CI. Bump it only when the
+  *signed extrinsic encoding* changes (the `TxExtension` set or payload
+  layout). A change to how signatures are produced or verified does not
+  require it.
+
 ---
 
 ## TL;DR
