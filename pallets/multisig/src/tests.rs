@@ -247,50 +247,29 @@ fn create_multisig_fails_with_threshold_too_high() {
 }
 
 #[test]
-fn create_multisig_deduplicates_signers() {
+fn create_multisig_rejects_duplicate_signers() {
 	new_test_ext().execute_with(|| {
-		System::set_block_number(1);
 		let creator = alice();
-		let signers = vec![bob(), bob(), charlie()]; // Bob twice
+		let signers = vec![bob(), bob(), charlie()];
 		let threshold = 2;
 
-		// Should succeed - duplicates are silently removed
-		assert_ok!(Multisig::create_multisig(
-			RuntimeOrigin::signed(creator.clone()),
-			signers,
-			threshold,
-			0
-		));
-
-		// The multisig should have only 2 unique signers (bob, charlie)
-		let normalized_signers = vec![bob(), charlie()];
-		let mut sorted = normalized_signers.clone();
-		sorted.sort();
-		let multisig_address = Multisig::derive_multisig_address(&sorted, threshold, 0);
-
-		let multisig_data = Multisigs::<Test>::get(&multisig_address).unwrap();
-		assert_eq!(multisig_data.signers.len(), 2);
+		assert_noop!(
+			Multisig::create_multisig(RuntimeOrigin::signed(creator), signers, threshold, 0),
+			Error::<Test>::DuplicateSigners
+		);
 	});
 }
 
-/// Regression test: raw signer input is bounded BEFORE deduplication to prevent DoS.
-/// An attacker could submit a huge duplicate-heavy vector that would dedup to ≤ MaxSigners,
-/// but the sort/dedup cost is O(n log n) on the raw length. We reject oversized raw inputs
-/// even if they would normalize to a valid count.
 #[test]
-fn create_multisig_rejects_oversized_raw_input_even_if_would_dedup_to_valid() {
+fn create_multisig_rejects_oversized_raw_input() {
 	new_test_ext().execute_with(|| {
-		System::set_block_number(1);
 		let creator = alice();
 
-		// MaxSigners is 10 in mock. Create 11 signers that would dedup to just 2.
-		// Old behavior: would accept (dedup first, then check).
-		// New behavior: rejects immediately (check raw length first).
+		// MaxSigners is 10 in mock. Reject before sort so a huge vector cannot inflate work.
 		let signers =
-			vec![bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), charlie()]; // 11 elements, but only 2 unique
+			vec![bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), charlie()];
 		assert_eq!(signers.len(), 11);
 
-		// Should fail with TooManySigners even though dedup would yield only 2
 		assert_noop!(
 			Multisig::create_multisig(RuntimeOrigin::signed(creator), signers, 2, 0),
 			Error::<Test>::TooManySigners

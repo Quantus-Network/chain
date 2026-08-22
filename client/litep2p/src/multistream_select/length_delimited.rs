@@ -29,15 +29,21 @@ use std::{
 
 const MAX_LEN_BYTES: u16 = 2;
 const MAX_FRAME_SIZE: u16 = (1 << (MAX_LEN_BYTES * 8 - MAX_LEN_BYTES)) - 1;
+/// Inbound negotiation frames are protocol names and short control lines
+/// (`/multistream/1.0.0`, `na`, `ls`). 1 KiB is far above any name this
+/// node speaks; the 16 KiB varint width is not a useful read budget.
+const MAX_NEGOTIATION_FRAME: u16 = 1024;
 const DEFAULT_BUFFER_SIZE: usize = 64;
 const LOG_TARGET: &str = "litep2p::multistream-select";
 
 /// A `Stream` and `Sink` for unsigned-varint length-delimited frames,
 /// wrapping an underlying `AsyncRead + AsyncWrite` I/O resource.
 ///
-/// We purposely only support a frame sizes up to 16KiB (2 bytes unsigned varint
-/// frame length). Frames mostly consist in a short protocol name, which is highly
-/// unlikely to be more than 16KiB long.
+/// The unsigned-varint length prefix is at most two bytes (16 KiB), but
+/// inbound frames are rejected above 1 KiB so a peer cannot force a 16 KiB
+/// resident buffer during unauthenticated multistream-select. Outbound
+/// frames still use the varint width so an `ls` reply listing local
+/// protocols is not truncated.
 #[pin_project::pin_project]
 #[derive(Debug)]
 pub struct LengthDelimited<R> {
@@ -168,6 +174,19 @@ where
 							tracing::debug!(target: LOG_TARGET, "invalid length prefix: {}", e);
 							io::Error::new(io::ErrorKind::InvalidData, "invalid length prefix")
 						})?;
+
+						if len > MAX_NEGOTIATION_FRAME {
+							tracing::debug!(
+								target: LOG_TARGET,
+								len,
+								max = MAX_NEGOTIATION_FRAME,
+								"rejecting negotiation frame outside protocol maximum"
+							);
+							return Poll::Ready(Some(Err(io::Error::new(
+								io::ErrorKind::InvalidData,
+								"Maximum frame length exceeded",
+							))));
+						}
 
 						if len >= 1 {
 							*this.read_state = ReadState::ReadData { len, pos: 0 };
@@ -368,5 +387,58 @@ where
 		debug_assert!(this.write_buffer.is_empty());
 
 		this.project().inner.poll_write_vectored(cx, bufs)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use futures::StreamExt;
+
+	fn encode_len(len: u16) -> Vec<u8> {
+		let mut buf = unsigned_varint::encode::u16_buffer();
+		unsigned_varint::encode::u16(len, &mut buf).to_vec()
+	}
+
+	async fn read_one(data: Vec<u8>) -> io::Result<Bytes> {
+		let mut framed = LengthDelimited::new(futures::io::Cursor::new(data));
+		framed
+			.next()
+			.await
+			.transpose()?
+			.ok_or_else(|| io::ErrorKind::UnexpectedEof.into())
+	}
+
+	#[tokio::test]
+	async fn accepts_protocol_name_frame() {
+		let payload = b"/noise\n";
+		let mut data = encode_len(payload.len() as u16);
+		data.extend_from_slice(payload);
+		let frame = read_one(data).await.expect("protocol name frame");
+		assert_eq!(&frame[..], payload);
+	}
+
+	#[tokio::test]
+	async fn accepts_frame_at_negotiation_cap() {
+		let payload = vec![b'x'; MAX_NEGOTIATION_FRAME as usize];
+		let mut data = encode_len(MAX_NEGOTIATION_FRAME);
+		data.extend_from_slice(&payload);
+		let frame = read_one(data).await.expect("capped frame");
+		assert_eq!(frame.len(), MAX_NEGOTIATION_FRAME as usize);
+	}
+
+	#[tokio::test]
+	async fn rejects_declared_length_above_negotiation_cap() {
+		let err = read_one(encode_len(MAX_NEGOTIATION_FRAME + 1))
+			.await
+			.expect_err("length above cap");
+		assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+	}
+
+	#[tokio::test]
+	async fn rejects_legacy_max_frame_declaration() {
+		// `\xff\x7f` is the unsigned-varint for 16383, the previous read budget.
+		let err = read_one(vec![0xff, 0x7f]).await.expect_err("16 KiB declaration");
+		assert_eq!(err.kind(), io::ErrorKind::InvalidData);
 	}
 }
