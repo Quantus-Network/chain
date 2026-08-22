@@ -226,8 +226,6 @@ pub mod pallet {
 		/// Paying now would leave a remainder below the minimum payout; wait until the
 		/// entire remainder has vested.
 		ClaimWouldLeaveDust,
-		/// Ending now would emit a non-zero beneficiary payout below the minimum.
-		PayoutBelowMinimum,
 		/// The treasury account is not configured or aliases the vesting pot.
 		TreasuryNotConfigured,
 		/// The pot does not hold its existential-deposit buffer; endow it first.
@@ -407,24 +405,27 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// End a schedule early: the still-unpaid vested part (rounded down to a
-		/// [`Config::PayoutQuantum`] multiple) goes to the beneficiary, everything else
-		/// this schedule still holds — the unvested remainder plus any sub-quantum
-		/// vested dust — returns to the treasury, and the schedule is removed. The
-		/// treasury is signature-controlled and needs no wormhole leaf, so dust is safe
-		/// there but would be stranded on a keyless beneficiary. A non-zero beneficiary
-		/// payout below [`Config::MinimumPayout`] is rejected without ending the schedule.
+		/// End a schedule early: the still-unpaid vested part (rounded to the nearest
+		/// [`Config::PayoutQuantum`]) goes to the beneficiary if it meets
+		/// [`Config::MinimumPayout`]; otherwise that sliver is refunded with the
+		/// unvested remainder. The treasury is signature-controlled and needs no
+		/// wormhole leaf, so the refund is not quantized and never blocks ending.
 		#[pallet::call_index(2)]
 		#[pallet::weight(T::WeightInfo::end_schedule())]
 		pub fn end_schedule(origin: OriginFor<T>, schedule_id: u64) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 			let (treasury, pot) = Self::treasury_and_pot()?;
 			let schedule = Schedules::<T>::get(schedule_id).ok_or(Error::<T>::NoSchedule)?;
-			let (remaining, vested_paid) = Self::unpaid_amounts(&schedule, T::TimeProvider::now())?;
-			ensure!(
-				vested_paid.is_zero() || vested_paid >= T::MinimumPayout::get(),
-				Error::<T>::PayoutBelowMinimum
-			);
+			let (remaining, owed) = Self::outstanding(&schedule, T::TimeProvider::now())?;
+			let quantum = T::PayoutQuantum::get();
+			// Nearest multiple: align `owed + quantum/2`. Halves round up. Below
+			// MinimumPayout the amount cannot exit a keyless address, so it rides
+			// to the treasury with the unvested remainder.
+			let rounded =
+				Self::align(owed.saturating_add(quantum / 2u32.saturated_into()), quantum)
+					.min(remaining);
+			let vested_paid =
+				if rounded < T::MinimumPayout::get() { Zero::zero() } else { rounded };
 			let unvested_returned =
 				remaining.checked_sub(&vested_paid).ok_or(ArithmeticError::Underflow)?;
 			if !vested_paid.is_zero() {
@@ -521,10 +522,8 @@ pub mod pallet {
 				(total % T::PayoutQuantum::get()).is_zero()
 		}
 
-		/// The shared arithmetic behind every payout policy (`claim_plan` and
-		/// `end_schedule`): the total remaining obligation and the quantized
-		/// vested-but-unpaid amount.
-		fn unpaid_amounts(
+		/// Remaining obligation and vested-but-unpaid amount, before alignment.
+		fn outstanding(
 			schedule: &VestingScheduleOf<T>,
 			now: Moment,
 		) -> Result<(BalanceOf<T>, BalanceOf<T>), ArithmeticError> {
@@ -535,49 +534,43 @@ pub mod pallet {
 			let owed = Self::vested_amount(schedule, now)
 				.checked_sub(&schedule.claimed)
 				.ok_or(ArithmeticError::Underflow)?;
-			Ok((remaining, Self::quantize_down(owed)))
+			Ok((remaining, owed))
 		}
 
-		/// The largest payout that keeps the surviving schedule's remainder valid
-		/// (zero, or at least one minimum payout): the exact remainder once it has
-		/// fully vested, otherwise capped to reserve a minimum-sized final payout.
-		/// `remaining`, `candidate`, and the minimum are all quantum-aligned, so the
-		/// result stays aligned.
-		fn reserving_cap(remaining: BalanceOf<T>, candidate: BalanceOf<T>) -> BalanceOf<T> {
-			if candidate == remaining {
-				candidate
-			} else {
-				candidate.min(remaining.saturating_sub(T::MinimumPayout::get()))
-			}
+		/// Floor `amount` to a multiple of `quantum`.
+		fn align(amount: BalanceOf<T>, quantum: BalanceOf<T>) -> BalanceOf<T> {
+			amount.saturating_sub(amount % quantum)
 		}
 
 		fn claim_plan(
 			schedule: &VestingScheduleOf<T>,
 			now: Moment,
 		) -> Result<ClaimPlan<BalanceOf<T>>, ArithmeticError> {
-			let (remaining, candidate) = Self::unpaid_amounts(schedule, now)?;
+			let (remaining, owed) = Self::outstanding(schedule, now)?;
+			let quantum = T::PayoutQuantum::get();
 			let minimum = T::MinimumPayout::get();
-			// Checked before the dust-reservation guard: with nothing claimable
-			// accrued, the answer is NothingToClaim even on a schedule whose
-			// remainder is too small to ever support a non-final payout.
+			let candidate = Self::align(owed, quantum);
+			// Nothing claimable yet: NothingToClaim even if the remainder could
+			// never support a non-final payout.
 			if candidate < minimum {
 				return Ok(ClaimPlan::NothingToClaim);
 			}
-			let reserved = Self::reserving_cap(remaining, candidate);
-			// A claim-worthy amount accrued, but the reservation pushes the payout
-			// below the minimum: hold everything until the entire remainder vests.
+			let reserved = if candidate == remaining {
+				candidate
+			} else {
+				candidate.min(remaining.saturating_sub(minimum))
+			};
 			if reserved < minimum {
 				return Ok(ClaimPlan::WouldLeaveDust);
 			}
-			// The final payout is the exact remainder; non-final payouts align down
-			// to the fee-exact quantum.
 			let payable = if reserved == remaining {
 				reserved
 			} else {
-				Self::quantize_down_to(reserved, Self::non_final_payout_quantum())
+				Self::align(
+					reserved,
+					quantum.saturating_mul(NON_FINAL_PAYOUT_QUANTA.saturated_into()),
+				)
 			};
-			// The fee alignment can round a valid payout below the minimum; hold
-			// until a full aligned payout has accrued.
 			if payable < minimum {
 				return Ok(ClaimPlan::NothingToClaim);
 			}
@@ -588,19 +581,6 @@ pub mod pallet {
 				}
 			}
 			Ok(ClaimPlan::Pay(payable))
-		}
-
-		fn non_final_payout_quantum() -> BalanceOf<T> {
-			T::PayoutQuantum::get().saturating_mul(NON_FINAL_PAYOUT_QUANTA.saturated_into())
-		}
-
-		/// Round down to a multiple of the payout quantum.
-		fn quantize_down(amount: BalanceOf<T>) -> BalanceOf<T> {
-			Self::quantize_down_to(amount, T::PayoutQuantum::get())
-		}
-
-		fn quantize_down_to(amount: BalanceOf<T>, quantum: BalanceOf<T>) -> BalanceOf<T> {
-			amount.saturating_sub(amount % quantum)
 		}
 
 		/// Pay `amount` to the schedule's beneficiary and advance the schedule to match:

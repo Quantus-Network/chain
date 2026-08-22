@@ -110,6 +110,33 @@ mod tests {
 	}
 
 	#[test]
+	fn end_schedule_does_not_record_a_one_quantum_leaf() {
+		new_test_ext(Some(account(4))).execute_with(|| {
+			let treasury = account(4);
+			let beneficiary = account(9);
+			Balances::make_free_balance_be(&treasury, 1000 * UNIT);
+			let total = 100 * UNIT;
+			let quantum = VestingPayoutQuantum::get();
+			assert_ok!(Vesting::create_schedule(
+				RuntimeOrigin::root(),
+				beneficiary.clone(),
+				0,
+				0,
+				END_MS,
+				total,
+			));
+			// One quantum vested — nearest is one quantum, below MinimumPayout.
+			set_time((END_MS as u128 * quantum / total) as u64);
+			let leaves_before = Wormhole::transfer_count(&beneficiary);
+			assert_ok!(Vesting::end_schedule(RuntimeOrigin::root(), 0));
+			assert_eq!(Balances::total_balance(&beneficiary), 0);
+			assert_eq!(Wormhole::transfer_count(&beneficiary), leaves_before);
+			assert_eq!(Balances::total_balance(&treasury), 1000 * UNIT);
+			assert_eq!(max_exitable_from_recorded_leaves(&beneficiary), (0, 0));
+		});
+	}
+
+	#[test]
 	fn treasury_multisig_creates_and_ends_schedules() {
 		new_test_ext(Some(treasury_multisig())).execute_with(|| {
 			let treasury = treasury_multisig();
