@@ -543,15 +543,31 @@ pub fn seed_tech_collective(members: &[AccountId]) -> Result<(), String> {
 	Ok(())
 }
 
+/// Balance each Planck treasury signer is seeded with: one multisig creation plus
+/// the first proposal at the configured (`FEE_SCALE`-scaled) prices — `MultisigFee`
+/// and the proposal fee burned, `ProposalDeposit` reserved — plus the transient
+/// `MaxInnerCallWeight` inclusion-fee prepay `propose` declares (refunded
+/// post-dispatch, but free balance must cover it at inclusion), the existential
+/// deposit, and scaled headroom for base/length fees. Derived so turning the fee
+/// dial cannot strand treasury bootstrap.
+pub fn treasury_signer_seed(signers_count: u32) -> crate::Balance {
+	use crate::configs::{MaxInnerCallWeight, MultisigFee, ProposalDeposit, ScaledIdentityFee};
+	use frame_support::weights::WeightToFee;
+	MultisigFee::get() +
+		Multisig::<crate::Runtime>::proposal_fee(signers_count) +
+		ProposalDeposit::get() +
+		ScaledIdentityFee::weight_to_fee(&MaxInnerCallWeight::get()) +
+		EXISTENTIAL_DEPOSIT +
+		crate::scale_fee(100 * crate::MILLI_UNIT)
+}
+
 pub fn planck_config_genesis() -> Value {
 	let treasury_signers = planck_treasury_signers();
 	let tech_collective = planck_tech_collective_seed();
 	let treasury_account = planck_treasury_account();
 	let endowed_accounts = vec![planck_faucet_account()];
-	// Each signer needs enough to create + propose on the treasury multisig once: MultisigFee
-	// (0.6) burned + ProposalFee (~1.03) burned + ProposalDeposit (1.0) reserved = ~2.63 UNIT,
-	// plus transaction fees and the existential deposit. 1 UNIT was insufficient.
-	let signer_fee_seed: Vec<_> = treasury_signers.iter().cloned().map(|a| (a, 3 * UNIT)).collect();
+	let seed = treasury_signer_seed(treasury_signers.len() as u32);
+	let signer_fee_seed: Vec<_> = treasury_signers.iter().cloned().map(|a| (a, seed)).collect();
 	log_genesis_accounts(
 		"planck",
 		&endowed_accounts,

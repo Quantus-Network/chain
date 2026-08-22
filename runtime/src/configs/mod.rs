@@ -39,8 +39,7 @@ use frame_support::{
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
-		IdentityFee, Weight, WeightToFeeCoefficient, WeightToFeeCoefficients,
-		WeightToFeePolynomial,
+		Weight, WeightToFeeCoefficient, WeightToFeeCoefficients, WeightToFeePolynomial,
 	},
 	PalletId,
 };
@@ -61,11 +60,11 @@ use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
-	AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
-	PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
+	scale_fee, AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash, Nonce,
+	OriginCaller, PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
 	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Wormhole, ZkTree,
-	DAYS, EXISTENTIAL_DEPOSIT, MAX_SUPPLY, MICRO_UNIT, MILLIS_PER_DAY, TARGET_BLOCK_TIME_MS, UNIT,
-	VERSION,
+	DAYS, EXISTENTIAL_DEPOSIT, FEE_SCALE_DEN, FEE_SCALE_NUM, MAX_SUPPLY, MICRO_UNIT,
+	MILLIS_PER_DAY, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
 use sp_core::U512;
 
@@ -248,7 +247,7 @@ parameter_types! {
 	// `unnote`. 64 KiB is ample for any tech-collective call.
 	pub const MaxReferendaProposalSize: u32 = 64 * 1024;
 	// Submission deposit for referenda
-	pub const ReferendumSubmissionDeposit: Balance = 100 * UNIT;
+	pub const ReferendumSubmissionDeposit: Balance = scale_fee(100 * UNIT);
 	// Undeciding timeout (45 days): a submitted referendum that is NOT in the track queue —
 	// e.g. one that never received a decision deposit — is rejected as TimedOut after this
 	// long. Referenda that ARE queued for deciding are exempt: the timeout check
@@ -369,7 +368,7 @@ impl pallet_scheduler::Config for Runtime {
 // Fee Structure:
 // - **Compute (ref_time):** 1 balance unit per unit of ref_time
 //   - 1 second of compute ≈ 1 UNIT (since WEIGHT_REF_TIME_PER_SECOND = 10^12)
-//   - Uses `IdentityFee<Balance>` for direct 1:1 mapping
+//   - Uses `ScaledIdentityFee`: direct 1:1 mapping × `FEE_SCALE`
 //
 // - **Extrinsic Length:** 1 UNIT per megabyte (LENGTH_FEE_MULTIPLIER = 10^6)
 //   - This brings storage/bandwidth costs in line with compute costs
@@ -461,12 +460,35 @@ impl WeightToFeePolynomial for LengthToFeeMultiplier {
 	type Balance = Balance;
 
 	fn polynomial() -> WeightToFeeCoefficients<Self::Balance> {
-		smallvec![WeightToFeeCoefficient {
-			degree: 1,
-			negative: false,
-			coeff_frac: Perbill::zero(),
-			coeff_integer: LENGTH_FEE_MULTIPLIER,
-		}]
+		smallvec![fee_scaled_coeff(LENGTH_FEE_MULTIPLIER)]
+	}
+}
+
+/// Degree-1 coefficient of `base × FEE_SCALE`, split into integer and fractional
+/// parts so fractional scales (`FEE_SCALE_DEN > 1`) keep precision.
+// modulo_one/identity_op fire only while FEE_SCALE is 1/1, where `% DEN` and
+// `/ DEN` constant-fold to no-ops; the split is load-bearing for any other DEN.
+#[allow(clippy::modulo_one, clippy::identity_op)]
+fn fee_scaled_coeff(base: Balance) -> WeightToFeeCoefficient<Balance> {
+	let num = base * FEE_SCALE_NUM;
+	WeightToFeeCoefficient {
+		degree: 1,
+		negative: false,
+		coeff_integer: num / FEE_SCALE_DEN,
+		coeff_frac: Perbill::from_rational(num % FEE_SCALE_DEN, FEE_SCALE_DEN),
+	}
+}
+
+/// `IdentityFee` (1 planck per ps of ref_time) scaled by `FEE_SCALE`. Applied by
+/// `pallet_transaction_payment` to both the base fee and the weight fee, so the
+/// dial moves them together.
+pub struct ScaledIdentityFee;
+
+impl WeightToFeePolynomial for ScaledIdentityFee {
+	type Balance = Balance;
+
+	fn polynomial() -> WeightToFeeCoefficients<Self::Balance> {
+		smallvec![fee_scaled_coeff(1)]
 	}
 }
 
@@ -481,9 +503,9 @@ impl pallet_transaction_payment::Config for Runtime {
 	// in the extension tuple so no `TxExtension` refactor can silently reopen
 	// the tip channel.
 	type OnChargeTransaction = crate::transaction_extensions::HighSecurityFungibleAdapter;
-	/// Converts compute weight (ref_time) to fee. Uses identity (1:1) mapping,
-	/// so 1 second of compute costs approximately 1 UNIT.
-	type WeightToFee = IdentityFee<Balance>;
+	/// Converts compute weight (ref_time) to fee. Identity (1:1) mapping scaled
+	/// by `FEE_SCALE`, so 1 second of compute costs approximately `FEE_SCALE` UNIT.
+	type WeightToFee = ScaledIdentityFee;
 	/// Converts extrinsic length to fee. Uses 10^6 multiplier so 1 MB costs ~1 UNIT,
 	/// bringing storage/bandwidth costs in line with compute costs.
 	type LengthToFee = LengthToFeeMultiplier;
@@ -538,7 +560,9 @@ pub const MAX_HIGH_SECURITY_EXTRINSIC_LEN: u32 = 10 * 1024;
 /// ~0.021 UNIT. 1 UNIT gives ~10x headroom for re-benchmarking drift and
 /// caps the worst-case drain at `MaxHighSecurityTxsPerWindow` UNIT per
 /// rolling day. Deterministic: `FeeMultiplierUpdate` is a constant one.
-pub const MAX_HIGH_SECURITY_INCLUSION_FEE: Balance = UNIT;
+/// Scaled by `FEE_SCALE` in lockstep with the fees it bounds, so the headroom
+/// is scale-invariant.
+pub const MAX_HIGH_SECURITY_INCLUSION_FEE: Balance = scale_fee(UNIT);
 
 impl pallet_reversible_transfers::Config for Runtime {
 	type AssetId = AssetId;
@@ -656,9 +680,9 @@ parameter_types! {
 	pub const MaxSigners: u32 = 100;
 	pub const MaxTotalProposalsInStorage: u32 = 200; // Max Active + Approved proposals per multisig
 	pub const MaxCallSize: u32 = 10240; // 10KB
-	pub const MultisigFee: Balance = 600 * MILLI_UNIT; // 0.6 UNIT (non-refundable, burned)
-	pub const ProposalDeposit: Balance = 1000 * MILLI_UNIT; // 1 UNIT (locked until cleanup)
-	pub const ProposalFee: Balance = 1000 * MILLI_UNIT; // 1 UNIT (non-refundable)
+	pub const MultisigFee: Balance = scale_fee(600 * MILLI_UNIT); // 0.6 UNIT (non-refundable, burned)
+	pub const ProposalDeposit: Balance = scale_fee(1000 * MILLI_UNIT); // 1 UNIT (locked until cleanup)
+	pub const ProposalFee: Balance = scale_fee(1000 * MILLI_UNIT); // 1 UNIT (non-refundable)
 	pub const SignerStepFactorParam: Permill = Permill::from_percent(1);
 	pub const MaxExpiryDuration: BlockNumber = 100_800; // ~2 weeks at 12s blocks (14 days * 24h * 60m * 60s / 12s)
 	// Maximum weight for inner calls executed via multisig.

@@ -635,17 +635,7 @@ pub mod pallet {
 				return Self::err_burn_full(Error::<T>::CallNotAllowedForHighSecurityMultisig);
 			}
 
-			// Calculate dynamic fee based on number of signers
-			// Fee = Base + floor(StepFactor * Base * SignerCount)
-			let base_fee = T::ProposalFee::get();
-			let step_factor = T::SignerStepFactor::get();
-
-			// Multiply base by signer count first, then apply step factor percentage.
-			// This avoids early floor truncation that would zero out small percentages.
-			// Example: base=99, factor=1%, signers=100 -> floor(1% * 9900) = 99
-			let multiplier = base_fee.saturating_mul(signers_count.into());
-			let total_increase = step_factor.mul_floor(multiplier);
-			let fee = base_fee.saturating_add(total_increase);
+			let fee = Self::proposal_fee(signers_count);
 
 			// Charge non-refundable fee (burned)
 			let _ = T::Currency::withdraw(
@@ -1203,6 +1193,17 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+		/// Fee charged by `propose`: `Base + floor(StepFactor * Base * SignerCount)`.
+		///
+		/// Multiplies base by signer count before applying the step factor so the
+		/// floor cannot truncate small percentages to zero
+		/// (base=99, factor=1%, signers=100 -> floor(1% * 9900) = 99).
+		pub fn proposal_fee(signers_count: u32) -> BalanceOf<T> {
+			let base_fee = T::ProposalFee::get();
+			let multiplier = base_fee.saturating_mul(signers_count.into());
+			base_fee.saturating_add(T::SignerStepFactor::get().mul_floor(multiplier))
+		}
+
 		/// Return an error with actual weight consumed instead of charging full upfront weight.
 		/// Use for early exits where minimal work was performed (only DB reads).
 		fn err_with_weight(error: Error<T>, reads: u64) -> DispatchResultWithPostInfo {

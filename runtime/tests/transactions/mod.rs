@@ -3,3 +3,4 @@ pub mod high_security_tip;
 pub mod integration;
 pub mod ml_dsa_65;
 pub mod reversible_integration;
+pub mod treasury_bootstrap;

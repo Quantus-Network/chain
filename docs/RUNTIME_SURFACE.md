@@ -108,9 +108,10 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 
 ### Index 3 — `TransactionPayment` (`pallet-transaction-payment`)
 - `OnChargeTransaction = FungibleAdapter<Balances, pallet_mining_rewards::TransactionFeesCollector<Runtime>>` (100% of fees routed to the block miner).
-- `WeightToFee = IdentityFee<Balance>` (1s compute ≈ 1 UNIT).
-- `LengthToFee = LengthToFeeMultiplier` (custom, `LENGTH_FEE_MULTIPLIER = 10^6`; 1 MB ≈ 1 UNIT).
+- `WeightToFee = ScaledIdentityFee` (identity mapping × `FEE_SCALE`; 1s compute ≈ `FEE_SCALE` UNIT).
+- `LengthToFee = LengthToFeeMultiplier` (custom, `LENGTH_FEE_MULTIPLIER = 10^6` × `FEE_SCALE`; 1 MB ≈ `FEE_SCALE` UNIT).
 - `FeeMultiplierUpdate = ConstFeeMultiplier` (multiplier fixed at 1), `OperationalFeeMultiplier = 5`.
+- Every absolute-QUAN price (fees, deposits, the high-security fee cap) derives from the `FEE_SCALE_NUM/DEN` dial in `runtime/src/lib.rs` via `scale_fee`; percentage rates, the existential deposit, and the leaf quantum are deliberately not scaled.
 
 ### Index 5 — `QPoW` (`pallet-qpow`, local)
 - `InitialDifficulty = U512([4_000_000, 0, …])`, `TargetBlockTime = 12_000ms`, `MaxReorgDepth = 180`, `WeightInfo = ()`.
@@ -121,7 +122,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - No dispatchable calls. Exposes `TransactionFeesCollector` + `collect_transaction_fees`. `on_finalize` requires a miner in the digest, combines transaction fees and the block reward into one miner credit, and rounds it down to the wormhole leaf quantum. A missing miner or a sub-quantum remainder stays in `CollectedFees` for the next miner — nothing is minted to treasury.
 
 ### Index 7 — `Preimage` (`pallet-preimage`)
-- `ManagerOrigin = EnsureRoot`, `Consideration = PreimageDeposit` (custom: 0.1 UNIT base + 0.0001 UNIT/byte, see `governance/definitions.rs`).
+- `ManagerOrigin = EnsureRoot`, `Consideration = PreimageDeposit` (custom: 0.1 UNIT base + 0.0001 UNIT/byte, × `FEE_SCALE`, see `governance/definitions.rs`).
 - **Calls:** `note_preimage`, `unnote_preimage`, `request_preimage`, `unrequest_preimage`, `ensure_updated` (upstream).
 
 ### Index 8 — `Scheduler` (`pallet-scheduler`, local) — **calls disabled**
@@ -164,7 +165,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - Social recovery (`as_recovered`, `create_recovery`, …) was removed. High-security fund recovery remains `ReversibleTransfers::recover_funds`.
 
 ### Index 19 — `Multisig` (`pallet-multisig`, local)
-- `MaxSigners = 100`, `MaxTotalProposalsInStorage = 200`, `MaxCallSize = 10 KB`, `MultisigFee = 0.6 UNIT` (burned), `ProposalDeposit = 1 UNIT`, `ProposalFee = 1 UNIT`, `MaxExpiryDuration ≈ 2 weeks`, `MaxInnerCallWeight = (10^12, 2.5 MB)`, `HighSecurity = HighSecurityConfig`, `PalletId = "py/mltsg"`.
+- `MaxSigners = 100`, `MaxTotalProposalsInStorage = 200`, `MaxCallSize = 10 KB`, `MultisigFee = 0.6 × FEE_SCALE UNIT` (burned), `ProposalDeposit = 1 × FEE_SCALE UNIT`, `ProposalFee = 1 × FEE_SCALE UNIT`, `MaxExpiryDuration ≈ 2 weeks`, `MaxInnerCallWeight = (10^12, 2.5 MB)`, `HighSecurity = HighSecurityConfig`, `PalletId = "py/mltsg"`.
 - **Calls:** `create_multisig`(0), `propose`(1), `approve`(2), `cancel`(3), `remove_expired`(4), `claim_deposits`(5), `execute`(6). Exposes `derive_multisig_address`.
 
 ### Index 20 — `Wormhole` (`pallet-wormhole`, local)
@@ -227,7 +228,7 @@ Signed-extension pipeline applied to every extrinsic, in order:
 11. `frame_metadata_hash_extension::CheckMetadataHash`
 12. `frame_system::WeightReclaim` — re-runs the block-weight reclaim so refunds made by earlier extensions (which `CheckWeight`'s own reclaim runs too early to see) are returned to block capacity.
 
-The high-security whitelist (`HighSecurityConfig::is_whitelisted`, extension 8) admits `ReversibleTransfers::{schedule_transfer, cancel, recover_funds}` and a flat `Utility::batch_all` of 1..=`MaxHighSecurityBatchLen` (16, deliberately decoupled from `MaxPendingPerAccount`) of those leaf calls. Nested or empty batches are rejected so a packed wrapper cannot inflate the inclusion fee. `schedule_transfer` is admitted only when `dest` is `MultiAddress::Id` — other `MultiAddress` variants (in particular unbounded `Raw`) are rejected so a stolen key cannot inflate the length fee. `Vesting::claim` is permissionless (any signer, payout always to the stored beneficiary), so a high-security account does not need it on the list. Beyond the shape rules, extension 8 enforces two blanket bounds on every high-security extrinsic: at most `MAX_HIGH_SECURITY_EXTRINSIC_LEN` (10 KiB) encoded bytes, and a zero-tip inclusion fee of at most `MAX_HIGH_SECURITY_INCLUSION_FEE` (1 UNIT, ~10x the costliest legitimate call) — so a future whitelisted call with an unforeseen length or weight surface cannot reopen the fee-drain channel. Combined with the 16-per-day quota, the worst-case drain from a stolen key is 16 UNIT per rolling day. The quota keys on the outer signer, so a single-key high-security guardian shares it with its own traffic and can be locked out of `cancel`/`recover_funds` for up to a day — a documented limitation; the recommended multisig guardian is immune because the derived address never signs extrinsics (its signers do), even when the multisig itself is enrolled as high-security.
+The high-security whitelist (`HighSecurityConfig::is_whitelisted`, extension 8) admits `ReversibleTransfers::{schedule_transfer, cancel, recover_funds}` and a flat `Utility::batch_all` of 1..=`MaxHighSecurityBatchLen` (16, deliberately decoupled from `MaxPendingPerAccount`) of those leaf calls. Nested or empty batches are rejected so a packed wrapper cannot inflate the inclusion fee. `schedule_transfer` is admitted only when `dest` is `MultiAddress::Id` — other `MultiAddress` variants (in particular unbounded `Raw`) are rejected so a stolen key cannot inflate the length fee. `Vesting::claim` is permissionless (any signer, payout always to the stored beneficiary), so a high-security account does not need it on the list. Beyond the shape rules, extension 8 enforces two blanket bounds on every high-security extrinsic: at most `MAX_HIGH_SECURITY_EXTRINSIC_LEN` (10 KiB) encoded bytes, and a zero-tip inclusion fee of at most `MAX_HIGH_SECURITY_INCLUSION_FEE` (`FEE_SCALE` UNIT — scaled in lockstep with the fees it bounds, ~10x the costliest legitimate call) — so a future whitelisted call with an unforeseen length or weight surface cannot reopen the fee-drain channel. Combined with the 16-per-day quota, the worst-case drain from a stolen key is 16 × `FEE_SCALE` UNIT per rolling day. The quota keys on the outer signer, so a single-key high-security guardian shares it with its own traffic and can be locked out of `cancel`/`recover_funds` for up to a day — a documented limitation; the recommended multisig guardian is immune because the derived address never signs extrinsics (its signers do), even when the multisig itself is enrolled as high-security.
 
 ---
 
@@ -235,7 +236,7 @@ The high-security whitelist (`HighSecurityConfig::is_whitelisted`, extension 8) 
 
 - `PreimageDeposit` — custom `Consideration` fee model for preimages.
 - `CommunityTracksInfo` — public referenda; single "signed" track (max_deciding 5, 500 UNIT decision deposit, 7-day decision, linear-decreasing approval 70→55% / support 25→5%).
-- `TechCollectiveTracksInfo` — tech-collective referenda; single track (1000 UNIT deposit, 61% approval / 60% support constant curves, 1-day decision/confirm/enactment).
+- `TechCollectiveTracksInfo` — tech-collective referenda; single track (1000 × `FEE_SCALE` UNIT deposit, 61% approval / 60% support constant curves, 1-day decision/confirm/enactment).
 - `MinRankOfClassConverter`, `GlobalMaxMembers` — rank/membership converters.
 - `RootOrMemberForTechReferendaOrigin` — custom origin for TechReferenda submission (Root or ranked-collective member).
 - `apply_test_timing` — compiled only under `fast-governance` (collapses all timing windows to 2 blocks for CI).
