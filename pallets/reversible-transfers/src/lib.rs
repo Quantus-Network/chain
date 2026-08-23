@@ -520,6 +520,15 @@ pub mod pallet {
 		///
 		/// - `tx_id`: The unique identifier of the pending transfer to execute.
 		///
+		/// Execution uses `transfer_allow_death` so a sender who spent their leftover
+		/// free balance during the delay still completes. A failed inner transfer (e.g.
+		/// dest overflow, or `amount < ED` to a new account) does not fail this
+		/// extrinsic: the hold is already released and the pending transfer is already
+		/// removed. Propagating that error would roll back those writes (FRAME
+		/// dispatchables are transactional) while Scheduler terminally drops the named
+		/// task, freezing the funds with no retry. The inner result is still recorded on
+		/// [`Event::TransactionExecuted`].
+		///
 		/// # Errors
 		///
 		/// - [`InvalidSchedulerOrigin`](Error::InvalidSchedulerOrigin): Called by an account other
@@ -790,7 +799,7 @@ pub mod pallet {
 
 			// Build the transfer call from stored data
 			let to_lookup = T::Lookup::unlookup(pending.to.clone());
-			let call: RuntimeCallOf<T> = pallet_balances::Call::<T>::transfer_keep_alive {
+			let call: RuntimeCallOf<T> = pallet_balances::Call::<T>::transfer_allow_death {
 				dest: to_lookup,
 				value: pending.amount,
 			}
@@ -815,7 +824,7 @@ pub mod pallet {
 			let post_info =
 				call.dispatch(frame_system::RawOrigin::Signed(pending.from.clone()).into());
 
-			// Record only when value actually moved. `transfer_keep_alive` treats
+			// Record only when value actually moved. `transfer_allow_death` treats
 			// `source == dest` as a no-op that still returns `Ok`, and this path runs
 			// in scheduler hook context so the event scanner never sees it.
 			if post_info.is_ok() && pending.from != pending.to {
@@ -827,10 +836,25 @@ pub mod pallet {
 				);
 			}
 
-			// Emit event
 			Self::deposit_event(Event::TransactionExecuted { tx_id: *tx_id, result: post_info });
 
-			post_info
+			// Best-effort: do not propagate the inner transfer error. FRAME wraps every
+			// dispatchable in `with_storage_layer`, so returning `Err` rolls back the hold
+			// release and pending-transfer removal above. Scheduler then terminally drops
+			// the named task (no retry is configured), leaving funds held with no
+			// scheduled execution — the same freeze `cancel_transfer` and `recover_funds`
+			// already guard against.
+			match post_info {
+				Ok(info) => Ok(info),
+				Err(e) => {
+					log::warn!(
+						"do_execute_transfer: inner transfer for tx {:?} failed: {:?}",
+						tx_id,
+						e.error
+					);
+					Ok(e.post_info)
+				},
+			}
 		}
 
 		/// Simply converts hash output value to a `TaskName`

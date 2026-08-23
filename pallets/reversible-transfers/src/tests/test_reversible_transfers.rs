@@ -725,6 +725,163 @@ fn cancel_releases_funds_when_scheduled_task_already_gone() {
 	});
 }
 
+/// Auto-execution uses `transfer_allow_death`, so a sender who spends their leftover
+/// free balance during the delay still completes: the held amount is delivered even
+/// if that reaps the sender. `transfer_keep_alive` would have failed this path.
+#[test]
+fn allow_death_completes_transfer_when_sender_would_go_below_ed() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let sender = charlie();
+		let recipient = dave();
+		let leftover_sink = eve();
+		let amount = 10_000u128;
+		let delay = BlockNumberOrTimestamp::BlockNumber(5);
+
+		let initial_recipient = Balances::free_balance(&recipient);
+		let call = transfer_call(recipient.clone(), amount);
+		let tx_id = calculate_tx_id::<Test>(sender.clone(), &call);
+		let execute_block = BlockNumberOrTimestamp::BlockNumber(System::block_number())
+			.saturating_add(&delay)
+			.unwrap();
+
+		assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+			RuntimeOrigin::signed(sender.clone()),
+			recipient.clone(),
+			amount,
+			delay,
+		));
+		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
+		assert_eq!(
+			Balances::balance_on_hold(
+				&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+				&sender
+			),
+			amount
+		);
+		assert!(!Agenda::<Test>::get(execute_block).is_empty());
+
+		// Spend leftover free balance during the delay. `transfer_all` cannot take the
+		// last ED while a hold keeps the account alive; write the last unit directly
+		// so execute would drop the sender below ED.
+		assert_ok!(Balances::transfer_all(
+			RuntimeOrigin::signed(sender.clone()),
+			leftover_sink,
+			false,
+		));
+		frame_system::Account::<Test>::mutate(&sender, |info| {
+			info.data.free = 0;
+		});
+		assert_eq!(Balances::free_balance(&sender), 0);
+
+		run_to_block(execute_block.as_block_number().unwrap());
+
+		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
+		assert_eq!(
+			Balances::balance_on_hold(
+				&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+				&sender
+			),
+			0
+		);
+		assert_eq!(Balances::free_balance(&sender), 0);
+		assert_eq!(Balances::free_balance(&recipient), initial_recipient + amount);
+		assert_eq!(Agenda::<Test>::get(execute_block).len(), 0);
+		System::assert_has_event(
+			Event::TransactionExecuted { tx_id, result: Ok(().into()) }.into(),
+		);
+	});
+}
+
+/// Auto-execution must not freeze funds when the inner transfer still fails
+/// (`allow_death` is not infallible: dest overflow, dust to a new account, …).
+///
+/// FRAME wraps every dispatchable in `with_storage_layer`, and Scheduler treats any
+/// outcome as terminal when no retry is configured. If `do_execute_transfer` returns
+/// the inner `Err`, the hold release and pending-transfer removal roll back while
+/// the named task is permanently dropped — leaving funds held with no scheduled
+/// execution. The hold and bookkeeping must commit independently of the inner
+/// transfer, and the failure must stay visible as `TransactionExecuted { Err }`.
+#[test]
+fn failed_inner_transfer_does_not_leave_funds_held_after_scheduler_drops_task() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let sender = charlie();
+		let recipient = dave();
+		let amount = 10_000u128;
+		let delay = BlockNumberOrTimestamp::BlockNumber(5);
+
+		let initial_sender = Balances::free_balance(&sender);
+		let call = transfer_call(recipient.clone(), amount);
+		let tx_id = calculate_tx_id::<Test>(sender.clone(), &call);
+		let execute_block = BlockNumberOrTimestamp::BlockNumber(System::block_number())
+			.saturating_add(&delay)
+			.unwrap();
+
+		assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+			RuntimeOrigin::signed(sender.clone()),
+			recipient.clone(),
+			amount,
+			delay,
+		));
+		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
+		assert!(!Agenda::<Test>::get(execute_block).is_empty());
+
+		// Overflow the recipient so `transfer_allow_death` fails after the hold is
+		// released. The mock ED is 1, so the real-runtime "dust to a new account"
+		// trigger is unreachable here.
+		let _ = <Balances as frame_support::traits::Currency<_>>::make_free_balance_be(
+			&recipient,
+			u128::MAX,
+		);
+
+		run_to_block(execute_block.as_block_number().unwrap());
+
+		assert!(
+			ReversibleTransfers::pending_dispatches(tx_id).is_none(),
+			"failed auto-execution must clear the pending transfer, not leave it stuck"
+		);
+		assert_eq!(
+			Balances::balance_on_hold(
+				&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+				&sender
+			),
+			0,
+			"held funds must be released when the inner transfer fails"
+		);
+		assert_eq!(
+			Balances::free_balance(&sender),
+			initial_sender,
+			"released hold must return to the sender when the transfer does not complete"
+		);
+		assert_eq!(Balances::free_balance(&recipient), u128::MAX);
+		assert_eq!(
+			Agenda::<Test>::get(execute_block).len(),
+			0,
+			"scheduler must drop the named task after dispatch (no retry is configured)"
+		);
+
+		let executed_with_error = System::events().iter().any(|rec| {
+			matches!(
+				&rec.event,
+				RuntimeEvent::ReversibleTransfers(Event::TransactionExecuted {
+					tx_id: tid,
+					result: Err(_),
+				}) if *tid == tx_id
+			)
+		});
+		assert!(
+			executed_with_error,
+			"failed auto-execution must emit TransactionExecuted with Err"
+		);
+
+		assert_err!(
+			ReversibleTransfers::cancel(RuntimeOrigin::signed(sender), tx_id),
+			Error::<Test>::PendingTxNotFound
+		);
+	});
+}
+
 /// A one-time schedule freezes *cancel* authority in `pending.guardian` (= sender).
 /// Later `set_high_security` must not rewrite that: the owner keeps full-refund cancel
 /// rights, and the new guardian must not be able to cancel/seize via `cancel`.
