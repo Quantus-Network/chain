@@ -935,9 +935,32 @@ where
 	rpc_api.merge(system).map_err(|e| Error::Application(e.into()))?;
 	rpc_api.merge(state).map_err(|e| Error::Application(e.into()))?;
 	rpc_api.merge(child_state).map_err(|e| Error::Application(e.into()))?;
+	// sc-rpc 50's `state_call` has no `Extensions` and cannot apply
+	// `check_if_safe`. Drop it so the node's extra RPCs can register a
+	// replacement that windows `ZkTreeApi_get_merkle_proof` before the
+	// executor loads historical state.
+	rpc_api.remove_method("state_call");
+	rpc_api.remove_method("state_callAt");
+	// The RPC-v2 archive module (merged above whenever the node is an archive
+	// node — this node forces archive pruning, so always) has the same flaw:
+	// `archive_v1_call` reaches the executor at a caller-chosen hash with no
+	// `Extensions`. Drop it too; the node re-registers a gated,
+	// wire-compatible replacement.
+	rpc_api.remove_method("archive_v1_call");
 	// Additional [`RpcModule`]s defined in the node to fit the specific blockchain
 	let extra_rpcs = rpc_builder(task_executor.clone())?;
 	rpc_api.merge(extra_rpcs).map_err(|e| Error::Application(e.into()))?;
+	for method in ["state_call", "archive_v1_call"] {
+		if !rpc_api.method_names().any(|n| n == method) {
+			return Err(Error::Application(
+				format!(
+					"node extra RPCs must re-register `{method}` after the \
+					 unguarded handler is removed"
+				)
+				.into(),
+			));
+		}
+	}
 
 	Ok(rpc_api)
 }

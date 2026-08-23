@@ -7562,6 +7562,7 @@ dependencies = [
 name = "quantus-node"
 version = "0.9.0-endless-sky"
 dependencies = [
+ "array-bytes 6.2.3",
  "clap",
  "frame-benchmarking",
  "frame-benchmarking-cli",
@@ -7600,6 +7601,7 @@ dependencies = [
  "sc-network-sync",
  "sc-offchain",
  "sc-rpc-api",
+ "sc-rpc-spec-v2",
  "sc-service",
  "sc-telemetry",
  "sc-transaction-pool",
@@ -7612,11 +7614,13 @@ dependencies = [
  "sp-consensus",
  "sp-consensus-qpow",
  "sp-core",
+ "sp-externalities",
  "sp-genesis-builder",
  "sp-inherents",
  "sp-io",
  "sp-keyring",
  "sp-runtime",
+ "sp-state-machine",
  "sp-timestamp",
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
