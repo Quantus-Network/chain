@@ -650,6 +650,7 @@ impl Stream for WebSocketTransport {
 
 					return Poll::Ready(Some(TransportEvent::PendingInboundConnection {
 						connection_id,
+						address: address.ip(),
 					}));
 				},
 			}

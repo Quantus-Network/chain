@@ -608,6 +608,7 @@ impl Stream for TcpTransport {
 
 					return Poll::Ready(Some(TransportEvent::PendingInboundConnection {
 						connection_id,
+						address: address.ip(),
 					}));
 				},
 			}
@@ -841,7 +842,7 @@ mod tests {
 
 		let event = transport1.next().await.unwrap();
 		match event {
-			TransportEvent::PendingInboundConnection { connection_id } => {
+			TransportEvent::PendingInboundConnection { connection_id, .. } => {
 				transport1.accept_pending(connection_id).unwrap();
 			},
 			_ => panic!("unexpected event"),
@@ -932,7 +933,7 @@ mod tests {
 		// Reject connection.
 		let event = transport1.next().await.unwrap();
 		match event {
-			TransportEvent::PendingInboundConnection { connection_id } => {
+			TransportEvent::PendingInboundConnection { connection_id, .. } => {
 				transport1.reject_pending(connection_id).unwrap();
 			},
 			_ => panic!("unexpected event"),
@@ -954,7 +955,7 @@ mod tests {
 		}
 		for _ in 0..4 {
 			match server.next().await.unwrap() {
-				TransportEvent::PendingInboundConnection { connection_id } => {
+				TransportEvent::PendingInboundConnection { connection_id, .. } => {
 					server.reject_pending(connection_id).unwrap();
 				},
 				event => panic!("unexpected event: {event:?}"),
@@ -972,7 +973,7 @@ mod tests {
 		});
 
 		match server.next().await.unwrap() {
-			TransportEvent::PendingInboundConnection { connection_id } => {
+			TransportEvent::PendingInboundConnection { connection_id, .. } => {
 				server.accept_pending(connection_id).unwrap();
 			},
 			event => panic!("unexpected event: {event:?}"),

@@ -746,8 +746,12 @@ impl TransportManager {
 		Ok(())
 	}
 
-	fn on_pending_incoming_connection(&mut self, connection_id: ConnectionId) -> crate::Result<()> {
-		self.connection_limits.on_incoming(connection_id)?;
+	fn on_pending_incoming_connection(
+		&mut self,
+		connection_id: ConnectionId,
+		address: std::net::IpAddr,
+	) -> crate::Result<()> {
+		self.connection_limits.on_incoming(connection_id, address)?;
 		Ok(())
 	}
 
@@ -1399,8 +1403,8 @@ impl TransportManager {
 								}
 							}
 						},
-						TransportEvent::PendingInboundConnection { connection_id } => {
-							if self.on_pending_incoming_connection(connection_id).is_ok() {
+						TransportEvent::PendingInboundConnection { connection_id, address } => {
+							if self.on_pending_incoming_connection(connection_id, address).is_ok() {
 								tracing::trace!(
 									target: LOG_TARGET,
 									?connection_id,
@@ -1420,6 +1424,7 @@ impl TransportManager {
 								tracing::debug!(
 									target: LOG_TARGET,
 									?connection_id,
+									?address,
 									"reject pending incoming connection",
 								);
 
@@ -3033,12 +3038,37 @@ mod tests {
 		let second = ConnectionId::from(1usize);
 		let third = ConnectionId::from(2usize);
 
-		assert!(manager.on_pending_incoming_connection(first).is_ok());
-		assert!(manager.on_pending_incoming_connection(second).is_ok());
-		assert!(manager.on_pending_incoming_connection(third).is_err());
+		let ip = std::net::IpAddr::from(std::net::Ipv4Addr::new(127, 0, 0, 1));
+		assert!(manager.on_pending_incoming_connection(first, ip).is_ok());
+		assert!(manager.on_pending_incoming_connection(second, ip).is_ok());
+		assert!(manager.on_pending_incoming_connection(third, ip).is_err());
 
 		manager.connection_limits.on_pending_incoming_failed(first);
-		assert!(manager.on_pending_incoming_connection(third).is_ok());
+		assert!(manager.on_pending_incoming_connection(third, ip).is_ok());
+	}
+
+	#[tokio::test]
+	async fn manager_limits_incoming_connections_per_ip() {
+		let mut manager = TransportManagerBuilder::new()
+			.with_connection_limits_config(
+				ConnectionLimitsConfig::default().max_incoming_connections_per_ip(Some(2)),
+			)
+			.build();
+
+		let first = ConnectionId::from(0usize);
+		let second = ConnectionId::from(1usize);
+		let third = ConnectionId::from(2usize);
+		let other = ConnectionId::from(3usize);
+		let ip = std::net::IpAddr::from(std::net::Ipv4Addr::new(10, 0, 0, 1));
+		let other_ip = std::net::IpAddr::from(std::net::Ipv4Addr::new(10, 0, 0, 2));
+
+		assert!(manager.on_pending_incoming_connection(first, ip).is_ok());
+		assert!(manager.on_pending_incoming_connection(second, ip).is_ok());
+		assert!(manager.on_pending_incoming_connection(third, ip).is_err());
+		assert!(manager.on_pending_incoming_connection(other, other_ip).is_ok());
+
+		manager.connection_limits.on_pending_incoming_failed(first);
+		assert!(manager.on_pending_incoming_connection(third, ip).is_ok());
 	}
 
 	#[cfg(feature = "websocket")]

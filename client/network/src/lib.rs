@@ -309,6 +309,12 @@ pub const MAX_CONNECTIONS_ESTABLISHED_INCOMING: u32 = 10_000;
 /// This must stay well below a typical process `nofile` limit (often 1024).
 pub const MAX_CONNECTIONS_PENDING_INCOMING: u32 = 128;
 
+/// Maximum number of incoming connections (pending + established) from one source IP.
+///
+/// IPv6 sources are grouped by `/64`. This prevents a single host from filling
+/// the established-incoming pool with unique peer IDs.
+pub const MAX_CONNECTIONS_INCOMING_PER_IP: u32 = 16;
+
 /// Maximum response size limit.
 pub const MAX_RESPONSE_SIZE: u64 = 16 * 1024 * 1024;
 

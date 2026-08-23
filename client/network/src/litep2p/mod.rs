@@ -524,6 +524,9 @@ impl<B: BlockT + 'static, H: ExHashT> NetworkBackend<B, H> for Litep2pNetworkBac
 					))
 					.max_pending_incoming_connections(Some(
 						crate::MAX_CONNECTIONS_PENDING_INCOMING as usize,
+					))
+					.max_incoming_connections_per_ip(Some(
+						crate::MAX_CONNECTIONS_INCOMING_PER_IP as usize,
 					)),
 			)
 			// This has the same effect as `libp2p::Swarm::with_idle_connection_timeout` which is
