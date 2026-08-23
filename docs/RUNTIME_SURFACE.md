@@ -169,7 +169,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - **Calls:** `create_multisig`(0), `propose`(1), `approve`(2), `cancel`(3), `remove_expired`(4), `claim_deposits`(5), `execute`(6). Exposes `derive_multisig_address`.
 
 ### Index 20 — `Wormhole` (`pallet-wormhole`, local)
-- `Currency = Balances`, `AssetId = u32` (native leaves tagged as asset id 0 internally; non-native exits unsupported), `VolumeFeeRateBps = 4` (0.04%; circuit ceil-rounds to ≥0.01 QUAN per exit), `VolumeFeesBurnRate = 50%`, `MintingAccount`, `WormholeAccountId = AccountId32`, `ZkTree = ZkTree`. No separate minimum exit amount. No `pallet-assets` dependency.
+- `Currency = Balances`, `AssetId = u32` (native leaves tagged as asset id 0 internally; non-native exits unsupported), `VolumeFeeRateBps = 4` (0.04%; settlement ceil-rounds to ≥0.01 QUAN per accepted private segment and sums those fees across a public batch), `VolumeFeesBurnRate = 50%`, `MintingAccount`, `WormholeAccountId = AccountId32`, `ZkTree = ZkTree`. No separate minimum exit amount. No `pallet-assets` dependency.
 - **Calls:** `verify_private_batch`(2) — verifies a private-batch ZK proof and processes batched transfers; `verify_public_batch`(3) — verifies a public-batch proof with per-segment denial and aggregator fee rebate.
 - Implements `TransferProofRecorder` (`record_transfer`) consumed by mining-rewards, reversible-transfers, and the wormhole tx-extension. `on_initialize` emits genesis endowment proofs at block 1. Loads a static aggregated verifier (`get_aggregated_verifier`).
 

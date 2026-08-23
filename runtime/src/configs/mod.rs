@@ -803,9 +803,9 @@ impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 
 parameter_types! {
 	/// Volume fee rate in basis points (4 bps = 0.04%).
-	/// The circuit already enforces a one-quantum (0.01 QUAN) minimum fee via ceil
-	/// rounding of `(out₁ + out₂) × 10000 ≤ input × (10000 − bps)`, so small exits
-	/// pay a flat 0.01 QUAN and large exits pay the headline rate. There is no
+	/// Settlement ceil-rounds once per accepted private segment, then sums those
+	/// fees across a public batch. Small segments therefore pay at least one
+	/// quantum (0.01 QUAN); larger segments pay the headline rate. There is no
 	/// separate on-chain minimum exit amount.
 	pub const VolumeFeeRateBps: u32 = 4;
 	/// Proportion of volume fees to burn (50% burned, 50% to miner)

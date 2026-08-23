@@ -1,4 +1,4 @@
-/// Expected volume fee in base units for a quantized exit total.
+/// Expected volume fee in base units for one segment's quantized exit total.
 ///
 /// Independent re-derivation of the quantized-ceiling fee rule the circuit
 /// enforces (`out · 10000 ≤ input · (10000 − bps)` over quantized u32 amounts):
@@ -1051,15 +1051,9 @@ mod private_batch_proof_tests {
 			.expect("valid proof must be admitted to the pool");
 			assert!(<Wormhole as ValidateUnsigned>::pre_dispatch(&call).is_ok());
 
-			// The `provides` tag is `(prefix, blake2_256(nullifiers))` — recompute it here
-			// and confirm the pool would dedup on the nullifier set rather than the raw
-			// proof bytes.
-			let mut preimage = Vec::new();
-			for nullifier in &inputs.nullifiers {
-				preimage.extend_from_slice(nullifier.as_ref());
-			}
+			let bundle = crate::pallet::ExitBundle::from(inputs);
 			let expected_tag =
-				("WormholePrivateBatch", sp_io::hashing::blake2_256(&preimage)).encode();
+				("WormholePrivateBatch", Wormhole::exit_bundle_provides_tag(&bundle)).encode();
 			assert!(
 				valid.provides.contains(&expected_tag),
 				"pool dedup tag must be derived from the bundle nullifiers"
@@ -1519,13 +1513,13 @@ mod verifier_profile_tests {
 /// exercise the partial-denial machinery. These tests cover what the fixture can't:
 /// denying one segment while the rest execute (`SegmentsDenied` accounting), the
 /// cross-segment claimed-set dedup (the double-mint fix for including the same
-/// private batch twice in one bundle), and fee/rebate math when `total_exit_amount`
-/// excludes a denied segment's value.
+/// private batch twice in one bundle), per-segment fee rounding, and fee/rebate math
+/// when a denied segment contributes no value.
 #[cfg(test)]
 mod exit_bundle_tests {
 	use crate::{
 		mock::*,
-		pallet::{Error, ExitBundle, ExitSegment, UsedNullifiers},
+		pallet::{Error, ExitBundle, ExitSegment, ExitSettlementKind, UsedNullifiers},
 	};
 	use frame_support::{
 		assert_ok,
@@ -1582,6 +1576,39 @@ mod exit_bundle_tests {
 			aggregator_address: aggregator,
 			segments,
 		}
+	}
+
+	#[test]
+	fn semantic_pool_tag_ignores_order_within_each_segment() {
+		let original = bundle(vec![segment(&[1, 2], &[]), segment(&[3, 4], &[])], None);
+		let reordered = bundle(vec![segment(&[2, 1], &[]), segment(&[4, 3], &[])], None);
+
+		assert_eq!(
+			Wormhole::exit_bundle_provides_tag(&original),
+			Wormhole::exit_bundle_provides_tag(&reordered)
+		);
+	}
+
+	#[test]
+	fn semantic_pool_tag_preserves_segment_boundaries_and_order() {
+		let original = bundle(vec![segment(&[1, 2], &[]), segment(&[3], &[])], None);
+		let repartitioned = bundle(vec![segment(&[1], &[]), segment(&[2, 3], &[])], None);
+		let reordered = bundle(vec![segment(&[3], &[]), segment(&[1, 2], &[])], None);
+
+		let original_tag = Wormhole::exit_bundle_provides_tag(&original);
+		assert_ne!(original_tag, Wormhole::exit_bundle_provides_tag(&repartitioned));
+		assert_ne!(original_tag, Wormhole::exit_bundle_provides_tag(&reordered));
+	}
+
+	#[test]
+	fn semantic_pool_tag_changes_with_nullifier_multiset() {
+		let original = bundle(vec![segment(&[1, 2], &[])], None);
+		let changed = bundle(vec![segment(&[1, 3], &[])], None);
+
+		assert_ne!(
+			Wormhole::exit_bundle_provides_tag(&original),
+			Wormhole::exit_bundle_provides_tag(&changed)
+		);
 	}
 
 	#[test]
@@ -1759,6 +1786,75 @@ mod exit_bundle_tests {
 				issuance_before - issuance_after,
 				fee - expected_rebate,
 				"burn must be computed from the fee excluding the denied segment"
+			);
+		});
+	}
+
+	#[test]
+	fn process_exit_bundle_sums_independently_rounded_segment_fees() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			assert_ok!(Balances::mint_into(&account_id(999), 1_000 * UNIT));
+			let issuance_before = <Balances as Inspect<AccountId>>::total_issuance();
+
+			let fee_bps = VolumeFeeRateBps::get() as u128;
+			let segment_fee = super::ceil_volume_fee(1, fee_bps);
+			let expected_fee = segment_fee.saturating_mul(2);
+			let bundle_fee = super::ceil_volume_fee(2, fee_bps);
+			assert_eq!(expected_fee, 2 * crate::SCALE_DOWN_FACTOR);
+			assert_eq!(bundle_fee, crate::SCALE_DOWN_FACTOR);
+
+			assert_ok!(Wormhole::settle_exit_bundle(
+				bundle(vec![segment(&[1], &[(10, 1)]), segment(&[2], &[(11, 1)])], None,),
+				ExitSettlementKind::Public,
+			));
+
+			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();
+			assert_eq!(
+				issuance_before - issuance_after,
+				expected_fee,
+				"public settlement must sum one independently rounded fee per private segment"
+			);
+		});
+	}
+
+	#[test]
+	fn process_exit_bundle_distributes_the_summed_segment_fee() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			assert_ok!(Balances::mint_into(&account_id(999), 1_000 * UNIT));
+			let issuance_before = <Balances as Inspect<AccountId>>::total_issuance();
+
+			let aggregator = AccountId32::new([7u8; 32]);
+			let fee_bps = VolumeFeeRateBps::get() as u128;
+			let segment_fee = super::ceil_volume_fee(AMOUNT_THREE_QUANTUM_FEE as u128, fee_bps);
+			let expected_fee = segment_fee.saturating_mul(2);
+			let bundle_fee = super::ceil_volume_fee(
+				(AMOUNT_THREE_QUANTUM_FEE as u128).saturating_mul(2),
+				fee_bps,
+			);
+			assert_eq!(expected_fee, 6 * crate::SCALE_DOWN_FACTOR);
+			assert_eq!(bundle_fee, 5 * crate::SCALE_DOWN_FACTOR);
+
+			assert_ok!(Wormhole::settle_exit_bundle(
+				bundle(
+					vec![
+						segment(&[1], &[(10, AMOUNT_THREE_QUANTUM_FEE)]),
+						segment(&[2], &[(11, AMOUNT_THREE_QUANTUM_FEE)]),
+					],
+					Some(digest(7)),
+				),
+				ExitSettlementKind::Public,
+			));
+
+			let (_, expected_rebate) = super::expected_fee_credits(expected_fee);
+			assert_eq!(Balances::balance(&aggregator), expected_rebate);
+
+			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();
+			assert_eq!(
+				issuance_before - issuance_after,
+				expected_fee - expected_rebate,
+				"burn and rebate distribution must derive from the summed segment fee"
 			);
 		});
 	}
@@ -2162,7 +2258,7 @@ mod exit_bundle_tests {
 mod public_batch_proof_tests {
 	use crate::{
 		mock::*,
-		pallet::{Error, UsedNullifiers},
+		pallet::{Error, ExitBundle, UsedNullifiers},
 	};
 	use frame_support::{assert_noop, assert_ok, traits::fungible::Inspect};
 	use frame_system::RawOrigin;
@@ -2268,6 +2364,34 @@ mod public_batch_proof_tests {
 			crate::circuit_config::NUM_LEAF_PROOFS,
 			"Only the real segment should carry non-zero nullifiers"
 		);
+	}
+
+	#[test]
+	fn validate_unsigned_public_batch_uses_semantic_nullifier_tag() {
+		use codec::Encode;
+		use sp_runtime::{traits::ValidateUnsigned, transaction_validity::TransactionSource};
+
+		new_test_ext().execute_with(|| {
+			let inputs = parse_test_inputs();
+			setup_matching_block_state(&inputs);
+			let bundle = ExitBundle::from_public_batch(
+				inputs,
+				crate::circuit_config::NUM_LEAF_PROOFS,
+				crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
+			);
+			let call =
+				crate::Call::<Test>::verify_public_batch { proof_bytes: get_test_proof_bytes() };
+
+			let valid = <Wormhole as ValidateUnsigned>::validate_unsigned(
+				TransactionSource::External,
+				&call,
+			)
+			.expect("valid public-batch proof must be admitted");
+			let expected_tag =
+				("WormholePublicBatch", Wormhole::exit_bundle_provides_tag(&bundle)).encode();
+
+			assert!(valid.provides.contains(&expected_tag));
+		});
 	}
 
 	#[test]

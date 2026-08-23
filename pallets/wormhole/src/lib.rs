@@ -779,6 +779,7 @@ pub mod pallet {
 			let mut denied_segments = Vec::<u32>::new();
 			let mut extra_leaf_inserts: u64 = 0;
 			let mut processed_accounts: Vec<(
+				usize,
 				<T as frame_system::Config>::AccountId,
 				BalanceOf<T>,
 			)> = Vec::new();
@@ -838,7 +839,7 @@ pub mod pallet {
 					)
 					.map_err(|_| Error::<T>::InvalidProofPublicInputs)?;
 
-					processed_accounts.push((exit_account, exit_balance));
+					processed_accounts.push((seg_idx, exit_account, exit_balance));
 				}
 			}
 
@@ -850,7 +851,9 @@ pub mod pallet {
 
 			// Mint exits first; fees and ProofVerified use only successfully minted amounts.
 			let mut minted_exit_amount: BalanceOf<T> = Zero::zero();
-			for (exit_account, exit_balance) in &processed_accounts {
+			let mut minted_exit_by_segment: Vec<BalanceOf<T>> =
+				alloc::vec![Zero::zero(); bundle.segments.len()];
+			for (seg_idx, exit_account, exit_balance) in &processed_accounts {
 				// Skip failed credits (e.g. below ED); nullifier already marked, value
 				// excluded from fee settlement / event.
 				match Self::credit_and_record(exit_account, *exit_balance, &mint_account) {
@@ -871,6 +874,8 @@ pub mod pallet {
 				}
 
 				minted_exit_amount = minted_exit_amount.saturating_add(*exit_balance);
+				minted_exit_by_segment[*seg_idx] =
+					minted_exit_by_segment[*seg_idx].saturating_add(*exit_balance);
 			}
 
 			let nullifier_writes = nullifier_list.len() as u64;
@@ -879,12 +884,19 @@ pub mod pallet {
 				nullifiers: nullifier_list,
 			});
 
-			let total_exit_u128: u128 = minted_exit_amount.try_into().map_err(|_| {
-				log::error!("Failed to convert minted_exit_amount to u128");
-				Error::<T>::InvalidProofPublicInputs
-			})?;
-			let total_fee_u128 =
-				Self::volume_fee_for_exit(total_exit_u128, T::VolumeFeeRateBps::get());
+			let total_fee_u128 = minted_exit_by_segment.into_iter().try_fold(
+				0u128,
+				|total, segment_balance| -> Result<u128, Error<T>> {
+					let segment_u128: u128 = segment_balance.try_into().map_err(|_| {
+						log::error!("Failed to convert segment minted amount to u128");
+						Error::<T>::InvalidProofPublicInputs
+					})?;
+					Ok(total.saturating_add(Self::volume_fee_for_exit(
+						segment_u128,
+						T::VolumeFeeRateBps::get(),
+					)))
+				},
+			)?;
 
 			// Fee distribution: configurable portion burned, remainder to miner.
 			//
@@ -1085,9 +1097,9 @@ pub mod pallet {
 		/// the minimum fee gap the proofs lock. In particular the smallest valid
 		/// exit (one quantum out forces `input ≥ 2` quanta) settles a full
 		/// one-quantum fee, where truncating base-unit division would settle only
-		/// `bps / (10000 − bps)` of a quantum. Computed over the bundle's minted
-		/// total, the result never exceeds what the individual proofs locked
-		/// (ceil of a sum ≤ sum of ceils).
+		/// `bps / (10000 − bps)` of a quantum. Public-batch settlement applies
+		/// this ceiling independently to each accepted private segment and sums
+		/// the results, matching the protocol's private-segment fee boundary.
 		///
 		/// `minted_exit` is always a whole number of quanta: every exit balance is
 		/// a quantized `u32` output times [`SCALE_DOWN_FACTOR`], so the quantum
@@ -1253,16 +1265,20 @@ pub mod pallet {
 		}
 
 		/// Stable, semantic transaction-pool dedup tag for an exit bundle: a hash of the
-		/// bundle's nullifiers. Two encodings of the same logical exit (e.g. a proof
-		/// resubmitted with a mutated non-PI byte) share nullifiers and therefore collide
-		/// on this tag, so the pool holds one entry per logical exit instead of one per
-		/// distinct byte string (which `blake2_256(proof_bytes)` allowed an attacker to
-		/// bypass with a single-byte change).
-		fn exit_bundle_provides_tag(bundle: &ExitBundle) -> [u8; 32] {
+		/// bundle's nullifiers, sorted within each private segment. Private-batch proofs
+		/// may publish the same nullifier multiset in different privately chosen orders;
+		/// normalizing each segment keeps those equivalent proofs on one pool tag while
+		/// preserving segment boundaries.
+		pub(crate) fn exit_bundle_provides_tag(bundle: &ExitBundle) -> [u8; 32] {
 			let mut preimage = Vec::new();
+			preimage.extend_from_slice(&(bundle.segments.len() as u32).to_le_bytes());
 			for segment in &bundle.segments {
-				for nullifier in &segment.nullifiers {
-					preimage.extend_from_slice(nullifier.as_ref());
+				preimage.extend_from_slice(&(segment.nullifiers.len() as u32).to_le_bytes());
+				let mut nullifiers: Vec<&[u8]> =
+					segment.nullifiers.iter().map(AsRef::as_ref).collect();
+				nullifiers.sort_unstable();
+				for nullifier in nullifiers {
+					preimage.extend_from_slice(nullifier);
 				}
 			}
 			sp_io::hashing::blake2_256(&preimage)
