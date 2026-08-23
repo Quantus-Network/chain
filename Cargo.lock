@@ -8490,7 +8490,6 @@ dependencies = [
  "sc-client-api",
  "sc-client-db",
  "sc-keystore",
- "sc-mixnet",
  "sc-network",
  "sc-service",
  "sc-telemetry",
@@ -8888,28 +8887,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sc-network-light"
-version = "0.54.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3771d715d6f23c3fb88d9420449c8090c91241e2eabe3476268fd828b4eef43"
-dependencies = [
- "array-bytes 6.2.3",
- "async-channel 1.9.0",
- "futures",
- "log",
- "parity-scale-codec",
- "prost 0.12.6",
- "prost-build 0.13.5",
- "sc-client-api",
- "sc-network",
- "sc-network-types",
- "sp-blockchain",
- "sp-core",
- "sp-runtime",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "sc-network-sync"
 version = "0.54.0"
 dependencies = [
@@ -9178,7 +9155,6 @@ dependencies = [
  "sc-keystore",
  "sc-network",
  "sc-network-common",
- "sc-network-light",
  "sc-network-sync",
  "sc-network-transactions",
  "sc-network-types",

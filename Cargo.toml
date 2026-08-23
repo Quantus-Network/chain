@@ -175,7 +175,6 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 rusty-fork = { version = "0.3.1" }
 sc-client-db = { version = "0.51.0", default-features = false }
 sc-keystore = { version = "39.0.0", default-features = true }
-sc-mixnet = { version = "0.25.0", default-features = true }
 sc-tracing = { version = "44.0.0" }
 scale-info = { version = "2.11.6", default-features = false }
 schnellru = { version = "0.2.3" }
@@ -284,7 +283,6 @@ sc-executor = { version = "0.47.0", default-features = false }
 sc-informant = { version = "0.54.0", default-features = false }
 sc-network = { version = "0.55.1", default-features = false }
 sc-network-common = { version = "0.52.0", default-features = false }
-sc-network-light = { version = "0.54.0", default-features = false }
 sc-network-sync = { version = "0.54.0", default-features = false }
 sc-network-transactions = { version = "0.54.0", default-features = false }
 sc-network-types = { version = "0.20.3", default-features = false }

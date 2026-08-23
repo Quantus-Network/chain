@@ -52,7 +52,6 @@ use sc_network::{
 	NetworkBackend, NetworkStateInfo,
 };
 use sc_network_common::role::{Role, Roles};
-use sc_network_light::light_client_requests::handler::LightClientRequestHandler;
 use sc_network_sync::{
 	block_relay_protocol::{BlockDownloader, BlockRelayParams},
 	block_request_handler::BlockRequestHandler,
@@ -1182,16 +1181,9 @@ where
 
 	let genesis_hash = client.info().genesis_hash;
 
-	let light_client_request_protocol_config = {
-		// Allow both outgoing and incoming requests.
-		let (handler, protocol_config) =
-			LightClientRequestHandler::new::<Net>(&protocol_id, fork_id, client.clone());
-		spawn_handle.spawn("light-client-request-handler", Some("networking"), handler.run());
-		protocol_config
-	};
-
-	// install request handlers to `FullNetworkConfiguration`
-	net_config.add_request_response_protocol(light_client_request_protocol_config);
+	// Quantus does not advertise `/<genesis>/light/2`. That protocol forwards a peer-chosen
+	// runtime method into `execution_proof` with no allowlist, and this node has no light-client
+	// product that needs inbound proofs. Do not restore it on an upstream merge.
 
 	let bitswap_config = ipfs_server.then(|| {
 		let (handler, config) = Net::bitswap_server(client.clone());
