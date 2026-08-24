@@ -93,6 +93,7 @@ use sp_keystore::KeystorePtr;
 use sp_runtime::traits::{Block as BlockT, BlockIdTo, NumberFor, Zero};
 use sp_storage::{ChildInfo, ChildType, PrefixedStorageKey};
 use std::{
+	num::NonZeroUsize,
 	str::FromStr,
 	sync::Arc,
 	time::{Duration, SystemTime},
@@ -1115,6 +1116,7 @@ where
 		network_service_provider,
 		metrics_registry,
 		metrics,
+		max_known_transactions: config.transaction_pool.known_transaction_cache_limit(),
 	})
 }
 
@@ -1154,6 +1156,8 @@ where
 	pub metrics_registry: Option<&'a Registry>,
 	/// Metrics.
 	pub metrics: NotificationMetrics,
+	/// Per-peer transaction gossip cache size. Must match the ready-pool limit.
+	pub max_known_transactions: NonZeroUsize,
 }
 
 /// Build the network service, the network status sinks and an RPC sender, this is a lower-level
@@ -1200,6 +1204,7 @@ where
 		network_service_provider,
 		metrics_registry,
 		metrics,
+		max_known_transactions,
 	} = params;
 
 	let genesis_hash = client.info().genesis_hash;
@@ -1223,6 +1228,7 @@ where
 			fork_id,
 			metrics.clone(),
 			net_config.peer_store_handle(),
+			max_known_transactions,
 		);
 	net_config.add_notification_protocol(transactions_config);
 

@@ -8928,10 +8928,9 @@ dependencies = [
 [[package]]
 name = "sc-network-transactions"
 version = "0.54.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da15f83aa0678042729b328d5e06dbf7d4bbc51ea247a8f639810e8a11d20372"
 dependencies = [
  "array-bytes 6.2.3",
+ "async-trait",
  "futures",
  "log",
  "parity-scale-codec",

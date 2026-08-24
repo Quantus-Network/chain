@@ -150,6 +150,14 @@ impl NotificationSink {
 		})
 	}
 
+	/// Number of additional notifications the synchronous channel can accept without clogging.
+	///
+	/// Sending a notification into a clogged channel force-closes the connection, so senders
+	/// that cannot afford to lose the connection should stay within this capacity.
+	pub fn sync_channel_capacity(&self) -> usize {
+		self.sync_tx.capacity()
+	}
+
 	/// Send notification to `peer` asynchronously, waiting for the channel to have capacity
 	/// if it's clogged.
 	///
@@ -424,6 +432,14 @@ impl NotificationHandle {
 	/// `None` is returned if `peer` doesn't exist.
 	pub fn notification_sink(&self, peer: PeerId) -> Option<NotificationSink> {
 		self.peers.get(&peer).cloned()
+	}
+
+	/// Number of additional synchronous notifications that can be sent to `peer` without
+	/// clogging the channel and force-closing the connection.
+	///
+	/// `None` is returned if `peer` doesn't exist.
+	pub fn sync_notification_capacity(&self, peer: PeerId) -> Option<usize> {
+		self.peers.get(&peer).map(NotificationSink::sync_channel_capacity)
 	}
 
 	#[cfg(feature = "fuzz")]
