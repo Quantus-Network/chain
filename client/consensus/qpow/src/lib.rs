@@ -14,7 +14,7 @@ use sp_runtime::traits::Block as BlockT;
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
 use codec::Encode;
-use qp_header::DIGEST_LOGS_SIZE;
+use qp_header::max_encoded_digest_size;
 
 use crate::worker::UntilImportedOrTransaction;
 pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata, RebuildTrigger};
@@ -28,7 +28,7 @@ use sc_consensus::{
 };
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
-use sp_consensus::{Environment, Error as ConsensusError, Proposer, SyncOracle};
+use sp_consensus::{Environment, Error as ConsensusError, Proposer};
 use sp_consensus_qpow::POW_ENGINE_ID;
 
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
@@ -70,7 +70,7 @@ pub enum Error<B: BlockT> {
 	CheckInherentsUnknownError(sp_inherents::InherentIdentifier),
 	#[error("Multiple pre-runtime digests")]
 	MultiplePreRuntimeDigests,
-	#[error("Header has an encoded digest of {0} bytes, exceeding the {1}-byte commitment window")]
+	#[error("Header has an encoded digest of {0} bytes, exceeding the {1}-byte import limit")]
 	DigestTooLong(usize, usize),
 	#[error(transparent)]
 	Client(sp_blockchain::Error),
@@ -230,18 +230,21 @@ where
 		mut block_import_params: BlockImportParams<B>,
 	) -> Result<ImportResult, Self::Error> {
 		// Reject any header whose canonical (post-seal) digest encodes to more
-		// than the fixed window committed by `Header::hash()`. Past that window
-		// the digest bytes are not covered by the block hash, so silently
-		// truncating (as `hash()` does defensively) would let two distinct
-		// sealed headers collide on the same block hash. Fail closed before
-		// *any* `hash()` call on this header — hashing an oversized digest
-		// trips a debug assertion in `qp-header` — and, for the same reason,
-		// without embedding a hash of the malformed header in the error. The
-		// pre-seal digest is a prefix of the post-seal one, so this bound also
-		// covers the pre-seal `header.hash()` calls below.
+		// than the fixed window committed by `Header::hash()`: bytes past the
+		// window are not covered by the block hash, so silently truncating
+		// (as `hash()` does defensively) would let two distinct sealed
+		// headers collide on the same block hash. Blocks at or below
+		// `LEGACY_DIGEST_CUTOFF` get one byte of historical allowance (see
+		// `max_encoded_digest_size`). Fail closed without embedding a hash of
+		// the malformed header in the error. The pre-seal digest is a prefix
+		// of the post-seal one, so this bound also covers the pre-seal
+		// `header.hash()` calls below.
+		let digest_limit = max_encoded_digest_size(
+			(*block_import_params.header.number()).try_into().unwrap_or(u64::MAX),
+		);
 		let encoded_digest_len = block_import_params.post_header().digest().encode().len();
-		if encoded_digest_len > DIGEST_LOGS_SIZE {
-			return Err(Error::<B>::DigestTooLong(encoded_digest_len, DIGEST_LOGS_SIZE).into());
+		if encoded_digest_len > digest_limit {
+			return Err(Error::<B>::DigestTooLong(encoded_digest_len, digest_limit).into());
 		}
 
 		let parent_hash = *block_import_params.header.parent_hash();
@@ -407,15 +410,18 @@ where
 	B: BlockT<Hash = H256>,
 {
 	// This is the first point in the import pipeline that hashes a
-	// network-supplied header, and hashing a digest longer than the committed
-	// window trips a debug assertion in `qp-header` (the hash would silently
-	// truncate it). Reject the oversized digest before any `hash()` call; the
-	// authoritative check lives in `import_block`, this one only keeps the
-	// hashing below panic-free in debug builds.
+	// network-supplied header; `Header::hash()` silently truncates digest
+	// bytes past the committed window, so oversized digests must be rejected
+	// rather than hashed. Historical blocks at or below
+	// `LEGACY_DIGEST_CUTOFF` get one byte of slack for the legacy
+	// `RuntimeEnvironmentUpdated` item (see `max_encoded_digest_size`); the
+	// authoritative check lives in `import_block`.
+	let digest_limit =
+		max_encoded_digest_size((*block.header.number()).try_into().unwrap_or(u64::MAX));
 	let encoded_digest_len = block.header.digest().encode().len();
-	if encoded_digest_len > DIGEST_LOGS_SIZE {
+	if encoded_digest_len > digest_limit {
 		return Err(format!(
-			"Header has an encoded digest of {encoded_digest_len} bytes, exceeding the {DIGEST_LOGS_SIZE}-byte commitment window"
+			"Header has an encoded digest of {encoded_digest_len} bytes, exceeding the {digest_limit}-byte import limit"
 		));
 	}
 
@@ -529,6 +535,9 @@ const MIN_INTERVAL_BETWEEN_TX_REBUILDS: Duration = Duration::from_secs(2);
 /// mining metadata and submitting mined blocks, and a future, which must be polled to fill in
 /// information in the worker.
 ///
+/// Authoring starts disabled. The caller must enable it through
+/// [`MiningHandle::set_authoring_enabled`] after its authoring policy passes.
+///
 /// The worker will rebuild blocks when:
 /// - A new block is imported from the network
 /// - New transactions arrive (rate limited to MIN_INTERVAL_BETWEEN_TX_REBUILDS)
@@ -539,11 +548,10 @@ const MIN_INTERVAL_BETWEEN_TX_REBUILDS: Duration = Duration::from_secs(2);
 /// time).
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::type_complexity)]
-pub fn start_mining_worker<Block, C, E, SO, L, CIDP, TxHash, TxStream>(
+pub fn start_mining_worker<Block, C, E, L, CIDP, TxHash, TxStream>(
 	block_import: BoxBlockImport<Block>,
 	client: Arc<C>,
 	mut env: E,
-	sync_oracle: SO,
 	justification_sync_link: L,
 	rewards_preimage: [u8; 32],
 	create_inherent_data_providers: CIDP,
@@ -563,7 +571,6 @@ where
 	E: Environment<Block> + Send + Sync + 'static,
 	E::Error: std::fmt::Debug,
 	E::Proposer: Proposer<Block>,
-	SO: SyncOracle + Clone + Send + Sync + 'static,
 	L: JustificationSyncLink<Block>,
 	CIDP: CreateInherentDataProviders<Block, ()>,
 	TxHash: Send + 'static,
@@ -584,7 +591,6 @@ where
 		client.clone(),
 		block_import,
 		justification_sync_link,
-		sync_oracle.clone(),
 		pending_build.clone(),
 		notify_tx.clone(),
 	);
@@ -598,12 +604,9 @@ where
 		let mut notify_tx = notify_tx;
 		async move {
 			while let Some(trigger) = trigger_stream.next().await {
-				if sync_oracle.is_major_syncing() {
-					debug!(target: LOG_TARGET, "Skipping proposal due to sync.");
-					worker.on_major_syncing();
+				if !worker.is_authoring_enabled() {
 					continue;
 				}
-
 				let best_hash = client.info().best_hash;
 
 				// Optimization, skip if we already imported this block
@@ -626,6 +629,9 @@ where
 			let Some(target_hash) = pending_build.lock().take() else {
 				continue;
 			};
+			if !worker.is_authoring_enabled() {
+				continue;
+			}
 
 			// Build the block
 			if let Some(build) = create_proposal(
@@ -775,8 +781,12 @@ mod tests {
 	type TestBlock = sp_runtime::generic::Block<TestHeader, OpaqueExtrinsic>;
 
 	fn sealed_header(digest: Digest) -> TestHeader {
+		sealed_header_at(1, digest)
+	}
+
+	fn sealed_header_at(number: u32, digest: Digest) -> TestHeader {
 		<TestHeader as HeaderT>::new(
-			1,
+			number,
 			Default::default(),
 			Default::default(),
 			Default::default(),
@@ -806,7 +816,7 @@ mod tests {
 		// Push the encoded digest past the window while keeping a valid seal
 		// last, so only the length check can be the thing that rejects it.
 		digest.logs.insert(1, DigestItem::Other(vec![0u8; 64]));
-		assert!(digest.encode().len() > DIGEST_LOGS_SIZE);
+		assert!(digest.encode().len() > qp_header::MAX_ENCODED_DIGEST_SIZE);
 
 		let params = BlockImportParams::<TestBlock>::new(
 			BlockOrigin::NetworkBroadcast,
@@ -818,12 +828,73 @@ mod tests {
 		assert!(err.contains("exceeding the"), "expected the digest-length rejection, got: {err}");
 	}
 
+	/// Historical blocks minted before the runtime stopped depositing
+	/// `RuntimeEnvironmentUpdated` on `set_code` encode to exactly one byte
+	/// past the committed window and must stay importable.
+	#[test]
+	fn verifier_accepts_historical_environment_updated_digest() {
+		let mut digest = canonical_digest();
+		digest.logs.insert(1, DigestItem::RuntimeEnvironmentUpdated);
+		assert_eq!(digest.encode().len(), qp_header::MAX_ENCODED_DIGEST_SIZE);
+
+		let params = BlockImportParams::<TestBlock>::new(
+			BlockOrigin::NetworkBroadcast,
+			sealed_header(digest),
+		);
+		let result = futures::executor::block_on(extract_pow_seal::<TestBlock>(params))
+			.expect("historical 111-byte sealed header must pass");
+
+		assert_eq!(
+			result.post_digests.last(),
+			Some(&DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64])),
+			"seal must be moved into post_digests"
+		);
+	}
+
+	/// The 1-byte allowance is strictly historical: above the legacy cutoff
+	/// every digest byte must be inside the hash-committed window, so the
+	/// same 111-byte shape that imports below the cutoff is rejected.
+	#[test]
+	fn verifier_rejects_environment_updated_digest_above_legacy_cutoff() {
+		let mut digest = canonical_digest();
+		digest.logs.insert(1, DigestItem::RuntimeEnvironmentUpdated);
+		assert_eq!(digest.encode().len(), qp_header::MAX_ENCODED_DIGEST_SIZE);
+
+		let number = u32::try_from(qp_header::LEGACY_DIGEST_CUTOFF + 1).expect("cutoff fits u32");
+		let params = BlockImportParams::<TestBlock>::new(
+			BlockOrigin::NetworkBroadcast,
+			sealed_header_at(number, digest),
+		);
+		let result = futures::executor::block_on(extract_pow_seal::<TestBlock>(params));
+
+		let err = result.err().expect("111-byte digest above the cutoff must be rejected");
+		assert!(err.contains("exceeding the"), "expected the digest-length rejection, got: {err}");
+	}
+
+	/// The compat allowance is exactly one byte: anything past it is rejected.
+	#[test]
+	fn verifier_rejects_digest_past_compat_allowance() {
+		let mut digest = canonical_digest();
+		digest.logs.insert(1, DigestItem::RuntimeEnvironmentUpdated);
+		digest.logs.insert(1, DigestItem::RuntimeEnvironmentUpdated);
+		assert_eq!(digest.encode().len(), qp_header::MAX_ENCODED_DIGEST_SIZE + 1);
+
+		let params = BlockImportParams::<TestBlock>::new(
+			BlockOrigin::NetworkBroadcast,
+			sealed_header(digest),
+		);
+		let result = futures::executor::block_on(extract_pow_seal::<TestBlock>(params));
+
+		let err = result.err().expect("digest past the allowance must be rejected");
+		assert!(err.contains("exceeding the"), "expected the digest-length rejection, got: {err}");
+	}
+
 	/// The canonical digest fits the window exactly and must pass the length
 	/// check, with the seal popped into `post_digests`.
 	#[test]
 	fn verifier_accepts_window_sized_digest_and_extracts_seal() {
 		let digest = canonical_digest();
-		assert_eq!(digest.encode().len(), DIGEST_LOGS_SIZE);
+		assert_eq!(digest.encode().len(), qp_header::DIGEST_LOGS_SIZE);
 
 		let params = BlockImportParams::<TestBlock>::new(
 			BlockOrigin::NetworkBroadcast,

@@ -679,6 +679,7 @@ pub fn run() -> sc_cli::Result<()> {
 					cli.sync_disable_major_sync_gating,
 					cli.sync_block_request_timeout,
 					allow_mining_without_peers,
+					cli.max_tip_age,
 				)
 				.map_err(sc_cli::Error::Service)
 			})

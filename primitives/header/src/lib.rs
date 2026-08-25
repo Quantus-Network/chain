@@ -47,10 +47,45 @@ use serde::{Deserialize, Serialize};
 /// Because the window has no slack, the runtime must never deposit digest items
 /// of its own: even a 1-byte item (e.g. upstream frame-system's
 /// `RuntimeEnvironmentUpdated` on `set_code`) pushes the sealed digest to 111
-/// bytes and makes the block unimportable network-wide. The vendored
-/// frame-system's deposits were removed for exactly this reason — see the
-/// warning on `frame_system::Pallet::deposit_log`.
+/// bytes, past the committed window. The vendored frame-system's deposits were
+/// removed for exactly this reason — see the warning on
+/// `frame_system::Pallet::deposit_log`. Blocks minted before that removal are
+/// grandfathered in via [`MAX_ENCODED_DIGEST_SIZE`].
 pub const DIGEST_LOGS_SIZE: usize = 110;
+
+/// Maximum accepted length (in bytes) of a SCALE-encoded header digest for
+/// blocks at or below [`LEGACY_DIGEST_CUTOFF`].
+///
+/// One byte beyond [`DIGEST_LOGS_SIZE`], for backwards compatibility:
+/// historical blocks minted before the runtime stopped depositing
+/// `RuntimeEnvironmentUpdated` on `set_code` carry that 1-byte item between
+/// the pre-runtime preimage and the seal, encoding to 111 bytes, and are part
+/// of the canonical chain. In that shape the byte past the window is the
+/// seal's final byte, which [`Header::hash`] does not commit; that is
+/// tolerable for the fixed historical range because a header forged on the
+/// uncommitted byte still has to pass PoW seal verification, so a colliding
+/// variant can only be a transiently rejected duplicate, never a consensus
+/// fork. Blocks above the cutoff get no slack, restoring the full-commitment
+/// invariant for the indefinite future; use [`max_encoded_digest_size`].
+pub const MAX_ENCODED_DIGEST_SIZE: usize = DIGEST_LOGS_SIZE + 1;
+
+/// Last block height eligible for the 1-byte historical digest allowance.
+///
+/// All `RuntimeEnvironmentUpdated`-carrying blocks were minted long before
+/// this height; it is set slightly above the testnet tip at the time the
+/// bound was introduced so already-mined history keeps importing, while
+/// every future block is capped at the fully hash-committed
+/// [`DIGEST_LOGS_SIZE`].
+pub const LEGACY_DIGEST_CUTOFF: u64 = 1_000_000;
+
+/// Maximum accepted encoded digest length for a block at the given height.
+pub fn max_encoded_digest_size(block_number: u64) -> usize {
+	if block_number <= LEGACY_DIGEST_CUTOFF {
+		MAX_ENCODED_DIGEST_SIZE
+	} else {
+		DIGEST_LOGS_SIZE
+	}
+}
 
 /// Extension trait for headers that support ZK tree root.
 ///

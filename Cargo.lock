@@ -8919,6 +8919,7 @@ dependencies = [
  "sp-consensus-grandpa",
  "sp-core",
  "sp-runtime",
+ "sp-state-machine",
  "substrate-prometheus-endpoint",
  "thiserror 1.0.69",
  "tokio",
