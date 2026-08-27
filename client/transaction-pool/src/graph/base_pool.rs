@@ -484,8 +484,8 @@ impl<Hash: hash::Hash + Member + Serialize, Ex: std::fmt::Debug> BasePool<Hash, 
 	///
 	/// Removes and returns worst transactions from the queues and all transactions that depend on
 	/// them. Technically the worst transaction should be evaluated by computing the entire pending
-	/// set. We use a simplified approach to remove transactions with the lowest priority first or
-	/// those that occupy the pool for the longest time in case priority is the same.
+	/// set. We use a simplified approach that removes the lowest-priority ready transactions and
+	/// the oldest future transactions first.
 	pub fn enforce_limits(
 		&mut self,
 		ready: &Limit,
@@ -532,34 +532,21 @@ impl<Hash: hash::Hash + Member + Serialize, Ex: std::fmt::Debug> BasePool<Hash, 
 			let worst = self.future.fold(|worst, current| match worst {
 				None => Some(current.clone()),
 				Some(worst) => Some(
-					// Prefer to evict the lowest-priority transaction first, matching the
-					// ready-queue policy and this function's documented behavior. Without
-					// this, age-only eviction lets an attacker flood the future queue with
-					// low-priority transactions to force out a victim's older, higher-priority
-					// future transaction (which `ValidatedPool` then bans), turning queue
-					// pressure into a priority-bypassing censorship path. Age is only used to
-					// break ties between equal priorities (evict the one waiting longest).
-					match worst.transaction.priority.cmp(&current.transaction.priority) {
-						Ordering::Less => worst,
-						Ordering::Greater => current.clone(),
-						Ordering::Equal => match (
-							worst.transaction.source.timestamp,
-							current.transaction.source.timestamp,
-						) {
-							(Some(worst_timestamp), Some(current_timestamp)) => {
-								if worst_timestamp > current_timestamp {
-									current.clone()
-								} else {
-									worst
-								}
-							},
-							_ =>
-								if worst.imported_at > current.imported_at {
-									current.clone()
-								} else {
-									worst
-								},
+					match (worst.transaction.source.timestamp, current.transaction.source.timestamp)
+					{
+						(Some(worst_timestamp), Some(current_timestamp)) => {
+							if worst_timestamp > current_timestamp {
+								current.clone()
+							} else {
+								worst
+							}
 						},
+						_ =>
+							if worst.imported_at > current.imported_at {
+								current.clone()
+							} else {
+								worst
+							},
 					},
 				),
 			});
@@ -1430,7 +1417,7 @@ source: TimedTransactionSource { source: TransactionSource::External, timestamp:
 	}
 
 	#[test]
-	fn future_limit_enforcement_evicts_lowest_priority_first() {
+	fn future_limit_enforcement_evicts_oldest_first() {
 		use std::time::Duration;
 
 		let mut pool = pool();
@@ -1474,13 +1461,11 @@ source: TimedTransactionSource { source: TransactionSource::External, timestamp:
 			&Limit { count: 1, total_bytes: 100 },
 		);
 
-		// The low-priority transaction must be evicted even though it is newer; the
-		// older but higher-priority transaction must survive. Age-only eviction would
-		// (incorrectly) drop the older high-priority one.
+		// Priority must not allow an old future transaction to remain pinned in the pool.
 		assert_eq!(removed.len(), 1);
-		assert_eq!(removed[0].hash, 0x20);
+		assert_eq!(removed[0].hash, 0x10);
 		let remaining = pool.futures().map(|tx| tx.hash).collect::<Vec<_>>();
-		assert_eq!(remaining, vec![0x10]);
+		assert_eq!(remaining, vec![0x20]);
 	}
 
 	#[test]
