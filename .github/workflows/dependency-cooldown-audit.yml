@@ -1,0 +1,13 @@
+name: Dependency cooldown audit
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    uses: Quantus-Network/shared-workflows/.github/workflows/dependency-cooldown-audit.yml@v1
