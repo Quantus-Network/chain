@@ -1,0 +1,14 @@
+name: Dependency cooldown
+
+on:
+  pull_request:
+    # labeled/unlabeled/edited are required so the gate re-runs when an
+    # emergency bypass label or reason is added.
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-cooldown:
+    uses: Quantus-Network/shared-workflows/.github/workflows/dependency-cooldown.yml@v1
