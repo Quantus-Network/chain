@@ -10,11 +10,9 @@ use frame_support::{
 };
 use qp_dilithium_crypto::Dilithium65Pair;
 use quantus_runtime::{
-	transaction_extensions::{
-		ChargePubkeyCacheVerify, ReversibleTransactionExtension, WormholeProofRecorderExtension,
-	},
-	Balances, BalancesCall, Executive, Runtime, RuntimeCall, RuntimeEvent, SignedPayload, System,
-	TxExtension, UncheckedExtrinsic, UNIT, VERSION,
+	transaction_extensions::{ReversibleTransactionExtension, WormholeProofRecorderExtension},
+	Balances, BalancesCall, Executive, Runtime, RuntimeCall, RuntimeEvent, Signature,
+	SignedPayload, System, TxExtension, UncheckedExtrinsic, UNIT, VERSION,
 };
 use sp_core::Pair;
 use sp_runtime::{
@@ -55,7 +53,7 @@ fn signed_transfer(
 		frame_system::CheckGenesis::<Runtime>::new(),
 		frame_system::CheckEra::<Runtime>::from(Era::immortal()),
 		frame_system::CheckNonce::<Runtime>::from(nonce),
-		(ChargePubkeyCacheVerify::new(), frame_system::CheckWeight::<Runtime>::new()),
+		frame_system::CheckWeight::<Runtime>::new(),
 		ReversibleTransactionExtension::<Runtime>::new(),
 		WormholeProofRecorderExtension::<Runtime>::new(),
 		pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
@@ -73,7 +71,7 @@ fn signed_transfer(
 			genesis_hash,
 			genesis_hash,
 			(),
-			((), ()),
+			(),
 			(),
 			(),
 			(),
@@ -83,7 +81,12 @@ fn signed_transfer(
 	);
 	let signature = raw_payload.using_encoded(|e| pair.sign(e));
 
-	UncheckedExtrinsic::new_signed(call, MultiAddress::Id(sender), signature.into(), tx_ext)
+	UncheckedExtrinsic::new_signed(
+		call,
+		MultiAddress::Id(sender),
+		Signature::Dilithium65(signature),
+		tx_ext,
+	)
 }
 
 #[test]

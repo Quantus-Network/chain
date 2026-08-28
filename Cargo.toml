@@ -37,7 +37,6 @@ members = [
 	"pallets/mining-rewards",
 	"pallets/multisig",
 	"pallets/preimage",
-	"pallets/pubkey",
 	"pallets/qpow",
 	"pallets/ranked-collective",
 	"pallets/recovery",
@@ -223,7 +222,6 @@ litep2p = { path = "./client/litep2p", default-features = false }
 pallet-balances = { path = "./pallets/balances", default-features = false }
 pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false }
 pallet-multisig = { path = "./pallets/multisig", default-features = false }
-pallet-pubkey = { path = "./pallets/pubkey", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false }
 pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
 pallet-scheduler = { path = "./pallets/scheduler", default-features = false }

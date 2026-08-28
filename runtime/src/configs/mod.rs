@@ -32,9 +32,7 @@ use crate::{
 	MILLI_UNIT,
 };
 use frame_support::{
-	derive_impl,
-	dispatch::DispatchClass,
-	parameter_types,
+	derive_impl, parameter_types,
 	traits::{
 		ConstU128, ConstU16, ConstU32, ConstU8, EitherOfDiverse, EnsureOrigin, Get,
 		NeverEnsureOrigin, VariantCountOf,
@@ -64,7 +62,7 @@ use sp_version::RuntimeVersion;
 // Local module imports
 use super::{
 	AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
-	PalletInfo, Preimage, Pubkey, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
+	PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
 	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Wormhole, ZkTree,
 	DAYS, EXISTENTIAL_DEPOSIT, MAX_SUPPLY, MICRO_UNIT, MILLIS_PER_DAY, TARGET_BLOCK_TIME_MS, UNIT,
 	VERSION,
@@ -73,58 +71,22 @@ use sp_core::U512;
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
-/// Maximum block weight: 6 seconds of compute (with 12 second block time, this
-/// leaves headroom); proof_size is uncapped (intentional for a solo PoW chain
-/// where stateless validation and PoV limits don't apply).
-const MAXIMUM_BLOCK_WEIGHT: Weight =
-	Weight::from_parts(6u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX);
-
 parameter_types! {
 	pub const BlockHashCount: BlockNumber = 4096;
 	pub const Version: RuntimeVersion = VERSION;
 
-	/// Worst-case pubkey-cache database work done by `CachedSignature`
-	/// verification for one signed extrinsic: one `Pubkeys` read (the sig-only
-	/// lookup, or the full-signature `contains_key`) plus one ~2–2.6 KB insert
-	/// on an account's first full-signature transaction.
-	///
-	/// Signature verification runs in `UncheckedExtrinsic::check`, before any
-	/// `TxExtension` weight or payment handling, so this cost cannot be carried
-	/// by a weighted dispatch path. It is charged by
-	/// [`crate::transaction_extensions::ChargePubkeyCacheVerify`] as
-	/// `extension_weight` on signed extrinsics only — bare unsigned paths
-	/// (wormhole `verify_*`, inherents) report `extension_weight = 0` and never
-	/// run `Verify`.
-	///
-	/// Does **not** cover the `Pubkeys::remove` performed when an account is
-	/// reaped: the same extension pre-charges that cleanup
-	/// (`pallet_pubkey::Pallet::reap_cleanup_weight`) per statically visible
-	/// kill-capable call and reconciles it post-dispatch against the reaps the
-	/// `OnKilledAccount` hook actually counted, refunding unused reservations.
-	pub PubkeyCacheVerifyWeight: Weight =
-		<Runtime as frame_system::Config>::DbWeight::get().reads_writes(1, 1);
-
 	/// Block weight limits for the runtime.
 	///
-	/// Mirrors `BlockWeights::with_sensible_defaults(MAXIMUM_BLOCK_WEIGHT,
-	/// NORMAL_DISPATCH_RATIO)` (75%/25% normal/operational split, 10% average
-	/// block initialization). Pubkey-cache verify work is **not** folded into
-	/// `base_extrinsic` (that would tax unsigned `Normal` paths such as wormhole
-	/// exits); it is reserved by `ChargePubkeyCacheVerify` on signed extrinsics.
+	/// - `ref_time`: 6 seconds of compute (with 12 second block time, this leaves headroom)
+	/// - `proof_size`: Set to u64::MAX (uncapped) - this is intentional for a solo PoW chain
+	///   where stateless validation and PoV limits don't apply.
 	///
 	/// See "Proof Size Design Rationale" in the Transaction Fee Structure section below
 	/// for detailed explanation of why proof_size is uncapped and when to revisit this.
-	pub RuntimeBlockWeights: BlockWeights = BlockWeights::builder()
-		.for_class(DispatchClass::Normal, |weights| {
-			weights.max_total = Some(NORMAL_DISPATCH_RATIO * MAXIMUM_BLOCK_WEIGHT);
-		})
-		.for_class(DispatchClass::Operational, |weights| {
-			weights.max_total = Some(MAXIMUM_BLOCK_WEIGHT);
-			weights.reserved =
-				Some(MAXIMUM_BLOCK_WEIGHT - NORMAL_DISPATCH_RATIO * MAXIMUM_BLOCK_WEIGHT);
-		})
-		.avg_block_initialization(Perbill::from_percent(10))
-		.build_or_panic();
+	pub RuntimeBlockWeights: BlockWeights = BlockWeights::with_sensible_defaults(
+		Weight::from_parts(6u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
+		NORMAL_DISPATCH_RATIO,
+	);
 	/// Maximum block length (5 MB).
 	///
 	/// Estimated network transfer times:
@@ -167,15 +129,7 @@ impl frame_system::Config for Runtime {
 	/// This is used as an identifier of the chain. 42 is the generic substrate prefix.
 	type SS58Prefix = SS58Prefix;
 	type MaxConsumers = ConstU32<16>;
-	/// Drop cached Dilithium public keys when the system account is reaped so
-	/// fund → register → reap cannot leave unbounded orphan `Pubkeys` state.
-	type OnKilledAccount = Pubkey;
 }
-
-/// On-chain cache of Dilithium public keys; filled automatically on the first
-/// full-signature transaction of each account and consulted when verifying
-/// `SigOnly` transactions (see `CachedSignature`, the runtime `Signature` type).
-impl pallet_pubkey::Config for Runtime {}
 
 parameter_types! {
 	pub const MiningUnit: Balance = UNIT;
@@ -237,10 +191,6 @@ impl pallet_balances::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type RuntimeFreezeReason = RuntimeFreezeReason;
-	// Stock weights: the `Pubkeys::remove` triggered when a call reaps an
-	// account is pre-charged by `ChargePubkeyCacheVerify` on kill-capable calls
-	// (and registered by the `OnKilledAccount` hook itself outside extrinsics),
-	// so these benchmarks need not model it.
 	type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;
 	/// The type for recording an account's balance.
 	type Balance = Balance;
