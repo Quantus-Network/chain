@@ -1929,19 +1929,6 @@ impl<T: Config> Pallet<T> {
 		storage::unhashed::get(well_known_keys::EXTRINSIC_INDEX)
 	}
 
-	/// The phase of block execution currently underway, if a block is being executed.
-	///
-	/// `Some(Phase::ApplyExtrinsic(_))` for the whole span in which extrinsics are
-	/// applied (set by [`Self::note_finished_initialize`] and advanced by
-	/// [`Self::note_applied_extrinsic`]); `Initialization`/`Finalization` around it;
-	/// `None` outside block execution (the value is killed in [`Self::finalize`]).
-	/// Lets hooks such as `OnKilledAccount` distinguish work performed inside an
-	/// extrinsic (attributable to a fee-paying transaction) from work performed in
-	/// block-lifecycle context.
-	pub fn execution_phase() -> Option<Phase> {
-		ExecutionPhase::<T>::get()
-	}
-
 	/// Gets extrinsics count.
 	pub fn extrinsic_count() -> u32 {
 		ExtrinsicCount::<T>::get().unwrap_or_default()

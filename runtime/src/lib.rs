@@ -79,9 +79,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_version: 145,
 	impl_version: 1,
 	apis: apis::RUNTIME_API_VERSIONS,
-	// v4: `SigOnly` signature variants added (on-chain pubkey cache, `pallet-pubkey`),
-	//     plus the `ChargePubkeyCacheVerify` extension (zero-sized: explicit and
-	//     implicit both encode to zero bytes, so extrinsic encoding is unchanged).
+	// v4: `Multisig::execute` carries and byte-binds the stored proposal call.
 	transaction_version: 4,
 	system_version: 1,
 };
@@ -111,23 +109,13 @@ pub const MAX_SUPPLY: Balance = 21_000_000 * UNIT;
 /// expressed in (`pallet_timestamp` moments, not block numbers).
 pub const MILLIS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
 
-/// Chain signature type: Dilithium signatures backed by the on-chain public key
-/// cache (`pallet-pubkey`). Wraps [`DilithiumSignatureScheme`] transparently —
-/// same SCALE encoding — so full `SignatureWithPublic` transactions are
-/// unchanged, while `SigOnly` variants resolve the key from storage.
-pub type Signature = pallet_pubkey::CachedSignature<Runtime>;
+/// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
+// pub type Signature = MultiSignature;
+pub type Signature = DilithiumSignatureScheme;
 
-/// Some way of identifying an account on the chain: the Poseidon hash of the
-/// account's Dilithium public key.
-///
-/// Derived from the signer of the inner signature scheme rather than written
-/// out as `AccountId32`, so a future signer change fails to compile instead of
-/// diverging silently. (Deriving it from [`Signature`] itself would be
-/// circular: `CachedSignature<Runtime>`'s `Verify` impl requires
-/// `Runtime: frame_system::Config`, whose `AccountId` is this very alias.
-/// `CachedSignature` fixes its `Signer` to the inner scheme's, so this is the
-/// same type.)
-pub type AccountId = <<DilithiumSignatureScheme as Verify>::Signer as IdentifyAccount>::AccountId;
+/// Some way of identifying an account on the chain. We intentionally make it equivalent
+/// to the public key of our transaction signing scheme.
+pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
 
 /// Balance of an account.
 pub type Balance = u128;
@@ -164,15 +152,6 @@ pub type BlockId = generic::BlockId<Block>;
 pub type Difficulty = U512;
 
 /// The SignedExtension to the basic transaction logic.
-///
-/// Nested as `(ChargePubkeyCacheVerify, CheckWeight)` to stay within the
-/// 12-element `TransactionExtension` tuple limit while still charging the
-/// pubkey-cache verify surcharge — plus the per-reap `Pubkeys` cleanup on
-/// kill-capable calls — on signed extrinsics only (bare unsigned report
-/// `extension_weight = 0`). Within the pair, `ChargePubkeyCacheVerify`'s
-/// post-dispatch refund of unrealized reap reservations lands before
-/// `CheckWeight`'s block-weight reclaim and before `ChargeTransactionPayment`
-/// finalizes the fee, so both see the corrected weight.
 pub type TxExtension = (
 	frame_system::CheckNonZeroSender<Runtime>,
 	frame_system::CheckSpecVersion<Runtime>,
@@ -180,7 +159,7 @@ pub type TxExtension = (
 	frame_system::CheckGenesis<Runtime>,
 	frame_system::CheckEra<Runtime>,
 	frame_system::CheckNonce<Runtime>,
-	(transaction_extensions::ChargePubkeyCacheVerify, frame_system::CheckWeight<Runtime>),
+	frame_system::CheckWeight<Runtime>,
 	transaction_extensions::ReversibleTransactionExtension<Runtime>,
 	// Must run before `ChargeTransactionPayment`: post-dispatch hooks execute
 	// left-to-right, and payment finalizes the fee from `PostDispatchInfo` at its
@@ -307,7 +286,4 @@ mod runtime {
 
 	#[runtime::pallet_index(22)]
 	pub type Vesting = pallet_vesting;
-
-	#[runtime::pallet_index(23)]
-	pub type Pubkey = pallet_pubkey;
 }
