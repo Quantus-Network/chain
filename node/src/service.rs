@@ -345,6 +345,29 @@ async fn submit_mined_block(
 	}
 }
 
+/// Pause proposal building and drop the stored external-miner job on the
+/// enabled-to-disabled edge. The protocol has no cancel, so already-connected
+/// miners keep the last job; `clear_current_job` only stops *new* connections
+/// from being handed stale work. Repeated pauses while already disabled are
+/// no-ops so the 5s retry loop does not log a clear every iteration.
+async fn pause_authoring(
+	worker_handle: &MiningHandle<
+		Block,
+		FullClient,
+		Arc<sc_network_sync::SyncingService<Block>>,
+		(),
+	>,
+	miner_server: &Option<Arc<MinerServer>>,
+) {
+	let was_enabled = worker_handle.is_authoring_enabled();
+	worker_handle.set_authoring_enabled(false);
+	if was_enabled {
+		if let Some(server) = miner_server {
+			server.clear_current_job().await;
+		}
+	}
+}
+
 /// The main mining loop that coordinates local and external mining.
 ///
 /// This function runs continuously until the cancellation token is triggered.
@@ -375,7 +398,7 @@ async fn mining_loop(
 
 	loop {
 		if cancellation_token.is_cancelled() {
-			worker_handle.set_authoring_enabled(false);
+			pause_authoring(&worker_handle, &miner_server).await;
 			log::info!("⛏️ QPoW Mining task shutting down gracefully");
 			break;
 		}
@@ -407,7 +430,7 @@ async fn mining_loop(
 				Ok((now_ms, tip_timestamp_ms)) => {
 					logged_tip_error = false;
 					if tip_is_stale(now_ms, tip_timestamp_ms, max_tip_age_ms) {
-						worker_handle.set_authoring_enabled(false);
+						pause_authoring(&worker_handle, &miner_server).await;
 						if !logged_stale_tip {
 							log::info!(
 								"⛏️ Mining paused: best block timestamp is {}s old (limit {}s); waiting to catch up with the network",
@@ -430,7 +453,7 @@ async fn mining_loop(
 					tip_has_been_fresh = true;
 				},
 				Err(error) => {
-					worker_handle.set_authoring_enabled(false);
+					pause_authoring(&worker_handle, &miner_server).await;
 					// Fail closed: this is the only freshness gate for
 					// authoring, so an unreadable clock or tip timestamp
 					// pauses mining just like a stale one
@@ -460,7 +483,7 @@ async fn mining_loop(
 				},
 				Some(since) if now.duration_since(since) >= OFFLINE_GRACE_PERIOD => {
 					// Grace period exceeded, pause mining
-					worker_handle.set_authoring_enabled(false);
+					pause_authoring(&worker_handle, &miner_server).await;
 					log::warn!(target: "pow", "Mining paused: no connected peers for {}s (node is offline)", OFFLINE_GRACE_PERIOD.as_secs());
 					tokio::select! {
 						_ = tokio::time::sleep(Duration::from_secs(5)) => {}
