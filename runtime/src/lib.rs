@@ -64,23 +64,26 @@ impl_opaque_keys! {
 	}
 }
 
-// To learn more about runtime versioning, see:
-// https://docs.substrate.io/main-docs/build/upgrade#runtime-versioning
+// Runtime versioning: https://docs.substrate.io/main-docs/build/upgrade#runtime-versioning
+//
+// Do not increment `spec_version` (or `runtime/Cargo.toml`) in feature PRs.
+// The Quantus - Release Proposal workflow does that when `is_runtime_upgrade`
+// is set, and ships the matching node binary + wasm together. Native execution
+// substitutes for on-chain Wasm only when spec_name, spec_version, and
+// authoring_version all match, so leaving this number alone on main does not
+// activate a new verifier on a live chain. See docs/RUNTIME_UPDATE.md.
+//
+// Bump `transaction_version` only when the signed extrinsic encoding changes
+// (TxExtension set or payload layout) — not for verifier-rule changes.
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: alloc::borrow::Cow::Borrowed("quantus-runtime"),
 	impl_name: alloc::borrow::Cow::Borrowed("quantus-runtime"),
 	authoring_version: 1,
-	// The version of the runtime specification. A full node will not attempt to use its native
-	//   runtime in substitute for the on-chain Wasm runtime unless all of `spec_name`,
-	//   `spec_version`, and `authoring_version` are the same between Wasm and native.
-	// This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
-	//   the compatible custom types.
-	spec_version: 145,
+	spec_version: 147,
 	impl_version: 1,
 	apis: apis::RUNTIME_API_VERSIONS,
-	// v4: `Multisig::execute` carries and byte-binds the stored proposal call.
-	transaction_version: 4,
+	transaction_version: 6,
 	system_version: 1,
 };
 
@@ -104,6 +107,19 @@ pub const EXISTENTIAL_DEPOSIT: Balance = MILLI_UNIT;
 
 /// Hard cap on total issuance; mining emissions stop here.
 pub const MAX_SUPPLY: Balance = 21_000_000 * UNIT;
+
+/// Central fee dial. Every absolute-QUAN price in the runtime — weight/base and
+/// length fees, multisig fees and deposit, preimage and referendum deposits, the
+/// high-security inclusion-fee cap — is derived through [`scale_fee`], so editing
+/// this one ratio (plus a runtime upgrade) repositions the whole price level.
+/// Percentage rates (wormhole bps, reversal/step factors), the existential
+/// deposit, and the 0.01-QUAN circuit quanta are deliberately not scaled.
+pub const FEE_SCALE_NUM: Balance = 1;
+pub const FEE_SCALE_DEN: Balance = 1;
+
+pub const fn scale_fee(base: Balance) -> Balance {
+	base * FEE_SCALE_NUM / FEE_SCALE_DEN
+}
 
 /// Wall-clock day in milliseconds — the unit vesting schedules and claim cadence are
 /// expressed in (`pallet_timestamp` moments, not block numbers).
@@ -166,6 +182,10 @@ pub type TxExtension = (
 	// turn — the wormhole recorder's refund of statically over-charged per-transfer
 	// weight only reaches the payer's fee if it lands first.
 	transaction_extensions::WormholeProofRecorderExtension<Runtime>,
+	// The high-security zero-tip policy is NOT enforced here: it lives in
+	// `transaction_extensions::HighSecurityFungibleAdapter` (the configured
+	// `OnChargeTransaction`), which every fee path of this extension goes
+	// through, so no refactor of this tuple can silently reopen the tip channel.
 	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
 	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
 	// Must stay last: re-runs the block-weight reclaim so that refunds made by the
@@ -187,8 +207,10 @@ pub type SignedPayload = generic::SignedPayload<RuntimeCall, TxExtension>;
 pub type Migrations = (
 	// v1 -> v2: delete the removed wormhole soundness counters.
 	pallet_wormhole::migrations::MigrateV1ToV2<Runtime>,
-	// v0 -> v1: set the treasury portion to 50% (50/50 treasury/miner reward split).
+	// v0 -> v1: no-op version bump (TreasuryPortion is no longer written).
 	pallet_treasury::migrations::MigrateV0ToV1<Runtime>,
+	// v1 -> v2: kill leftover TreasuryPortion; treasury is not paid from emission.
+	pallet_treasury::migrations::MigrateV1ToV2<Runtime>,
 );
 
 /// Executive: handles dispatch to the various modules.
@@ -268,8 +290,8 @@ mod runtime {
 	#[runtime::pallet_index(15)]
 	pub type TreasuryPallet = pallet_treasury;
 
-	#[runtime::pallet_index(16)]
-	pub type Recovery = pallet_recovery;
+	// Index 16 was `pallet_recovery` (removed). Kept vacant so downstream pallet indices stay
+	// stable.
 
 	// Index 17 was `pallet_assets` (removed). Kept vacant so downstream pallet indices stay stable.
 

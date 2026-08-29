@@ -46,13 +46,6 @@ pub struct RunCmd {
 	#[arg(long)]
 	pub validator: bool,
 
-	/// Disable GRANDPA.
-	///
-	/// Disables voter when running in validator mode, otherwise disable the GRANDPA
-	/// observer.
-	#[arg(long)]
-	pub no_grandpa: bool,
-
 	/// The human-readable name for this node.
 	///
 	/// It's used as network node name.
@@ -276,10 +269,6 @@ impl CliConfiguration for RunCmd {
 		Ok(self
 			.prometheus_params
 			.prometheus_config(default_listen_port, chain_spec.id().to_string()))
-	}
-
-	fn disable_grandpa(&self) -> Result<bool> {
-		Ok(self.no_grandpa)
 	}
 
 	fn rpc_max_connections(&self) -> Result<u32> {

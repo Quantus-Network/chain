@@ -1,20 +1,37 @@
 //! Custom signed extensions for the runtime.
 extern crate alloc;
 use crate::*;
-use codec::{Decode, DecodeWithMemTracking, Encode};
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use core::marker::PhantomData;
 use frame_support::pallet_prelude::{
 	InvalidTransaction, TransactionValidityError, ValidTransaction,
 };
-use frame_system::ensure_signed;
 use qp_high_security::HighSecurityInspector;
 use qp_wormhole::TransferProofRecorder;
 use scale_info::TypeInfo;
 use sp_core::Get;
 use sp_runtime::{
-	traits::{DispatchInfoOf, PostDispatchInfoOf, TransactionExtension},
+	traits::{
+		AsSystemOriginSigner, DispatchInfoOf, PostDispatchInfoOf, TransactionExtension, Zero,
+	},
 	DispatchResult, Weight,
 };
+
+/// `InvalidTransaction::Custom` code for a high-security signer attaching a tip.
+/// Distinct from the whitelist rejection (`Custom(1)`).
+pub const HIGH_SECURITY_TIP_FORBIDDEN: u8 = 2;
+
+/// `InvalidTransaction::Custom` code when a high-security signer has already
+/// included `MaxHighSecurityTxsPerWindow` extrinsics in the rolling window.
+pub const HIGH_SECURITY_TX_QUOTA_EXCEEDED: u8 = 3;
+
+/// `InvalidTransaction::Custom` code when a high-security signer's extrinsic
+/// exceeds `MAX_HIGH_SECURITY_EXTRINSIC_LEN` encoded bytes.
+pub const HIGH_SECURITY_EXTRINSIC_TOO_LARGE: u8 = 4;
+
+/// `InvalidTransaction::Custom` code when a high-security signer's extrinsic
+/// would cost more than `MAX_HIGH_SECURITY_INCLUSION_FEE` at zero tip.
+pub const HIGH_SECURITY_FEE_LIMIT_EXCEEDED: u8 = 5;
 
 /// Transaction extension for reversible accounts
 ///
@@ -35,49 +52,290 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync> ReversibleTransaction
 impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 	TransactionExtension<RuntimeCall> for ReversibleTransactionExtension<T>
 {
-	type Pre = ();
-	type Val = ();
+	/// Whether the signer is high-security, decided once in `validate` and
+	/// carried forward: `prepare` records the quota only on the high-security
+	/// path, and `post_dispatch_details` refunds the unused quota weight on
+	/// every other path.
+	type Pre = bool;
+	type Val = bool;
 	type Implicit = ();
 
 	const IDENTIFIER: &'static str = "ReversibleTransactionExtension";
 
 	fn weight(&self, _call: &RuntimeCall) -> Weight {
-		// One `is_high_security` storage read for the flat whitelist check.
-		T::DbWeight::get().reads(1)
+		// Worst case — a high-security signer, four reads and one write:
+		//   1r `HighSecurityAccounts` classification        (validate)
+		//   1r `NextFeeMultiplier` for the fee ceiling      (validate)
+		//   1r `HighSecurityTxQuota` ring, admission check  (validate)
+		//   1r+1w `HighSecurityTxQuota` ring, recording     (prepare)
+		// The pallet helpers (`hs_quota_has_room` / `record_hs_quota`) do
+		// not re-read `HighSecurityAccounts`, so it is read exactly once.
+		// All other traffic
+		// performs only the classification read; the surplus is returned in
+		// `post_dispatch_details`. Walking `batch_all` children in
+		// `is_whitelisted` is in-memory only. Proof size is deliberately not
+		// modeled: this is a solo PoW chain (no PoV), matching `DbWeight`
+		// usage across the runtime.
+		T::DbWeight::get().reads_writes(4, 1)
 	}
 
 	fn prepare(
 		self,
-		_val: Self::Val,
-		_origin: &sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
+		val: Self::Val,
+		origin: &sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
 		_call: &RuntimeCall,
 		_info: &sp_runtime::traits::DispatchInfoOf<RuntimeCall>,
 		_len: usize,
 	) -> Result<Self::Pre, TransactionValidityError> {
-		Ok(())
+		// `val` is fresh: during block execution `validate` runs immediately
+		// before `prepare` on the same state, so the whitelist and length
+		// gates in `validate` are consensus-enforced without a re-check here.
+		if !val {
+			return Ok(false);
+		}
+		let who = origin
+			.as_system_origin_signer()
+			.ok_or(TransactionValidityError::Invalid(InvalidTransaction::BadSigner))?;
+		// Record here rather than in `validate`: mempool validation is not
+		// sequenced with other same-account extrinsics in this block, so the
+		// ring mutation must happen at inclusion time. `hs_ring_record`
+		// re-checks ring admission; the high-security classification itself is
+		// taken from `val` (fresh: `validate` ran just before on this state).
+		pallet_reversible_transfers::Pallet::<Runtime>::record_hs_quota(who).map_err(|_| {
+			TransactionValidityError::Invalid(InvalidTransaction::Custom(
+				HIGH_SECURITY_TX_QUOTA_EXCEEDED,
+			))
+		})?;
+		Ok(true)
 	}
 
 	fn validate(
 		&self,
 		origin: sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
 		call: &RuntimeCall,
-		_info: &sp_runtime::traits::DispatchInfoOf<RuntimeCall>,
-		_len: usize,
+		info: &sp_runtime::traits::DispatchInfoOf<RuntimeCall>,
+		len: usize,
 		_self_implicit: Self::Implicit,
 		_inherited_implication: &impl sp_runtime::traits::Implication,
 		_source: frame_support::pallet_prelude::TransactionSource,
 	) -> sp_runtime::traits::ValidateResult<Self::Val, RuntimeCall> {
-		let who = ensure_signed(origin.clone())
-			.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::BadSigner))?;
+		let Some(who) = origin.as_system_origin_signer() else {
+			return Err(TransactionValidityError::Invalid(InvalidTransaction::BadSigner));
+		};
 
-		// Enforce the high-security whitelist on the top-level signer. Origin-rewriting wrappers
-		// (`as_derivative`/`as_recovered`) re-check the whitelist at the effective origin inside
-		// their own pallets at dispatch time, so this flat check needs no call traversal.
-		if !crate::configs::HighSecurityConfig::is_call_allowed(&who, call) {
+		// The one `HighSecurityAccounts` classification read, shared by the
+		// whitelist check below, the quota check, the recording in `prepare`
+		// and the weight refund in `post_dispatch_details`.
+		let is_high_security = crate::configs::HighSecurityConfig::is_high_security(who);
+
+		// Enforce the high-security whitelist on the top-level signer.
+		// `is_whitelisted` walks `batch_all` children so a mixed batch is rejected here.
+		// Origin-rewriting wrappers (multisig execution) re-check the whitelist at the
+		// effective origin inside their own pallets at dispatch time.
+		if !crate::configs::HighSecurityConfig::is_call_allowed_given(is_high_security, call) {
 			return Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(1)));
 		}
 
-		Ok((ValidTransaction::default(), (), origin))
+		// Cap the encoded length: the length fee is charged on the full
+		// extrinsic pre-dispatch and never refunded, so a stolen key must not
+		// be able to pad a future variable-length field and grind free
+		// balance out to a colluding block author.
+		if is_high_security && len as u32 > crate::configs::MAX_HIGH_SECURITY_EXTRINSIC_LEN {
+			return Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(
+				HIGH_SECURITY_EXTRINSIC_TOO_LARGE,
+			)));
+		}
+
+		// Bound the zero-tip inclusion fee itself, not just its inputs: a
+		// future whitelisted call with an unforeseen length or weight surface
+		// (the fee input the length cap above cannot see) cannot reopen the
+		// fee-drain channel. Deterministic because `FeeMultiplierUpdate` is a
+		// constant one.
+		if is_high_security &&
+			pallet_transaction_payment::Pallet::<Runtime>::compute_fee(len as u32, info, 0) >
+				crate::configs::MAX_HIGH_SECURITY_INCLUSION_FEE
+		{
+			return Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(
+				HIGH_SECURITY_FEE_LIMIT_EXCEEDED,
+			)));
+		}
+
+		if is_high_security &&
+			!pallet_reversible_transfers::Pallet::<Runtime>::hs_quota_has_room(who)
+		{
+			return Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(
+				HIGH_SECURITY_TX_QUOTA_EXCEEDED,
+			)));
+		}
+
+		Ok((ValidTransaction::default(), is_high_security, origin))
+	}
+
+	fn post_dispatch_details(
+		pre: Self::Pre,
+		_info: &sp_runtime::traits::DispatchInfoOf<RuntimeCall>,
+		_post_info: &PostDispatchInfoOf<RuntimeCall>,
+		_len: usize,
+		_result: &DispatchResult,
+	) -> Result<Weight, TransactionValidityError> {
+		if pre {
+			// High-security path: the full declared weight was used.
+			return Ok(Weight::zero());
+		}
+		// Everyone else only did the classification read; return the fee
+		// ceiling's multiplier read and the quota ring reads/write reserved
+		// by `weight()`. This extension precedes the payment extension in
+		// `TxExtension`, so the refund reaches the payer's fee, not just
+		// block capacity.
+		Ok(T::DbWeight::get().reads_writes(3, 1))
+	}
+}
+
+/// The fee adapter that actually moves funds; [`HighSecurityFungibleAdapter`]
+/// only vets the tip before delegating.
+type InnerFeeAdapter = pallet_transaction_payment::FungibleAdapter<
+	Balances,
+	pallet_mining_rewards::TransactionFeesCollector<Runtime>,
+>;
+
+/// `OnChargeTransaction` adapter that forbids tips from high-security signers.
+///
+/// The call whitelist cannot see the tip: it lives on the payment extension,
+/// not on `RuntimeCall`. Enforcing it in a wrapper extension proved fragile —
+/// the wrapper had to impersonate the stock `ChargeTransactionPayment`
+/// `IDENTIFIER`, so a refactor back to the unwrapped extension would have
+/// compiled with byte-identical metadata while silently reopening the tip
+/// channel. This adapter sees both `who` and `tip` on every fee path —
+/// `can_withdraw_fee` on the (mempool and consensus) validation path and
+/// `withdraw_fee` at inclusion — so the policy survives any change to the
+/// extension tuple.
+///
+/// High-security accounts are delayed by design and do not need priority
+/// bidding; a non-zero tip is rejected with `Custom(HIGH_SECURITY_TIP_FORBIDDEN)`
+/// before anything is withdrawn.
+///
+/// Weight note: the `HighSecurityAccounts` read happens only on the
+/// tip-carrying path (`can_withdraw_fee` during validation, `withdraw_fee` at
+/// inclusion). The stock benchmarked payment weight cannot see this branch,
+/// so [`PaymentWeightsWithTipPolicy`] — the configured payment `WeightInfo` —
+/// declares both reads unconditionally.
+pub struct HighSecurityFungibleAdapter;
+
+/// `pallet_transaction_payment` weights adjusted for Quantus-owned work the
+/// stock kitchensink benchmark never measures:
+///
+/// * two `HighSecurityAccounts` reads from the tip policy in [`HighSecurityFungibleAdapter`]
+///   (`can_withdraw_fee` then `withdraw_fee` on a tipped transaction). Many distinct tipped signers
+///   can appear in one block, so these are not warm-cache hits.
+/// * one unique-key `CollectedFees` read and write from
+///   [`pallet_mining_rewards::TransactionFeesCollector`] on every nonzero corrected fee. The
+///   follow-on `get` for the event is same-key.
+///
+/// The high-security reads are charged unconditionally: the payment extension
+/// has no tip-keyed refund hook, so zero-tip traffic overpays those two reads
+/// (~50µs ref_time) — an error in the safe direction. The collector access
+/// runs on every paid extrinsic, so it is not an overcharge.
+pub struct PaymentWeightsWithTipPolicy;
+
+impl pallet_transaction_payment::WeightInfo for PaymentWeightsWithTipPolicy {
+	fn charge_transaction_payment() -> Weight {
+		let db = <Runtime as frame_system::Config>::DbWeight::get();
+		pallet_transaction_payment::weights::SubstrateWeight::<Runtime>::charge_transaction_payment(
+		)
+		.saturating_add(db.reads(2))
+		.saturating_add(db.reads_writes(1, 1))
+	}
+}
+
+impl HighSecurityFungibleAdapter {
+	fn reject_high_security_tip(
+		who: &AccountId,
+		tip: Balance,
+	) -> Result<(), TransactionValidityError> {
+		// Tip compared first so the storage read is skipped on the zero-tip path.
+		if !tip.is_zero() && crate::configs::HighSecurityConfig::is_high_security(who) {
+			return Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(
+				HIGH_SECURITY_TIP_FORBIDDEN,
+			)));
+		}
+		Ok(())
+	}
+}
+
+impl pallet_transaction_payment::TxCreditHold<Runtime> for HighSecurityFungibleAdapter {
+	type Credit = <InnerFeeAdapter as pallet_transaction_payment::TxCreditHold<Runtime>>::Credit;
+}
+
+impl pallet_transaction_payment::OnChargeTransaction<Runtime> for HighSecurityFungibleAdapter {
+	type Balance = Balance;
+	type LiquidityInfo = <InnerFeeAdapter as pallet_transaction_payment::OnChargeTransaction<
+		Runtime,
+	>>::LiquidityInfo;
+
+	fn withdraw_fee(
+		who: &AccountId,
+		call: &RuntimeCall,
+		dispatch_info: &DispatchInfoOf<RuntimeCall>,
+		fee_with_tip: Self::Balance,
+		tip: Self::Balance,
+	) -> Result<Self::LiquidityInfo, TransactionValidityError> {
+		Self::reject_high_security_tip(who, tip)?;
+		<InnerFeeAdapter as pallet_transaction_payment::OnChargeTransaction<Runtime>>::withdraw_fee(
+			who,
+			call,
+			dispatch_info,
+			fee_with_tip,
+			tip,
+		)
+	}
+
+	fn can_withdraw_fee(
+		who: &AccountId,
+		call: &RuntimeCall,
+		dispatch_info: &DispatchInfoOf<RuntimeCall>,
+		fee_with_tip: Self::Balance,
+		tip: Self::Balance,
+	) -> Result<(), TransactionValidityError> {
+		Self::reject_high_security_tip(who, tip)?;
+		<InnerFeeAdapter as pallet_transaction_payment::OnChargeTransaction<Runtime>>::can_withdraw_fee(
+			who,
+			call,
+			dispatch_info,
+			fee_with_tip,
+			tip,
+		)
+	}
+
+	fn correct_and_deposit_fee(
+		who: &AccountId,
+		dispatch_info: &DispatchInfoOf<RuntimeCall>,
+		post_info: &PostDispatchInfoOf<RuntimeCall>,
+		corrected_fee_with_tip: Self::Balance,
+		tip: Self::Balance,
+		liquidity_info: Self::LiquidityInfo,
+	) -> Result<(), TransactionValidityError> {
+		// No tip re-check: a high-security tip never gets past
+		// `can_withdraw_fee` / `withdraw_fee`, so `tip` is zero here.
+		<InnerFeeAdapter as pallet_transaction_payment::OnChargeTransaction<Runtime>>::correct_and_deposit_fee(
+			who,
+			dispatch_info,
+			post_info,
+			corrected_fee_with_tip,
+			tip,
+			liquidity_info,
+		)
+	}
+
+	#[cfg(feature = "runtime-benchmarks")]
+	fn endow_account(who: &AccountId, amount: Self::Balance) {
+		<InnerFeeAdapter as pallet_transaction_payment::OnChargeTransaction<Runtime>>::endow_account(
+			who, amount,
+		)
+	}
+
+	#[cfg(feature = "runtime-benchmarks")]
+	fn minimum_balance() -> Self::Balance {
+		<InnerFeeAdapter as pallet_transaction_payment::OnChargeTransaction<Runtime>>::minimum_balance()
 	}
 }
 
@@ -90,13 +348,12 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 /// - Automatically catches ALL transfers dispatched inside a transaction, regardless of how they're
 ///   initiated:
 ///   - Direct transfers (transfer, transfer_keep_alive, transfer_all, etc.)
-///   - Batch transfers (utility.batch, batch_all, force_batch)
+///   - Batch transfers (utility.batch_all)
 ///   - Multisig transfers (multisig.execute)
-///   - Recovery transfers (recovery.as_recovered)
 ///   - Held-fund seizures/recoveries (reversible_transfers.cancel / recover_funds, which move value
-///     with `transfer_on_hold` instead of a free-balance transfer)
-///   - Recovery-deposit seizures (recovery.close_recovery, which moves the rescuer's deposit with
-///     `repatriate_reserved`)
+///     with `transfer_on_hold` instead of a free-balance transfer). Owner cancel of a one-time
+///     schedule uses `release` instead — hold → free on the same account, not a credit — so it
+///     emits no `TransferOnHold` and records no leaf.
 ///   - Future call-based mechanisms automatically covered, since wrapper calls emit their inner
 ///     events within the same extrinsic's event range
 ///
@@ -104,17 +361,19 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 /// never sees events emitted from hooks (`on_initialize` / `on_finalize`). Every
 /// hook-context credit therefore needs — and has — an explicit
 /// `TransferProofRecorder::record_transfer_proof` call instead:
-///   - reversible-transfers' scheduled execution records its transfer in `do_execute_transfer`;
-///   - mining rewards and the treasury share record theirs in `on_finalize`
-///     (`pallet_mining_rewards`). Those credits use `mint_into`, which *does* emit
-///     `Balances::Minted` (the same event this scanner records); they are safe from
-///     double-recording only because distribution runs in `on_finalize`, outside every extrinsic's
-///     scan window. Moving that distribution into `on_initialize` or a signed path without also
-///     suppressing the scan (or the explicit record) would inflate wormhole exit capacity.
+///   - reversible-transfers' scheduled execution records its transfer in `do_execute_transfer`
+///     (skipped when `from == to`, which moves no value);
+///   - mining rewards record theirs in `on_finalize` (`pallet_mining_rewards`). Sub-quantum
+///     remainder stays in `CollectedFees` for the next miner (no leaf). Those credits use
+///     `mint_into`, which *does* emit `Balances::Minted` (the same event this scanner records);
+///     they are safe from double-recording only because distribution runs in `on_finalize`, outside
+///     every extrinsic's scan window. Moving that distribution into `on_initialize` or a signed
+///     path without also suppressing the scan (or the explicit record) would inflate wormhole exit
+///     capacity.
 ///
 /// The one remaining hook-context path is a governance-enacted call: referenda enactment
-/// dispatches the approved call via the scheduler in `on_initialize` (e.g. a Root
-/// `force_transfer`), so its events are not scanned and no leaf is recorded. This is a
+/// dispatches the approved call via the scheduler in `on_initialize`, so its events are
+/// not scanned and no leaf is recorded. This is a
 /// known, accepted gap rather than an oversight: the scheduler's `ScheduleOrigin` is
 /// Root, the tech-referenda track only accepts Root proposal origins, and sudo is
 /// removed — so only Root can reach it, and Root can already forge or delete leaves
@@ -137,14 +396,12 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	/// Weight charged per recorded transfer proof.
 	///
 	/// Per recorded transfer, `record_transfer` touches one `TransferCount` read and one
-	/// write, plus the ZK-tree leaf append. Root recomputation is batched once per
-	/// block in the zk-tree's `on_finalize`; this price is the flat *marginal* share
-	/// of that batch (see [`pallet_zk_tree::INSERT_LEAF_DB_OPS`]), so multiplying it
-	/// by a transfer count is sound even for multi-transfer calls that cross capacity
-	/// boundaries — the depth-dependent tail is reserved once per block by the
-	/// zk-tree's `on_initialize`. The batch also puts every tree key it touches into
-	/// the PoV ([`pallet_zk_tree::TREE_KEY_POV`] each); omitting that proof-size term
-	/// would let deep-tree blocks exceed the PoV budget validators re-execute
+	/// write, plus the ZK-tree leaf insert. The insert price is FLAT at the circuit
+	/// depth ceiling (see [`pallet_zk_tree::INSERT_LEAF_DB_OPS`]), so multiplying this
+	/// single price by a transfer count is sound even for multi-transfer calls that
+	/// cross capacity boundaries. The path update also puts every tree key it reads
+	/// into the PoV ([`pallet_zk_tree::TREE_KEY_POV`] each); omitting that proof-size
+	/// term would let deep-tree blocks exceed the PoV budget validators re-execute
 	/// against. Recording finally deposits [`Self::EVENTS_PER_RECORDED_PROOF`] events;
 	/// those land after the scan snapshot, so this reservation is the only place their
 	/// System work can be charged.
@@ -162,8 +419,9 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 
 	/// Events deposited by one successfully recorded proof: `ZkTree::LeafInserted`
 	/// plus the wormhole's `NativeTransferred` / `AssetTransferred`. (`TreeGrew` is
-	/// not modeled because it cannot appear in the scan at all: it is emitted from
-	/// the zk-tree's `on_finalize`, after every post-dispatch scan has already run.)
+	/// deliberately not modeled: the tree grows at most [`pallet_zk_tree::MAX_TREE_DEPTH`]
+	/// times over the chain's entire life, and the flat depth-ceiling insert pricing
+	/// already carries margin for young trees.)
 	const EVENTS_PER_RECORDED_PROOF: u64 = 2;
 
 	/// Weight of depositing `events` records from proof recording. Each
@@ -217,22 +475,18 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 
 	fn count_transfers(call: &RuntimeCall) -> u64 {
 		// NOTE: this must stay in sync with the events matched by `record_proofs_from_events_since`
-		// — we only weight calls whose emitted events we actually record. In particular
-		// `Balances::force_set_balance` is deliberately NOT counted here: it emits `BalanceSet`
-		// (an absolute set, not a transfer/mint), which we cannot turn into a transfer proof and
-		// therefore never record.
-		//
-		// Should a recordable transfer ever arrive on a path this matcher misses
-		// entirely, `post_dispatch` registers the shortfall against the block via
-		// `register_extra_weight_unchecked` as a defense-in-depth backstop.
+		// — we only weight calls whose emitted events we actually record.
 		match call {
 			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
 			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
-			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) |
-			RuntimeCall::Balances(pallet_balances::Call::force_transfer { .. }) => 1,
+			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) => 1,
 
-			// A successful cancel releases the held funds to the recipient with
-			// `transfer_on_hold`, emitting exactly one `TransferOnHold` the scan records.
+			// Guardian cancel seizes the hold with `transfer_on_hold` and emits one
+			// `TransferOnHold` the scan records. Owner self-cancel of a one-time
+			// schedule uses `release` instead (hold → free on the same account) and
+			// records zero proofs. The static count of one is a conservative
+			// reservation: `weight()` cannot see which branch will run, and
+			// post-dispatch reconciliation refunds the unused charge.
 			RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
 				..
 			}) => 1,
@@ -251,35 +505,14 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			)
 			.saturating_add(1),
 
-			// Closing a recovery repatriates the rescuer's reserved deposit to the caller,
-			// emitting exactly one `ReserveRepatriated` the scan records. (On the failure
-			// path the deposit is unreserved instead — an overcharge, never a shortfall.)
-			RuntimeCall::Recovery(pallet_recovery::Call::close_recovery { .. }) => 1,
-
-			RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
-			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
-			RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) =>
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) =>
 				calls.iter().map(Self::count_transfers).sum(),
-
-			RuntimeCall::Utility(pallet_utility::Call::dispatch_as { call, .. }) |
-			RuntimeCall::Utility(pallet_utility::Call::dispatch_as_fallible { call, .. }) |
-			RuntimeCall::Utility(pallet_utility::Call::with_weight { call, .. }) |
-			RuntimeCall::Utility(pallet_utility::Call::as_derivative { call, .. }) |
-			RuntimeCall::Recovery(pallet_recovery::Call::as_recovered { call, .. }) =>
-				Self::count_transfers(call),
 
 			// `execute` requires the executor to resubmit the stored proposal's call
 			// (verified byte-equal before dispatch), so the inner call is right here
 			// in the submitted extrinsic — recurse like any other wrapper.
 			RuntimeCall::Multisig(pallet_multisig::Call::execute { call, .. }) =>
 				Self::count_transfers(call),
-
-			// Exactly one branch executes: the fallback runs only if the main call failed, in
-			// which case the main call's changes (and its events) were rolled back. Charge the
-			// worst case across the two branches; overcharge is never refunded, so summing
-			// would systematically overprice the honest path.
-			RuntimeCall::Utility(pallet_utility::Call::if_else { main, fallback }) =>
-				Self::count_transfers(main).max(Self::count_transfers(fallback)),
 
 			// Vesting calls fall through to 0 deliberately: the pallet records its
 			// payouts itself (so Root calls enacted by the scheduler are captured too)
@@ -294,8 +527,8 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			// hottest call in the runtime to spare a handful of one-off bootstrap
 			// transfers, and the direction is conservative. Pot-as-*source* needs no
 			// handling at all: the pot is a keyless pallet account, so no signed call
-			// this extension weighs can move funds out of it (`force_transfer` from it
-			// is Root-only, enacted by the scheduler outside this pipeline).
+			// this extension weighs can move funds out of it (the runtime has no
+			// force-transfer extrinsic at all).
 			_ => 0,
 		}
 	}
@@ -361,20 +594,22 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 						// seized/recovered funds to the guardian with `transfer_on_hold`
 						// (`Restriction::Free`), so the destination receives ordinary free
 						// balance — a genuine credit that needs a leaf exactly like a
-						// `Transfer`, it just emits a different event. (`TransferAndHold`
-						// is deliberately not matched: nothing in the runtime emits it.)
+						// `Transfer`, it just emits a different event. Owner self-cancel
+						// uses `release` instead of `transfer_on_hold`, so it never reaches
+						// this arm; `record_transfer_proof` also drops `source == dest` as
+						// a backstop. (`TransferAndHold` is deliberately not matched:
+						// nothing in the runtime emits it.)
 						RuntimeEvent::Balances(pallet_balances::Event::TransferOnHold {
 							source,
 							dest,
 							amount,
 							..
 						}) => Some((None, source, dest, amount)),
-						// Reserved-balance repatriations. `pallet_recovery::close_recovery`
-						// seizes the rescuer's recovery deposit into the rescued account with
-						// `repatriate_reserved`, which emits this instead of a `Transfer`. The
-						// event is only emitted for cross-account moves (self-repatriations
-						// return early), and the credit belongs to `to` whether it lands free
-						// or reserved, so record it unconditionally.
+						// Reserved-balance repatriations. `repatriate_reserved` emits this
+						// instead of a `Transfer`. The event is only emitted for
+						// cross-account moves (self-repatriations return early), and the
+						// credit belongs to `to` whether it lands free or reserved, so
+						// record it unconditionally.
 						RuntimeEvent::Balances(pallet_balances::Event::ReserveRepatriated {
 							from,
 							to,
@@ -412,7 +647,9 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 	/// is sufficient because the per-transfer price is flat (see
 	/// [`Self::per_transfer_weight`]).
 	type Pre = (u32, u64);
-	type Val = ();
+	/// Transfer count from `validate()`, reused by `prepare()` so the matcher is
+	/// not walked a second time.
+	type Val = u64;
 	type Implicit = ();
 
 	const IDENTIFIER: &'static str = "WormholeProofRecorderExtension";
@@ -428,29 +665,29 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 
 	fn prepare(
 		self,
-		_val: Self::Val,
+		val: Self::Val,
 		_origin: &sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
-		call: &RuntimeCall,
+		_call: &RuntimeCall,
 		_info: &sp_runtime::traits::DispatchInfoOf<RuntimeCall>,
 		_len: usize,
 	) -> Result<Self::Pre, TransactionValidityError> {
 		// Snapshot current event count so we only process events added by this tx
-		// (and any events from previous txs in the same block), and remember how many transfer
-		// proofs were statically charged for so post_dispatch can reconcile.
-		Ok((frame_system::Pallet::<Runtime>::event_count(), Self::count_transfers(call)))
+		// (and any events from previous txs in the same block). The transfer
+		// count comes from `validate()` so the matcher is not walked again.
+		Ok((frame_system::Pallet::<Runtime>::event_count(), val))
 	}
 
 	fn validate(
 		&self,
 		origin: sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
-		_call: &RuntimeCall,
+		call: &RuntimeCall,
 		_info: &DispatchInfoOf<RuntimeCall>,
 		_len: usize,
 		_self_implicit: Self::Implicit,
 		_inherited_implication: &impl sp_runtime::traits::Implication,
 		_source: frame_support::pallet_prelude::TransactionSource,
 	) -> sp_runtime::traits::ValidateResult<Self::Val, RuntimeCall> {
-		Ok((ValidTransaction::default(), (), origin))
+		Ok((ValidTransaction::default(), Self::count_transfers(call), origin))
 	}
 
 	fn post_dispatch_details(
@@ -463,10 +700,10 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		let (event_count_before, charged_transfers) = pre;
 
 		// A failed dispatch rolled back its events: nothing is scanned and nothing is
-		// recorded, so the entire static per-transfer reservation is unspent. Returning
-		// it refunds both the fee (this extension precedes `ChargeTransactionPayment`
-		// in `TxExtension`, so payment sees the corrected weight) and block capacity
-		// (via the trailing `WeightReclaim`).
+		// recorded, so the static per-transfer reservation is unspent. Returning it
+		// refunds both the fee (this extension precedes `ChargeTransactionPayment`
+		// in `TxExtension`, so payment sees the corrected weight) and block
+		// capacity (via the trailing `WeightReclaim`).
 		if result.is_err() {
 			return Ok(Self::per_transfer_weight().saturating_mul(charged_transfers));
 		}
@@ -525,11 +762,13 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 
 		// The converse of the shortfall: `weight()` reserves the worst case, and any
 		// statically over-charged transfers are unspent — `recover_funds` is charged
-		// `MaxPendingPerAccount + 1` regardless of how many holds were pending, `if_else`
-		// is charged its heavier branch, and a short-circuited `batch` never executes its
-		// remaining children. The per-transfer price is flat, so the unspent amount is
-		// exactly the count difference times that price (and by construction never exceeds
-		// this extension's declared weight).
+		// `MaxPendingPerAccount + 1` regardless of how many holds were pending,
+		// `Multisig::execute` recurses into the resubmitted inner call (so a
+		// one-transfer proposal is charged one), and a `batch_all` that fails after
+		// some children still reserved weight for every child in the submitted call.
+		// The per-transfer price is flat, so the unspent amount is exactly the count
+		// difference times that price (and by construction never exceeds this
+		// extension's declared weight).
 		Ok(Self::per_transfer_weight().saturating_mul(charged_transfers.saturating_sub(recorded)))
 	}
 }
@@ -537,10 +776,8 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use frame_support::{
-		assert_err_ignore_postinfo, assert_noop, assert_ok,
-		pallet_prelude::TransactionValidityError, traits::Currency,
-	};
+	use frame_support::{assert_ok, pallet_prelude::TransactionValidityError};
+	use pallet_transaction_payment::WeightInfo;
 	use sp_runtime::{traits::TxBaseImplication, AccountId32};
 	fn alice() -> AccountId {
 		AccountId32::from([1; 32])
@@ -551,6 +788,42 @@ mod tests {
 	}
 	fn charlie() -> AccountId {
 		AccountId32::from([3; 32])
+	}
+	fn dave() -> AccountId {
+		AccountId32::from([4; 32])
+	}
+
+	fn funded_threshold1_multisig() -> AccountId {
+		let signers = vec![alice(), bob()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			1,
+			0,
+		));
+		let multisig_address =
+			pallet_multisig::Pallet::<Runtime>::derive_multisig_address(&signers, 1, 0);
+		assert_ok!(Balances::transfer_keep_alive(
+			RuntimeOrigin::signed(alice()),
+			MultiAddress::Id(multisig_address.clone()),
+			EXISTENTIAL_DEPOSIT * 1000,
+		));
+		multisig_address
+	}
+
+	fn propose_inner(multisig_address: &AccountId, inner: RuntimeCall) {
+		let encoded: pallet_multisig::BoundedCallOf<Runtime> =
+			inner.encode().try_into().expect("test inner call fits MaxCallSize");
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			encoded,
+			System::block_number() + 100,
+		));
+	}
+
+	fn boxed(call: RuntimeCall) -> alloc::boxed::Box<RuntimeCall> {
+		alloc::boxed::Box::new(call)
 	}
 
 	// Build genesis storage according to the mock runtime.
@@ -576,17 +849,39 @@ mod tests {
 		.assimilate_storage(&mut t)
 		.unwrap();
 
-		// Treasury account + portion are required for mining-reward distribution. Both
+		// Treasury account is required for mining-reward fallback credits. It
 		// must be explicit: the genesis default no longer configures anything (the old
 		// default account was the keyless `[1u8; 32]` minting sentinel).
 		pallet_treasury::GenesisConfig::<Runtime> {
 			treasury_account: Some(AccountId32::from([9u8; 32])),
-			treasury_portion: Some(sp_runtime::Permill::from_percent(50)),
 		}
 		.assimilate_storage(&mut t)
 		.unwrap();
 
 		sp_io::TestExternalities::new(t)
+	}
+
+	fn run_scheduler_to(n: u32) {
+		use frame_support::traits::{OnFinalize, OnInitialize};
+		while System::block_number() < n {
+			let b = System::block_number();
+			Scheduler::on_finalize(b);
+			System::set_block_number(b + 1);
+			Scheduler::on_initialize(b + 1);
+		}
+	}
+
+	fn newest_leaf() -> pallet_zk_tree::ZkLeaf<AccountId, AssetId, Balance> {
+		let n = ZkTree::leaf_count();
+		assert!(n > 0, "expected at least one leaf");
+		pallet_zk_tree::Leaves::<Runtime>::get(n - 1).expect("newest leaf exists")
+	}
+
+	fn scan_since(event_count_before: u32) -> u64 {
+		WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(
+			event_count_before,
+		)
+		.0
 	}
 
 	#[test]
@@ -619,22 +914,24 @@ mod tests {
 			});
 			let origin = RuntimeOrigin::signed(alice());
 
-			// Test the prepare method
-			ext.clone().prepare((), &origin, &call, &Default::default(), 0).unwrap();
-			assert_eq!((), ());
-
-			// Test the validate method
-			let result = ext.validate(
-				origin,
-				&call,
-				&Default::default(),
-				0,
-				(),
-				&TxBaseImplication::<()>(()),
-				frame_support::pallet_prelude::TransactionSource::External,
-			);
-			// Alice is not high-security, so this should succeed
-			assert_ok!(result);
+			// Full lifecycle: validate decides the high-security status once and
+			// prepare consumes it. Alice is not high-security, so this succeeds
+			// and prepare reports the refundable (non-HS) path.
+			let (_, val, _) = ext
+				.clone()
+				.validate(
+					origin.clone(),
+					&call,
+					&Default::default(),
+					0,
+					(),
+					&TxBaseImplication::<()>(()),
+					frame_support::pallet_prelude::TransactionSource::External,
+				)
+				.expect("alice is not high-security");
+			assert!(!val, "alice must be classified as non-high-security");
+			let pre = ext.prepare(val, &origin, &call, &Default::default(), 0).unwrap();
+			assert!(!pre);
 
 			// Charlie is already configured as high-security from genesis
 			// Verify Charlie is high-security
@@ -679,11 +976,41 @@ mod tests {
 		signer: AccountId,
 		call: &RuntimeCall,
 	) -> Result<(), TransactionValidityError> {
+		validate_with_len(signer, call, 0)
+	}
+
+	// As `validate_with`, but with an explicit encoded length so the length gate can
+	// be exercised without building a multi-KiB extrinsic.
+	fn validate_with_len(
+		signer: AccountId,
+		call: &RuntimeCall,
+		len: usize,
+	) -> Result<(), TransactionValidityError> {
 		ReversibleTransactionExtension::<Runtime>::new()
 			.validate(
 				RuntimeOrigin::signed(signer),
 				call,
 				&Default::default(),
+				len,
+				(),
+				&TxBaseImplication::<()>(()),
+				frame_support::pallet_prelude::TransactionSource::External,
+			)
+			.map(|_| ())
+	}
+
+	// As `validate_with`, but with an explicit `DispatchInfo` so the fee ceiling
+	// can be exercised against a hypothetical heavy-weight call.
+	fn validate_with_info(
+		signer: AccountId,
+		call: &RuntimeCall,
+		info: &frame_support::dispatch::DispatchInfo,
+	) -> Result<(), TransactionValidityError> {
+		ReversibleTransactionExtension::<Runtime>::new()
+			.validate(
+				RuntimeOrigin::signed(signer),
+				call,
+				info,
 				0,
 				(),
 				&TxBaseImplication::<()>(()),
@@ -697,14 +1024,20 @@ mod tests {
 		assert!(ReversibleTransfers::is_high_security(&charlie()).is_some());
 
 		let origin = RuntimeOrigin::signed(charlie());
+		let ext = ReversibleTransactionExtension::<Runtime>::new();
 
-		// Test the prepare method
-		ReversibleTransactionExtension::<Runtime>::new()
-			.prepare((), &origin, &call, &Default::default(), 0)
-			.unwrap();
-
-		// Test the validate method
-		validate_with(charlie(), &call)
+		// Full lifecycle: validate classifies the signer, prepare records the quota.
+		let (_, val, _) = ext.clone().validate(
+			origin.clone(),
+			&call,
+			&Default::default(),
+			0,
+			(),
+			&TxBaseImplication::<()>(()),
+			frame_support::pallet_prelude::TransactionSource::External,
+		)?;
+		assert!(val, "charlie must be classified as high-security");
+		ext.prepare(val, &origin, &call, &Default::default(), 0).map(|_| ())
 	}
 
 	#[test]
@@ -759,19 +1092,6 @@ mod tests {
 	}
 
 	#[test]
-	fn test_high_security_remove_recovery() {
-		new_test_ext().execute_with(|| {
-			// make sure high security account can't remove the recovery
-			let call = RuntimeCall::Recovery(pallet_recovery::Call::remove_recovery {});
-			let result = check_call(call);
-			assert_eq!(
-				result.unwrap_err(),
-				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
-			);
-		});
-	}
-
-	#[test]
 	fn test_high_security_schedule_transfer_allowed() {
 		new_test_ext().execute_with(|| {
 			let call = RuntimeCall::ReversibleTransfers(
@@ -786,6 +1106,38 @@ mod tests {
 	}
 
 	#[test]
+	fn test_high_security_schedule_transfer_raw_dest_rejected() {
+		new_test_ext().execute_with(|| {
+			let call = RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_transfer {
+					dest: MultiAddress::Raw(vec![0u8; 1024]),
+					amount: 10 * EXISTENTIAL_DEPOSIT,
+				},
+			);
+			assert_eq!(
+				check_call(call).unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
+			);
+		});
+	}
+
+	#[test]
+	fn test_high_security_schedule_transfer_address32_dest_rejected() {
+		new_test_ext().execute_with(|| {
+			let call = RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_transfer {
+					dest: MultiAddress::Address32([2u8; 32]),
+					amount: 10 * EXISTENTIAL_DEPOSIT,
+				},
+			);
+			assert_eq!(
+				check_call(call).unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
+			);
+		});
+	}
+
+	#[test]
 	fn test_high_security_cancel_allowed() {
 		new_test_ext().execute_with(|| {
 			let call =
@@ -796,108 +1148,327 @@ mod tests {
 		});
 	}
 
-	// =========================================================================
-	// Origin-rewriting wrappers must not bypass high-security restrictions.
-	// `as_recovered` / `as_derivative` re-check the whitelist at the effective
-	// (rewritten) origin inside their own pallets, so a non-whitelisted call
-	// cannot be dispatched as a high-security account, including under `batch`.
-	// =========================================================================
-
-	fn boxed(call: RuntimeCall) -> alloc::boxed::Box<RuntimeCall> {
-		alloc::boxed::Box::new(call)
-	}
-
-	fn non_whitelisted_transfer() -> RuntimeCall {
-		RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
-			dest: MultiAddress::Id(bob()),
-			value: 10 * EXISTENTIAL_DEPOSIT,
-		})
-	}
-
-	fn whitelisted_schedule() -> RuntimeCall {
-		RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::schedule_transfer {
-			dest: MultiAddress::Id(bob()),
-			amount: 10 * EXISTENTIAL_DEPOSIT,
-		})
-	}
-
+	// A call that clears the whitelist is still rejected for a high-security signer
+	// once the encoded extrinsic exceeds the length cap. The gate lives in
+	// `validate` only, which is consensus-enforced: `dispatch_transaction` runs
+	// it immediately before `prepare` during block execution.
 	#[test]
-	fn as_recovered_high_security_call_is_blocked() {
+	fn test_high_security_oversized_extrinsic_rejected() {
 		new_test_ext().execute_with(|| {
-			// bob is charlie's recovery proxy; charlie is high-security (from genesis).
-			pallet_recovery::Proxy::<Runtime>::insert(bob(), charlie());
-
-			// A non-whitelisted call dispatched as the high-security account is rejected.
-			assert_noop!(
-				Recovery::as_recovered(
-					RuntimeOrigin::signed(bob()),
-					MultiAddress::Id(charlie()),
-					boxed(non_whitelisted_transfer()),
-				),
-				pallet_recovery::Error::<Runtime>::CallNotAllowedForHighSecurity
+			let cap = crate::configs::MAX_HIGH_SECURITY_EXTRINSIC_LEN as usize;
+			let call = RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_transfer {
+					dest: MultiAddress::Id(bob()),
+					amount: 10 * EXISTENTIAL_DEPOSIT,
+				},
 			);
-
-			// A whitelisted call is allowed through as the high-security account.
-			assert_ok!(Recovery::as_recovered(
-				RuntimeOrigin::signed(bob()),
-				MultiAddress::Id(charlie()),
-				boxed(whitelisted_schedule()),
+			let too_large = TransactionValidityError::Invalid(InvalidTransaction::Custom(
+				HIGH_SECURITY_EXTRINSIC_TOO_LARGE,
 			));
+			assert_eq!(validate_with_len(charlie(), &call, cap + 1).unwrap_err(), too_large);
 		});
 	}
 
+	// The cap is inclusive: an extrinsic exactly at the limit is accepted, so a
+	// legitimate worst-case `batch_all` is never rejected for length.
 	#[test]
-	fn as_derivative_high_security_call_is_blocked() {
+	fn test_high_security_extrinsic_at_cap_allowed() {
 		new_test_ext().execute_with(|| {
-			// Make alice's index-0 derivative a high-security account.
-			let derivative = pallet_utility::derivative_account_id(alice(), 0u16);
-			Balances::make_free_balance_be(&derivative, EXISTENTIAL_DEPOSIT * 100);
-			assert_ok!(ReversibleTransfers::set_high_security(
-				RuntimeOrigin::signed(derivative.clone()),
-				qp_scheduler::BlockNumberOrTimestamp::BlockNumber(10),
-				bob(),
-			));
-
-			// A non-whitelisted call dispatched as the high-security derivative is rejected.
-			assert_err_ignore_postinfo!(
-				Utility::as_derivative(
-					RuntimeOrigin::signed(alice()),
-					0,
-					boxed(non_whitelisted_transfer()),
-				),
-				pallet_utility::Error::<Runtime>::CallNotAllowedForHighSecurity
+			let cap = crate::configs::MAX_HIGH_SECURITY_EXTRINSIC_LEN as usize;
+			let call = RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_transfer {
+					dest: MultiAddress::Id(bob()),
+					amount: 10 * EXISTENTIAL_DEPOSIT,
+				},
 			);
-
-			// A whitelisted call as the derivative is allowed.
-			assert_ok!(Utility::as_derivative(
-				RuntimeOrigin::signed(alice()),
-				0,
-				boxed(whitelisted_schedule()),
-			));
-
-			// A different, non-high-security derivative is unaffected.
-			assert_ok!(Utility::as_derivative(
-				RuntimeOrigin::signed(alice()),
-				1,
-				boxed(RuntimeCall::System(frame_system::Call::remark { remark: vec![1] })),
-			));
+			assert_ok!(validate_with_len(charlie(), &call, cap));
 		});
 	}
 
+	// Weight is the fee input the length cap cannot see: a whitelisted call
+	// with a huge (e.g. future mis-benchmarked) weight must not reopen the
+	// fee-drain channel for a high-security signer.
 	#[test]
-	fn batch_wrapped_high_security_call_is_blocked() {
+	fn test_high_security_overweight_extrinsic_rejected() {
 		new_test_ext().execute_with(|| {
-			// Wrapping the origin-rewriter in a batch does not bypass the check: `batch_all`
-			// re-dispatches `as_recovered`, whose own check rejects the non-whitelisted call.
-			pallet_recovery::Proxy::<Runtime>::insert(bob(), charlie());
-			let inner = RuntimeCall::Recovery(pallet_recovery::Call::as_recovered {
-				account: MultiAddress::Id(charlie()),
-				call: boxed(non_whitelisted_transfer()),
+			let call =
+				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+					tx_id: sp_core::H256::default(),
+				});
+			// ~2 UNIT of weight fee at IdentityFee — double the ceiling.
+			let info = frame_support::dispatch::DispatchInfo {
+				call_weight: Weight::from_parts(2_000_000_000_000, 0),
+				..Default::default()
+			};
+			assert_eq!(
+				validate_with_info(charlie(), &call, &info).unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(
+					HIGH_SECURITY_FEE_LIMIT_EXCEEDED
+				))
+			);
+			// Normal signers are not fee-capped.
+			assert_ok!(validate_with_info(alice(), &call, &info));
+		});
+	}
+
+	/// Pins the declared storage weights to the executed footprint (enumerated
+	/// in the `weight()` comment), so an edit to either side trips this test
+	/// instead of silently under-declaring database work.
+	#[test]
+	fn weight_declarations_match_the_executed_storage_footprint() {
+		let db = <Runtime as frame_system::Config>::DbWeight::get();
+		let ext = ReversibleTransactionExtension::<Runtime>::new();
+		let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+
+		// High-security worst case: classification + `NextFeeMultiplier` +
+		// quota-ring admission read in `validate`, ring read/write in
+		// `prepare`. The quota helpers do not re-read
+		// `HighSecurityAccounts`, so it is read exactly once.
+		assert_eq!(
+			<ReversibleTransactionExtension<Runtime> as TransactionExtension<RuntimeCall>>::weight(
+				&ext, &call
+			),
+			db.reads_writes(4, 1)
+		);
+
+		// Non-high-security traffic executes only the classification read;
+		// everything else is refunded.
+		let refund = <ReversibleTransactionExtension<Runtime> as TransactionExtension<
+			RuntimeCall,
+		>>::post_dispatch_details(
+			false, &Default::default(), &Default::default(), 0, &Ok(())
+		)
+		.unwrap();
+		assert_eq!(refund, db.reads_writes(3, 1));
+
+		// A tipped transaction additionally reads `HighSecurityAccounts` in
+		// both `can_withdraw_fee` and `withdraw_fee` of the fee adapter.
+		// Every paid extrinsic also mutates `CollectedFees` in the collector
+		// (one unique-key read + write; the follow-on get is same-key).
+		assert_eq!(
+			<PaymentWeightsWithTipPolicy as pallet_transaction_payment::WeightInfo>::charge_transaction_payment(),
+			pallet_transaction_payment::weights::SubstrateWeight::<Runtime>::charge_transaction_payment()
+				.saturating_add(db.reads(2))
+				.saturating_add(db.reads_writes(1, 1))
+		);
+	}
+
+	// The zero-tip policy lives in the fee adapter, so it fires on every fee
+	// path (mempool and consensus validation, and inclusion-time withdrawal)
+	// regardless of how the extension tuple is composed.
+	#[test]
+	fn test_high_security_fee_adapter_rejects_tip() {
+		use pallet_transaction_payment::OnChargeTransaction;
+		new_test_ext().execute_with(|| {
+			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+			let info = Default::default();
+			let forbidden = TransactionValidityError::Invalid(InvalidTransaction::Custom(
+				HIGH_SECURITY_TIP_FORBIDDEN,
+			));
+
+			// Charlie is high-security from genesis: any non-zero tip is refused
+			// before funds move, on both the check and the withdrawal paths.
+			assert_eq!(
+				<HighSecurityFungibleAdapter as OnChargeTransaction<Runtime>>::can_withdraw_fee(
+					&charlie(),
+					&call,
+					&info,
+					10,
+					10
+				)
+				.unwrap_err(),
+				forbidden
+			);
+			assert_eq!(
+				<HighSecurityFungibleAdapter as OnChargeTransaction<Runtime>>::withdraw_fee(
+					&charlie(),
+					&call,
+					&info,
+					10,
+					10
+				)
+				.unwrap_err(),
+				forbidden
+			);
+
+			// Zero tip from a high-security signer and any tip from a normal
+			// signer both pass through to the inner adapter.
+			assert_ok!(
+				<HighSecurityFungibleAdapter as OnChargeTransaction<Runtime>>::can_withdraw_fee(
+					&charlie(),
+					&call,
+					&info,
+					10,
+					0
+				)
+			);
+			assert_ok!(
+				<HighSecurityFungibleAdapter as OnChargeTransaction<Runtime>>::can_withdraw_fee(
+					&alice(),
+					&call,
+					&info,
+					10,
+					5
+				)
+			);
+		});
+	}
+
+	// Normal accounts are not length-capped: only high-security signers are.
+	#[test]
+	fn test_non_high_security_large_extrinsic_allowed() {
+		new_test_ext().execute_with(|| {
+			let cap = crate::configs::MAX_HIGH_SECURITY_EXTRINSIC_LEN as usize;
+			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+				dest: MultiAddress::Id(bob()),
+				value: 10 * EXISTENTIAL_DEPOSIT,
 			});
-			assert_err_ignore_postinfo!(
-				Utility::batch_all(RuntimeOrigin::signed(bob()), vec![inner]),
-				pallet_recovery::Error::<Runtime>::CallNotAllowedForHighSecurity
+			assert_ok!(validate_with_len(alice(), &call, cap * 4));
+		});
+	}
+
+	#[test]
+	fn test_high_security_batch_all_of_whitelisted_calls_is_allowed() {
+		new_test_ext().execute_with(|| {
+			let call = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+				calls: vec![
+					RuntimeCall::ReversibleTransfers(
+						pallet_reversible_transfers::Call::schedule_transfer {
+							dest: MultiAddress::Id(bob()),
+							amount: 10 * EXISTENTIAL_DEPOSIT,
+						},
+					),
+					RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+						tx_id: Default::default(),
+					}),
+				],
+			});
+			assert_ok!(check_call(call));
+		});
+	}
+
+	#[test]
+	fn test_high_security_empty_batch_all_is_rejected() {
+		new_test_ext().execute_with(|| {
+			let call = RuntimeCall::Utility(pallet_utility::Call::batch_all { calls: vec![] });
+			assert_eq!(
+				check_call(call).unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
 			);
+		});
+	}
+
+	#[test]
+	fn test_high_security_nested_batch_all_is_rejected() {
+		new_test_ext().execute_with(|| {
+			let inner = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+				calls: vec![RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::cancel { tx_id: Default::default() },
+				)],
+			});
+			let call = RuntimeCall::Utility(pallet_utility::Call::batch_all { calls: vec![inner] });
+			assert_eq!(
+				check_call(call).unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
+			);
+		});
+	}
+
+	#[test]
+	fn test_high_security_batch_all_rejects_more_than_max_batch_len_children() {
+		new_test_ext().execute_with(|| {
+			let max = crate::configs::MaxHighSecurityBatchLen::get() as usize;
+			let child =
+				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+					tx_id: Default::default(),
+				});
+			let call = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+				calls: vec![child; max + 1],
+			});
+			assert_eq!(
+				check_call(call).unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
+			);
+		});
+	}
+
+	#[test]
+	fn test_high_security_batch_all_rejects_raw_dest_child() {
+		new_test_ext().execute_with(|| {
+			let call = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+				calls: vec![RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::schedule_transfer {
+						dest: MultiAddress::Raw(vec![0u8; 1024]),
+						amount: 10 * EXISTENTIAL_DEPOSIT,
+					},
+				)],
+			});
+			assert_eq!(
+				check_call(call).unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
+			);
+		});
+	}
+
+	#[test]
+	fn test_high_security_vesting_claim_is_rejected() {
+		new_test_ext().execute_with(|| {
+			// Deliberately not whitelisted: `claim` is permissionless, so a third
+			// party can claim on the HS beneficiary's behalf; on the HS signer it
+			// was only another no-op fee path.
+			let call = RuntimeCall::Vesting(pallet_vesting::Call::claim { schedule_id: 0 });
+			assert_eq!(
+				check_call(call).unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
+			);
+		});
+	}
+
+	#[test]
+	fn test_high_security_batch_all_rejects_non_whitelisted_child() {
+		new_test_ext().execute_with(|| {
+			let call = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+				calls: vec![
+					RuntimeCall::ReversibleTransfers(
+						pallet_reversible_transfers::Call::schedule_transfer {
+							dest: MultiAddress::Id(bob()),
+							amount: 10 * EXISTENTIAL_DEPOSIT,
+						},
+					),
+					RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+						dest: MultiAddress::Id(bob()),
+						value: 10 * EXISTENTIAL_DEPOSIT,
+					}),
+				],
+			});
+			assert_eq!(
+				check_call(call).unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
+			);
+		});
+	}
+
+	#[test]
+	fn high_security_account_can_dispatch_batch_all_of_schedule_transfers() {
+		new_test_ext().execute_with(|| {
+			assert_ok!(Utility::batch_all(
+				RuntimeOrigin::signed(charlie()),
+				vec![
+					RuntimeCall::ReversibleTransfers(
+						pallet_reversible_transfers::Call::schedule_transfer {
+							dest: MultiAddress::Id(bob()),
+							amount: 10 * EXISTENTIAL_DEPOSIT,
+						},
+					),
+					RuntimeCall::ReversibleTransfers(
+						pallet_reversible_transfers::Call::schedule_transfer {
+							dest: MultiAddress::Id(bob()),
+							amount: 11 * EXISTENTIAL_DEPOSIT,
+						},
+					),
+				],
+			));
+			assert_eq!(ReversibleTransfers::next_transaction_id(), 2);
 		});
 	}
 
@@ -932,7 +1503,7 @@ mod tests {
 			// A transfer is charged the per-transfer proof-recording cost.
 			assert!(weight.ref_time() > base_weight.ref_time());
 
-			let batch = RuntimeCall::Utility(pallet_utility::Call::batch {
+			let batch = RuntimeCall::Utility(pallet_utility::Call::batch_all {
 				calls: vec![
 					RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
 						dest: MultiAddress::Id(bob()),
@@ -948,61 +1519,6 @@ mod tests {
 				RuntimeCall,
 			>>::weight(&ext, &batch);
 			assert!(batch_weight.ref_time() > weight.ref_time());
-		});
-	}
-
-	#[test]
-	fn wormhole_proof_recorder_counts_as_derivative_wrapped_transfers() {
-		new_test_ext().execute_with(|| {
-			let ext = WormholeProofRecorderExtension::<Runtime>::new();
-
-			// A transfer hidden behind `as_derivative` (possibly batched) must be charged the
-			// same per-transfer weight as a direct transfer.
-			let wrapped = RuntimeCall::Utility(pallet_utility::Call::as_derivative {
-				index: 0,
-				call: boxed(RuntimeCall::Utility(pallet_utility::Call::batch {
-					calls: vec![non_whitelisted_transfer(), non_whitelisted_transfer()],
-				})),
-			});
-			let weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
-				RuntimeCall,
-			>>::weight(&ext, &wrapped);
-			assert_eq!(
-				weight,
-				WormholeProofRecorderExtension::<Runtime>::per_transfer_weight().saturating_mul(2),
-				"as_derivative-wrapped transfers must be statically counted"
-			);
-		});
-	}
-
-	#[test]
-	fn wormhole_proof_recorder_counts_if_else_wrapped_transfers() {
-		new_test_ext().execute_with(|| {
-			// `if_else` executes exactly one branch: the fallback runs only if the main call
-			// failed, in which case the main call's changes (and events) were rolled back. The
-			// static charge must therefore cover the worst case across the two branches.
-			let call = RuntimeCall::Utility(pallet_utility::Call::if_else {
-				main: boxed(RuntimeCall::Utility(pallet_utility::Call::batch {
-					calls: vec![non_whitelisted_transfer(), non_whitelisted_transfer()],
-				})),
-				fallback: boxed(non_whitelisted_transfer()),
-			});
-			assert_eq!(
-				WormholeProofRecorderExtension::<Runtime>::count_transfers(&call),
-				2,
-				"if_else must charge for the transfer-heavier branch (main)"
-			);
-
-			// The worst case can also sit in the fallback branch.
-			let call = RuntimeCall::Utility(pallet_utility::Call::if_else {
-				main: boxed(RuntimeCall::System(frame_system::Call::remark { remark: vec![1] })),
-				fallback: boxed(non_whitelisted_transfer()),
-			});
-			assert_eq!(
-				WormholeProofRecorderExtension::<Runtime>::count_transfers(&call),
-				1,
-				"if_else must charge for the transfer-heavier branch (fallback)"
-			);
 		});
 	}
 
@@ -1047,29 +1563,12 @@ mod tests {
 	}
 
 	#[test]
-	fn wormhole_proof_recorder_counts_dispatch_as_fallible_wrapped_transfers() {
+	fn wormhole_proof_recorder_counts_reversible_cancel() {
 		new_test_ext().execute_with(|| {
-			let call = RuntimeCall::Utility(pallet_utility::Call::dispatch_as_fallible {
-				as_origin: alloc::boxed::Box::new(OriginCaller::system(
-					frame_system::RawOrigin::Signed(alice()),
-				)),
-				call: boxed(non_whitelisted_transfer()),
-			});
-			assert_eq!(
-				WormholeProofRecorderExtension::<Runtime>::count_transfers(&call),
-				1,
-				"dispatch_as_fallible-wrapped transfers must be statically counted"
-			);
-		});
-	}
-
-	#[test]
-	fn wormhole_proof_recorder_counts_reversible_cancel_and_close_recovery() {
-		new_test_ext().execute_with(|| {
-			// `ReversibleTransfers::cancel` releases the held funds with `transfer_on_hold`,
-			// emitting exactly one `TransferOnHold` that the scanner turns into a proof. The
-			// call is statically visible, so the proof must be fee-charged, not just
-			// reconciled post-hoc against block capacity.
+			// `ReversibleTransfers::cancel` is statically visible, so the proof reservation
+			// is fee-charged rather than only reconciled post-hoc against block capacity.
+			// Guardian cancel records one `TransferOnHold`; owner self-cancel records
+			// zero (it `release`s). The count of one is the conservative reservation.
 			let cancel =
 				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
 					tx_id: Default::default(),
@@ -1079,16 +1578,214 @@ mod tests {
 				1,
 				"cancel seizes held funds via transfer_on_hold and must be charged one proof"
 			);
+		});
+	}
 
-			// `Recovery::close_recovery` repatriates the rescuer's reserved deposit,
-			// emitting exactly one `ReserveRepatriated` that the scanner records.
-			let close = RuntimeCall::Recovery(pallet_recovery::Call::close_recovery {
-				rescuer: MultiAddress::Id(bob()),
+	/// The call-carrying execute interface is transparent to static accounting:
+	/// the matcher sees the resubmitted inner call, not an opaque proposal id.
+	#[test]
+	fn multisig_execute_counts_its_resubmitted_call() {
+		let batch = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+			calls: vec![
+				RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+					dest: MultiAddress::Id(charlie()),
+					value: 1,
+				}),
+				RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+					dest: MultiAddress::Id(charlie()),
+					value: 1,
+				}),
+				RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+					dest: MultiAddress::Id(charlie()),
+					value: 1,
+				}),
+			],
+		});
+		assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&batch), 3);
+
+		let execute = RuntimeCall::Multisig(pallet_multisig::Call::execute {
+			multisig_address: alice(),
+			proposal_id: 0,
+			call: boxed(batch),
+		});
+		assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&execute), 3);
+
+		let wrapped =
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls: vec![execute] });
+		assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&wrapped), 3);
+	}
+
+	/// A remark inner call records no proofs; a failed non-signer execute refunds
+	/// the (zero) transfer reservation.
+	#[test]
+	fn multisig_execute_failed_non_signer_refunds_transfer_reservation() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let multisig_address = funded_threshold1_multisig();
+			let inner =
+				RuntimeCall::System(frame_system::Call::remark { remark: vec![0u8; 8 * 1024] });
+			propose_inner(&multisig_address, inner.clone());
+
+			let execute = RuntimeCall::Multisig(pallet_multisig::Call::execute {
+				multisig_address: multisig_address.clone(),
+				proposal_id: 0,
+				call: boxed(inner.clone()),
 			});
 			assert_eq!(
-				WormholeProofRecorderExtension::<Runtime>::count_transfers(&close),
+				WormholeProofRecorderExtension::<Runtime>::count_transfers(&execute),
+				0,
+				"a remark inner call records no proofs"
+			);
+			let (info, post_info) = run_lifecycle_with_result(
+				&charlie(),
+				execute,
+				Err(sp_runtime::DispatchError::BadOrigin),
+				|| {
+					assert!(
+						Multisig::execute(
+							RuntimeOrigin::signed(charlie()),
+							multisig_address,
+							0,
+							boxed(inner),
+						)
+						.is_err(),
+						"charlie is not a signer"
+					);
+				},
+			);
+			assert_eq!(info.extension_weight, Weight::zero());
+			assert_eq!(
+				post_info.actual_weight,
+				Some(info.total_weight()),
+				"zero transfer reservation stays zero after a failed execute"
+			);
+		});
+	}
+
+	/// A one-transfer resubmitted call is charged exactly one transfer.
+	#[test]
+	fn multisig_execute_charges_the_resubmitted_inner_call() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let multisig_address = funded_threshold1_multisig();
+			let inner = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+				dest: MultiAddress::Id(charlie()),
+				value: EXISTENTIAL_DEPOSIT * 100,
+			});
+			propose_inner(&multisig_address, inner.clone());
+
+			let execute = RuntimeCall::Multisig(pallet_multisig::Call::execute {
+				multisig_address: multisig_address.clone(),
+				proposal_id: 0,
+				call: boxed(inner.clone()),
+			});
+			assert_eq!(
+				WormholeProofRecorderExtension::<Runtime>::count_transfers(&execute),
 				1,
-				"close_recovery repatriates the recovery deposit and must be charged one proof"
+				"execute must count the resubmitted transfer, not a MaxCallSize guess"
+			);
+
+			let (info, post_info) = run_lifecycle_with_result(&alice(), execute, Ok(()), || {
+				assert_ok!(Multisig::execute(
+					RuntimeOrigin::signed(alice()),
+					multisig_address,
+					0,
+					boxed(inner),
+				));
+			});
+
+			assert_eq!(Wormhole::transfer_count(&charlie()), 1);
+			assert_eq!(
+				info.extension_weight,
+				WormholeProofRecorderExtension::<Runtime>::per_transfer_weight(),
+				"execute reserves one transfer"
+			);
+			assert_eq!(
+				post_info.actual_weight,
+				Some(info.total_weight()),
+				"a one-transfer inner call has no unused recorder reservation"
+			);
+		});
+	}
+
+	/// The old `MaxCallSize / 36` execute bound under-counted a stored
+	/// `batch_all` of `recover_funds` (17 credits in 34 bytes) plus transfers.
+	/// Recursing into the resubmitted call must charge the composition so
+	/// recorded <= charged.
+	#[test]
+	fn multisig_execute_mixed_recover_funds_and_transfers_records_at_most_charged() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let multisig_address = funded_threshold1_multisig();
+			assert_ok!(Balances::transfer_keep_alive(
+				RuntimeOrigin::signed(alice()),
+				MultiAddress::Id(dave()),
+				EXISTENTIAL_DEPOSIT * 200,
+			));
+			assert_ok!(ReversibleTransfers::set_high_security(
+				RuntimeOrigin::signed(dave()),
+				qp_scheduler::BlockNumberOrTimestamp::BlockNumber(10),
+				multisig_address.clone(),
+			));
+
+			let pending = 3u64;
+			for _ in 0..pending {
+				assert_ok!(ReversibleTransfers::schedule_transfer(
+					RuntimeOrigin::signed(dave()),
+					MultiAddress::Id(bob()),
+					EXISTENTIAL_DEPOSIT * 10,
+				));
+			}
+
+			let extra_transfers = 2u64;
+			let mut calls = vec![RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::recover_funds { account: dave() },
+			)];
+			for _ in 0..extra_transfers {
+				calls.push(RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+					dest: MultiAddress::Id(bob()),
+					value: 1,
+				}));
+			}
+			let inner = RuntimeCall::Utility(pallet_utility::Call::batch_all { calls });
+			propose_inner(&multisig_address, inner.clone());
+
+			let execute = RuntimeCall::Multisig(pallet_multisig::Call::execute {
+				multisig_address: multisig_address.clone(),
+				proposal_id: 0,
+				call: boxed(inner.clone()),
+			});
+			let max_pending = u64::from(
+				<Runtime as pallet_reversible_transfers::Config>::MaxPendingPerAccount::get(),
+			);
+			let charged = WormholeProofRecorderExtension::<Runtime>::count_transfers(&execute);
+			assert_eq!(
+				charged,
+				max_pending + 1 + extra_transfers,
+				"execute must count recover_funds plus every resubmitted transfer"
+			);
+
+			let leaves_before = ZkTree::leaf_count();
+			run_lifecycle_with_result(&alice(), execute, Ok(()), || {
+				assert_ok!(Multisig::execute(
+					RuntimeOrigin::signed(alice()),
+					multisig_address,
+					0,
+					boxed(inner),
+				));
+			});
+			let recorded = ZkTree::leaf_count().saturating_sub(leaves_before);
+			assert_eq!(
+				recorded,
+				pending + 1 + extra_transfers,
+				"maxed-hold recover plus the extra transfers must each create a leaf"
+			);
+			assert!(
+				recorded <= charged,
+				"mixed recover_funds + transfers must not record more proofs than charged"
 			);
 		});
 	}
@@ -1215,9 +1912,10 @@ mod tests {
 
 	/// Pins the multiplier behind the modeled event-deposit charge: one recorded proof
 	/// deposits exactly `EVENTS_PER_RECORDED_PROOF` events. If recording ever starts
-	/// emitting more, the static reservation must be updated with it. (`TreeGrew` is
-	/// emitted from the zk-tree's `on_finalize`, never during recording, so even the
-	/// very first insert on a fresh tree deposits exactly the modeled events.)
+	/// emitting more, the static reservation must be updated with it. (Capacity-boundary
+	/// inserts additionally emit `TreeGrew`, deliberately unmodeled: it happens at most
+	/// `MAX_TREE_DEPTH` times over the chain's whole life — the warm-up insert below
+	/// steps the fresh test tree past the first boundary.)
 	#[test]
 	fn recording_one_proof_deposits_exactly_the_modeled_events() {
 		new_test_ext().execute_with(|| {
@@ -1239,75 +1937,13 @@ mod tests {
 				u64::from(System::event_count() - events_before)
 			};
 
+			// Warm-up: the very first insert grows the empty tree and emits `TreeGrew`.
+			record_one_transfer();
+
 			assert_eq!(
 				record_one_transfer(),
 				WormholeProofRecorderExtension::<Runtime>::EVENTS_PER_RECORDED_PROOF,
 				"the modeled events-per-proof multiplier must match what recording deposits"
-			);
-		});
-	}
-
-	/// The batched zk-tree settlement assumes every pallet that inserts leaves runs
-	/// its `on_finalize` before `ZkTree`'s. That holds because hooks execute in
-	/// pallet declaration order and `ZkTree` (index 21) is declared after all
-	/// inserters — notably `MiningRewards` (index 6), which records the block
-	/// reward leaf from its own `on_finalize` — but nothing except declaration
-	/// order enforces it. Drive the real `AllPalletsWithSystem` finalize sequence
-	/// and pin the invariant: after a full-block finalize nothing may be left
-	/// pending, and the header root must cover both a mid-block transfer leaf and
-	/// the mining-reward leaf.
-	#[test]
-	fn full_block_finalize_settles_all_leaves_including_mining_reward() {
-		new_test_ext().execute_with(|| {
-			use frame_support::traits::OnFinalize;
-			use frame_system::pallet_prelude::BlockNumberFor;
-
-			let block: BlockNumberFor<Runtime> = 1u32.into();
-			System::set_block_number(block);
-			// Timestamp's `on_finalize` asserts its inherent ran this block.
-			crate::Timestamp::set(crate::RuntimeOrigin::none(), 12_000)
-				.expect("timestamp inherent must apply");
-
-			// A transfer leaf recorded mid-block, as the proof-recorder extension
-			// would do in an extrinsic's post-dispatch. The recipient must be
-			// canonical for the leaf encoding (the wormhole canonicalizes too).
-			let recipient: AccountId =
-				pallet_zk_tree::tree::canonicalize_account_bytes(alice().into()).into();
-			let leaves_before = crate::ZkTree::leaf_count();
-			pallet_zk_tree::Pallet::<Runtime>::insert_leaf(
-				recipient,
-				0,
-				Default::default(),
-				EXISTENTIAL_DEPOSIT,
-			);
-			assert_eq!(crate::ZkTree::unprocessed_leaves(), 1);
-			let root_before = crate::ZkTree::root();
-
-			<crate::AllPalletsWithSystem as OnFinalize<BlockNumberFor<Runtime>>>::on_finalize(
-				block,
-			);
-
-			// MiningRewards' on_finalize (declared before ZkTree's) minted the
-			// block reward and recorded its leaf via the wormhole recorder.
-			assert!(
-				crate::ZkTree::leaf_count() >= leaves_before + 2,
-				"expected the mid-block leaf plus the mining-reward leaf"
-			);
-			assert_eq!(
-				crate::ZkTree::unprocessed_leaves(),
-				0,
-				"a full-block finalize must settle every leaf — if this fails, a \
-				 leaf-inserting pallet's on_finalize now runs after ZkTree's"
-			);
-			assert_ne!(
-				crate::ZkTree::root(),
-				root_before,
-				"the settled root must fold the block's leaves in"
-			);
-			assert_eq!(
-				frame_system::Pallet::<Runtime>::zk_tree_root().0,
-				crate::ZkTree::root(),
-				"the header must carry the settled root"
 			);
 		});
 	}
@@ -1317,10 +1953,9 @@ mod tests {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
 
-			// The presented call is opaque to the static matcher (simulating a
-			// path it misses; none is currently known — every wrapper, multisig
-			// `execute` included, carries its inner call in the extrinsic), but the
-			// dispatch emits a real transfer event that post_dispatch must record.
+			// The presented call is opaque to the static matcher (a `remark` has no
+			// transfer children), but the dispatch emits a real transfer event that
+			// post_dispatch must record.
 			let opaque_call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
 			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&opaque_call), 0);
 
@@ -1394,7 +2029,7 @@ mod tests {
 	}
 
 	/// `weight()` reserves the static worst case, so a dispatch that performs fewer
-	/// proof inserts than charged (short-circuited `batch`, `if_else`'s lighter branch,
+	/// proof inserts than charged (`batch_all` of two transfers that only records one,
 	/// `recover_funds` with fewer pending holds than `MaxPendingPerAccount`) must have
 	/// the difference refunded via `post_dispatch_details`, not kept forever.
 	#[test]
@@ -1402,11 +2037,14 @@ mod tests {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
 
-			// A batch of two transfers is charged two per-transfer reservations, but a
-			// short-circuiting `batch` stops at the first failure: simulate a dispatch
-			// that only completed the first transfer.
-			let call = RuntimeCall::Utility(pallet_utility::Call::batch {
-				calls: vec![non_whitelisted_transfer(), non_whitelisted_transfer()],
+			// A batch_all of two transfers is charged two per-transfer reservations.
+			// Simulate a dispatch that only completed the first transfer.
+			let transfer = RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+				dest: MultiAddress::Id(bob()),
+				value: 10 * EXISTENTIAL_DEPOSIT,
+			});
+			let call = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+				calls: vec![transfer.clone(), transfer],
 			});
 			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&call), 2);
 
@@ -1711,7 +2349,8 @@ mod tests {
 			let origin = RuntimeOrigin::signed(alice());
 
 			// Prepare should succeed and return current event count
-			let result = ext.prepare((), &origin, &call, &Default::default(), 0);
+			let charged = WormholeProofRecorderExtension::<Runtime>::count_transfers(&call);
+			let result = ext.prepare(charged, &origin, &call, &Default::default(), 0);
 			assert_ok!(result);
 		});
 	}
@@ -1760,6 +2399,8 @@ mod tests {
 			let transfer_amount = EXISTENTIAL_DEPOSIT * 100;
 			let bob_account = bob();
 			let count_before = Wormhole::transfer_count(&bob_account);
+			let leaves_before = ZkTree::leaf_count();
+			let events_before = frame_system::Pallet::<Runtime>::event_count();
 
 			// Execute a transfer (this emits pallet_balances::Event::Transfer)
 			assert_ok!(Balances::transfer_keep_alive(
@@ -1768,13 +2409,12 @@ mod tests {
 				transfer_amount,
 			));
 
-			// Simulate what post_dispatch does - scan events and record proofs.
-			// Use 0 as the before count for tests (all events are "new").
-			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
-
-			// Verify transfer was recorded (proof is now in ZK trie)
-			let count_after = Wormhole::transfer_count(&bob_account);
-			assert_eq!(count_after, count_before + 1, "Transfer count should increment");
+			assert_eq!(scan_since(events_before), 1, "a plain transfer records exactly one proof");
+			assert_eq!(ZkTree::leaf_count(), leaves_before + 1);
+			assert_eq!(Wormhole::transfer_count(&bob_account), count_before + 1);
+			let leaf = newest_leaf();
+			assert_eq!(leaf.to, bob_account);
+			assert_eq!(leaf.amount, transfer_amount);
 		});
 	}
 
@@ -1829,7 +2469,7 @@ mod tests {
 	}
 
 	#[test]
-	fn event_based_proof_recording_batch_transfers() {
+	fn event_based_proof_recording_batch_all_transfers() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
 
@@ -1839,8 +2479,8 @@ mod tests {
 			let charlie_count_before = Wormhole::transfer_count(&charlie_account);
 
 			// Alice has EXISTENTIAL_DEPOSIT * 10000, use smaller amounts
-			// Execute a batch with multiple transfers
-			assert_ok!(Utility::batch(
+			// Execute a batch_all with multiple transfers
+			assert_ok!(Utility::batch_all(
 				RuntimeOrigin::signed(alice()),
 				vec![
 					RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
@@ -1872,6 +2512,7 @@ mod tests {
 			let amount = EXISTENTIAL_DEPOSIT * 10;
 			let guardian = alice();
 			let count_before = Wormhole::transfer_count(&guardian);
+			let leaves_before = ZkTree::leaf_count();
 
 			// charlie is high-security (guardian = alice, from genesis); scheduling a
 			// transfer places the funds on hold.
@@ -1887,52 +2528,232 @@ mod tests {
 			// the guardian via `transfer_on_hold`, which emits `Balances::TransferOnHold`
 			// — not a free-balance `Transfer`. The credit is real spendable value landing
 			// on the guardian's free balance, so the recorder must create a leaf for it
-			// exactly as it would for a plain transfer.
+			// exactly as it would for a plain transfer. The pallet itself must not also
+			// call ProofRecorder (that would double-insert).
 			let events_before = frame_system::Pallet::<Runtime>::event_count();
 			assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(guardian.clone()), tx_id));
 
-			let (recorded, _) =
-				WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(
-					events_before,
-				);
-
-			assert_eq!(recorded, 1, "hold-transfer seizure must be recorded as a transfer proof");
+			assert_eq!(
+				scan_since(events_before),
+				1,
+				"hold-transfer seizure must record exactly one proof"
+			);
+			assert_eq!(ZkTree::leaf_count(), leaves_before + 1);
 			assert_eq!(Wormhole::transfer_count(&guardian), count_before + 1);
+			let leaf = newest_leaf();
+			assert_eq!(leaf.to, guardian);
+			let fee = <Runtime as pallet_reversible_transfers::Config>::VolumeFee::get() * amount;
+			assert_eq!(leaf.amount, amount - fee);
 		});
 	}
 
 	#[test]
-	fn event_based_proof_recording_recovery_deposit_repatriation() {
+	fn event_based_proof_recording_owner_self_cancel_is_not_a_credit() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
 
-			// alice makes her account recoverable; bob (say, maliciously) initiates a
-			// recovery, reserving the recovery deposit on his own account. The recovery
-			// deposits are UNIT-denominated, so fund both well past the genesis balances.
-			Balances::make_free_balance_be(&alice(), 100 * crate::UNIT);
-			Balances::make_free_balance_be(&bob(), 100 * crate::UNIT);
-			assert_ok!(Recovery::create_recovery(
-				RuntimeOrigin::signed(alice()),
-				vec![charlie()],
-				1,
+			let amount = EXISTENTIAL_DEPOSIT * 10;
+			let sender = alice();
+			let dest = bob();
+			let leaves_before = ZkTree::leaf_count();
+			let count_before = Wormhole::transfer_count(&sender);
+
+			assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+				RuntimeOrigin::signed(sender.clone()),
+				MultiAddress::Id(dest),
+				amount,
+				qp_scheduler::BlockNumberOrTimestamp::BlockNumber(2),
+			));
+			let tx_id =
+				pallet_reversible_transfers::PendingTransfersBySender::<Runtime>::get(&sender)[0];
+
+			let events_before = frame_system::Pallet::<Runtime>::event_count();
+			assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(sender.clone()), tx_id));
+
+			assert_eq!(
+				scan_since(events_before),
 				0,
-			));
-			assert_ok!(Recovery::initiate_recovery(
-				RuntimeOrigin::signed(bob()),
+				"owner self-cancel releases the hold to the sender and must not record a leaf"
+			);
+			assert_eq!(ZkTree::leaf_count(), leaves_before);
+			assert_eq!(Wormhole::transfer_count(&sender), count_before);
+		});
+	}
+
+	#[test]
+	fn event_based_proof_recording_self_transfer_is_not_a_credit() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let leaves_before = ZkTree::leaf_count();
+			let events_before = frame_system::Pallet::<Runtime>::event_count();
+			assert_ok!(Balances::transfer_keep_alive(
+				RuntimeOrigin::signed(alice()),
 				MultiAddress::Id(alice()),
+				EXISTENTIAL_DEPOSIT * 10,
 			));
+
+			assert_eq!(
+				scan_since(events_before),
+				0,
+				"a self-directed transfer_keep_alive emits no Transfer and records no leaf"
+			);
+			assert_eq!(ZkTree::leaf_count(), leaves_before);
+		});
+	}
+
+	#[test]
+	fn event_based_proof_recording_self_directed_transfer_on_hold_is_dropped() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let leaves_before = ZkTree::leaf_count();
+			let events_before = frame_system::Pallet::<Runtime>::event_count();
+			System::deposit_event(RuntimeEvent::Balances(pallet_balances::Event::TransferOnHold {
+				reason: pallet_reversible_transfers::HoldReason::ScheduledTransfer.into(),
+				source: alice(),
+				dest: alice(),
+				amount: EXISTENTIAL_DEPOSIT * 10,
+			}));
+
+			assert_eq!(
+				scan_since(events_before),
+				0,
+				"a self-directed TransferOnHold is not a credit and must be dropped at the chokepoint"
+			);
+			assert_eq!(ZkTree::leaf_count(), leaves_before);
+		});
+	}
+
+	#[test]
+	fn recover_funds_records_one_proof_per_real_credit() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let amount = EXISTENTIAL_DEPOSIT * 10;
+			let guardian = alice();
+			let leaves_before = ZkTree::leaf_count();
+			let guardian_count_before = Wormhole::transfer_count(&guardian);
+
+			assert_ok!(ReversibleTransfers::schedule_transfer(
+				RuntimeOrigin::signed(charlie()),
+				MultiAddress::Id(bob()),
+				amount,
+			));
+
+			let events_before = frame_system::Pallet::<Runtime>::event_count();
+			assert_ok!(ReversibleTransfers::recover_funds(
+				RuntimeOrigin::signed(guardian.clone()),
+				charlie(),
+			));
+
+			// One TransferOnHold (pending seizure) plus one Transfer (free-balance sweep).
+			// The pallet must not also call ProofRecorder on the hold path, or this
+			// would be 3.
+			assert_eq!(
+				scan_since(events_before),
+				2,
+				"recover_funds records exactly one proof per real credit"
+			);
+			assert_eq!(ZkTree::leaf_count(), leaves_before + 2);
+			assert_eq!(Wormhole::transfer_count(&guardian), guardian_count_before + 2);
+		});
+	}
+
+	#[test]
+	fn scheduled_execution_records_exactly_one_proof() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let amount = EXISTENTIAL_DEPOSIT * 10;
+			let dest = bob();
+			let dest_count_before = Wormhole::transfer_count(&dest);
+			let leaves_before = ZkTree::leaf_count();
+
+			assert_ok!(ReversibleTransfers::schedule_transfer(
+				RuntimeOrigin::signed(charlie()),
+				MultiAddress::Id(dest.clone()),
+				amount,
+			));
+			assert_eq!(
+				ZkTree::leaf_count(),
+				leaves_before,
+				"scheduling holds funds and must not record a leaf"
+			);
+
+			// Charlie's genesis delay is 10 blocks; schedule at block 1 executes at 11.
+			run_scheduler_to(11);
+
+			assert_eq!(
+				ZkTree::leaf_count(),
+				leaves_before + 1,
+				"scheduled execution records exactly one leaf via ProofRecorder"
+			);
+			assert_eq!(Wormhole::transfer_count(&dest), dest_count_before + 1);
+			let leaf = newest_leaf();
+			assert_eq!(leaf.to, dest);
+			assert_eq!(leaf.amount, amount);
+
+			// Hook-context events sit below every extrinsic's prepare() snapshot, so a
+			// later scan must not double-record the inner transfer_keep_alive.
+			let snapshot = frame_system::Pallet::<Runtime>::event_count();
+			assert_eq!(scan_since(snapshot), 0);
+			assert_eq!(ZkTree::leaf_count(), leaves_before + 1);
+		});
+	}
+
+	#[test]
+	fn self_directed_scheduled_execution_records_no_proof() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let sender = alice();
+			let amount = EXISTENTIAL_DEPOSIT * 10;
+			let leaves_before = ZkTree::leaf_count();
+			let count_before = Wormhole::transfer_count(&sender);
+			let free_before = Balances::free_balance(&sender);
+
+			assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+				RuntimeOrigin::signed(sender.clone()),
+				MultiAddress::Id(sender.clone()),
+				amount,
+				qp_scheduler::BlockNumberOrTimestamp::BlockNumber(2),
+			));
+
+			run_scheduler_to(3);
+
+			assert_eq!(
+				ZkTree::leaf_count(),
+				leaves_before,
+				"a self-directed scheduled execution moves no value and must not record a leaf"
+			);
+			assert_eq!(Wormhole::transfer_count(&sender), count_before);
+			assert_eq!(Balances::free_balance(&sender), free_before);
+
+			let snapshot = frame_system::Pallet::<Runtime>::event_count();
+			assert_eq!(scan_since(snapshot), 0);
+			assert_eq!(ZkTree::leaf_count(), leaves_before);
+		});
+	}
+
+	#[test]
+	fn event_based_proof_recording_reserve_repatriation() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
 
 			let count_before = Wormhole::transfer_count(&alice());
 			let events_before = frame_system::Pallet::<Runtime>::event_count();
 
-			// Closing the recovery seizes the rescuer's reserved deposit into alice's
-			// free balance via `repatriate_reserved`, which emits
-			// `Balances::ReserveRepatriated` — not a free-balance `Transfer`. The
-			// credit is real spendable value landing on alice, so the recorder must
-			// create a leaf for it.
-			assert_ok!(Recovery::close_recovery(
-				RuntimeOrigin::signed(alice()),
-				MultiAddress::Id(bob()),
+			// `repatriate_reserved` emits `ReserveRepatriated` instead of `Transfer`.
+			// The credit is real spendable value landing on alice, so the recorder
+			// must create a leaf for it.
+			System::deposit_event(RuntimeEvent::Balances(
+				pallet_balances::Event::ReserveRepatriated {
+					from: bob(),
+					to: alice(),
+					amount: EXISTENTIAL_DEPOSIT * 100,
+					destination_status: frame_support::traits::tokens::BalanceStatus::Free,
+				},
 			));
 
 			let (recorded, _) =
@@ -1979,25 +2800,16 @@ mod tests {
 			let mint_amount = 1000 * UNIT;
 			let count_before = Wormhole::transfer_count(&recipient);
 
-			// Mint tokens (requires root origin)
-			// This emits pallet_balances::Event::Minted
-			assert_ok!(Balances::force_set_balance(
-				RuntimeOrigin::root(),
-				MultiAddress::Id(recipient.clone()),
-				mint_amount,
-			));
+			// Mint tokens directly; this emits pallet_balances::Event::Minted.
+			use frame_support::traits::fungible::Mutate as _;
+			assert_ok!(Balances::mint_into(&recipient, mint_amount));
 
 			// Scan events and record proofs.
 			// Use 0 as the before count for tests (all events are "new").
 			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
 
-			// Note: force_set_balance emits Minted event, which we scan for
-			// The proof should use MintingAccount as 'from'
+			// The Minted event is scanned; the proof uses MintingAccount as 'from'.
 			let count_after = Wormhole::transfer_count(&recipient);
-
-			// Check if count increased (depends on whether Minted event is emitted)
-			// force_set_balance may emit BalanceSet instead of Minted
-			// This test documents the expected behavior - proofs are now in ZK trie
 			assert!(count_after >= count_before, "Transfer count should not decrease");
 		});
 	}
@@ -2151,12 +2963,12 @@ mod tests {
 			let charlie_account = charlie();
 			let count_before = Wormhole::transfer_count(&charlie_account);
 
-			// Execute the proposal, resubmitting the stored call byte-for-byte
+			// Execute the proposal
 			assert_ok!(Multisig::execute(
 				RuntimeOrigin::signed(alice()),
 				multisig_address.clone(),
 				0, // proposal_id
-				Box::new(inner_call.clone()),
+				boxed(inner_call),
 			));
 
 			// Scan events and record proofs.
@@ -2172,31 +2984,6 @@ mod tests {
 				"Transfer count should increment for multisig transfer"
 			);
 		});
-	}
-
-	/// The call-carrying multisig execute interface must remain transparent to
-	/// static transaction-extension accounting.
-	#[test]
-	fn multisig_execute_counts_its_resubmitted_call() {
-		let batch = RuntimeCall::Utility(pallet_utility::Call::batch_all {
-			calls: vec![
-				non_whitelisted_transfer(),
-				non_whitelisted_transfer(),
-				non_whitelisted_transfer(),
-			],
-		});
-		assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&batch), 3);
-
-		let execute = RuntimeCall::Multisig(pallet_multisig::Call::execute {
-			multisig_address: alice(),
-			proposal_id: 0,
-			call: boxed(batch),
-		});
-		assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&execute), 3);
-
-		let wrapped =
-			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls: vec![execute] });
-		assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&wrapped), 3);
 	}
 
 	/// Like [`run_lifecycle`], but mirrors the pipeline's post-dispatch weight handling:

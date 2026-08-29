@@ -104,6 +104,10 @@ mod rep {
 	pub const IO: Rep = Rep::new(-(1 << 10), "IO error during request");
 }
 
+fn should_drop_peer(gated: bool, failures: u32, threshold: u32) -> bool {
+	!gated || failures >= threshold
+}
+
 struct Metrics {
 	peers: Gauge<U64>,
 	import_queue_blocks_submitted: Counter<U64>,
@@ -1036,12 +1040,13 @@ where
 				debug!(target: LOG_TARGET, "Pending responses len after failure: {}", self.pending_responses.len());
 
 				let is_major = self.is_major_syncing.load(Ordering::Relaxed);
-				let should_gate = is_major && !self.strategy.disable_major_sync_gating();
+				let should_gate = self.strategy.is_peer_drop_gated(&peer_id) &&
+					!self.strategy.disable_major_sync_gating();
 				let threshold = self.strategy.peer_drop_threshold();
 				let entry = self.peer_failures.entry(peer_id).or_insert(0);
 				*entry = entry.saturating_add(1);
 				debug!(target: LOG_TARGET, "gated: {:?} failures: {:?}", should_gate, *entry);
-				let should_drop_peer = !should_gate || *entry >= threshold;
+				let should_drop_peer = should_drop_peer(should_gate, *entry, threshold);
 
 				match e {
 					RequestFailure::Network(OutboundFailure::Timeout) =>
@@ -1186,5 +1191,22 @@ where
 		}
 
 		self.import_queue.import_justifications(peer_id, hash, number, justifications);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::should_drop_peer;
+
+	#[test]
+	fn catch_up_peer_is_retained_until_failure_threshold() {
+		assert!(!should_drop_peer(true, 1, 20));
+		assert!(!should_drop_peer(true, 19, 20));
+		assert!(should_drop_peer(true, 20, 20));
+	}
+
+	#[test]
+	fn ungated_peer_is_dropped_on_first_failure() {
+		assert!(should_drop_peer(false, 1, 20));
 	}
 }

@@ -29,6 +29,7 @@ use jsonrpsee::tokio;
 use quantus_miner_api::{ApiResponseStatus, MiningRequest, MiningResult};
 use sc_basic_authorship::ProposerFactory;
 use sp_api::ProvideRuntimeApi;
+use sp_blockchain::HeaderBackend;
 use sp_consensus::SyncOracle;
 use sp_consensus_qpow::QPoWApi;
 use sp_core::{crypto::AccountId32, U512};
@@ -36,6 +37,24 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 /// Frequency of block import logging. Every 1000 blocks.
 const LOG_FREQUENCY: u64 = 1000;
+
+/// Default tip-age limit for the initial-sync authoring guard: 24 hours,
+/// matching Bitcoin's `DEFAULT_MAX_TIP_AGE`. Deliberately wall-clock scale
+/// rather than a small multiple of the block interval: the guard only needs to
+/// distinguish "way behind, still syncing" from "roughly current", and a tight
+/// window would let a chain stall outlast it, deadlocking recovery if all
+/// miners restart during the stall (nobody authors the block that would
+/// freshen the tip). Tunable via `--max-tip-age`.
+pub const DEFAULT_MAX_TIP_AGE_SECS: u64 = 24 * 60 * 60;
+
+fn tip_is_stale(now_ms: u64, tip_timestamp_ms: u64, max_tip_age_ms: u64) -> bool {
+	now_ms.saturating_sub(tip_timestamp_ms) > max_tip_age_ms
+}
+
+/// Whether the stale-tip freshness gate applies before authoring.
+fn freshness_gate_applies(allow_mining_without_peers: bool, tip_has_been_fresh: bool) -> bool {
+	!allow_mining_without_peers && !tip_has_been_fresh
+}
 
 // ============================================================================
 // External Mining Helper Functions
@@ -330,7 +349,7 @@ async fn submit_mined_block(
 ///
 /// This function runs continuously until the cancellation token is triggered.
 /// It handles:
-/// - Waiting for sync to complete
+/// - Waiting for the initial tip to become fresh
 /// - Coordinating with external miners (if server is available)
 /// - Falling back to local mining
 async fn mining_loop(
@@ -340,52 +359,134 @@ async fn mining_loop(
 	miner_server: Option<Arc<MinerServer>>,
 	cancellation_token: CancellationToken,
 	allow_mining_without_peers: bool,
+	max_tip_age_ms: u64,
 ) {
 	log::info!("⛏️ QPoW Mining task spawned");
 
 	let mut mining_start_time = std::time::Instant::now();
 	let mut job_counter: u64 = 0;
 
+	// Track when we first detected offline status for grace period
+	let mut offline_since: Option<std::time::Instant> = None;
+	const OFFLINE_GRACE_PERIOD: Duration = Duration::from_secs(30);
+	let mut tip_has_been_fresh = false;
+	let mut logged_stale_tip = false;
+	let mut logged_tip_error = false;
+
 	loop {
 		if cancellation_token.is_cancelled() {
+			worker_handle.set_authoring_enabled(false);
 			log::info!("⛏️ QPoW Mining task shutting down gracefully");
 			break;
 		}
 
-		// Don't mine if we're still syncing. Also drop the stored job so miners
-		// connecting during the sync don't receive stale work on connect —
-		// the protocol has no cancel message, so they would grind it until the
-		// post-sync broadcast supersedes it.
-		if sync_service.is_major_syncing() {
-			log::debug!(target: "pow", "Mining paused: node is still syncing with network");
-			if let Some(ref server) = miner_server {
-				server.clear_current_job().await;
+		// Bitcoin-style IBD gate: authoring never depends on network sync state
+		// (which peers could influence). Until the tip has been observed fresh
+		// once, refuse to mine on a stale tip; after that, briefly falling
+		// behind is tolerated because a stale candidate simply loses the
+		// fork-choice race.
+		let chain_info = client.info();
+		if freshness_gate_applies(allow_mining_without_peers, tip_has_been_fresh) {
+			let best_hash = chain_info.best_hash;
+			// The freshness comparison needs the wall clock; if it is
+			// unreadable, fail closed like the runtime-API error below
+			// rather than treating the tip as fresh.
+			let now_ms = std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH)
+				.ok()
+				.and_then(|duration| u64::try_from(duration.as_millis()).ok());
+			match now_ms.ok_or_else(|| "system wall clock is unreadable".to_string()).and_then(
+				|now_ms| {
+					client
+						.runtime_api()
+						.get_last_block_time(best_hash)
+						.map(|tip_timestamp_ms| (now_ms, tip_timestamp_ms))
+						.map_err(|error| error.to_string())
+				},
+			) {
+				Ok((now_ms, tip_timestamp_ms)) => {
+					logged_tip_error = false;
+					if tip_is_stale(now_ms, tip_timestamp_ms, max_tip_age_ms) {
+						worker_handle.set_authoring_enabled(false);
+						if !logged_stale_tip {
+							log::info!(
+								"⛏️ Mining paused: best block timestamp is {}s old (limit {}s); waiting to catch up with the network",
+								now_ms.saturating_sub(tip_timestamp_ms) / 1000,
+								max_tip_age_ms / 1000,
+							);
+							logged_stale_tip = true;
+						} else {
+							log::debug!(target: "pow", "Mining paused: tip is stale");
+						}
+						tokio::select! {
+							_ = tokio::time::sleep(Duration::from_secs(5)) => {}
+							_ = cancellation_token.cancelled() => continue
+						}
+						continue;
+					}
+					if logged_stale_tip {
+						log::info!("⛏️ Tip is fresh again, resuming mining");
+					}
+					tip_has_been_fresh = true;
+				},
+				Err(error) => {
+					worker_handle.set_authoring_enabled(false);
+					// Fail closed: this is the only freshness gate for
+					// authoring, so an unreadable clock or tip timestamp
+					// pauses mining just like a stale one
+					// (--force-authoring bypasses).
+					if !logged_tip_error {
+						log::warn!("⛏️ Mining paused: could not check tip freshness: {error}");
+						logged_tip_error = true;
+					}
+					tokio::select! {
+						_ = tokio::time::sleep(Duration::from_secs(5)) => {}
+						_ = cancellation_token.cancelled() => continue
+					}
+					continue;
+				},
 			}
-			tokio::select! {
-				_ = tokio::time::sleep(Duration::from_secs(5)) => {}
-				_ = cancellation_token.cancelled() => continue
-			}
-			continue;
 		}
 
-		// Don't mine if we have no peers (unless --dev or --force-authoring).
-		// This must pause immediately, without a grace period: at startup
-		// `is_major_syncing()` is still false before the first peers connect,
-		// so any grace window hands external miners a job built on a stale
-		// local best block, which they then grind for the entire sync.
+		// Don't mine if we have no peers (unless --dev or --force-authoring)
+		// Use a grace period to handle brief network hiccups
 		if !allow_mining_without_peers && sync_service.is_offline() {
-			log::info!(target: "pow", "Mining paused: waiting for peers");
-			tokio::select! {
-				_ = tokio::time::sleep(Duration::from_secs(5)) => {}
-				_ = cancellation_token.cancelled() => continue
+			let now = std::time::Instant::now();
+			match offline_since {
+				None => {
+					// First time detecting offline, start grace period
+					offline_since = Some(now);
+					log::debug!(target: "pow", "No peers detected, starting {}s grace period before pausing mining", OFFLINE_GRACE_PERIOD.as_secs());
+				},
+				Some(since) if now.duration_since(since) >= OFFLINE_GRACE_PERIOD => {
+					// Grace period exceeded, pause mining
+					worker_handle.set_authoring_enabled(false);
+					log::warn!(target: "pow", "Mining paused: no connected peers for {}s (node is offline)", OFFLINE_GRACE_PERIOD.as_secs());
+					tokio::select! {
+						_ = tokio::time::sleep(Duration::from_secs(5)) => {}
+						_ = cancellation_token.cancelled() => continue
+					}
+					continue;
+				},
+				Some(_) => {
+					// Still within grace period, continue mining but log
+					log::debug!(target: "pow", "No peers but still within grace period, continuing mining");
+				},
 			}
-			continue;
+		} else {
+			// We have peers (or are in dev mode), reset offline tracking
+			if offline_since.is_some() {
+				log::info!(target: "pow", "Peers reconnected, resuming normal mining");
+			}
+			offline_since = None;
 		}
 
-		// Wait for mining metadata to be available. We are past the sync check,
-		// so if there is no candidate (e.g. it was cleared during a completed
-		// sync, or a submitted block failed to import) request a rebuild so
-		// mining resumes without waiting for an external block/tx trigger.
+		worker_handle.set_authoring_enabled(true);
+
+		// Wait for mining metadata to be available. If there is no candidate
+		// (e.g. it was cleared during an import burst, or a submitted block
+		// failed to import) request a rebuild so mining resumes without
+		// waiting for an external block/tx trigger.
 		if worker_handle.metadata().is_none() {
 			log::debug!(target: "pow", "No mining metadata available, requesting rebuild");
 			worker_handle.request_rebuild();
@@ -462,6 +563,7 @@ fn spawn_authority_tasks(
 		+ Send
 		+ 'static,
 	allow_mining_without_peers: bool,
+	max_tip_age_ms: u64,
 ) {
 	// Create block proposer factory
 	let proposer = ProposerFactory::new(
@@ -492,7 +594,6 @@ fn spawn_authority_tasks(
 		Box::new(pow_block_import),
 		client.clone(),
 		proposer,
-		sync_service.clone(),
 		sync_service.clone(),
 		rewards_preimage,
 		inherent_data_providers,
@@ -548,6 +649,7 @@ fn spawn_authority_tasks(
 			miner_server,
 			mining_cancellation_token,
 			allow_mining_without_peers,
+			max_tip_age_ms,
 		)
 		.await;
 	});
@@ -563,11 +665,16 @@ fn spawn_authority_tasks(
 // Type Definitions
 // ============================================================================
 
-pub(crate) type FullClient = sc_service::TFullClient<
-	Block,
-	RuntimeApi,
-	sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
->;
+/// WASM host functions. The `runtime-benchmarks` build adds `ext_benchmarking_*`.
+#[cfg(not(feature = "runtime-benchmarks"))]
+pub type HostFunctions = sp_io::SubstrateHostFunctions;
+
+#[cfg(feature = "runtime-benchmarks")]
+pub type HostFunctions =
+	(sp_io::SubstrateHostFunctions, frame_benchmarking::benchmarking::HostFunctions);
+
+pub(crate) type FullClient =
+	sc_service::TFullClient<Block, RuntimeApi, sc_executor::WasmExecutor<HostFunctions>>;
 type FullBackend = sc_service::TFullBackend<Block>;
 pub type PowBlockImport = sc_consensus_qpow::PowBlockImport<
 	Block,
@@ -606,7 +713,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		})
 		.transpose()?;
 
-	let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
+	let executor = sc_service::new_wasm_executor::<HostFunctions>(&config.executor);
 	let (client, backend, keystore_container, task_manager) =
 		sc_service::new_full_parts::<Block, RuntimeApi, _>(
 			config,
@@ -661,6 +768,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 	let import_queue = sc_consensus_qpow::import_queue::<Block, FullClient>(
 		Box::new(pow_block_import.clone()),
 		None,
+		Arc::clone(&client),
 		&task_manager.spawn_essential_handle(),
 		config.prometheus_registry(),
 	)?;
@@ -691,6 +799,7 @@ pub fn new_full<
 	sync_disable_major_sync_gating: bool,
 	sync_block_request_timeout: u64,
 	allow_mining_without_peers: bool,
+	max_tip_age_secs: u64,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -763,7 +872,6 @@ pub fn new_full<
 
 	let role = config.role;
 	let prometheus_registry = config.prometheus_registry().cloned();
-	// config.data_path is the chain-scoped config dir every other chain path uses.
 	let miner_config = miner_listen_port.map(|port| MinerServerConfig {
 		port,
 		auth_token_path: miner_auth_token_file
@@ -819,6 +927,7 @@ pub fn new_full<
 			tx_stream_for_worker,
 			tx_stream_for_logger,
 			allow_mining_without_peers,
+			max_tip_age_secs.saturating_mul(1000),
 		);
 		#[cfg(not(feature = "tx-logging"))]
 		spawn_authority_tasks(
@@ -832,13 +941,52 @@ pub fn new_full<
 			miner_config,
 			tx_stream_for_worker,
 			allow_mining_without_peers,
+			max_tip_age_secs.saturating_mul(1000),
 		);
 	}
-	// Note: --miner-listen-port without --validator is rejected at CLI parse
-	// time in command.rs, so no silent-ignore path exists here.
 
 	// Note: Finalization is now handled synchronously in import_block,
 	// so we don't need a separate finalization task.
 
 	Ok(task_manager)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{freshness_gate_applies, tip_is_stale, DEFAULT_MAX_TIP_AGE_SECS};
+
+	const NOW_MS: u64 = 1_755_000_000_000;
+	const MAX_TIP_AGE_MS: u64 = DEFAULT_MAX_TIP_AGE_SECS * 1000;
+
+	#[test]
+	fn fresh_tip_is_not_stale() {
+		assert!(!tip_is_stale(NOW_MS, NOW_MS, MAX_TIP_AGE_MS));
+		assert!(!tip_is_stale(NOW_MS, NOW_MS - MAX_TIP_AGE_MS, MAX_TIP_AGE_MS));
+	}
+
+	#[test]
+	fn old_tip_is_stale() {
+		assert!(tip_is_stale(NOW_MS, NOW_MS - MAX_TIP_AGE_MS - 1, MAX_TIP_AGE_MS));
+	}
+
+	#[test]
+	fn genesis_tip_is_stale() {
+		assert!(tip_is_stale(NOW_MS, 0, MAX_TIP_AGE_MS));
+	}
+
+	#[test]
+	fn future_tip_is_not_stale() {
+		assert!(!tip_is_stale(NOW_MS, NOW_MS + MAX_TIP_AGE_MS, MAX_TIP_AGE_MS));
+	}
+
+	#[test]
+	fn gate_applies_until_tip_has_been_fresh() {
+		assert!(freshness_gate_applies(false, false));
+		assert!(!freshness_gate_applies(false, true));
+	}
+
+	#[test]
+	fn force_authoring_bypasses_gate() {
+		assert!(!freshness_gate_applies(true, false));
+	}
 }

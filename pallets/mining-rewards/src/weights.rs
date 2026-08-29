@@ -55,23 +55,16 @@ pub trait WeightInfo {
 
 /// Maximum number of ZK-tree leaf inserts a single `on_finalize` can trigger.
 ///
-/// `on_finalize` mints up to three rewards — transaction fees and the block
-/// reward to the miner, plus the treasury portion — and each successful mint
-/// records a wormhole transfer proof that inserts one leaf. Priced as three
-/// independent inserts (no cross-insert storage dedup) for a conservative
-/// worst case.
-const MAX_LEAF_INSERTS: u64 = 3;
+/// `on_finalize` combines fees and the block reward into one miner credit
+/// (one leaf). Dust and failed mints stay in `CollectedFees` with no leaf.
+const MAX_LEAF_INSERTS: u64 = 1;
 
 /// Non-tree storage for the worst-case finalize path.
 ///
-/// Once per finalize: `CollectedFees` (r1 w1), `TreasuryPortion` (r1),
-/// `TreasuryAccount` (r1).
-///
-/// Per reward transfer × [`MAX_LEAF_INSERTS`], priced independently: failed miner
-/// mint (Account r1) → successful treasury mint (Account r1 w1) + `TransferCount`
-/// (r1 w1) = 3 reads, 2 writes.
-const BASE_READS: u64 = 12;
-const BASE_WRITES: u64 = 7;
+/// Once per finalize: `CollectedFees` take (r1 w1) and put-back of dust (r1 w1).
+/// Successful miner mint: Account (r1 w1) + `TransferCount` (r1 w1).
+const BASE_READS: u64 = 4;
+const BASE_WRITES: u64 = 4;
 
 /// PoV per fixed-base key (rounded up from `System::Account` MaxEncodedLen).
 const BASE_KEY_POV: u64 = 2700;
@@ -145,16 +138,14 @@ mod tests {
 	}
 
 	#[test]
-	fn base_covers_three_reward_transfers() {
-		// Once per finalize (outside the per-transfer mint/record path).
-		// CollectedFees (r1 w1) + TreasuryPortion (r1) + TreasuryAccount (r1).
-		const FIXED_READS: u64 = 3;
-		const FIXED_WRITES: u64 = 1;
+	fn base_covers_reward_transfers() {
+		// Once per finalize (outside the mint/record path).
+		// CollectedFees take (r1 w1) + dust put-back (r1 w1).
+		const FIXED_READS: u64 = 2;
+		const FIXED_WRITES: u64 = 2;
 
-		// Per reward transfer, priced independently at the worst-case redirect
-		// path: failed miner Account mint (r1) + successful treasury Account
-		// mint (r1 w1) + TransferCount (r1 w1).
-		const PER_TRANSFER_READS: u64 = 3;
+		// Successful miner mint: Account (r1 w1) + TransferCount (r1 w1).
+		const PER_TRANSFER_READS: u64 = 2;
 		const PER_TRANSFER_WRITES: u64 = 2;
 
 		let expected_reads =
@@ -164,11 +155,11 @@ mod tests {
 
 		assert_eq!(
 			BASE_READS, expected_reads,
-			"BASE_READS must cover fixed overhead plus three mint/TransferCount reads"
+			"BASE_READS must cover fixed overhead plus mint/TransferCount reads"
 		);
 		assert_eq!(
 			BASE_WRITES, expected_writes,
-			"BASE_WRITES must cover fixed overhead plus three mint/TransferCount writes"
+			"BASE_WRITES must cover fixed overhead plus mint/TransferCount writes"
 		);
 	}
 }

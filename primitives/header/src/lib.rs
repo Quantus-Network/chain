@@ -20,7 +20,7 @@ use qp_poseidon_core::{
 use scale_info::TypeInfo;
 use sp_core::{H256, U256};
 use sp_runtime::{
-	generic::{Digest, DigestItem},
+	generic::Digest,
 	traits::{AtLeast32BitUnsigned, BlockNumber, Hash as HashT, MaybeDisplay, Member},
 	RuntimeDebug,
 };
@@ -39,45 +39,52 @@ use serde::{Deserialize, Serialize};
 /// preimage plus one 64-byte PoW seal (the canonical post-seal digest), so a
 /// well-formed header uses the whole window with no slack.
 ///
-/// A well-formed sealed digest must encode to **exactly** this size. Import
-/// rejects any other length rather than padding or truncating; see
-/// [`check_digest_commitment_window`]. `Header::hash()` pads short encodings
-/// with zeros and drops bytes past this window, so either mismatch would let
-/// two distinct headers share a block hash.
+/// Headers whose encoded digest exceeds this bound must be **rejected** before
+/// import rather than silently truncated; see the digest length check in
+/// `sc-consensus-qpow`. Truncation would let two distinct headers share a block
+/// hash on the bytes past this window.
 ///
 /// Because the window has no slack, the runtime must never deposit digest items
 /// of its own: even a 1-byte item (e.g. upstream frame-system's
 /// `RuntimeEnvironmentUpdated` on `set_code`) pushes the sealed digest to 111
-/// bytes. The vendored frame-system's deposits were removed for exactly this
-/// reason — see the warning on `frame_system::Pallet::deposit_log`. One
-/// historical exception is grandfathered at import: see
-/// [`check_digest_commitment_window`].
+/// bytes, past the committed window. The vendored frame-system's deposits were
+/// removed for exactly this reason — see the warning on
+/// `frame_system::Pallet::deposit_log`. Blocks minted before that removal are
+/// grandfathered in via [`MAX_ENCODED_DIGEST_SIZE`].
 pub const DIGEST_LOGS_SIZE: usize = 110;
 
-/// Returns `Ok(())` if `digest` may be imported, or `Err(encoded_len)` if its
-/// SCALE length is not a permitted commitment-window size.
+/// Maximum accepted length (in bytes) of a SCALE-encoded header digest for
+/// blocks at or below [`LEGACY_DIGEST_CUTOFF`].
 ///
-/// The only accepted lengths are [`DIGEST_LOGS_SIZE`] (canonical
-/// `[PreRuntime, Seal]`) and `DIGEST_LOGS_SIZE + 1` with exactly one
-/// `RuntimeEnvironmentUpdated` item. The latter is the leftover from 0.8.x
-/// `set_code` deposits: those upgrade blocks are already canonical, and 0.8.x
-/// imported them by truncating the Poseidon preimage. Anything shorter is
-/// padded with zeros by [`Header::hash`] and anything else longer is truncated,
-/// so both must be rejected.
-pub fn check_digest_commitment_window(digest: &Digest) -> Result<(), usize> {
-	let encoded_len = digest.encode().len();
-	if encoded_len == DIGEST_LOGS_SIZE {
-		return Ok(());
+/// One byte beyond [`DIGEST_LOGS_SIZE`], for backwards compatibility:
+/// historical blocks minted before the runtime stopped depositing
+/// `RuntimeEnvironmentUpdated` on `set_code` carry that 1-byte item between
+/// the pre-runtime preimage and the seal, encoding to 111 bytes, and are part
+/// of the canonical chain. In that shape the byte past the window is the
+/// seal's final byte, which [`Header::hash`] does not commit; that is
+/// tolerable for the fixed historical range because a header forged on the
+/// uncommitted byte still has to pass PoW seal verification, so a colliding
+/// variant can only be a transiently rejected duplicate, never a consensus
+/// fork. Blocks above the cutoff get no slack, restoring the full-commitment
+/// invariant for the indefinite future; use [`max_encoded_digest_size`].
+pub const MAX_ENCODED_DIGEST_SIZE: usize = DIGEST_LOGS_SIZE + 1;
+
+/// Last block height eligible for the 1-byte historical digest allowance.
+///
+/// All `RuntimeEnvironmentUpdated`-carrying blocks were minted long before
+/// this height; it is set slightly above the testnet tip at the time the
+/// bound was introduced so already-mined history keeps importing, while
+/// every future block is capped at the fully hash-committed
+/// [`DIGEST_LOGS_SIZE`].
+pub const LEGACY_DIGEST_CUTOFF: u64 = 1_000_000;
+
+/// Maximum accepted encoded digest length for a block at the given height.
+pub fn max_encoded_digest_size(block_number: u64) -> usize {
+	if block_number <= LEGACY_DIGEST_CUTOFF {
+		MAX_ENCODED_DIGEST_SIZE
+	} else {
+		DIGEST_LOGS_SIZE
 	}
-	let reu_count = digest
-		.logs
-		.iter()
-		.filter(|item| matches!(item, DigestItem::RuntimeEnvironmentUpdated))
-		.count();
-	if reu_count == 1 && encoded_len == DIGEST_LOGS_SIZE + 1 {
-		return Ok(());
-	}
-	Err(encoded_len)
 }
 
 /// Extension trait for headers that support ZK tree root.
@@ -288,12 +295,10 @@ where
 		));
 
 		// digest – SCALE encode then pad to the fixed DIGEST_LOGS_SIZE window to
-		// match circuit expectation. Bytes past the window are NOT committed, and
-		// short encodings are zero-padded, so either mismatch would let two
-		// distinct headers collide. Import therefore demands an exact window
-		// length (other than the grandfathered `RuntimeEnvironmentUpdated`
-		// leftover on historical upgrade blocks) via
-		// [`check_digest_commitment_window`].
+		// match circuit expectation. Bytes past the window are NOT committed by
+		// this hash: an encoded digest longer than the window would let two
+		// distinct headers collide, which is why the import path rejects such
+		// headers outright (see the digest length checks in `sc-consensus-qpow`).
 		// No assertion here, not even a debug one: generic network code hashes
 		// completely unverified headers long before any consensus check runs
 		// (e.g. block-announce validation in `sc-network-sync` hashes the
@@ -555,45 +560,5 @@ mod tests {
 		// Sanity: a within-window digest change does alter the hash.
 		let hash_canonical = header_with_digest(canonical_pow_digest()).hash();
 		assert_ne!(hash_a, hash_canonical);
-	}
-
-	/// Historical runtime-upgrade blocks deposited `RuntimeEnvironmentUpdated`
-	/// between the pre-runtime item and the seal, encoding to 111 bytes. Those
-	/// headers are already canonical and must pass the import window check.
-	#[test]
-	fn runtime_environment_updated_upgrade_digest_is_grandfathered() {
-		let mut digest = canonical_pow_digest();
-		digest.logs.insert(1, DigestItem::RuntimeEnvironmentUpdated);
-		assert_eq!(digest.encode().len(), DIGEST_LOGS_SIZE + 1);
-		assert_eq!(check_digest_commitment_window(&digest), Ok(()));
-	}
-
-	#[test]
-	fn arbitrary_overflow_is_still_rejected() {
-		let mut digest = canonical_pow_digest();
-		digest.logs.insert(1, DigestItem::Other(vec![0u8; 64]));
-		assert!(digest.encode().len() > DIGEST_LOGS_SIZE);
-		assert_eq!(check_digest_commitment_window(&digest), Err(digest.encode().len()));
-	}
-
-	#[test]
-	fn two_runtime_environment_updated_items_are_rejected() {
-		let mut digest = canonical_pow_digest();
-		digest.logs.insert(1, DigestItem::RuntimeEnvironmentUpdated);
-		digest.logs.insert(1, DigestItem::RuntimeEnvironmentUpdated);
-		assert!(digest.encode().len() > DIGEST_LOGS_SIZE + 1);
-		assert_eq!(check_digest_commitment_window(&digest), Err(digest.encode().len()));
-	}
-
-	#[test]
-	fn canonical_digest_passes_window_check() {
-		assert_eq!(check_digest_commitment_window(&canonical_pow_digest()), Ok(()));
-	}
-
-	#[test]
-	fn undersized_digest_is_rejected() {
-		let digest = Digest::default();
-		assert!(digest.encode().len() < DIGEST_LOGS_SIZE);
-		assert_eq!(check_digest_commitment_window(&digest), Err(digest.encode().len()));
 	}
 }

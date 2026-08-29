@@ -420,13 +420,6 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		Ok(Default::default())
 	}
 
-	/// Returns `Ok(true)` if grandpa should be disabled
-	///
-	/// By default this is `false`.
-	fn disable_grandpa(&self) -> Result<bool> {
-		Ok(Default::default())
-	}
-
 	/// Get the development key seed from the current object
 	///
 	/// By default this is `None`.
@@ -570,7 +563,6 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 			telemetry_endpoints,
 			offchain_worker: self.offchain_worker(&role)?,
 			force_authoring: self.force_authoring()?,
-			disable_grandpa: self.disable_grandpa()?,
 			dev_key_seed: self.dev_key_seed(is_dev)?,
 			tracing_targets: self.tracing_targets()?,
 			tracing_receiver: self.tracing_receiver()?,

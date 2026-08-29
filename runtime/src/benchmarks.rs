@@ -38,7 +38,6 @@ frame_benchmarking::define_benchmarks!(
 	[pallet_scheduler, Scheduler]
 	[pallet_ranked_collective, TechCollective]
 	[pallet_referenda, TechReferenda]
-	[pallet_recovery, Recovery]
 	[pallet_qpow, QPoW]
 	[pallet_wormhole, Wormhole]
 	[pallet_vesting, Vesting]

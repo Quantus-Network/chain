@@ -15,6 +15,27 @@ See also: [`RUNTIME_UPGRADE_VIA_GOVERNANCE.md`](./RUNTIME_UPGRADE_VIA_GOVERNANCE
 generic single-network procedure) and [`RUNTIME_SURFACE.md`](./RUNTIME_SURFACE.md) (why
 sudo is gone and how the Tech track is configured).
 
+## Version numbers
+
+Do **not** increment `spec_version` or the crate version in `runtime/Cargo.toml`
+in feature or security PRs. A consensus-critical change (new verifier rules,
+changed weights, new dispatchables) still merges at the current
+`spec_version`. Reviewers asking for a bump on that PR: the bump is not
+missing.
+
+- **`spec_version`** is incremented by the **Quantus - Release Proposal**
+  workflow (`.github/workflows/quantus-release-proposal.yml`) when
+  `is_runtime_upgrade` is set. That PR updates `VERSION` in
+  `runtime/src/lib.rs` and `runtime/Cargo.toml`, and is the binary + wasm
+  that get released together. A node uses its native runtime only when
+  `spec_name`, `spec_version`, and `authoring_version` all match the
+  on-chain Wasm, so a `main` binary with an unreleased verifier does not
+  silently replace the live runtime.
+- **`transaction_version`** is not touched by CI. Bump it only when the
+  *signed extrinsic encoding* changes (the `TxExtension` set or payload
+  layout). A change to how signatures are produced or verified does not
+  require it.
+
 ---
 
 ## TL;DR
@@ -176,7 +197,7 @@ quantus runtime compare --wasm-file "$WASM" --node-url "$HEISENBERG_WS"
 ## Step 2 — Run the chain tests (exercise suite)
 
 `quantus exercise` runs the chain exercise suite against a live node (balances,
-reversible, multisig, recovery, preimage, negative, fuzz, wormhole, …). It uses ephemeral
+reversible, multisig, preimage, negative, fuzz, wormhole, …). It uses ephemeral
 accounts plus the `crystal_alice/bob/charlie` dev accounts.
 
 ```bash
@@ -194,8 +215,9 @@ quantus exercise --skip governance --json --fail-fast --node-url "$HEISENBERG_WS
 quantus exercise --skip governance --node-url "$PLANCK_WS"
 ```
 
-Available phases: `reads, balances, reversible, multisig, recovery, preimage, governance,
-negative, fuzz, wormhole, upgrade` (default = all except `upgrade`).
+Available phases: `reads, balances, reversible, multisig, preimage, governance,
+negative, fuzz, wormhole, upgrade` (default = all except `upgrade`). The `recovery`
+phase is gone with `pallet-recovery`.
 
 **In-repo shell smoke test** (single Alice→Bob transfer + tx-pool watch), as an
 alternative minimal check:
