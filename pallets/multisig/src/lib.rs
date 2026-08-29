@@ -49,23 +49,18 @@ use frame_support::{traits::Get, BoundedBTreeMap, BoundedVec};
 use scale_info::TypeInfo;
 use sp_runtime::RuntimeDebug;
 
-/// Maximum decode nesting depth allowed when turning a stored opaque call
-/// (`BoundedCallOf`) back into a `RuntimeCall`.
+/// Maximum decode nesting depth allowed when turning an opaque proposal
+/// (`BoundedCallOf`) into a `RuntimeCall`.
 ///
-/// The outer extrinsic is decoded by FRAME's Executive with
-/// `decode_all_with_depth_limit(MAX_EXTRINSIC_DEPTH, ..)`, but that limit only
-/// applies to the signed envelope; the inner call is carried as opaque bytes and
-/// escapes it. Without a bound here, a signer can store a deeply nested call
-/// (e.g. chained `Utility::batch_all`) that passes pool validation and then
-/// exhausts the runtime stack when `propose`/`execute` decode it during block
-/// construction. We reuse the same ceiling as the outer envelope: Executive
-/// already performs a decode at this depth on every extrinsic, so it is proven
-/// safe, and no value that exceeds it could have entered as a top-level call.
+/// `propose` receives opaque bytes, so Executive cannot depth-limit the inner
+/// call. The accepted call must later fit inside the `Box<RuntimeCall>` carried
+/// by `Multisig::execute`; `Box` consumes one codec depth under Executive's
+/// `MAX_EXTRINSIC_DEPTH` limit. Reserve that level here so every proposal
+/// accepted at the boundary remains encodable as a valid execute extrinsic.
 ///
-/// Depth is bounded here; `propose` then requires the stored bytes to equal
-/// `decoded.encode()`, so trailing garbage cannot be stored. `execute` binds the
-/// submitted call to that canonical payload and does not decode storage again.
-pub const MAX_MULTISIG_CALL_DEPTH: u32 = frame_support::MAX_EXTRINSIC_DEPTH;
+/// Canonical re-encoding below also rejects trailing bytes and non-canonical
+/// encodings before any proposal state or deposit is created.
+pub const MAX_MULTISIG_CALL_DEPTH: u32 = frame_support::MAX_EXTRINSIC_DEPTH - 1;
 
 /// Multisig account data
 #[derive(Encode, Decode, MaxEncodedLen, Clone, TypeInfo, RuntimeDebug, PartialEq, Eq)]
