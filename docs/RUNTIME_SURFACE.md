@@ -76,7 +76,7 @@ The runtime derives `RuntimeCall`, `RuntimeEvent`, `RuntimeError`, `RuntimeOrigi
 | 13 | `TechCollective` | `pallet-ranked-collective` `45.0.0` | **Inlined** (`pallets/ranked-collective`) | yes |
 | 14 | `TechReferenda` | `pallet-referenda::Pallet<Runtime, Instance1>` `45.0.0` | **Inlined** (2nd instance) | yes |
 | 15 | `TreasuryPallet` | `pallet-treasury` | **Local** (`pallets/treasury`) | yes |
-| 16 | — | *(vacant; was `pallet-recovery`)* | — | — |
+| 16 | — | *(vacant)* | — | — |
 | 17 | — | *(vacant; was `pallet-assets`)* | — | — |
 | 18 | — | *(vacant; was `pallet-assets-holder`)* | — | — |
 | 19 | `Multisig` | `pallet-multisig` | **Local** (`pallets/multisig`) | yes |
@@ -160,9 +160,6 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 ### Index 15 — `TreasuryPallet` (`pallet-treasury`, local)
 - Minimal local treasury. Config only sets `WeightInfo`.
 - **Calls:** `set_treasury_account`(0, root). Exposes `account_id()`. Treasury is not paid from mining rewards.
-
-### Index 16 — `Recovery` (`pallet-recovery`) — **removed**
-- Social recovery (`as_recovered`, `create_recovery`, …) was removed. High-security fund recovery remains `ReversibleTransfers::recover_funds`.
 
 ### Index 19 — `Multisig` (`pallet-multisig`, local)
 - `MaxSigners = 100`, `MaxTotalProposalsInStorage = 200`, `MaxCallSize = 10 KB`, `MultisigFee = 0.6 × FEE_SCALE UNIT` (burned), `ProposalDeposit = 1 × FEE_SCALE UNIT`, `ProposalFee = 1 × FEE_SCALE UNIT`, `MaxExpiryDuration ≈ 2 weeks`, `MaxInnerCallWeight = (10^12, 2.5 MB)`, `HighSecurity = HighSecurityConfig`, `PalletId = "py/mltsg"`.

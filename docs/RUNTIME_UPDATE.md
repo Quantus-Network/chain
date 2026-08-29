@@ -216,8 +216,7 @@ quantus exercise --skip governance --node-url "$PLANCK_WS"
 ```
 
 Available phases: `reads, balances, reversible, multisig, preimage, governance,
-negative, fuzz, wormhole, upgrade` (default = all except `upgrade`). The `recovery`
-phase is gone with `pallet-recovery`.
+negative, fuzz, wormhole, upgrade` (default = all except `upgrade`).
 
 **In-repo shell smoke test** (single Alice→Bob transfer + tx-pool watch), as an
 alternative minimal check:
