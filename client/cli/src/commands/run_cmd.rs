@@ -140,7 +140,11 @@ pub struct RunCmd {
 	#[arg(long, conflicts_with_all = &["alice", "bob", "charlie", "dave", "eve", "ferdie", "one"])]
 	pub two: bool,
 
-	/// Enable authoring even when offline.
+	/// Enable authoring even when offline (no connected peers).
+	///
+	/// Required to start mining on a new chain from a single validator,
+	/// for example at mainnet or staging-mainnet genesis. Without this flag,
+	/// mining pauses until at least one peer is connected.
 	#[arg(long)]
 	pub force_authoring: bool,
 

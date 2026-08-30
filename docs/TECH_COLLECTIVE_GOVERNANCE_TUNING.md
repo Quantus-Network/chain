@@ -10,7 +10,7 @@ Track definition: `runtime/src/governance/definitions.rs:165-192` (`TechCollecti
 
 ```rust
 max_deciding: 1,
-decision_deposit: 1000 * UNIT,
+decision_deposit: TECH_COLLECTIVE_DECISION_DEPOSIT,
 prepare_period: 2 * HOURS,
 decision_period: DAYS,
 confirm_period: DAYS,

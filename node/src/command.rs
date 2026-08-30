@@ -723,6 +723,32 @@ mod tests {
 	};
 
 	#[test]
+	fn force_authoring_flag_is_parsed() {
+		use clap::Parser;
+		use sc_cli::CliConfiguration;
+
+		let with_flag =
+			crate::cli::Cli::try_parse_from(["quantus-node", "--validator", "--force-authoring"])
+				.expect("parse --force-authoring");
+		assert!(with_flag.run.force_authoring);
+		assert!(with_flag.run.force_authoring().expect("force_authoring"));
+
+		let without_flag = crate::cli::Cli::try_parse_from(["quantus-node", "--validator"])
+			.expect("parse --validator");
+		assert!(!without_flag.run.force_authoring);
+		assert!(!without_flag.run.force_authoring().expect("force_authoring"));
+	}
+
+	#[test]
+	fn dev_implies_force_authoring() {
+		use clap::Parser;
+		use sc_cli::CliConfiguration;
+
+		let cli = crate::cli::Cli::try_parse_from(["quantus-node", "--dev"]).expect("parse --dev");
+		assert!(cli.run.force_authoring().expect("force_authoring"));
+	}
+
+	#[test]
 	fn take_trimmed_secret_returns_trimmed_and_rejects_whitespace_only() {
 		let secret = take_trimmed_secret(String::from("  secret-phrase\n")).expect("non-empty");
 		assert_eq!(secret.as_str(), "secret-phrase");

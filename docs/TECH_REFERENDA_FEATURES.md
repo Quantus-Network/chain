@@ -53,8 +53,8 @@ Referenda's `Tally = pallet_ranked_collective::TallyOf<Runtime>` and
 | Call | Origin | Notes |
 |---|---|---|
 | `submit` | Root or member | Create a referendum |
-| `place_decision_deposit` / `refund_decision_deposit` | signed | 1000 UNIT decision bond |
-| `refund_submission_deposit` | signed | 100 UNIT submission bond |
+| `place_decision_deposit` / `refund_decision_deposit` | signed | 10 × `FEE_SCALE` UNIT decision bond |
+| `refund_submission_deposit` | signed | 10 × `FEE_SCALE` UNIT submission bond |
 | `nudge_referendum` | **Root** (dispatched via governance) | Force the state machine to re-evaluate now (§6) |
 | `cancel` | Root | Stop; refunds deposits |
 | `kill` | Root | Stop; slashes deposits (`Slash = ()` → burned) |
@@ -134,10 +134,11 @@ Decaying curves let a track demand high approval/support early and relax it over
 time (the OpenGov design). The track config lives in `TrackInfo`
 (`pallets/referenda/src/types.rs:189-215`).
 
-The tech track currently uses **constant** curves (`LinearDecreasing` with
-`floor == ceil`, i.e. no decay):
+Both tech tracks use **constant** curves (`LinearDecreasing` with
+`floor == ceil`, i.e. no decay): track 0 at 61% approval / 60% support, and the
+`fast_upgrade` track (id 1) at 80%/80% — 8-of-10 with the genesis collective.
 
-```111:120:runtime/src/governance/definitions.rs
+```runtime/src/governance/definitions.rs
 min_approval: pallet_referenda::Curve::LinearDecreasing {
 	length: from_percent(100), floor: from_percent(61), ceil: from_percent(61),
 },
@@ -196,8 +197,8 @@ instead of waiting for the scheduled alarm.
   opposite direction from quadratic-cost voting. There is no quadratic option.
 - **Token-based voting?** Not in this lane. Tech votes are one-member-one-vote
   (rank-weighted), independent of balances. Tokens appear only as fixed
-  *deposits* (100 UNIT submission, 1000 UNIT decision) that gate participation
-  but never weight a vote. Balance-weighted conviction voting was the separate
+  *deposits* (10 × `FEE_SCALE` UNIT submission, 10 × `FEE_SCALE` UNIT decision)
+  that gate participation but never weight a vote. Balance-weighted conviction voting was the separate
   *community lane* (`pallet-conviction-voting` + community `Referenda`), which
   has been removed, leaving this tech lane as the **sole governance lane**.
 
@@ -209,11 +210,11 @@ instead of waiting for the scheduled alarm.
 |---|---|---|
 | Vote weight | `Unit` / `Linear` / `Geometric` | `Linear` (flat → 1 vote/member; ranks dormant) |
 | Ranks | arbitrary 0..N, per-track min-rank | all rank 0, min-rank 0, changes disabled |
-| Approval curve ("unity") | Linear / Stepped / Reciprocal, time-decaying | constant **61%** |
-| Support curve ("quorum") | same three curve types | constant **60%** (head-count) |
-| `max_deciding` | configurable | 1 |
-| `prepare / decision / confirm / enactment` | per-track | 2 h / 1d / 1d / 1d |
-| Deposits | submission + decision | 100 UNIT + 1000 UNIT |
+| Approval curve ("unity") | Linear / Stepped / Reciprocal, time-decaying | constant **61%** (track 0) / **80%** (track 1) |
+| Support curve ("quorum") | same three curve types | constant **60%** (track 0) / **80%** (track 1, head-count) |
+| `max_deciding` | configurable | 1 per track |
+| `prepare / decision / confirm / enactment` | per-track | track 0: 2 h / 1d / 1d / 1d; track 1: 10 min / 1d / 10 min / 10 min |
+| Deposits | submission + decision | 10 × `FEE_SCALE` UNIT + 10 × `FEE_SCALE` UNIT |
 | Max members | `GlobalMaxMembers` | 13 |
 | Early resolution | confirm-period pass + `nudge_referendum` | enabled |
 | Cancel / kill | `CancelOrigin` / `KillOrigin` | Root only |

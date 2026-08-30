@@ -4,8 +4,14 @@ End-to-end runbook for shipping a new runtime to the **Heisenberg** (internal) a
 **Planck** testnets, and smoke-testing them with the chain exercise suite.
 
 Runtime upgrades on this chain are **governance-only** — `pallet-sudo` was removed, so
-there is no `sudo.setCode` shortcut. An upgrade is a Tech-Referenda proposal that, once
-passed, executes `system.set_code` with Root origin. No node restart is required.
+there is no `sudo.setCode` shortcut. An upgrade is a Tech-Referenda proposal on the
+`fast_upgrade` track that, once passed, executes `system.authorize_upgrade(code_hash)`;
+the WASM itself is then delivered via the permissionless `quantus runtime apply`
+(`system.apply_authorized_upgrade`). No node restart is required.
+
+> This flow needs a runtime that has the `fast_upgrade` track and `FastUpgrade`
+> origin. To upgrade an older live runtime that predates them, use the matching
+> older CLI (which submits `system.set_code` on the Root track).
 
 > Polkadot-JS Apps and the standard `@polkadot/api` **cannot** sign for this chain
 > (Dilithium / ML-DSA signatures). Every step below uses the **Quantus CLI**
@@ -48,7 +54,7 @@ export PLANCK_WS="wss://a1-planck.quantus.cat"
 # 2. Get the runtime wasm (from the GitHub release, or the srtool CI artifact)
 export WASM=/path/to/quantus_runtime.compact.compressed.wasm
 
-# 3. Heisenberg: submit -> deposit -> vote (all 3 members) -> wait -> verify
+# 3. Heisenberg: submit -> deposit -> vote (all 3 members) -> wait -> apply -> verify
 # 4. Run the exercise suite:  quantus exercise --skip governance --node-url $HEISENBERG_WS
 # 5. Planck: repeat the governance flow with the planck wallets
 ```
@@ -77,9 +83,9 @@ nodes**, not RPC URLs — but each network also exposes the Substrate RPC over *
 
 ## Tech Collective members
 
-Both testnets have a **3-member** Tech Collective. The Tech track needs **≥ 61 % approval
-and ≥ 60 % support**, so **2 of 3 aye votes** are enough — but vote with all three to be
-safe. Confirm the live membership any time with:
+Both testnets have a **3-member** Tech Collective. The `fast_upgrade` track needs
+**≥ 80 % approval and ≥ 80 % support**, so **all 3 members** must vote aye. Confirm the
+live membership any time with:
 
 ```bash
 quantus tech-collective list-members --node-url <endpoint>
@@ -158,8 +164,8 @@ quantus runtime compare --wasm-file "$WASM" --node-url "$HEISENBERG_WS"
 # b) Confirm the collective membership (who you'll need aye votes from)
 quantus tech-collective list-members --node-url "$HEISENBERG_WS"
 
-# c) Submit the proposal: uploads the wasm as a preimage, then opens the Tech referendum
-#    on the Root track. Add --force to skip the interactive confirm.
+# c) Submit the proposal: notes the authorize_upgrade(code_hash) preimage, then opens
+#    the referendum on the fast_upgrade track. Add --force to skip the interactive confirm.
 quantus runtime update \
   --wasm-file "$WASM" \
   --from "$HEISENBERG_TC" \
@@ -175,20 +181,23 @@ quantus tech-referenda place-decision-deposit \
   --from "$HEISENBERG_TC" \
   --node-url "$HEISENBERG_WS"
 
-# f) Vote aye with all three members (2 of 3 is enough to pass)
+# f) Vote aye with all three members (fast_upgrade needs 80%/80% — all 3 of 3)
 quantus tech-collective vote --referendum-index "$HREF" --vote aye --from crystal_alice   --node-url "$HEISENBERG_WS"
 quantus tech-collective vote --referendum-index "$HREF" --vote aye --from crystal_bob     --node-url "$HEISENBERG_WS"
 quantus tech-collective vote --referendum-index "$HREF" --vote aye --from crystal_charlie --node-url "$HEISENBERG_WS"
 
-# g) Monitor until it passes -> confirms -> enacts
+# g) Monitor until it passes -> confirms -> enacts (authorize_upgrade executes)
 quantus tech-referenda status --index "$HREF" --node-url "$HEISENBERG_WS"
 
-# h) Verify the new runtime is live (compare should now show equal versions)
+# h) Apply the authorized wasm (permissionless — any funded wallet)
+quantus runtime apply --wasm-file "$WASM" --from "$HEISENBERG_TC" --node-url "$HEISENBERG_WS"
+
+# i) Verify the new runtime is live (compare should now show equal versions)
 quantus runtime compare --wasm-file "$WASM" --node-url "$HEISENBERG_WS"
 ```
 
-> ⏱️ **Timing.** On a standard node the Tech track has ~1-day decision, confirm, and
-> enactment periods, so a full upgrade can take a couple of days. If a testnet runs with
+> ⏱️ **Timing.** The `fast_upgrade` track has 10-minute prepare, confirm, and enactment
+> windows (~30 minutes end to end plus voting time). If a testnet runs with
 > `fast-governance`, it enacts in minutes. Check the live periods with
 > `quantus tech-referenda config --node-url "$HEISENBERG_WS"`.
 
@@ -253,7 +262,7 @@ export PREF=<referendum_index_from_list>
 # e) place decision deposit
 quantus tech-referenda place-decision-deposit --index "$PREF" --from planck-tc-1 --node-url "$PLANCK_WS"
 
-# f) vote aye with all three members
+# f) vote aye with all three members (all 3 of 3 required)
 quantus tech-collective vote --referendum-index "$PREF" --vote aye --from planck-tc-1 --node-url "$PLANCK_WS"
 quantus tech-collective vote --referendum-index "$PREF" --vote aye --from planck-tc-2 --node-url "$PLANCK_WS"
 quantus tech-collective vote --referendum-index "$PREF" --vote aye --from s3          --node-url "$PLANCK_WS"
@@ -261,7 +270,10 @@ quantus tech-collective vote --referendum-index "$PREF" --vote aye --from s3    
 # g) monitor to enactment
 quantus tech-referenda status --index "$PREF" --node-url "$PLANCK_WS"
 
-# h) verify new version live
+# h) apply the authorized wasm
+quantus runtime apply --wasm-file "$WASM" --from planck-tc-1 --node-url "$PLANCK_WS"
+
+# i) verify new version live
 quantus runtime compare --wasm-file "$WASM" --node-url "$PLANCK_WS"
 ```
 
@@ -272,7 +284,8 @@ quantus runtime compare --wasm-file "$WASM" --node-url "$PLANCK_WS"
 | Symptom | Cause / fix |
 |---|---|
 | Referendum never leaves "Preparing" | You skipped the **decision deposit** (Step e). Place it, then voting/deciding starts. |
-| Referendum rejected / not enough support | 3-member collective needs ≥ 61 % approval / 60 % support → get a 2nd (and 3rd) aye. |
+| Referendum rejected / not enough support | `fast_upgrade` needs ≥ 80 % approval / 80 % support → all 3 members must vote aye. |
+| Referendum enacted but version unchanged | Enactment only authorizes the hash — run `quantus runtime apply` with the same wasm. |
 | No wasm asset on the GitHub release | The release publish job failed after srtool. Pull the `runtime` workflow artifact (Step 0 fallback) and re-run the release. |
 | Wallet prompts for a password | Add `-p <password>` or `--password-file <file>` to the signing command. |
 
@@ -282,7 +295,8 @@ quantus runtime compare --wasm-file "$WASM" --node-url "$PLANCK_WS"
 |---|---|
 | On-chain runtime version | `quantus runtime compare --wasm-file <wasm> --node-url <ws>` |
 | List collective members | `quantus tech-collective list-members --node-url <ws>` |
-| Submit upgrade (preimage + referendum) | `quantus runtime update --wasm-file <wasm> --from <member> --node-url <ws>` |
+| Submit upgrade (authorize referendum) | `quantus runtime update --wasm-file <wasm> --from <member> --node-url <ws>` |
+| Apply authorized wasm (after enactment) | `quantus runtime apply --wasm-file <wasm> --from <wallet> --node-url <ws>` |
 | List referenda | `quantus tech-referenda list --node-url <ws>` |
 | Referendum detail | `quantus tech-referenda get --index <i> --node-url <ws>` |
 | Place decision deposit | `quantus tech-referenda place-decision-deposit --index <i> --from <wallet> --node-url <ws>` |
