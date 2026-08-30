@@ -59,6 +59,7 @@ impl frame_system::Config for Test {
 	type BaseCallFilter = Everything;
 	type BlockWeights = ();
 	type BlockLength = ();
+	type AuthorizeUpgradeOrigin = frame_system::EnsureRoot<Self::AccountId>;
 	type RuntimeOrigin = RuntimeOrigin;
 	type RuntimeCall = RuntimeCall;
 	type RuntimeTask = ();

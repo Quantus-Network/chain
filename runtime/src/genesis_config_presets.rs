@@ -561,6 +561,21 @@ pub fn treasury_signer_seed(signers_count: u32) -> crate::Balance {
 		crate::scale_fee(100 * crate::MILLI_UNIT)
 }
 
+pub fn governance_treasury_signer_seed(signers_count: u32) -> crate::Balance {
+	use crate::{
+		configs::{MaxReferendaProposalSize, ReferendumSubmissionDeposit},
+		governance::definitions::{preimage_amount, TECH_COLLECTIVE_DECISION_DEPOSIT},
+	};
+	use frame_support::traits::Footprint;
+	let max_preimage_deposit =
+		preimage_amount(Footprint { count: 1, size: u64::from(MaxReferendaProposalSize::get()) });
+	treasury_signer_seed(signers_count)
+		.saturating_add(ReferendumSubmissionDeposit::get())
+		.saturating_add(TECH_COLLECTIVE_DECISION_DEPOSIT)
+		.saturating_add(max_preimage_deposit)
+		.saturating_add(crate::scale_fee(UNIT))
+}
+
 pub fn planck_config_genesis() -> Value {
 	let treasury_signers = planck_treasury_signers();
 	let tech_collective = planck_tech_collective_seed();

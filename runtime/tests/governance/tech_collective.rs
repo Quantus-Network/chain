@@ -26,7 +26,6 @@ mod tests {
 		use quantus_runtime::configs::{
 			MaxActiveReferenda, MaxActiveReferendaPerAccount, MaxMemberCount,
 		};
-		use sp_core::Get;
 		let worst_case =
 			u64::from(MaxMemberCount::get()) * u64::from(MaxActiveReferendaPerAccount::get());
 		assert!(worst_case < u64::from(MaxActiveReferenda::get()));

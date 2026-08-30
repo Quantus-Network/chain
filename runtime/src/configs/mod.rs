@@ -25,11 +25,14 @@
 
 // Substrate and Polkadot dependencies
 use crate::{
-	governance::definitions::{
-		EnsureRootRemoveKeepsMemberFloor, GlobalMaxMembers, MinRankOfClassConverter,
-		PreimageDeposit, RootOrMemberForTechReferendaOrigin, TechCollectiveTracksInfo,
+	governance::{
+		definitions::{
+			EnsureRootRemoveKeepsMemberFloor, GlobalMaxMembers, MinRankOfClassConverter,
+			PreimageDeposit, RootOrMemberForTechReferendaOrigin, TechCollectiveTracksInfo,
+		},
+		origins::FastUpgrade,
 	},
-	MILLI_UNIT,
+	pallet_custom_origins, MILLI_UNIT,
 };
 use frame_support::{
 	derive_impl, parameter_types,
@@ -128,7 +131,13 @@ impl frame_system::Config for Runtime {
 	/// This is used as an identifier of the chain. 42 is the generic substrate prefix.
 	type SS58Prefix = SS58Prefix;
 	type MaxConsumers = ConstU32<16>;
+	/// `authorize_upgrade` accepts Root (the normal tech-referenda track) or the
+	/// fast-upgrade track's `FastUpgrade` origin. `set_code` and
+	/// `authorize_upgrade_without_checks` remain Root-only.
+	type AuthorizeUpgradeOrigin = EitherOfDiverse<EnsureRoot<AccountId>, FastUpgrade>;
 }
+
+impl pallet_custom_origins::Config for Runtime {}
 
 parameter_types! {
 	pub const MiningUnit: Balance = UNIT;
