@@ -76,9 +76,25 @@ const fn days_ms(days: u64) -> VestingMoment {
 	days * MILLIS_PER_DAY
 }
 
+const fn minutes_ms(minutes: u64) -> VestingMoment {
+	minutes * 60 * 1_000
+}
+
+/// Midnight UTC of a Gregorian date (year >= 1970) as milliseconds since the Unix
+/// epoch, so every vesting epoch below is written as the date it documents and
+/// cannot drift from it. Days-from-civil, per Howard Hinnant's `chrono` algorithm.
+const fn utc_midnight_ms(year: u64, month: u64, day: u64) -> VestingMoment {
+	let y = if month <= 2 { year - 1 } else { year };
+	let era = y / 400;
+	let yoe = y - era * 400;
+	let doy = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+	let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+	(era * 146_097 + doe - 719_468) * MILLIS_PER_DAY
+}
+
 /// Genesis vesting starts at this wall-clock time: **2026-08-05 00:00:00 UTC**.
 /// Re-derive this (midnight UTC of the intended start date) before any real launch.
-const GENESIS_VESTING_START_MS: VestingMoment = 1_785_888_000_000;
+const GENESIS_VESTING_START_MS: VestingMoment = utc_midnight_ms(2026, 8, 5);
 /// Testnet example cliff: 90 days after start.
 const GENESIS_VESTING_CLIFF_MS: VestingMoment = GENESIS_VESTING_START_MS + days_ms(90);
 /// Testnet example vesting end: 1 year after start.
@@ -96,6 +112,15 @@ pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
 
 /// Identifier for the planck runtime preset.
 pub const PLANCK_RUNTIME_PRESET: &str = "planck";
+
+/// Identifier for the staging-mainnet runtime preset.
+///
+/// Staging-mainnet is the mainnet dress rehearsal: its genesis is produced by
+/// [`mainnet_config_genesis`], the same function the eventual mainnet preset
+/// will use, differing only in the treasury multisig nonce
+/// ([`STAGING_MAINNET_TREASURY_MULTISIG_NONCE`]) so the two chains get
+/// distinct treasury accounts and therefore distinct genesis hashes.
+pub const STAGING_MAINNET_RUNTIME_PRESET: &str = "staging_mainnet";
 
 /// SS58 address format used by all Quantus chains.
 fn ss58_version() -> sp_core::crypto::Ss58AddressFormat {
@@ -597,12 +622,222 @@ pub fn planck_config_genesis() -> Value {
 	genesis_template(endowed_accounts, treasury, tech_collective, signer_fee_seed, vec![])
 }
 
+/// The ten mainnet treasury multisig signers, also seeded as the mainnet tech
+/// collective. Staging-mainnet uses the exact same accounts.
+///
+/// Spec building panics while any placeholder remains, and the preset is
+/// skipped in tests until then. Signer order does not matter: multisig address
+/// derivation sorts internally.
+const MAINNET_TREASURY_SIGNERS_SS58: [&str; 10] = [
+	"qznoXy8q1BgD4jka7wGHMgPtEw63Ut8gvLv9b6x1GvavmCgi1",
+	"qzq8U3GsQraM2pofq9zHbrBvByczzCHrYXphPwdPf2cq9Q55r",
+	"qzkCCKgT3r4PekyzFAP6MB9mmmCtPZj1tT56CZiECNq38L24z",
+	"qzkW57Kq9T2b2PJ7Ph5NEAWqRqVR5KBGtECc7ztcf6Fks1ds6",
+	"qzn4x6gecYuuGSEeEHJh7QCr3gcN5kmrSnDW7BNW1zuaiodPR",
+	"qzpMehumJ9qBj2d7Yof1dGbwzeABGbhKu8hFuBLwNmyas6Q4w",
+	"qznDNghWXmnXKnujNAHK9YPVV1peBcusMgAZbbUZkH7uCDyNe",
+	"qzkZQi63WoaYjkjb8VjqswVChjj3Yr4BEpek5V2QuVL61FXCa",
+	"qzkuV7zpYtXVU5YzkoQuNMHCDPXiryZKiKE6KrRbwccuoGdPF",
+	"qzob8fLUV7xUE8EjXpGsy3JHtxYdCUXhgYh9GhPCTpys1LttF",
+];
+
+/// Approvals required on the mainnet (and staging-mainnet) treasury multisig.
+const MAINNET_TREASURY_MULTISIG_THRESHOLD: u32 = 6;
+
+/// Multisig nonce for the staging-mainnet treasury. The eventual mainnet
+/// treasury uses the same signers and threshold with nonce 0; the different
+/// nonce yields a different derived treasury account and therefore a different
+/// genesis hash — the only intended state difference between the two chains.
+const STAGING_MAINNET_TREASURY_MULTISIG_NONCE: u64 = 1;
+
+/// Placeholder TGE timestamp for the mainnet vesting table: **2026-12-01 00:00:00 UTC**.
+/// DUMMY — re-derive as midnight UTC of the real launch date.
+const MAINNET_VESTING_START_MS: VestingMoment = utc_midnight_ms(2026, 12, 1);
+
+/// Flip to `true` only when [`mainnet_vesting_schedules`] holds the final mainnet
+/// allocation table. While `false`, [`mainnet_config_genesis`] refuses to build
+/// any preset except staging-mainnet (the dress rehearsal may ship dummies).
+const MAINNET_VESTING_FINALIZED: bool = false;
+
+/// HD indexes 0..=19 of the staging rehearsal wallet
+/// (`m/44'/189189'/{i}'/0'/0'`, ML-DSA-87). Dummy grants so those keys can
+/// exercise claim on staging-mainnet; replace each amount with the real
+/// allocation before flipping [`MAINNET_VESTING_FINALIZED`].
+const STAGING_REHEARSAL_VESTING: [(&str, u128); 20] = [
+	("qznAAg1Mxu9cmFyxdqi9yTFHm8ycaHfgWbL71z3QHraFAqJCP", 400 * UNIT), // staging-0
+	("qznwThCk3UNZNQNGtz93D3KQi9aQRfnZbsA7AmbhzLTP1cUWK", 1_000 * UNIT), // staging-1
+	("qznTih513uSHqqWHXSQxDbPrnCvMZ4nVYvPqGiABEwnk6Ponf", 2_500 * UNIT), // staging-2
+	("qzq22NnFZGLYp7hfbrSirczEK4pnQVnCdz3awVVQHNttb8QjA", 800 * UNIT), // staging-3
+	("qzmdgmNDo9KvteNsmUsdiUfEnHD7UF1pyCkjBYszDwksHZG26", 15_000 * UNIT), // staging-4
+	("qzk4KpxLG5nxuQ8FDaGtkpykmWr1aNSyGcLJt6u5XJzirhCMF", 600 * UNIT), // staging-5
+	("qznFo5RNzZpnSqVPupfdf7hJ1gQcCszKSg23VQFoafK2ELUJE", 5_000 * UNIT), // staging-6
+	("qzk5TFfu1Ho9mCFxxDWTYvYhaRqbvSihTcCz93Xx4bY4SpTjH", 12_000 * UNIT), // staging-7
+	("qzkVJZyvPi2s2kv1S8W1zxFySKVRNEnAiQ8HaGCRWdxpb6PPD", 3_000 * UNIT), // staging-8
+	("qzmU6CAqZKx5Fu5S4Hq45UeR8xLFZRfqpqDg1QwUb7gvaZn14", 10_000 * UNIT), // staging-9
+	("qzjddxfxWzvR1DoFVqEaXzPkER6cwC7EgFSMi24oKUCpduRsr", 2_000 * UNIT), // staging-10
+	("qzkgvQv22Q3sZWC4sxk7rzAF76kwchnhCdEZrhAZ1r2TbNnHY", 7_000 * UNIT), // staging-11
+	("qzjd5MS1GSCpXLYp8DjZASifnkgtUpx5WwhmEzW3ppHdDe3uq", 3_500 * UNIT), // staging-12
+	("qzjWJCQtKsXL6kwTdBH21sPqp6RrXy9zNChjh4zLTcjvZi4YA", 9_000 * UNIT), // staging-13
+	("qzkjDVS4pZrRM2nxdVVbPDiVJwaBepWULHJa8SGHEEQHiQf7y", 1_500 * UNIT), // staging-14
+	("qzoAfKAW3x7JyfTDVjYD6uocxuM73DpBgZzRQEMm4RvjiChE3", 8_000 * UNIT), // staging-15
+	("qzoMF7cRmEPuwGp1MeNP6npaaHfgyGaoWpKPSqMBj7qDq1Pkb", 5_500 * UNIT), // staging-16
+	("qzp9KrTrEJAu2kYGnRFiStg5h3hXXpoL6eVnnZYJaskuYhzkD", 6_000 * UNIT), // staging-17
+	("qzpz6P9kHM6USaaZzSiRCLgZQtdBmrKzpU54utjhg2QAmm1Zz", 3_200 * UNIT), // staging-18
+	("qznhDdGC8aRrHLHBGt99eHaLkGYwnRZxqNJ8yi4VTPqz9wfDo", 4_000 * UNIT), // staging-19
+];
+
+/// Staging rehearsal vest clock: **2026-08-22 00:00:00 UTC**, 5-minute cliff,
+/// fully vested after 10 days. Independent of the dummy mainnet TGE so these
+/// keys can be exercised on the dress-rehearsal chain.
+const STAGING_REHEARSAL_VESTING_START_MS: VestingMoment = utc_midnight_ms(2026, 8, 22);
+const STAGING_REHEARSAL_VESTING_CLIFF_MS: VestingMoment =
+	STAGING_REHEARSAL_VESTING_START_MS + minutes_ms(5);
+const STAGING_REHEARSAL_VESTING_END_MS: VestingMoment =
+	STAGING_REHEARSAL_VESTING_START_MS + days_ms(10);
+
+/// Liquid genesis endowment so rehearsal accounts can pay fees.
+const STAGING_REHEARSAL_LIQUID: u128 = UNIT;
+
+fn staging_rehearsal_accounts() -> Vec<AccountId> {
+	let accounts: Vec<AccountId> =
+		STAGING_REHEARSAL_VESTING.iter().map(|(s, _)| account_from_ss58(s)).collect();
+	let mut deduped = accounts.clone();
+	deduped.sort();
+	deduped.dedup();
+	assert_eq!(
+		deduped.len(),
+		accounts.len(),
+		"staging rehearsal vesting accounts must be distinct"
+	);
+	accounts
+}
+
+fn staging_rehearsal_liquid_seed() -> Vec<(AccountId, u128)> {
+	staging_rehearsal_accounts()
+		.into_iter()
+		.map(|who| (who, STAGING_REHEARSAL_LIQUID))
+		.collect()
+}
+
+fn staging_rehearsal_vesting_schedules() -> Vec<VestingScheduleTuple> {
+	STAGING_REHEARSAL_VESTING
+		.iter()
+		.map(|(ss58, total)| {
+			(
+				account_from_ss58(ss58),
+				STAGING_REHEARSAL_VESTING_START_MS,
+				STAGING_REHEARSAL_VESTING_CLIFF_MS,
+				STAGING_REHEARSAL_VESTING_END_MS,
+				*total,
+			)
+		})
+		.collect()
+}
+
+/// Mainnet vesting allocation table, shared with staging-mainnet.
+///
+/// DUMMY scaffold: the category shape (cliff / duration) approximates the launch
+/// plan, but the beneficiaries are stand-ins (treasury signers T1/T2 and the
+/// treasury itself) plus the staging rehearsal HD accounts, and the amounts are
+/// placeholders. Replace every entry with the real allocation and flip
+/// [`MAINNET_VESTING_FINALIZED`] before adding the mainnet preset.
+fn mainnet_vesting_schedules(treasury_account: &AccountId) -> Vec<VestingScheduleTuple> {
+	let signers = mainnet_treasury_signers();
+	let start = MAINNET_VESTING_START_MS;
+	let mut schedules = vec![
+		// DUMMY team allocation — 12-month cliff, 4-year linear vest.
+		(
+			signers[0].clone(),
+			start,
+			start + days_ms(365),
+			start + days_ms(4 * 365),
+			1_500_000 * UNIT,
+		),
+		// DUMMY early-backer allocation — 6-month cliff, 2-year linear vest.
+		(
+			signers[1].clone(),
+			start,
+			start + days_ms(180),
+			start + days_ms(2 * 365),
+			1_000_000 * UNIT,
+		),
+		// DUMMY ecosystem reserve — no cliff, 4-year linear vest into the treasury.
+		(treasury_account.clone(), start, start, start + days_ms(4 * 365), 500_000 * UNIT),
+	];
+	schedules.extend(staging_rehearsal_vesting_schedules());
+	schedules
+}
+
+/// True once every entry of [`MAINNET_TREASURY_SIGNERS_SS58`] has been
+/// replaced with a real address.
+fn mainnet_signers_finalized() -> bool {
+	MAINNET_TREASURY_SIGNERS_SS58
+		.iter()
+		.all(|s| !s.starts_with("REPLACE_WITH_SIGNER"))
+}
+
+fn mainnet_treasury_signers() -> Vec<AccountId> {
+	assert!(
+		mainnet_signers_finalized(),
+		"mainnet treasury signers are placeholders — fill MAINNET_TREASURY_SIGNERS_SS58 \
+		 with the real launch addresses before building this chain spec"
+	);
+	let signers: Vec<AccountId> =
+		MAINNET_TREASURY_SIGNERS_SS58.iter().map(|s| account_from_ss58(s)).collect();
+	let mut deduped = signers.clone();
+	deduped.sort();
+	deduped.dedup();
+	assert_eq!(deduped.len(), signers.len(), "mainnet treasury signers must be distinct");
+	signers
+}
+
+/// Genesis shared 1:1 between mainnet and staging-mainnet: the 6-of-10
+/// treasury multisig, a tech collective of the same ten accounts, and the
+/// [`mainnet_vesting_schedules`] allocation table. Final mainnet allocations
+/// belong in here so staging inherits them unchanged; only `treasury_nonce`
+/// may differ between the two presets.
+fn mainnet_config_genesis(preset: &str, treasury_nonce: u64) -> Value {
+	assert!(
+		MAINNET_VESTING_FINALIZED || preset == STAGING_MAINNET_RUNTIME_PRESET,
+		"mainnet vesting table still holds dummy entries — finalize mainnet_vesting_schedules() \
+		 and flip MAINNET_VESTING_FINALIZED before building this chain spec"
+	);
+	let treasury_signers = mainnet_treasury_signers();
+	let tech_collective = treasury_signers.clone();
+	let treasury_account = Multisig::<crate::Runtime>::derive_multisig_address(
+		&treasury_signers,
+		MAINNET_TREASURY_MULTISIG_THRESHOLD,
+		treasury_nonce,
+	);
+	let signer_seed = governance_treasury_signer_seed(treasury_signers.len() as u32);
+	let mut extra_balances: Vec<_> =
+		treasury_signers.iter().cloned().map(|a| (a, signer_seed)).collect();
+	extra_balances.extend(staging_rehearsal_liquid_seed());
+	let rehearsal_accounts = staging_rehearsal_accounts();
+	log_genesis_accounts(
+		preset,
+		&rehearsal_accounts,
+		&treasury_account,
+		&treasury_signers,
+		&tech_collective,
+	);
+	let vesting_schedules = mainnet_vesting_schedules(&treasury_account);
+	log_vesting_schedules(preset, &vesting_schedules);
+	let treasury = TreasuryGenesis { account: treasury_account };
+	genesis_template(vec![], treasury, tech_collective, extra_balances, vesting_schedules)
+}
+
+pub fn staging_mainnet_config_genesis() -> Value {
+	mainnet_config_genesis(STAGING_MAINNET_RUNTIME_PRESET, STAGING_MAINNET_TREASURY_MULTISIG_NONCE)
+}
+
 /// Provides the JSON representation of predefined genesis config for given `id`.
 pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
 	let patch = match id.as_ref() {
 		sp_genesis_builder::DEV_RUNTIME_PRESET => development_config_genesis(),
 		HEISENBERG_RUNTIME_PRESET => heisenberg_config_genesis(),
 		PLANCK_RUNTIME_PRESET => planck_config_genesis(),
+		STAGING_MAINNET_RUNTIME_PRESET => staging_mainnet_config_genesis(),
 		_ => return None,
 	};
 	Some(
@@ -624,6 +859,7 @@ pub fn preset_names() -> Vec<PresetId> {
 		PresetId::from(sp_genesis_builder::DEV_RUNTIME_PRESET),
 		PresetId::from(HEISENBERG_RUNTIME_PRESET),
 		PresetId::from(PLANCK_RUNTIME_PRESET),
+		PresetId::from(STAGING_MAINNET_RUNTIME_PRESET),
 	]
 }
 
@@ -651,6 +887,26 @@ mod tests {
 		] {
 			assert!(seed.len() >= MIN_TECH_COLLECTIVE_MEMBERS);
 		}
+		// Staging-mainnet's collective is the signer table itself.
+		assert!(MAINNET_TREASURY_SIGNERS_SS58.len() >= MIN_TECH_COLLECTIVE_MEMBERS);
+	}
+
+	/// While the signer table still holds placeholders, staging-mainnet spec building
+	/// must fail loudly; once the real launch addresses land, the preset must build and
+	/// seed all ten signers as the tech collective.
+	#[test]
+	fn staging_mainnet_gates_on_real_signers() {
+		if mainnet_signers_finalized() {
+			let raw =
+				get_preset(&PresetId::from(STAGING_MAINNET_RUNTIME_PRESET)).expect("preset exists");
+			let (_, members) = prepare_genesis_build_input(raw).expect("well-formed");
+			assert_eq!(
+				members.expect("tech collective must be seeded").len(),
+				MAINNET_TREASURY_SIGNERS_SS58.len()
+			);
+		} else {
+			assert!(std::panic::catch_unwind(mainnet_treasury_signers).is_err());
+		}
 	}
 
 	/// 2020-01-01 and 2100-01-01 UTC, sanity bounds for genesis vesting dates.
@@ -664,13 +920,43 @@ mod tests {
 	}
 
 	#[test]
+	fn minutes_ms_is_exact() {
+		assert_eq!(minutes_ms(5), 300_000);
+	}
+
+	#[test]
+	fn utc_midnight_ms_matches_known_epochs() {
+		assert_eq!(utc_midnight_ms(1970, 1, 1), 0);
+		assert_eq!(utc_midnight_ms(2000, 3, 1), 951_868_800_000);
+		assert_eq!(utc_midnight_ms(2024, 2, 29), 1_709_164_800_000);
+		// Each documented vesting epoch, pinned to its independently derived value.
+		assert_eq!(GENESIS_VESTING_START_MS, 1_785_888_000_000); // 2026-08-05 UTC
+		assert_eq!(STAGING_REHEARSAL_VESTING_START_MS, 1_787_356_800_000); // 2026-08-22 UTC
+		assert_eq!(MAINNET_VESTING_START_MS, 1_796_083_200_000); // 2026-12-01 UTC
+	}
+
+	#[test]
 	fn genesis_vesting_times_are_sane() {
-		assert_eq!(GENESIS_VESTING_START_MS % MILLIS_PER_DAY, 0, "start must be midnight UTC");
-		assert!(GENESIS_VESTING_START_MS > YEAR_2020_MS);
-		assert!(GENESIS_VESTING_START_MS < YEAR_2100_MS);
+		for start in
+			[GENESIS_VESTING_START_MS, MAINNET_VESTING_START_MS, STAGING_REHEARSAL_VESTING_START_MS]
+		{
+			assert_eq!(start % MILLIS_PER_DAY, 0, "start must be midnight UTC");
+			assert!(start > YEAR_2020_MS);
+			assert!(start < YEAR_2100_MS);
+		}
 		assert!(GENESIS_VESTING_START_MS <= GENESIS_VESTING_CLIFF_MS);
 		assert!(GENESIS_VESTING_CLIFF_MS <= GENESIS_VESTING_END_MS);
 		assert!(GENESIS_VESTING_START_MS < GENESIS_VESTING_END_MS);
+		assert_eq!(
+			STAGING_REHEARSAL_VESTING_CLIFF_MS,
+			STAGING_REHEARSAL_VESTING_START_MS + minutes_ms(5)
+		);
+		assert_eq!(
+			STAGING_REHEARSAL_VESTING_END_MS,
+			STAGING_REHEARSAL_VESTING_START_MS + days_ms(10)
+		);
+		assert!(STAGING_REHEARSAL_VESTING_START_MS <= STAGING_REHEARSAL_VESTING_CLIFF_MS);
+		assert!(STAGING_REHEARSAL_VESTING_CLIFF_MS < STAGING_REHEARSAL_VESTING_END_MS);
 	}
 
 	/// Every shipped preset must build genesis storage, including the vesting pallet's
@@ -679,6 +965,13 @@ mod tests {
 	#[test]
 	fn all_presets_build_genesis_storage() {
 		for id in preset_names() {
+			// Staging-mainnet intentionally panics on its placeholder signer table
+			// until the real launch addresses are filled in.
+			if AsRef::<str>::as_ref(&id) == STAGING_MAINNET_RUNTIME_PRESET &&
+				!mainnet_signers_finalized()
+			{
+				continue;
+			}
 			let bytes = get_preset(&id).expect("listed preset must resolve");
 			let (config_bytes, _members) = prepare_genesis_build_input(bytes)
 				.unwrap_or_else(|e| panic!("preset {:?}: invalid genesis JSON: {e}", id));
@@ -721,13 +1014,16 @@ mod tests {
 	/// validity (`start <= cliff < end`).
 	#[test]
 	fn preset_vesting_schedules_enforce_the_published_cliff() {
-		let expected: &[(&str, usize)] = &[
+		let mut expected: Vec<(&str, usize)> = vec![
 			(sp_genesis_builder::DEV_RUNTIME_PRESET, 4),
 			(HEISENBERG_RUNTIME_PRESET, 3),
 			(PLANCK_RUNTIME_PRESET, 0),
 		];
+		if mainnet_signers_finalized() {
+			expected.push((STAGING_MAINNET_RUNTIME_PRESET, 3 + STAGING_REHEARSAL_VESTING.len()));
+		}
 		let mut total = 0usize;
-		for &(name, expected_count) in expected {
+		for &(name, expected_count) in &expected {
 			let id = PresetId::from(name);
 			let raw = get_preset(&id).expect("listed preset must resolve");
 			let (json, _) = prepare_genesis_build_input(raw).expect("well-formed");
@@ -753,6 +1049,67 @@ mod tests {
 			}
 			total += config.vesting.schedules.len();
 		}
-		assert_eq!(total, 7, "dev (4) + heisenberg (3) + planck (0) must sum to 7");
+		let expected_total: usize = expected.iter().map(|(_, count)| count).sum();
+		assert_eq!(
+			total, expected_total,
+			"per-preset vesting schedule counts must sum to the pinned total"
+		);
+	}
+
+	#[test]
+	fn staging_mainnet_includes_rehearsal_vesting_accounts() {
+		assert!(
+			mainnet_signers_finalized(),
+			"staging-mainnet preset is gated on real treasury signers"
+		);
+		let raw =
+			get_preset(&PresetId::from(STAGING_MAINNET_RUNTIME_PRESET)).expect("preset exists");
+		let (json, _) = prepare_genesis_build_input(raw).expect("well-formed");
+		let config: RuntimeGenesisConfig = serde_json::from_slice(&json).expect("deserializes");
+		let mut totals = Vec::with_capacity(STAGING_REHEARSAL_VESTING.len());
+		for (ss58, total) in STAGING_REHEARSAL_VESTING {
+			let who = account_from_ss58(ss58);
+			let hit = config.vesting.schedules.iter().find(|(b, _, _, _, _)| *b == who);
+			let (_, got_start, got_cliff, got_end, got_total) =
+				hit.unwrap_or_else(|| panic!("missing rehearsal schedule for {ss58}"));
+			assert_eq!(*got_start, STAGING_REHEARSAL_VESTING_START_MS, "{ss58}");
+			assert_eq!(*got_cliff, STAGING_REHEARSAL_VESTING_CLIFF_MS, "{ss58}");
+			assert_eq!(*got_end, STAGING_REHEARSAL_VESTING_END_MS, "{ss58}");
+			assert_eq!(*got_total, total, "{ss58}");
+			totals.push(*got_total);
+			let liquid = config
+				.balances
+				.balances
+				.iter()
+				.find(|(b, _)| *b == who)
+				.map(|(_, amount)| *amount)
+				.unwrap_or_else(|| panic!("missing liquid endowment for {ss58}"));
+			assert_eq!(liquid, STAGING_REHEARSAL_LIQUID, "{ss58}");
+		}
+		let mut distinct = totals.clone();
+		distinct.sort();
+		distinct.dedup();
+		assert_eq!(distinct.len(), totals.len(), "rehearsal vesting amounts must be distinct");
+		assert_eq!(totals.iter().sum::<u128>(), 100_000 * UNIT);
+	}
+
+	#[test]
+	fn staging_mainnet_funds_each_signer_for_governance() {
+		let raw =
+			get_preset(&PresetId::from(STAGING_MAINNET_RUNTIME_PRESET)).expect("preset exists");
+		let (json, _) = prepare_genesis_build_input(raw).expect("well-formed");
+		let config: RuntimeGenesisConfig = serde_json::from_slice(&json).expect("deserializes");
+		let signers = mainnet_treasury_signers();
+		let expected = governance_treasury_signer_seed(signers.len() as u32);
+		for signer in signers {
+			let balance = config
+				.balances
+				.balances
+				.iter()
+				.find(|(account, _)| account == &signer)
+				.map(|(_, amount)| *amount)
+				.expect("mainnet signer must have a genesis balance");
+			assert_eq!(balance, expected);
+		}
 	}
 }
