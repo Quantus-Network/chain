@@ -95,7 +95,7 @@ pub struct TechCollectiveTracksInfo;
 
 /// Track for [`CustomOrigin::FastUpgrade`] proposals.
 pub const FAST_UPGRADE_TRACK_ID: u16 = 1;
-pub const TECH_COLLECTIVE_DECISION_DEPOSIT: Balance = scale_fee(1000 * UNIT);
+pub const TECH_COLLECTIVE_DECISION_DEPOSIT: Balance = scale_fee(10 * UNIT);
 
 impl TechCollectiveTracksInfo {
 	fn create_tech_collective_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 2] {

@@ -252,11 +252,11 @@ parameter_types! {
 	// deposit while the bytes stay pinned. Cap the blob so that (a) `MaxActive` × size
 	// cannot approach hundreds of MiB of deposit-free state, and (b) the preimage deposit
 	// for a max-sized blob (0.1 UNIT + 0.0001 UNIT/byte ≈ 6.6 UNIT) stays well under the
-	// 100 UNIT submission deposit, so the held bytes remain collateralized even after
+	// 10 UNIT submission deposit, so the held bytes remain collateralized even after
 	// `unnote`. 64 KiB is ample for any tech-collective call.
 	pub const MaxReferendaProposalSize: u32 = 64 * 1024;
 	// Submission deposit for referenda
-	pub const ReferendumSubmissionDeposit: Balance = scale_fee(100 * UNIT);
+	pub const ReferendumSubmissionDeposit: Balance = scale_fee(10 * UNIT);
 	// Undeciding timeout (45 days): a submitted referendum that is NOT in the track queue —
 	// e.g. one that never received a decision deposit — is rejected as TimedOut after this
 	// long. Referenda that ARE queued for deciding are exempt: the timeout check
