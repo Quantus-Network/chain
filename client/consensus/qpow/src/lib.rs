@@ -13,7 +13,6 @@ use sp_consensus_qpow::{QPoWApi, Seal as RawSeal};
 use sp_runtime::traits::Block as BlockT;
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
-use codec::Encode;
 use qp_header::{check_digest_commitment_window, DIGEST_LOGS_SIZE};
 
 use crate::worker::UntilImportedOrTransaction;
@@ -775,6 +774,7 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use codec::Encode;
 	use sp_consensus::BlockOrigin;
 	use sp_runtime::{traits::BlakeTwo256, OpaqueExtrinsic};
 

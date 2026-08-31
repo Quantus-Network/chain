@@ -88,7 +88,7 @@ fn execute_transfer_weight(
 ///
 /// `execute_transfer` records a wormhole proof (ZK-tree leaf append); that component
 /// is priced at the flat marginal per-insert share via
-/// [`pallet_zk_tree::INSERT_LEAF_*`].
+/// `pallet_zk_tree::INSERT_LEAF_*`.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:1)

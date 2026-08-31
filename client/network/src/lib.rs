@@ -18,8 +18,6 @@
 
 #![warn(unused_extern_crates)]
 #![warn(missing_docs)]
-#![allow(clippy::all)]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Substrate-specific P2P networking.
 //!
@@ -221,7 +219,7 @@
 //!
 //! # Usage
 //!
-//! Using the `sc-network` crate is done through the [`NetworkWorker`] struct. Create this
+//! Using the `sc-network` crate is done through the `NetworkWorker` struct. Create this
 //! struct by passing a [`config::Params`], then poll it as if it was a `Future`. You can extract an
 //! `Arc<NetworkService>` from the `NetworkWorker`, which can be shared amongst multiple places
 //! in order to give orders to the networking.
@@ -231,7 +229,7 @@
 //! After the `NetworkWorker` has been created, the important things to do are:
 //!
 //! - Calling `NetworkWorker::poll` in order to advance the network. This can be done by
-//! dispatching a background task with the [`NetworkWorker`].
+//! dispatching a background task with the `NetworkWorker`.
 //! - Calling `on_block_import` whenever a block is added to the client.
 //! - Calling `on_block_finalized` whenever a block is finalized.
 //! - Calling `trigger_repropagate` when a transaction is added to the pool.

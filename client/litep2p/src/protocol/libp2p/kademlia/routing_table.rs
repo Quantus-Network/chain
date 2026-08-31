@@ -185,12 +185,12 @@ impl RoutingTable {
 		// TODO: https://github.com/paritytech/litep2p/issues/337 this has to be moved elsewhere at some point
 		let addresses: Vec<Multiaddr> = addresses
 			.into_iter()
-			.filter_map(|address| {
+			.map(|address| {
 				let last = address.iter().last();
 				if std::matches!(last, Some(Protocol::P2p(_))) {
-					Some(address)
+					address
 				} else {
-					Some(address.with(Protocol::P2p(peer.into())))
+					address.with(Protocol::P2p(peer.into()))
 				}
 			})
 			.collect();

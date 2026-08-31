@@ -1,7 +1,7 @@
 //! Custom signed extensions for the runtime.
 extern crate alloc;
 use crate::*;
-use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
+use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::marker::PhantomData;
 use frame_support::pallet_prelude::{
 	InvalidTransaction, TransactionValidityError, ValidTransaction,
@@ -661,7 +661,7 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 	/// proof-recording work against the weight reserved by `weight()` — registering any
 	/// shortfall against the block and refunding any overcharge as unspent weight. A count
 	/// is sufficient because the per-transfer price is flat (see
-	/// [`Self::per_transfer_weight`]).
+	/// `Self::per_transfer_weight`).
 	type Pre = (u32, u64);
 	/// Transfer count from `validate()`, reused by `prepare()` so the matcher is
 	/// not walked a second time.

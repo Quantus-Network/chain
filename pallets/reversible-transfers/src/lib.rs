@@ -514,7 +514,7 @@ pub mod pallet {
 		/// This extrinsic is called automatically by the Scheduler pallet when the
 		/// delay period expires. It must be signed by this pallet's account (not a user).
 		/// The pallet account is set as the origin when scheduling via
-		/// [`do_schedule_transfer_inner`](Self::do_schedule_transfer_inner).
+		/// `do_schedule_transfer_inner`.
 		///
 		/// # Parameters
 		///

@@ -211,7 +211,7 @@ fn verify_batch_weight(
 /// Every processed exit inserts a ZK-tree leaf, plus one leaf for the miner
 /// volume-fee credit (and the aggregator rebate on public batch); that component
 /// is flat-priced at [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`] via
-/// [`pallet_zk_tree::INSERT_LEAF_*`].
+/// `pallet_zk_tree::INSERT_LEAF_*`.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `System::BlockHash` (r:1 w:0)

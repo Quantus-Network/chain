@@ -91,12 +91,12 @@ pub mod pallet {
 			/// Total fees waiting for distribution
 			total: BalanceOf<T>,
 		},
-		/// No miner in the digest; the credit stays in [`CollectedFees`] for the next block.
+		/// No miner in the digest; the credit stays in `CollectedFees` for the next block.
 		PayoutDeferred {
 			/// Amount held for the next miner
 			amount: BalanceOf<T>,
 		},
-		/// Miner mint failed; the credit stays in [`CollectedFees`] for retry.
+		/// Miner mint failed; the credit stays in `CollectedFees` for retry.
 		MinerMintFailed {
 			/// The miner who should have received the reward
 			miner: T::AccountId,
@@ -264,7 +264,7 @@ pub mod pallet {
 			}
 		}
 
-		/// Roll a failed mint back into [`CollectedFees`] for the next finalize.
+		/// Roll a failed mint back into `CollectedFees` for the next finalize.
 		fn retain_unminted(reward: BalanceOf<T>) {
 			<CollectedFees<T>>::mutate(|pending| {
 				*pending = pending.saturating_add(reward);

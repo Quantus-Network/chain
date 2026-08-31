@@ -122,12 +122,11 @@ impl<Hash: hash::Hash + Eq, Ex> Default for FutureTransactions<Hash, Ex> {
 	}
 }
 
-const WAITING_PROOF: &str = r"#
-In import we always insert to `waiting` if we push to `wanted_tags`;
-when removing from `waiting` we always clear `wanted_tags`;
-every hash from `wanted_tags` is always present in `waiting`;
-qed
-#";
+// WAITING_PROOF:
+// In import we always insert to `waiting` if we push to `wanted_tags`;
+// when removing from `waiting` we always clear `wanted_tags`;
+// every hash from `wanted_tags` is always present in `waiting`;
+// qed
 
 impl<Hash: hash::Hash + Eq + Clone + std::fmt::Debug, Ex: std::fmt::Debug>
 	FutureTransactions<Hash, Ex>

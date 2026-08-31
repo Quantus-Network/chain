@@ -1353,7 +1353,7 @@ pub mod pallet {
 		) -> Result<BalanceOf<T>, DispatchError> {
 			let amount_u128: u128 = amount.try_into().map_err(|_| TokenError::BelowMinimum)?;
 			ensure!(
-				amount_u128 > 0 && amount_u128 % crate::SCALE_DOWN_FACTOR == 0,
+				amount_u128 > 0 && amount_u128.is_multiple_of(crate::SCALE_DOWN_FACTOR),
 				TokenError::BelowMinimum
 			);
 			let credited = <T::Currency as Unbalanced<_>>::increase_balance(
