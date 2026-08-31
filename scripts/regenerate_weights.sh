@@ -55,5 +55,5 @@ for entry in "${PALLETS[@]}"; do
     --output="./$output"
 done
 
-cargo +nightly fmt
+scripts/fmt.sh
 echo "Done."

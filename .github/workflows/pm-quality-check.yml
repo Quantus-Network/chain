@@ -85,7 +85,6 @@ jobs:
       - name: Install required components
         if: steps.should-run.outputs.run == 'true'
         run: |
-          rustup component add rustfmt --toolchain nightly
           rustup component add clippy rust-src
           cargo install taplo-cli --locked
 
@@ -102,8 +101,7 @@ jobs:
         if: steps.should-run.outputs.run == 'true'
         run: |
           echo "🎨 Checking format for ${{ steps.crate-info.outputs.name }} in ${{ steps.crate-info.outputs.path }}"
-          cd ${{ matrix.crate }}
-          cargo +nightly fmt -- --check
+          scripts/fmt.sh -p ${{ steps.crate-info.outputs.name }} -- --check
 
       - name: Clippy check
         if: steps.should-run.outputs.run == 'true'

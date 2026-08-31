@@ -18,7 +18,6 @@ runs:
         rustup update
         rustup target add wasm32-unknown-unknown
         rustup target add aarch64-unknown-linux-gnu
-        rustup component add rustfmt --toolchain nightly
         rustup component add clippy rust-src
       shell: bash
     - name: Set LIBCLANG_PATH for clang-sys (bindgen/rocksdb etc.)
