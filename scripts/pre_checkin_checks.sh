@@ -9,13 +9,13 @@ echo "[1/8] Running 'cargo fix'..."
 cargo fix --all || { echo "Error: 'cargo fix' failed."; exit 1; }
 
 echo "[2/8] Formatting Rust with 'scripts/fmt.sh'..."
-"$(dirname "$0")/fmt.sh" || { echo "Error: 'fmt.sh' failed."; exit 1; }
+scripts/fmt.sh || { echo "Error: 'fmt.sh' failed."; exit 1; }
 
 echo "[3/8] Checking TOML format with 'taplo'..."
 taplo format --check --config taplo.toml || { echo "Error: 'taplo format' check failed."; exit 1; }
 
 echo "[4/8] Checking Rust format with 'scripts/fmt.sh --all -- --check'..."
-"$(dirname "$0")/fmt.sh" --all -- --check || { echo "Error: 'fmt.sh --check' failed."; exit 1; }
+scripts/fmt.sh --all -- --check || { echo "Error: 'fmt.sh --check' failed."; exit 1; }
 
 echo "[5/8] Running 'cargo clippy'..."
 SKIP_WASM_BUILD=1 cargo clippy --locked --workspace || { echo "Error: 'cargo clippy' failed."; exit 1; }

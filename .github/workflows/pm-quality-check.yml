@@ -101,8 +101,7 @@ jobs:
         if: steps.should-run.outputs.run == 'true'
         run: |
           echo "🎨 Checking format for ${{ steps.crate-info.outputs.name }} in ${{ steps.crate-info.outputs.path }}"
-          cd ${{ matrix.crate }}
-          "$GITHUB_WORKSPACE/scripts/fmt.sh" -- --check
+          scripts/fmt.sh -p ${{ steps.crate-info.outputs.name }} -- --check
 
       - name: Clippy check
         if: steps.should-run.outputs.run == 'true'

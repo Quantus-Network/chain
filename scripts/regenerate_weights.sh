@@ -55,5 +55,5 @@ for entry in "${PALLETS[@]}"; do
     --output="./$output"
 done
 
-"$ROOT/scripts/fmt.sh"
+scripts/fmt.sh
 echo "Done."
