@@ -240,8 +240,8 @@ fn schedule_transfer_rejects_zero_amount() {
 		);
 
 		// Nothing was scheduled or stored on either path.
-		assert!(PendingTransfersBySender::<Test>::get(&alice()).is_empty());
-		assert!(PendingTransfersBySender::<Test>::get(&charlie()).is_empty());
+		assert!(PendingTransfersBySender::<Test>::get(alice()).is_empty());
+		assert!(PendingTransfersBySender::<Test>::get(charlie()).is_empty());
 	});
 }
 

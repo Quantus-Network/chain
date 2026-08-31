@@ -140,7 +140,7 @@ parameter_types! {
 
 // Dynamic MaxInnerCallWeight for testing runtime upgrade scenarios
 thread_local! {
-	static MAX_INNER_CALL_WEIGHT: RefCell<Weight> = RefCell::new(Weight::from_parts(1_000_000_000, 1_048_576));
+	static MAX_INNER_CALL_WEIGHT: RefCell<Weight> = const { RefCell::new(Weight::from_parts(1_000_000_000, 1_048_576)) };
 }
 
 pub struct DynamicMaxInnerCallWeight;

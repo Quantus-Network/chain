@@ -435,7 +435,7 @@ fn combined_fee_and_reward_can_recover_a_quantum() {
 		MiningRewards::collect_transaction_fees(fees);
 
 		let reward = expected_block_reward(fees);
-		assert!(reward % quantum > 0, "block reward must not already be aligned");
+		assert!(!reward.is_multiple_of(quantum), "block reward must not already be aligned");
 		let (combined, _dust) = quantize(reward + fees);
 		let (reward_only, _) = quantize(reward);
 		let (fee_only, _) = quantize(fees);

@@ -14,7 +14,7 @@ use std::{cell::RefCell, collections::BTreeSet};
 
 // Thread-local storage for dynamically toggling high-security status in tests
 thread_local! {
-	static DYNAMIC_HS_ACCOUNTS: RefCell<BTreeSet<AccountId32>> = RefCell::new(BTreeSet::new());
+	static DYNAMIC_HS_ACCOUNTS: RefCell<BTreeSet<AccountId32>> = const { RefCell::new(BTreeSet::new()) };
 }
 
 /// Add an account to the dynamic high-security set (for testing)
@@ -2237,8 +2237,7 @@ fn execute_proposal_that_calls_back_into_multisig() {
 		));
 
 		// Verify the inner call succeeded - new multisig should exist
-		let new_multisig_address =
-			Multisig::derive_multisig_address(&vec![charlie(), dave()], 2, 99);
+		let new_multisig_address = Multisig::derive_multisig_address(&[charlie(), dave()], 2, 99);
 		assert!(Multisigs::<Test>::contains_key(&new_multisig_address));
 	});
 }
@@ -2286,7 +2285,7 @@ fn claim_deposits_with_zero_expired_proposals() {
 
 		// Proposal should still exist
 		assert!(Proposals::<Test>::contains_key(
-			&Multisig::derive_multisig_address(&signers, 2, 0),
+			Multisig::derive_multisig_address(&signers, 2, 0),
 			0
 		));
 	});

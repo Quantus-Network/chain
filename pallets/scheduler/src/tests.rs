@@ -89,7 +89,7 @@ fn scheduling_with_preimages_works() {
 
 		run_to_block(4);
 		// preimage should not have been removed when executed by the scheduler
-		assert!(!Preimage::len(&hash).is_some());
+		assert!(Preimage::len(&hash).is_none());
 		assert!(!Preimage::is_requested(&hash));
 		// `log` runtime call should have executed at block 4
 		assert_eq!(logger::log(), vec![(root(), 42u32)]);
@@ -2542,7 +2542,7 @@ fn cancel_last_task_removes_agenda() {
 		// cancel last task from `when` agenda.
 		assert_ok!(Scheduler::do_cancel(None, address2));
 		// if all tasks `None`, agenda fully removed.
-		assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 0);
+		assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).is_empty());
 	});
 }
 
@@ -2576,7 +2576,7 @@ fn cancel_named_last_task_removes_agenda() {
 		// cancel last task from `when` agenda.
 		assert_ok!(Scheduler::do_cancel_named(None, [1u8; 32]));
 		// if all tasks `None`, agenda fully removed.
-		assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 0);
+		assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).is_empty());
 	});
 }
 
@@ -2611,7 +2611,7 @@ fn reschedule_last_task_removes_agenda() {
 			(BlockNumberOrTimestamp::BlockNumber(when + 1), 0)
 		);
 		// if all tasks `None`, agenda fully removed.
-		assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 0);
+		assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).is_empty());
 	});
 }
 
@@ -2648,7 +2648,7 @@ fn reschedule_named_last_task_removes_agenda() {
 			(BlockNumberOrTimestamp::BlockNumber(when + 1), 0)
 		);
 		// if all tasks `None`, agenda fully removed.
-		assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 0);
+		assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).is_empty());
 	});
 }
 
@@ -3535,7 +3535,7 @@ fn mismatched_retry_period_rejected_for_timestamp_task() {
 		assert_noop!(
 			Scheduler::set_retry(
 				root().into(),
-				(when.clone(), 0),
+				(*when, 0),
 				10,
 				BlockNumberOrTimestamp::BlockNumber(2)
 			),
@@ -3547,7 +3547,7 @@ fn mismatched_retry_period_rejected_for_timestamp_task() {
 		// buckets) on the same task should succeed.
 		assert_ok!(Scheduler::set_retry(
 			root().into(),
-			(when.clone(), 0),
+			(*when, 0),
 			10,
 			BlockNumberOrTimestamp::Timestamp(10000u64)
 		));
@@ -4263,7 +4263,7 @@ fn timestamp_retry_scheduling_and_cancellation() {
 		// agenda key the bucket-stepping servicing loop never visits.
 		assert_ok!(Scheduler::set_retry(
 			root().into(),
-			(when.clone(), 0),
+			(*when, 0),
 			3,
 			BlockNumberOrTimestamp::Timestamp(10000) // Retry every bucket (10000ms)
 		));
@@ -4282,7 +4282,7 @@ fn timestamp_retry_scheduling_and_cancellation() {
 		let (retry_when, _) = &retry_entries[0];
 
 		// Cancel the retry by address
-		assert_ok!(Scheduler::cancel(root().into(), retry_when.clone(), 0));
+		assert_ok!(Scheduler::cancel(root().into(), *retry_when, 0));
 
 		// Verify cancellation
 		assert!(Agenda::<Test>::iter().count() == 0, "All tasks should be cancelled");
