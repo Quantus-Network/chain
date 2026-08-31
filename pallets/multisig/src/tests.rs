@@ -343,9 +343,7 @@ fn propose_works() {
 
 		let initial_balance = Balances::free_balance(proposer.clone());
 		let proposal_deposit = 100; // ProposalDepositParam
-							  // Fee calculation: Base(999) + floor(1% * 999 * 2 signers) = 999 + floor(19.98) = 999 + 19
-							  // = 1018
-		let proposal_fee = 1018;
+		let proposal_fee = 1018; // Base(999) + floor(1% * 999 * 2 signers) = 999 + floor(19.98)
 
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(proposer.clone()),
