@@ -1123,7 +1123,8 @@ fn full_flow_execute_works() {
 		));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
 		assert!(!Agenda::<Test>::get(execute_block).is_empty());
-		assert_eq!(Balances::free_balance(&user), initial_user_balance - 50); // Not executed yet, but on hold
+		// Not executed yet, but on hold
+		assert_eq!(Balances::free_balance(&user), initial_user_balance - 50);
 
 		run_to_block(execute_block.as_block_number().unwrap());
 
