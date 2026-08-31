@@ -22,3 +22,6 @@ sp-api.workspace = true
 [features]
 default = ["std"]
 std = ["codec/std", "sp-api/std"]
+
+[lints]
+workspace = true

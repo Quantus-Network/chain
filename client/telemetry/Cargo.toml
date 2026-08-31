@@ -26,3 +26,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 tokio-tungstenite = { workspace = true }
 url = { workspace = true }
+
+[lints]
+workspace = true

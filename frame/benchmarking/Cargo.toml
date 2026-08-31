@@ -66,3 +66,6 @@ std = [
 	"sp-runtime/std",
 	"sp-storage/std",
 ]
+
+[lints]
+workspace = true

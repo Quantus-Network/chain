@@ -25,3 +25,6 @@ std = [
 	"sp-core",
 	"sp-runtime/std",
 ]
+
+[lints]
+workspace = true

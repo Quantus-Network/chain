@@ -17,3 +17,6 @@ default = ["std"]
 std = [
 	"primitive-types/std",
 ]
+
+[lints]
+workspace = true

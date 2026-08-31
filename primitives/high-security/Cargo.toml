@@ -16,3 +16,6 @@ codec = { workspace = true, default-features = false, optional = true }
 default = ["std"]
 # `codec` is only needed by the `std`-only `testing` inspector.
 std = ["codec/std", "dep:codec"]
+
+[lints]
+workspace = true

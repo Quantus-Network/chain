@@ -10,9 +10,6 @@ readme = "README.md"
 repository.workspace = true
 version = "44.1.0"
 
-[lints]
-workspace = true
-
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
@@ -72,3 +69,6 @@ assert_matches = { workspace = true }
 criterion = { workspace = true, default-features = true }
 rstest = { workspace = true }
 tokio = { features = ["rt-multi-thread"], workspace = true, default-features = false }
+
+[lints]
+workspace = true

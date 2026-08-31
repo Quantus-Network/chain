@@ -78,3 +78,6 @@ try-runtime = [
 	"pallet-reversible-transfers?/try-runtime",
 	"sp-runtime/try-runtime",
 ]
+
+[lints]
+workspace = true
