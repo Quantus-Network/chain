@@ -5844,6 +5844,7 @@ dependencies = [
  "frame-system",
  "log",
  "pallet-balances",
+ "pallet-treasury",
  "pallet-zk-tree",
  "parity-scale-codec",
  "qp-wormhole",
@@ -5864,6 +5865,7 @@ dependencies = [
  "log",
  "pallet-balances",
  "pallet-preimage",
+ "pallet-recovery",
  "pallet-reversible-transfers",
  "pallet-scheduler",
  "pallet-timestamp",
@@ -5933,6 +5935,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-recovery"
+version = "45.0.0"
+dependencies = [
+ "pallet-balances",
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "qp-high-security",
+ "scale-info",
+]
+
+[[package]]
 name = "pallet-referenda"
 version = "45.0.0"
 dependencies = [
@@ -5964,6 +5977,7 @@ dependencies = [
  "log",
  "pallet-balances",
  "pallet-preimage",
+ "pallet-recovery",
  "pallet-scheduler",
  "pallet-timestamp",
  "pallet-utility",
@@ -6693,6 +6707,42 @@ dependencies = [
  "sp-staking",
  "sp-std",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "polkadot-sdk-frame"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b43835ff8d1fd5cbe21b436b3a12771502a3916187927542726d388eac722967"
+dependencies = [
+ "docify",
+ "frame-benchmarking",
+ "frame-executive",
+ "frame-support",
+ "frame-system",
+ "frame-system-benchmarking",
+ "frame-system-rpc-runtime-api",
+ "frame-try-runtime",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-api",
+ "sp-arithmetic",
+ "sp-block-builder",
+ "sp-consensus-aura",
+ "sp-consensus-grandpa",
+ "sp-core",
+ "sp-genesis-builder",
+ "sp-inherents",
+ "sp-io",
+ "sp-keyring",
+ "sp-offchain",
+ "sp-runtime",
+ "sp-session",
+ "sp-storage",
+ "sp-transaction-pool",
+ "sp-version",
 ]
 
 [[package]]
@@ -7562,9 +7612,7 @@ dependencies = [
 name = "quantus-node"
 version = "0.10.0"
 dependencies = [
- "array-bytes 6.2.3",
  "clap",
- "frame-benchmarking",
  "frame-benchmarking-cli",
  "frame-metadata-hash-extension",
  "frame-system",
@@ -7601,7 +7649,6 @@ dependencies = [
  "sc-network-sync",
  "sc-offchain",
  "sc-rpc-api",
- "sc-rpc-spec-v2",
  "sc-service",
  "sc-telemetry",
  "sc-transaction-pool",
@@ -7614,13 +7661,11 @@ dependencies = [
  "sp-consensus",
  "sp-consensus-qpow",
  "sp-core",
- "sp-externalities",
  "sp-genesis-builder",
  "sp-inherents",
  "sp-io",
  "sp-keyring",
  "sp-runtime",
- "sp-state-machine",
  "sp-timestamp",
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
@@ -7650,6 +7695,7 @@ dependencies = [
  "pallet-preimage",
  "pallet-qpow",
  "pallet-ranked-collective",
+ "pallet-recovery",
  "pallet-referenda",
  "pallet-reversible-transfers",
  "pallet-scheduler",
@@ -8494,6 +8540,7 @@ dependencies = [
  "sc-client-api",
  "sc-client-db",
  "sc-keystore",
+ "sc-mixnet",
  "sc-network",
  "sc-service",
  "sc-telemetry",
@@ -8891,6 +8938,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "sc-network-light"
+version = "0.54.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3771d715d6f23c3fb88d9420449c8090c91241e2eabe3476268fd828b4eef43"
+dependencies = [
+ "array-bytes 6.2.3",
+ "async-channel 1.9.0",
+ "futures",
+ "log",
+ "parity-scale-codec",
+ "prost 0.12.6",
+ "prost-build 0.13.5",
+ "sc-client-api",
+ "sc-network",
+ "sc-network-types",
+ "sp-blockchain",
+ "sp-core",
+ "sp-runtime",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "sc-network-sync"
 version = "0.54.0"
 dependencies = [
@@ -8919,7 +8988,6 @@ dependencies = [
  "sp-consensus-grandpa",
  "sp-core",
  "sp-runtime",
- "sp-state-machine",
  "substrate-prometheus-endpoint",
  "thiserror 1.0.69",
  "tokio",
@@ -8929,9 +8997,10 @@ dependencies = [
 [[package]]
 name = "sc-network-transactions"
 version = "0.54.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da15f83aa0678042729b328d5e06dbf7d4bbc51ea247a8f639810e8a11d20372"
 dependencies = [
  "array-bytes 6.2.3",
- "async-trait",
  "futures",
  "log",
  "parity-scale-codec",
@@ -9159,6 +9228,7 @@ dependencies = [
  "sc-keystore",
  "sc-network",
  "sc-network-common",
+ "sc-network-light",
  "sc-network-sync",
  "sc-network-transactions",
  "sc-network-types",
@@ -10247,6 +10317,23 @@ dependencies = [
  "sp-runtime",
  "sp-state-machine",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "sp-consensus-aura"
+version = "0.46.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edb79fc4bf40bf12755a62b3bd201bb2f8de974b7393d81bee70cccecf40321f"
+dependencies = [
+ "async-trait",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-api",
+ "sp-application-crypto",
+ "sp-consensus-slots",
+ "sp-inherents",
+ "sp-runtime",
+ "sp-timestamp",
 ]
 
 [[package]]

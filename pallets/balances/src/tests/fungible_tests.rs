@@ -20,24 +20,18 @@
 use super::*;
 use frame_support::traits::{
 	tokens::{
-		DepositConsequence, Fortitude,
 		Fortitude::{Force, Polite},
-		Precision,
 		Precision::{BestEffort, Exact},
-		Preservation,
 		Preservation::{Expendable, Preserve, Protect},
-		Provenance,
 		Restriction::{Free, OnHold},
-		WithdrawConsequence,
 	},
 	Consideration, Footprint, LinearStoragePrice, MaybeConsideration,
 };
 use fungible::{
-	Dust, FreezeConsideration, HoldConsideration, Inspect, InspectFreeze, InspectHold,
+	FreezeConsideration, HoldConsideration, Inspect, InspectFreeze, InspectHold,
 	LoneFreezeConsideration, LoneHoldConsideration, Mutate, MutateFreeze, MutateHold, Unbalanced,
 };
 use sp_core::ConstU64;
-use std::{cell::RefCell, collections::BTreeMap};
 
 #[test]
 fn inspect_trait_reducible_balance_basic_works() {
@@ -210,140 +204,6 @@ fn unbalanced_trait_decrease_balance_at_most_works_3() {
 		assert_eq!(Balances::free_balance(1337), 1);
 		assert_eq!(Balances::total_balance_on_hold(&1337), 60);
 	});
-}
-
-/// The `decrease_balance` contract *permits* returning `amount + dust` when a reap occurs.
-/// Balances does not: leftover is disposed via `write_balance`/`handle_dust`, and the return
-/// is exactly the requested `amount`. The transfer helper therefore gates and credits the
-/// same quantity — the hybrid the review flags is not reachable for this implementor.
-#[test]
-fn decrease_balance_reap_returns_requested_amount_not_amount_plus_dust() {
-	ExtBuilder::default().existential_deposit(10).build_and_execute_with(|| {
-		assert_ok!(Balances::write_balance(&1, 15));
-		// Leave 6, which is dust. A larger-debit impl would return 15; this one returns 9.
-		assert_eq!(Balances::decrease_balance(&1, 9, Exact, Expendable, Polite), Ok(9));
-		assert_eq!(<Balances as fungible::Inspect<_>>::balance(&1), 0);
-	});
-}
-
-/// Assets-style `Unbalanced`: a reap folds leftover dust into the returned debit instead of
-/// sending it through `handle_dust`. Used to show that after gating `can_deposit` on `amount`,
-/// crediting `debited` does not recreate the silent-loss path.
-const LARGER_DEBIT_ED: u64 = 10;
-
-thread_local! {
-	static LARGER_DEBIT_BALANCES: RefCell<BTreeMap<u64, u64>> = RefCell::new(BTreeMap::new());
-	static LARGER_DEBIT_ISSUANCE: RefCell<u64> = RefCell::new(0);
-}
-
-fn reset_larger_debit() {
-	LARGER_DEBIT_BALANCES.with(|b| b.borrow_mut().clear());
-	LARGER_DEBIT_ISSUANCE.with(|i| *i.borrow_mut() = 0);
-}
-
-struct LargerDebit;
-
-impl Inspect<u64> for LargerDebit {
-	type Balance = u64;
-
-	fn total_issuance() -> Self::Balance {
-		LARGER_DEBIT_ISSUANCE.with(|i| *i.borrow())
-	}
-	fn minimum_balance() -> Self::Balance {
-		LARGER_DEBIT_ED
-	}
-	fn total_balance(who: &u64) -> Self::Balance {
-		Self::balance(who)
-	}
-	fn balance(who: &u64) -> Self::Balance {
-		LARGER_DEBIT_BALANCES.with(|b| b.borrow().get(who).copied().unwrap_or(0))
-	}
-	fn reducible_balance(who: &u64, _: Preservation, _: Fortitude) -> Self::Balance {
-		Self::balance(who)
-	}
-	fn can_deposit(who: &u64, amount: Self::Balance, _: Provenance) -> DepositConsequence {
-		match Self::balance(who).checked_add(amount) {
-			None => DepositConsequence::Overflow,
-			Some(new) if new < LARGER_DEBIT_ED => DepositConsequence::BelowMinimum,
-			Some(_) => DepositConsequence::Success,
-		}
-	}
-	fn can_withdraw(who: &u64, amount: Self::Balance) -> WithdrawConsequence<Self::Balance> {
-		let Some(leftover) = Self::balance(who).checked_sub(amount) else {
-			return WithdrawConsequence::BalanceLow
-		};
-		if leftover > 0 && leftover < LARGER_DEBIT_ED {
-			WithdrawConsequence::ReducedToZero(leftover)
-		} else {
-			WithdrawConsequence::Success
-		}
-	}
-}
-
-impl Unbalanced<u64> for LargerDebit {
-	fn handle_dust(_: Dust<u64, Self>) {}
-	fn write_balance(
-		who: &u64,
-		amount: Self::Balance,
-	) -> Result<Option<Self::Balance>, DispatchError> {
-		LARGER_DEBIT_BALANCES.with(|b| {
-			if amount < LARGER_DEBIT_ED {
-				b.borrow_mut().remove(who);
-				Ok(if amount == 0 { None } else { Some(amount) })
-			} else {
-				b.borrow_mut().insert(*who, amount);
-				Ok(None)
-			}
-		})
-	}
-	fn set_total_issuance(amount: Self::Balance) {
-		LARGER_DEBIT_ISSUANCE.with(|i| *i.borrow_mut() = amount);
-	}
-	fn decrease_balance(
-		who: &u64,
-		amount: Self::Balance,
-		precision: Precision,
-		preservation: Preservation,
-		force: Fortitude,
-	) -> Result<Self::Balance, DispatchError> {
-		let old = Self::balance(who);
-		let reducible = Self::reducible_balance(who, preservation, force);
-		let amount = match precision {
-			BestEffort => amount.min(reducible),
-			Exact if reducible >= amount => amount,
-			Exact => return Err(TokenError::FundsUnavailable.into()),
-		};
-		let leftover = old.checked_sub(amount).ok_or(TokenError::FundsUnavailable)?;
-		// Fold dust into the debit, as the removed assets pallet did. Do not `handle_dust`.
-		let dust = if leftover > 0 && leftover < LARGER_DEBIT_ED { leftover } else { 0 };
-		let actual = amount.saturating_add(dust);
-		let _ = Self::write_balance(who, old.saturating_sub(actual))?;
-		Ok(actual)
-	}
-}
-
-impl Mutate<u64> for LargerDebit {}
-
-/// A conforming larger-debit impl that *passes* `can_deposit(amount)` credits the full
-/// `amount + dust`. `increase_balance(..., BestEffort)` does not no-op: dest ends at
-/// `amount + dust`, not zero. The below-ED dest case is a reject, not a silent burn.
-#[test]
-fn larger_debit_impl_does_not_recreate_silent_loss_when_amount_gate_passes() {
-	reset_larger_debit();
-	assert_eq!(LargerDebit::mint_into(&1, 15), Ok(15));
-
-	// amount >= ED: preflight passes. Debit is 15, dest is created with 15.
-	assert_eq!(LargerDebit::transfer(&1, &5, 10, Expendable), Ok(15));
-	assert_eq!(LargerDebit::balance(&1), 0);
-	assert_eq!(LargerDebit::balance(&5), 15);
-
-	reset_larger_debit();
-	assert_eq!(LargerDebit::mint_into(&1, 15), Ok(15));
-
-	// amount < ED: preflight rejects. Nothing is debited.
-	assert_eq!(LargerDebit::transfer(&1, &5, 9, Expendable), Err(TokenError::BelowMinimum.into()),);
-	assert_eq!(LargerDebit::balance(&1), 15);
-	assert_eq!(LargerDebit::balance(&5), 0);
 }
 
 #[test]

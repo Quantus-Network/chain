@@ -303,11 +303,8 @@ pub mod pallet {
 			call: &Self::Call,
 			data: &InherentData,
 		) -> result::Result<(), Self::Error> {
-			// Geth's Ethash `allowedFutureBlockTimeSeconds`. FRAME's 30s default is
-			// wide enough for one author timestamp to book a Homestead-style
-			// difficulty deficit that later +1 catch-up blocks cannot repay.
 			const MAX_TIMESTAMP_DRIFT_MILLIS: sp_timestamp::Timestamp =
-				sp_timestamp::Timestamp::new(15 * 1000);
+				sp_timestamp::Timestamp::new(30 * 1000);
 
 			let t: u64 = match call {
 				Call::set { ref now } => (*now).saturated_into::<u64>(),

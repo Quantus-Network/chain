@@ -184,12 +184,6 @@ impl_runtime_apis! {
 		fn get_merkle_proof(leaf_index: u64) -> Option<pallet_zk_tree::ZkMerkleProofRpc> {
 			use codec::Encode;
 
-			// Window/canonicality cannot be enforced here: the execution block is
-			// `state_call`'s third argument, not a parameter, and this historical
-			// state cannot see the live tip. The node applies the same
-			// `resolve_proof_block` guard to `state_call` before the executor
-			// loads state (`node/src/zktree_rpc.rs`).
-
 			// Get the leaf
 			let leaf = ZkTree::leaf(leaf_index)?;
 

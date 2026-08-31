@@ -324,20 +324,19 @@ where
 		amount: Self::Balance,
 		preservation: Preservation,
 	) -> Result<Self::Balance, DispatchError> {
-		let _ = Self::can_withdraw(source, amount).into_result(preservation != Expendable)?;
-		// Gate the destination on `amount`, the quantity `decrease_balance` actually returns.
-		// Dust from a source reap is disposed of by `write_balance`/`handle_dust` and is never
-		// part of the debit. Checking `amount + dust` would admit a below-minimum credit to a
-		// dead dest; `increase_balance(..., BestEffort)` then writes nothing and the call
-		// still returns `Ok`.
-		Self::can_deposit(dest, amount, Extant).into_result()?;
+		let dust = Self::can_withdraw(source, amount).into_result(preservation != Expendable)?;
+		let actual = amount.saturating_add(dust);
+		Self::can_deposit(dest, actual, Extant).into_result()?;
 		if source == dest {
+			// Nothing is debited and no reap occurs on the self path, so the reported amount must
+			// not include the hypothetical dust.
 			return Ok(amount)
 		}
 
 		let debited = Self::decrease_balance(source, amount, BestEffort, preservation, Polite)?;
-		// `can_deposit` already admitted `amount`. `debited` equals `amount` for in-tree
-		// implementors; BestEffort is therefore a no-op failure path, not a silent burn.
+		// Credit the amount actually removed from the source. When an expendable transfer reaps
+		// the source, `debited` can exceed `amount`; ignoring it desynchronizes issuance from
+		// account balances.
 		let _ = Self::increase_balance(dest, debited, BestEffort);
 		Self::done_transfer(source, dest, debited);
 		Ok(debited)

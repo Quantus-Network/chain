@@ -1,7 +1,6 @@
 //! End-to-end tests: extrinsics signed with ML-DSA-65 through the full runtime
 //! transaction pipeline (`Executive::apply_extrinsic` with all `TxExtension`s).
 
-use crate::common::TestCommons;
 use codec::Encode;
 use frame_support::{
 	assert_ok,
@@ -11,11 +10,13 @@ use frame_support::{
 };
 use qp_dilithium_crypto::Dilithium65Pair;
 use quantus_runtime::{
-	transaction_extensions::WormholeProofRecorderExtension, Balances, BalancesCall, Executive,
-	Runtime, RuntimeCall, RuntimeEvent, System, UncheckedExtrinsic, UNIT,
+	transaction_extensions::{ReversibleTransactionExtension, WormholeProofRecorderExtension},
+	Balances, BalancesCall, Executive, Runtime, RuntimeCall, RuntimeEvent, Signature,
+	SignedPayload, System, TxExtension, UncheckedExtrinsic, UNIT, VERSION,
 };
 use sp_core::Pair;
 use sp_runtime::{
+	generic::Era,
 	traits::{IdentifyAccount, TransactionExtension},
 	AccountId32, MultiAddress,
 };
@@ -41,9 +42,51 @@ fn signed_transfer(
 	value: u128,
 	nonce: u32,
 ) -> UncheckedExtrinsic {
+	let genesis_hash = System::block_hash(0);
 	let call: RuntimeCall =
 		BalancesCall::transfer_keep_alive { dest: MultiAddress::Id(dest), value }.into();
-	TestCommons::signed_extrinsic(pair, sender, call, nonce, 0)
+
+	let tx_ext: TxExtension = (
+		frame_system::CheckNonZeroSender::<Runtime>::new(),
+		frame_system::CheckSpecVersion::<Runtime>::new(),
+		frame_system::CheckTxVersion::<Runtime>::new(),
+		frame_system::CheckGenesis::<Runtime>::new(),
+		frame_system::CheckEra::<Runtime>::from(Era::immortal()),
+		frame_system::CheckNonce::<Runtime>::from(nonce),
+		frame_system::CheckWeight::<Runtime>::new(),
+		ReversibleTransactionExtension::<Runtime>::new(),
+		WormholeProofRecorderExtension::<Runtime>::new(),
+		pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
+		frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(false),
+		frame_system::WeightReclaim::<Runtime>::new(),
+	);
+
+	let raw_payload = SignedPayload::from_raw(
+		call.clone(),
+		tx_ext.clone(),
+		(
+			(),
+			VERSION.spec_version,
+			VERSION.transaction_version,
+			genesis_hash,
+			genesis_hash,
+			(),
+			(),
+			(),
+			(),
+			(),
+			None,
+			(),
+		),
+	);
+	let signature = raw_payload.using_encoded(|e| pair.sign(e));
+
+	UncheckedExtrinsic::new_signed(
+		call,
+		MultiAddress::Id(sender),
+		Signature::Dilithium65(signature),
+		tx_ext,
+	)
 }
 
 #[test]
@@ -107,10 +150,8 @@ fn wormhole_overcharge_is_refunded_from_the_transaction_fee() {
 			.expect("a fee must have been charged");
 
 		// The failed call refunds nothing itself (its error carries no
-		// `actual_weight`), so the refunds in the pipeline are the wormhole
-		// extension returning its unused per-transfer reservation and the
-		// reversible extension returning the quota ring read/write it reserves
-		// for high-security signers (this sender is not high-security).
+		// `actual_weight`), so the only refund in the pipeline is the wormhole
+		// extension returning its unused per-transfer reservation.
 		let call: RuntimeCall =
 			BalancesCall::transfer_keep_alive { dest: MultiAddress::Id(dest), value }.into();
 		let wormhole_reservation = TransactionExtension::<RuntimeCall>::weight(
@@ -118,18 +159,12 @@ fn wormhole_overcharge_is_refunded_from_the_transaction_fee() {
 			&call,
 		);
 		assert_ne!(wormhole_reservation, Weight::zero());
-		let non_hs_quota_refund =
-			<Runtime as frame_system::Config>::DbWeight::get().reads_writes(3, 1);
 
 		let expected_fee = pallet_transaction_payment::Pallet::<Runtime>::compute_actual_fee(
 			len,
 			&info,
 			&PostDispatchInfo {
-				actual_weight: Some(
-					info.total_weight()
-						.saturating_sub(wormhole_reservation)
-						.saturating_sub(non_hs_quota_refund),
-				),
+				actual_weight: Some(info.total_weight().saturating_sub(wormhole_reservation)),
 				pays_fee: Pays::Yes,
 			},
 			0,

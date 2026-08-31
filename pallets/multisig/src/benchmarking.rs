@@ -239,11 +239,14 @@ mod benchmarks {
 		let whitelisted_call =
 			pallet_reversible_transfers::Call::<T>::cancel { tx_id: Default::default() };
 		let runtime_call: <T as Config>::RuntimeCall = whitelisted_call.into();
-		// HS `propose` rejects non-canonical encodings (trailing bytes would make
-		// `execute`'s byte-bind fail). Call-length cost is measured on the non-HS
-		// `propose` path, which can store a `remark` of size `c`.
-		let _ = c;
-		let encoded_call: BoundedCallOf<T> = runtime_call.encode().try_into().unwrap();
+		// Vary the submitted call length by `c`. Only fixed-size whitelisted calls can be
+		// stored on the HS path, but the runtime decodes and stores the full submitted call
+		// before the whitelist check, so the call-length cost must be measured. Decoding reads
+		// only the whitelisted prefix; the trailing bytes are ignored on decode and retained
+		// in the stored `BoundedVec`.
+		let mut encoded = runtime_call.encode();
+		encoded.resize(encoded.len().saturating_add(c as usize), 0u8);
+		let encoded_call: BoundedCallOf<T> = encoded.try_into().unwrap();
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 
 		#[extrinsic_call]

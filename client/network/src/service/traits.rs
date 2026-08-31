@@ -966,17 +966,6 @@ pub trait NotificationService: Debug + Send {
 	/// Send synchronous `notification` to `peer`.
 	fn send_sync_notification(&mut self, peer: &PeerId, notification: Vec<u8>);
 
-	/// Number of additional synchronous notifications that can be sent to `peer` without
-	/// clogging the underlying channel.
-	///
-	/// On the litep2p backend, sending into a clogged channel force-closes the connection to
-	/// the peer, so protocols should stay within this capacity. Returns `None` if the backend
-	/// cannot report capacity or there is no substream to `peer`; callers should then fall
-	/// back to a conservative fixed budget.
-	fn sync_notification_capacity(&self, _peer: &PeerId) -> Option<usize> {
-		None
-	}
-
 	/// Send asynchronous `notification` to `peer`, allowing sender to exercise backpressure.
 	///
 	/// Returns an error if the peer doesn't exist.

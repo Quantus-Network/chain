@@ -1,6 +1,4 @@
-use crate::{
-	scale_fee, AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, UNIT,
-};
+use crate::{AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, UNIT};
 use alloc::borrow::Cow;
 use codec::{Decode, Encode, MaxEncodedLen};
 use core::marker::PhantomData;
@@ -27,24 +25,24 @@ pub struct PreimageDeposit {
 	amount: Balance,
 }
 
-/// Fee model: 0.1 UNIT base + 0.0001 UNIT/byte (#91165: per-byte was 1000x too
-/// low), scaled by `FEE_SCALE`.
-pub fn preimage_amount(footprint: Footprint) -> Balance {
-	let base = scale_fee(UNIT / 10);
-	let per_byte = scale_fee(UNIT / 10_000);
-	let size = (footprint.size as u128).saturating_add(footprint.count as u128);
-	base.saturating_add(per_byte.saturating_mul(size))
-}
-
 impl Consideration<AccountId, Footprint> for PreimageDeposit {
 	fn new(who: &AccountId, footprint: Footprint) -> Result<Self, DispatchError> {
-		let amount = preimage_amount(footprint);
+		// Fee model: 0.1 UNIT base + 0.0001 UNIT/byte (#91165: per-byte was 1000x too low).
+		let base = UNIT / 10;
+		let per_byte = UNIT / 10_000;
+		let size = (footprint.size as u128).saturating_add(footprint.count as u128);
+		let amount = base.saturating_add(per_byte.saturating_mul(size));
+
 		Balances::reserve(who, amount)?;
 		Ok(Self { amount })
 	}
 
 	fn update(self, who: &AccountId, new_footprint: Footprint) -> Result<Self, DispatchError> {
-		let new_amount = preimage_amount(new_footprint);
+		// Calculate new amount
+		let base = UNIT / 10;
+		let per_byte = UNIT / 10_000;
+		let size = (new_footprint.size as u128).saturating_add(new_footprint.count as u128);
+		let new_amount = base.saturating_add(per_byte.saturating_mul(size));
 
 		// Release old deposite
 		Balances::unreserve(who, self.amount);
@@ -65,7 +63,10 @@ impl Consideration<AccountId, Footprint> for PreimageDeposit {
 
 	#[cfg(feature = "runtime-benchmarks")]
 	fn ensure_successful(who: &AccountId, footprint: Footprint) {
-		let amount = preimage_amount(footprint);
+		let base = UNIT / 10;
+		let per_byte = UNIT / 10_000;
+		let size = (footprint.size as u128).saturating_add(footprint.count as u128);
+		let amount = base.saturating_add(per_byte.saturating_mul(size));
 
 		// Check if user has enough coins
 		if Balances::free_balance(who) < amount {
@@ -107,7 +108,7 @@ impl TechCollectiveTracksInfo {
 		let info = pallet_referenda::TrackInfo {
 			name: str_array("tech_collective_members"),
 			max_deciding: 1,
-			decision_deposit: scale_fee(1000 * UNIT),
+			decision_deposit: 1000 * UNIT,
 			// Advance-notice window before deciding starts. Raised from 4 min to give the
 			// collective (and observers) visibility of a pending Root proposal before voting can
 			// conclude.

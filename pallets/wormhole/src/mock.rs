@@ -135,8 +135,8 @@ pub fn new_test_ext() -> sp_state_machine::TestExternalities<BlakeTwo256> {
 
 /// Build test externalities with genesis balance endowments.
 ///
-/// TransferProofs are *derived* from these free balances in `on_initialize` at block 1
-/// (the wormhole pallet records a proof for every account with a free balance), enabling
+/// TransferProofs are *derived* from these balances in `on_initialize` at block 1 (the
+/// wormhole pallet records a proof for every account existing with a balance), enabling
 /// each address to spend via ZK proofs. Tests should call `System::set_block_number(1)`
 /// and then trigger `Wormhole::on_initialize(1)` to process them.
 pub fn new_test_ext_with_endowments(
@@ -160,51 +160,4 @@ pub fn set_miner_preimage_digest(preimage: [u8; 32]) {
 	let pre_digest =
 		sp_runtime::DigestItem::PreRuntime(qp_wormhole::POW_ENGINE_ID, preimage.to_vec());
 	System::deposit_log(pre_digest);
-}
-
-/// Assert that `to` received an exitable native zk-tree leaf of `amount`.
-///
-/// Wormhole-derived accounts have no signing key; the only spend path is a
-/// zk-tree leaf. A credit without one is permanently frozen.
-///
-/// `amount` must be a positive multiple of [`crate::SCALE_DOWN_FACTOR`]:
-/// `hash_leaf` commits `amount / 10^10`, so a sub-quantum credit would store a
-/// nonzero balance whose circuit amount is zero and cannot be withdrawn.
-pub fn assert_exitable_native_leaf(to: &AccountId, amount: Balance) {
-	assert!(
-		amount > 0 && amount % crate::SCALE_DOWN_FACTOR == 0,
-		"credited amount {amount} must be a positive whole number of quanta"
-	);
-	let matching: Vec<u64> = System::events()
-		.into_iter()
-		.filter_map(|r| match r.event {
-			RuntimeEvent::Wormhole(crate::Event::<Test>::NativeTransferred {
-				to: event_to,
-				amount: event_amount,
-				leaf_index,
-				..
-			}) if event_to == *to && event_amount == amount => Some(leaf_index),
-			_ => None,
-		})
-		.collect();
-	assert_eq!(
-		matching.len(),
-		1,
-		"expected exactly one NativeTransferred of {amount} to {to:?} (got {})",
-		matching.len()
-	);
-	let leaf = ZkTree::leaf(matching[0]).expect("recorded leaf_index must exist in the zk-tree");
-	assert_eq!(leaf.amount, amount, "leaf amount must match the credited balance");
-	assert_eq!(leaf.asset_id, 0, "fee credits are native");
-	let zeroed = pallet_zk_tree::ZkLeaf {
-		to: leaf.to.clone(),
-		transfer_count: leaf.transfer_count,
-		asset_id: leaf.asset_id,
-		amount: 0,
-	};
-	assert_ne!(
-		pallet_zk_tree::tree::hash_leaf::<Test>(&leaf),
-		pallet_zk_tree::tree::hash_leaf::<Test>(&zeroed),
-		"committed circuit amount must be nonzero (hash_leaf divides by 10^10)"
-	);
 }

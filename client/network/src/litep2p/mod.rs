@@ -329,14 +329,12 @@ impl Litep2pNetworkBackend {
 				listen_addresses: websocket.into_iter().flatten().map(Into::into).collect(),
 				yamux_config: litep2p::yamux::Config::default(),
 				nodelay: true,
-				reuse_port: false,
 				..Default::default()
 			})
 			.with_tcp(TcpTransportConfig {
 				listen_addresses: tcp.into_iter().flatten().map(Into::into).collect(),
 				yamux_config: litep2p::yamux::Config::default(),
 				nodelay: true,
-				reuse_port: false,
 				..Default::default()
 			})
 	}
@@ -519,18 +517,9 @@ impl<B: BlockT + 'static, H: ExHashT> NetworkBackend<B, H> for Litep2pNetworkBac
 			.with_libp2p_ping(ping_config)
 			.with_libp2p_identify(identify_config)
 			.with_libp2p_kademlia(kademlia_config)
-			.with_connection_limits(
-				ConnectionLimitsConfig::default()
-					.max_incoming_connections(Some(
-						crate::MAX_CONNECTIONS_ESTABLISHED_INCOMING as usize,
-					))
-					.max_pending_incoming_connections(Some(
-						crate::MAX_CONNECTIONS_PENDING_INCOMING as usize,
-					))
-					.max_incoming_connections_per_ip(Some(
-						crate::MAX_CONNECTIONS_INCOMING_PER_IP as usize,
-					)),
-			)
+			.with_connection_limits(ConnectionLimitsConfig::default().max_incoming_connections(
+				Some(crate::MAX_CONNECTIONS_ESTABLISHED_INCOMING as usize),
+			))
 			// This has the same effect as `libp2p::Swarm::with_idle_connection_timeout` which is
 			// set to 10 seconds as well.
 			.with_keep_alive_timeout(KEEP_ALIVE_TIMEOUT)
@@ -1207,8 +1196,6 @@ impl<B: BlockT + 'static, H: ExHashT> NetworkBackend<B, H> for Litep2pNetworkBac
 									NegotiationError::WebSocket(_) => "webscoket-error",
 									NegotiationError::BadSignature => "bad-signature",
 									NegotiationError::SigningFailed(_) => "signing-failed",
-									NegotiationError::InvalidHandshakeFrameLength(_) =>
-										"invalid-handshake-frame",
 								}
 							};
 

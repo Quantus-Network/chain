@@ -2,65 +2,45 @@
 
 extern crate alloc;
 
-use crate::pallet::{Config, Pallet};
+use crate::pallet::{Config, Pallet, TreasuryPortion};
 use core::marker::PhantomData;
 use frame_support::{
 	traits::{Get, UncheckedOnRuntimeUpgrade},
 	weights::Weight,
 };
+use sp_runtime::Permill;
 
 #[cfg(feature = "try-runtime")]
 use alloc::vec::Vec;
 
-/// v0 -> v1: previously wrote a 50% [`TreasuryPortion`]. That storage item is gone;
-/// this step is now a no-op version bump so v0 chains still advance to v1 and then
-/// run [`v2`].
+/// v0 -> v1: tokenomics change to a 50/50 treasury/miner split of block rewards.
 pub mod v1 {
 	use super::*;
 
-	pub struct Noop<T>(PhantomData<T>);
-
-	impl<T: Config> UncheckedOnRuntimeUpgrade for Noop<T> {
-		fn on_runtime_upgrade() -> Weight {
-			log::info!(
-				target: "runtime::treasury",
-				"v1 no-op: TreasuryPortion is no longer part of the mining-reward split",
-			);
-			T::DbWeight::get().reads(0)
-		}
-
-		#[cfg(feature = "try-runtime")]
-		fn pre_upgrade() -> Result<Vec<u8>, sp_runtime::TryRuntimeError> {
-			Ok(Vec::new())
-		}
-
-		#[cfg(feature = "try-runtime")]
-		fn post_upgrade(_state: Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
-			Ok(())
-		}
+	/// The treasury portion enforced by this migration (50% treasury / 50% miner).
+	pub fn treasury_portion() -> Permill {
+		Permill::from_percent(50)
 	}
-}
 
-/// v1 -> v2: drop the leftover `TreasuryPortion` key. Mining rewards are no longer
-/// split.
-pub mod v2 {
-	use super::*;
+	/// Sets [`TreasuryPortion`] to 50% on an already-running chain.
+	///
+	/// This accompanies the emission-divisor change in the runtime config: together they
+	/// implement the updated tokenomics where roughly half the mineable supply is emitted
+	/// over the first four years, split equally between miners and the treasury.
+	pub struct SetTreasuryPortionToHalf<T>(PhantomData<T>);
 
-	/// Pallet name as declared in the runtime (`TreasuryPallet`).
-	const PALLET: &[u8] = b"TreasuryPallet";
-	const ITEM: &[u8] = b"TreasuryPortion";
-
-	pub struct KillTreasuryPortion<T>(PhantomData<T>);
-
-	impl<T: Config> UncheckedOnRuntimeUpgrade for KillTreasuryPortion<T> {
+	impl<T: Config> UncheckedOnRuntimeUpgrade for SetTreasuryPortionToHalf<T> {
 		fn on_runtime_upgrade() -> Weight {
-			let key = frame_support::storage::storage_prefix(PALLET, ITEM);
-			frame_support::storage::unhashed::kill(&key);
+			let portion = treasury_portion();
+			TreasuryPortion::<T>::put(portion);
+
 			log::info!(
 				target: "runtime::treasury",
-				"Killed leftover TreasuryPortion storage",
+				"Set TreasuryPortion to {:?} (50/50 treasury/miner split)",
+				portion,
 			);
-			T::DbWeight::get().writes(1)
+
+			T::DbWeight::get().reads_writes(0, 1)
 		}
 
 		#[cfg(feature = "try-runtime")]
@@ -70,30 +50,21 @@ pub mod v2 {
 
 		#[cfg(feature = "try-runtime")]
 		fn post_upgrade(_state: Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
-			let key = frame_support::storage::storage_prefix(PALLET, ITEM);
 			frame_support::ensure!(
-				!frame_support::storage::unhashed::exists(&key),
-				"TreasuryPortion must be gone after the v2 migration"
+				TreasuryPortion::<T>::get() == Some(treasury_portion()),
+				"TreasuryPortion must be 50% after the v1 migration"
 			);
 			Ok(())
 		}
 	}
 }
 
-/// Versioned v0 -> v1 migration. No-op besides the storage-version bump.
+/// Versioned v0 -> v1 migration. Runs [`v1::SetTreasuryPortionToHalf`] only when the on-chain
+/// storage version is 0, then bumps the on-chain storage version to 1.
 pub type MigrateV0ToV1<T> = frame_support::migrations::VersionedMigration<
 	0,
 	1,
-	v1::Noop<T>,
-	Pallet<T>,
-	<T as frame_system::Config>::DbWeight,
->;
-
-/// Versioned v1 -> v2 migration. Kills leftover `TreasuryPortion` storage.
-pub type MigrateV1ToV2<T> = frame_support::migrations::VersionedMigration<
-	1,
-	2,
-	v2::KillTreasuryPortion<T>,
+	v1::SetTreasuryPortionToHalf<T>,
 	Pallet<T>,
 	<T as frame_system::Config>::DbWeight,
 >;

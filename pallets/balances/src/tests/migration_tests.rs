@@ -30,8 +30,8 @@ fn migrate_many_to_track_inactive_deduplicates_account_ids() {
 		// Account 1 is the inactive target (balance 100). Account 2 keeps the
 		// remaining active supply so an overstated deactivation is observable
 		// below the TotalIssuance cap rather than clamped to TI.
-		set_free_balance(1, 100);
-		set_free_balance(2, 100);
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1, 100));
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 2, 100));
 		assert_eq!(TotalIssuance::<Test>::get(), 200);
 		assert_eq!(InactiveIssuance::<Test>::get(), 0);
 

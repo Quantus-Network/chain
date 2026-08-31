@@ -34,20 +34,17 @@ mod tests {
 
 	/// `submit` requests Lookup preimages, so a later `unnote` reclaims the preimage
 	/// deposit while the bytes stay pinned. The max proposal size must keep that
-	/// deposit-free hold collateralized by the refundable submission deposit.
-	/// Both sides use the FEE_SCALE-scaled runtime formulas, so the invariant
-	/// holds at whatever dial the runtime is compiled with.
+	/// deposit-free hold collateralized by the refundable submission deposit
+	/// (PreimageDeposit: 0.1 UNIT + 0.0001 UNIT/byte).
 	#[test]
 	fn max_proposal_size_stays_within_submission_deposit() {
-		use frame_support::traits::Footprint;
 		use quantus_runtime::{
 			configs::{MaxReferendaProposalSize, ReferendumSubmissionDeposit},
-			governance::definitions::preimage_amount,
+			UNIT,
 		};
-		let preimage_deposit = preimage_amount(Footprint {
-			count: 1,
-			size: u64::from(MaxReferendaProposalSize::get()),
-		});
+		use sp_core::Get;
+		let preimage_deposit = UNIT / 10 +
+			(UNIT / 10_000).saturating_mul(u128::from(MaxReferendaProposalSize::get()) + 1);
 		assert!(preimage_deposit <= ReferendumSubmissionDeposit::get());
 	}
 

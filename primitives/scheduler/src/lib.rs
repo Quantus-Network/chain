@@ -222,9 +222,8 @@ mod tests {
 	fn normalize_timestamp_mid_bucket() {
 		// Tests the common case: timestamp within a bucket.
 		// Expected: start of the *next* bucket.
-		// Bucket [14000, 15999]
-		let ts = DefaultBlockNumberOrTimestamp::Timestamp(15500u64);
-		// Calculation: (15500 / 2000) * 2000 + 2000 = 14000 + 2000 = 16000
+		let ts = DefaultBlockNumberOrTimestamp::Timestamp(15500u64); // Bucket [14000, 15999]
+															   // Calculation: (15500 / 2000) * 2000 + 2000 = 14000 + 2000 = 16000
 		assert_eq!(ts.normalize(2000u64), DefaultBlockNumberOrTimestamp::Timestamp(16000u64));
 	}
 
@@ -232,8 +231,7 @@ mod tests {
 	fn normalize_timestamp_at_bucket_start_boundary() {
 		// Tests behavior when timestamp is exactly at a bucket start.
 		// Expected: start of the *next* bucket.
-		// Exactly at start of bucket [14000, 15999]
-		let ts = DefaultBlockNumberOrTimestamp::Timestamp(14000u64);
+		let ts = DefaultBlockNumberOrTimestamp::Timestamp(14000u64); // Exactly at start of bucket [14000, 15999]
 		let precision = 2000u64;
 		// Calculation: (14000 / 2000) * 2000 + 2000 = 14000 + 2000 = 16000
 		assert_eq!(ts.normalize(precision), DefaultBlockNumberOrTimestamp::Timestamp(16000u64));
