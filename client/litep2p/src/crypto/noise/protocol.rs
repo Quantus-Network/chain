@@ -199,9 +199,6 @@ impl AsRef<[u8]> for SecretKey {
 	}
 }
 
-/// ML-KEM 768 public key size (FIPS 203).
-pub const ML_KEM_768_PUBLIC_KEY_SIZE: usize = 1184;
-
 /// ML-KEM 768 public key.
 #[derive(Clone, PartialEq)]
 pub struct PublicKey(Vec<u8>);
@@ -215,6 +212,9 @@ impl AsRef<[u8]> for PublicKey {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// ML-KEM 768 public key size (FIPS 203)
+	const ML_KEM_768_PUBLIC_KEY_SIZE: usize = 1184;
 
 	/// ML-KEM 768 secret key size (FIPS 203)
 	const ML_KEM_768_SECRET_KEY_SIZE: usize = 2400;

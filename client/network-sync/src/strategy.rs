@@ -120,11 +120,6 @@ where
 	// Are we in major sync mode?
 	fn is_major_syncing(&self) -> bool;
 
-	/// Whether request failures from this peer should use the catch-up threshold.
-	fn is_peer_drop_gated(&self, _peer_id: &PeerId) -> bool {
-		self.is_major_syncing()
-	}
-
 	/// Get the number of peers known to the syncing strategy.
 	fn num_peers(&self) -> usize;
 

@@ -52,6 +52,7 @@ use sc_network::{
 	NetworkBackend, NetworkStateInfo,
 };
 use sc_network_common::role::{Role, Roles};
+use sc_network_light::light_client_requests::handler::LightClientRequestHandler;
 use sc_network_sync::{
 	block_relay_protocol::{BlockDownloader, BlockRelayParams},
 	block_request_handler::BlockRequestHandler,
@@ -93,7 +94,6 @@ use sp_keystore::KeystorePtr;
 use sp_runtime::traits::{Block as BlockT, BlockIdTo, NumberFor, Zero};
 use sp_storage::{ChildInfo, ChildType, PrefixedStorageKey};
 use std::{
-	num::NonZeroUsize,
 	str::FromStr,
 	sync::Arc,
 	time::{Duration, SystemTime},
@@ -936,32 +936,9 @@ where
 	rpc_api.merge(system).map_err(|e| Error::Application(e.into()))?;
 	rpc_api.merge(state).map_err(|e| Error::Application(e.into()))?;
 	rpc_api.merge(child_state).map_err(|e| Error::Application(e.into()))?;
-	// sc-rpc 50's `state_call` has no `Extensions` and cannot apply
-	// `check_if_safe`. Drop it so the node's extra RPCs can register a
-	// replacement that windows `ZkTreeApi_get_merkle_proof` before the
-	// executor loads historical state.
-	rpc_api.remove_method("state_call");
-	rpc_api.remove_method("state_callAt");
-	// The RPC-v2 archive module (merged above whenever the node is an archive
-	// node — this node forces archive pruning, so always) has the same flaw:
-	// `archive_v1_call` reaches the executor at a caller-chosen hash with no
-	// `Extensions`. Drop it too; the node re-registers a gated,
-	// wire-compatible replacement.
-	rpc_api.remove_method("archive_v1_call");
 	// Additional [`RpcModule`]s defined in the node to fit the specific blockchain
 	let extra_rpcs = rpc_builder(task_executor.clone())?;
 	rpc_api.merge(extra_rpcs).map_err(|e| Error::Application(e.into()))?;
-	for method in ["state_call", "archive_v1_call"] {
-		if !rpc_api.method_names().any(|n| n == method) {
-			return Err(Error::Application(
-				format!(
-					"node extra RPCs must re-register `{method}` after the \
-					 unguarded handler is removed"
-				)
-				.into(),
-			));
-		}
-	}
 
 	Ok(rpc_api)
 }
@@ -1116,7 +1093,6 @@ where
 		network_service_provider,
 		metrics_registry,
 		metrics,
-		max_known_transactions: config.transaction_pool.known_transaction_cache_limit(),
 	})
 }
 
@@ -1156,8 +1132,6 @@ where
 	pub metrics_registry: Option<&'a Registry>,
 	/// Metrics.
 	pub metrics: NotificationMetrics,
-	/// Per-peer transaction gossip cache size. Must match the ready-pool limit.
-	pub max_known_transactions: NonZeroUsize,
 }
 
 /// Build the network service, the network status sinks and an RPC sender, this is a lower-level
@@ -1204,14 +1178,20 @@ where
 		network_service_provider,
 		metrics_registry,
 		metrics,
-		max_known_transactions,
 	} = params;
 
 	let genesis_hash = client.info().genesis_hash;
 
-	// Quantus does not advertise `/<genesis>/light/2`. That protocol forwards a peer-chosen
-	// runtime method into `execution_proof` with no allowlist, and this node has no light-client
-	// product that needs inbound proofs. Do not restore it on an upstream merge.
+	let light_client_request_protocol_config = {
+		// Allow both outgoing and incoming requests.
+		let (handler, protocol_config) =
+			LightClientRequestHandler::new::<Net>(&protocol_id, fork_id, client.clone());
+		spawn_handle.spawn("light-client-request-handler", Some("networking"), handler.run());
+		protocol_config
+	};
+
+	// install request handlers to `FullNetworkConfiguration`
+	net_config.add_request_response_protocol(light_client_request_protocol_config);
 
 	let bitswap_config = ipfs_server.then(|| {
 		let (handler, config) = Net::bitswap_server(client.clone());
@@ -1228,7 +1208,6 @@ where
 			fork_id,
 			metrics.clone(),
 			net_config.peer_store_handle(),
-			max_known_transactions,
 		);
 	net_config.add_notification_protocol(transactions_config);
 

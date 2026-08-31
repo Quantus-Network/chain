@@ -148,10 +148,6 @@ substrate-test = []
 default-features = false
 version = "1.0.3"
 
-[dev-dependencies.sp-state-machine]
-default-features = true
-version = "0.49.0"
-
 [build-dependencies.prost-build]
 version = "0.13.2"
 

@@ -15,24 +15,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! THIS FILE WAS AUTO-GENERATED USING THE SUBSTRATE BENCHMARK CLI VERSION 53.0.0
-//! DATE: 2026-08-18 (Y/M/D)
-//! HOSTNAME: `Yuvis-MacBook-Air.local`, CPU: `<UNKNOWN>`
+//! THIS FILE WAS AUTO-GENERATED USING THE SUBSTRATE BENCHMARK CLI VERSION 32.0.0
+//! DATE: 2024-11-08 (Y/M/D)
+//! HOSTNAME: `runner-wiukf8gn-project-674-concurrent-0`, CPU: `Intel(R) Xeon(R) CPU @ 2.60GHz`
 //!
-//! SHORT-NAME: `extrinsic`, LONG-NAME: `ExtrinsicBase`, RUNTIME: `Quantus DevNet`
+//! SHORT-NAME: `extrinsic`, LONG-NAME: `ExtrinsicBase`, RUNTIME: `Development`
 //! WARMUPS: `10`, REPEAT: `100`
-//! WEIGHT-PATH: `/tmp/quantus-overhead`
+//! WEIGHT-PATH: `./substrate/frame/support/src/weights/`
 //! WEIGHT-METRIC: `Average`, WEIGHT-MUL: `1.0`, WEIGHT-ADD: `0`
 
 // Executed Command:
-//   ./target/release/quantus-node
+//   ./target/production/substrate-node
 //   benchmark
 //   overhead
 //   --chain=dev
 //   --wasm-execution=compiled
+//   --weight-path=./substrate/frame/support/src/weights/
+//   --header=./substrate/HEADER-APACHE2
 //   --warmup=10
 //   --repeat=100
-//   --weight-path=/tmp/quantus-overhead
 
 use sp_core::parameter_types;
 use sp_weights::{constants::WEIGHT_REF_TIME_PER_NANOS, Weight};
@@ -42,17 +43,17 @@ parameter_types! {
 	/// Calculated by multiplying the *Average* with `1.0` and adding `0`.
 	///
 	/// Stats nanoseconds:
-	///   Min, Max: 762_747, 822_920
-	///   Average:  767_297
-	///   Median:   766_430
-	///   Std-Dev:  6342.15
+	///   Min, Max: 107_464, 109_127
+	///   Average:  108_157
+	///   Median:   108_119
+	///   Std-Dev:  353.52
 	///
 	/// Percentiles nanoseconds:
-	///   99th: 792_762
-	///   95th: 768_536
-	///   75th: 767_286
+	///   99th: 109_041
+	///   95th: 108_748
+	///   75th: 108_405
 	pub const ExtrinsicBaseWeight: Weight =
-		Weight::from_parts(WEIGHT_REF_TIME_PER_NANOS.saturating_mul(767_297), 0);
+		Weight::from_parts(WEIGHT_REF_TIME_PER_NANOS.saturating_mul(108_157), 0);
 }
 
 #[cfg(test)]

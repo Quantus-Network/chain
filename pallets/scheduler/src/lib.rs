@@ -811,16 +811,6 @@ impl<T: Config> Pallet<T> {
 		})
 	}
 
-	/// Release the preimage a failed schedule owns. Mirrors the ownership rule applied on the
-	/// success path: when `request_preimage` is set, `bound` did not register a count for this
-	/// task and the task holds no reference until the post-success `request()`, so dropping here
-	/// would consume the *caller's* reference instead of its own.
-	fn drop_unscheduled_preimage(call: &BoundedCallOf<T>, request_preimage: bool) {
-		if !request_preimage {
-			T::Preimages::drop(call);
-		}
-	}
-
 	fn do_schedule_inner(
 		when: DispatchTime<BlockNumberFor<T>, T::Moment>,
 		priority: schedule::Priority,
@@ -828,14 +818,14 @@ impl<T: Config> Pallet<T> {
 		call: BoundedCallOf<T>,
 		request_preimage: bool,
 	) -> Result<TaskAddressOf<T>, DispatchError> {
-		// `call` may carry a preimage noted by `StorePreimage::bound` (called by the scheduler
-		// entrypoints before this). If any later fallible step fails, drop that preimage — but
-		// only when this task owns it — so a failed schedule leaves neither an unowned,
-		// system-requested preimage behind as state bloat nor an over-released caller reference.
+		// `call` may already carry a preimage noted by `StorePreimage::bound` (called by the
+		// scheduler entrypoints before this). If any later fallible step fails, drop that
+		// preimage so a failed schedule cannot leave an unowned, system-requested preimage
+		// behind as state bloat. This mirrors the cleanup performed on cancellation.
 		let when = match Self::resolve_time(when) {
 			Ok(when) => when,
 			Err(e) => {
-				Self::drop_unscheduled_preimage(&call, request_preimage);
+				T::Preimages::drop(&call);
 				return Err(e)
 			},
 		};
@@ -844,7 +834,7 @@ impl<T: Config> Pallet<T> {
 		let res = match Self::place_task(when, task) {
 			Ok(res) => res,
 			Err((e, task)) => {
-				Self::drop_unscheduled_preimage(&task.call, request_preimage);
+				T::Preimages::drop(&task.call);
 				return Err(e)
 			},
 		};
@@ -946,16 +936,16 @@ impl<T: Config> Pallet<T> {
 		call: BoundedCallOf<T>,
 		request_preimage: bool,
 	) -> Result<TaskAddressOf<T>, DispatchError> {
-		// See `do_schedule_inner`: drop the preimage noted by `StorePreimage::bound` on every
-		// fallible path, but only when this task owns it.
+		// See `do_schedule`: drop any preimage noted by `StorePreimage::bound` on every fallible
+		// path so a failed schedule cannot leave an unowned, system-requested preimage behind.
 		if Lookup::<T>::contains_key(id) {
-			Self::drop_unscheduled_preimage(&call, request_preimage);
+			T::Preimages::drop(&call);
 			return Err(Error::<T>::FailedToSchedule.into());
 		}
 		let when = match Self::resolve_time(when) {
 			Ok(when) => when,
 			Err(e) => {
-				Self::drop_unscheduled_preimage(&call, request_preimage);
+				T::Preimages::drop(&call);
 				return Err(e)
 			},
 		};
@@ -965,7 +955,7 @@ impl<T: Config> Pallet<T> {
 		let res = match Self::place_task(when, task) {
 			Ok(res) => res,
 			Err((e, task)) => {
-				Self::drop_unscheduled_preimage(&task.call, request_preimage);
+				T::Preimages::drop(&task.call);
 				return Err(e)
 			},
 		};

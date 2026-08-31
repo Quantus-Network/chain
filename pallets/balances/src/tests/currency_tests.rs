@@ -41,7 +41,7 @@ pub const CALL: &<Test as frame_system::Config>::RuntimeCall =
 #[test]
 fn ed_should_work() {
 	ExtBuilder::default().existential_deposit(1).build_and_execute_with(|| {
-		set_free_balance(1, 1000);
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1, 1000));
 		assert_noop!(
 			<Balances as Currency<_>>::transfer(&1, &10, 1000, KeepAlive),
 			TokenError::NotExpendable
@@ -787,7 +787,7 @@ fn cannot_set_genesis_value_twice() {
 fn existential_deposit_respected_when_reserving() {
 	ExtBuilder::default().existential_deposit(100).build_and_execute_with(|| {
 		// Set balance to free and reserved at the existential deposit
-		set_free_balance(1, 101);
+		assert_ok!(Balances::force_set_balance(RawOrigin::Root.into(), 1, 101));
 		// Check balance
 		assert_eq!(Balances::free_balance(1), 101);
 		assert_eq!(Balances::reserved_balance(1), 0);
@@ -807,7 +807,7 @@ fn existential_deposit_respected_when_reserving() {
 fn slash_fails_when_account_needed() {
 	ExtBuilder::default().existential_deposit(50).build_and_execute_with(|| {
 		// Set balance to free and reserved at the existential deposit
-		set_free_balance(1, 52);
+		assert_ok!(Balances::force_set_balance(RawOrigin::Root.into(), 1, 52));
 		assert_ok!(Balances::reserve(&1, 1));
 		// Check balance
 		assert_eq!(Balances::free_balance(1), 51);
@@ -835,7 +835,7 @@ fn slash_fails_when_account_needed() {
 fn account_deleted_when_just_dust() {
 	ExtBuilder::default().existential_deposit(50).build_and_execute_with(|| {
 		// Set balance to free and reserved at the existential deposit
-		set_free_balance(1, 50);
+		assert_ok!(Balances::force_set_balance(RawOrigin::Root.into(), 1, 50));
 		// Check balance
 		assert_eq!(Balances::free_balance(1), 50);
 
@@ -938,15 +938,15 @@ fn emit_events_with_changing_locks() {
 #[test]
 fn emit_events_with_existential_deposit() {
 	ExtBuilder::default().existential_deposit(100).build_and_execute_with(|| {
-		set_free_balance(1, 100);
+		assert_ok!(Balances::force_set_balance(RawOrigin::Root.into(), 1, 100));
 
 		assert_eq!(
 			events(),
 			[
-				RuntimeEvent::Balances(crate::Event::BalanceSet { who: 1, free: 100 }),
 				RuntimeEvent::System(system::Event::NewAccount { account: 1 }),
 				RuntimeEvent::Balances(crate::Event::Endowed { account: 1, free_balance: 100 }),
 				RuntimeEvent::Balances(crate::Event::Issued { amount: 100 }),
+				RuntimeEvent::Balances(crate::Event::BalanceSet { who: 1, free: 100 }),
 			]
 		);
 

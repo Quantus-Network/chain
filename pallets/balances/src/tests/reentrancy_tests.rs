@@ -32,8 +32,8 @@ fn transfer_dust_removal_tst1_should_work() {
 		.dust_trap(1)
 		.build_and_execute_with(|| {
 			// Verification of reentrancy in dust removal
-			set_free_balance(1, 1000);
-			set_free_balance(2, 500);
+			assert_ok!(Balances::force_set_balance(RawOrigin::Root.into(), 1, 1000));
+			assert_ok!(Balances::force_set_balance(RawOrigin::Root.into(), 2, 500));
 
 			// In this transaction, account 2 free balance
 			// drops below existential balance
@@ -77,8 +77,8 @@ fn transfer_dust_removal_tst2_should_work() {
 		.dust_trap(1)
 		.build_and_execute_with(|| {
 			// Verification of reentrancy in dust removal
-			set_free_balance(1, 1000);
-			set_free_balance(2, 500);
+			assert_ok!(Balances::force_set_balance(RawOrigin::Root.into(), 1, 1000));
+			assert_ok!(Balances::force_set_balance(RawOrigin::Root.into(), 2, 500));
 
 			// In this transaction, account 2 free balance
 			// drops below existential balance
@@ -118,8 +118,8 @@ fn repatriating_reserved_balance_dust_removal_should_work() {
 		.dust_trap(1)
 		.build_and_execute_with(|| {
 			// Verification of reentrancy in dust removal
-			set_free_balance(1, 1000);
-			set_free_balance(2, 500);
+			assert_ok!(Balances::force_set_balance(RawOrigin::Root.into(), 1, 1000));
+			assert_ok!(Balances::force_set_balance(RawOrigin::Root.into(), 2, 500));
 
 			// Reserve a value on account 2,
 			// Such that free balance is lower than
@@ -160,15 +160,15 @@ fn repatriating_reserved_balance_dust_removal_should_work() {
 #[test]
 fn emit_events_with_no_existential_deposit_suicide_with_dust() {
 	ExtBuilder::default().existential_deposit(2).build_and_execute_with(|| {
-		set_free_balance(1, 100);
+		assert_ok!(Balances::force_set_balance(RawOrigin::Root.into(), 1, 100));
 
 		assert_eq!(
 			events(),
 			[
-				RuntimeEvent::Balances(crate::Event::BalanceSet { who: 1, free: 100 }),
 				RuntimeEvent::System(system::Event::NewAccount { account: 1 }),
 				RuntimeEvent::Balances(crate::Event::Endowed { account: 1, free_balance: 100 }),
 				RuntimeEvent::Balances(crate::Event::Issued { amount: 100 }),
+				RuntimeEvent::Balances(crate::Event::BalanceSet { who: 1, free: 100 }),
 			]
 		);
 

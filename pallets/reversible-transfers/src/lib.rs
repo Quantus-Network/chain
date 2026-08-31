@@ -33,7 +33,7 @@ use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
 use qp_wormhole::TransferProofRecorder;
 use sp_arithmetic::Permill;
-use sp_runtime::traits::{BlockNumberProvider, Saturating, StaticLookup};
+use sp_runtime::traits::StaticLookup;
 
 // Partial implementation for Pallet - runtime will complete it
 impl<T: Config> Pallet<T> {
@@ -47,81 +47,6 @@ impl<T: Config> Pallet<T> {
 	/// This is used by runtime's HighSecurityInspector implementation.
 	pub fn get_guardian(who: &T::AccountId) -> Option<T::AccountId> {
 		HighSecurityAccounts::<T>::get(who).map(|data| data.guardian)
-	}
-
-	/// Whether `who` may include another signed extrinsic in the current
-	/// rolling window. Non-high-security accounts are unlimited.
-	pub fn high_security_tx_quota_allows(who: &T::AccountId) -> bool {
-		if !HighSecurityAccounts::<T>::contains_key(who) {
-			return true;
-		}
-		Self::hs_quota_has_room(who)
-	}
-
-	/// Whether `who`'s quota ring has room. Does not re-read
-	/// `HighSecurityAccounts`; the caller must already know `who` is
-	/// high-security (one `HighSecurityTxQuota` read).
-	pub fn hs_quota_has_room(who: &T::AccountId) -> bool {
-		let now = T::BlockNumberProvider::current_block_number();
-		Self::hs_ring_has_room(&HighSecurityTxQuota::<T>::get(who), now)
-	}
-
-	/// Record an included signed extrinsic against `who`'s rolling quota.
-	///
-	/// No-op for non-high-security accounts. Errors if the ring is full and
-	/// the oldest entry is still inside the window. O(1): one compare, at
-	/// most one head eviction and one push.
-	pub fn record_high_security_tx(who: &T::AccountId) -> Result<(), ()> {
-		if !HighSecurityAccounts::<T>::contains_key(who) {
-			return Ok(());
-		}
-		Self::record_hs_quota(who)
-	}
-
-	/// Record against `who`'s quota ring. Does not re-read
-	/// `HighSecurityAccounts`; the caller must already know `who` is
-	/// high-security (one `HighSecurityTxQuota` read + write).
-	pub fn record_hs_quota(who: &T::AccountId) -> Result<(), ()> {
-		let now = T::BlockNumberProvider::current_block_number();
-		HighSecurityTxQuota::<T>::try_mutate(who, |recent| Self::hs_ring_record(recent, now))
-	}
-
-	/// The single admission predicate for the quota ring, shared by the mempool
-	/// check ([`Self::high_security_tx_quota_allows`]) and inclusion-time
-	/// recording ([`Self::hs_ring_record`]) so pool validation and block
-	/// inclusion can never disagree on a window boundary.
-	///
-	/// Generic over the capacity bound so the zero-capacity edge is unit-testable.
-	fn hs_ring_has_room<S: Get<u32>>(
-		recent: &BoundedVec<BlockNumberFor<T>, S>,
-		now: BlockNumberFor<T>,
-	) -> bool {
-		if (recent.len() as u32) < S::get() {
-			return true;
-		}
-		// At capacity: room only if the oldest entry has aged out of the window.
-		// A zero-capacity ring is at capacity *and* empty — there is no head to
-		// evict, so it never has room. (Claiming room here would panic the
-		// eviction in `hs_ring_record` inside block execution.)
-		match recent.first() {
-			Some(oldest) => now.saturating_sub(*oldest) >= T::HighSecurityTxWindowBlocks::get(),
-			None => false,
-		}
-	}
-
-	/// Push `now` into the ring, evicting the expired head if at capacity.
-	fn hs_ring_record<S: Get<u32>>(
-		recent: &mut BoundedVec<BlockNumberFor<T>, S>,
-		now: BlockNumberFor<T>,
-	) -> Result<(), ()> {
-		if !Self::hs_ring_has_room(recent, now) {
-			return Err(());
-		}
-		if (recent.len() as u32) >= S::get() {
-			// At capacity with an expired head (per `hs_ring_has_room`).
-			let _ = recent.remove(0);
-		}
-		recent.try_push(now).map_err(|_| ())
 	}
 }
 
@@ -228,19 +153,13 @@ pub mod pallet {
 		/// Block number provider for scheduling.
 		type BlockNumberProvider: BlockNumberProvider<BlockNumber = BlockNumberFor<Self>>;
 
+		/// Maximum number of accounts a single guardian can protect. Used for BoundedVec.
+		#[pallet::constant]
+		type MaxGuardianAccounts: Get<u32>;
+
 		/// Maximum pending reversible transactions allowed per account.
 		#[pallet::constant]
 		type MaxPendingPerAccount: Get<u32>;
-
-		/// Maximum signed extrinsics a high-security account may include in one
-		/// rolling window. Update of the quota ring is O(1).
-		#[pallet::constant]
-		type MaxHighSecurityTxsPerWindow: Get<u32>;
-
-		/// Length of the high-security extrinsic quota window, in blocks.
-		/// At the runtime's 12s target this is one day (`DAYS`).
-		#[pallet::constant]
-		type HighSecurityTxWindowBlocks: Get<BlockNumberFor<Self>>;
 
 		/// The default delay period for reversible transactions if none is specified.
 		///
@@ -303,21 +222,6 @@ pub mod pallet {
 		OptionQuery,
 	>;
 
-	/// Rolling window of included signed extrinsics for each high-security account.
-	///
-	/// Oldest block number is at index 0. Recording a tx is O(1): compare
-	/// `now - oldest` to [`Config::HighSecurityTxWindowBlocks`], maybe evict
-	/// that one head, then push. Normal accounts are not stored here.
-	#[pallet::storage]
-	#[pallet::getter(fn high_security_tx_quota)]
-	pub type HighSecurityTxQuota<T: Config> = StorageMap<
-		_,
-		Blake2_128Concat,
-		T::AccountId,
-		BoundedVec<BlockNumberFor<T>, T::MaxHighSecurityTxsPerWindow>,
-		ValueQuery,
-	>;
-
 	/// Stores the details of pending transactions scheduled for delayed execution.
 	/// Keyed by the unique transaction ID.
 	#[pallet::storage]
@@ -336,11 +240,18 @@ pub mod pallet {
 		ValueQuery,
 	>;
 
-	// NOTE: there is deliberately no on-chain guardian → protected-accounts
-	// index. Guardianship is authoritative in `HighSecurityAccounts`, and
-	// `HighSecuritySet` events let an offchain indexer (Subsquid) answer
-	// "which accounts do I guard?". A bounded on-chain index would let a
-	// stranger fill a popular guardian's slots with unwanted enrollments.
+	/// Maps guardian accounts to the list of accounts they protect.
+	/// This allows the UI to efficiently query all accounts for which a given account is a
+	/// guardian.
+	#[pallet::storage]
+	#[pallet::getter(fn guardian_index)]
+	pub type GuardianIndex<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		T::AccountId,
+		BoundedVec<T::AccountId, T::MaxGuardianAccounts>,
+		ValueQuery,
+	>;
 
 	/// Monotonically increasing counter used to generate unique transaction IDs.
 	/// Each scheduled transfer increments this value to ensure no two transfers
@@ -414,6 +325,8 @@ pub mod pallet {
 		/// Cannot schedule one time reversible transaction when account is reversible (theft
 		/// deterrence)
 		AccountAlreadyReversibleCannotScheduleOneTime,
+		/// The guardian has reached the maximum number of accounts they can protect.
+		TooManyGuardianAccounts,
 		/// Asset transfers are not supported.
 		AssetsNotSupported,
 		/// Zero-amount transfers cannot be scheduled: there is nothing to hold,
@@ -458,21 +371,6 @@ pub mod pallet {
 		/// - `delay`: The reversibility time for any transfer made by the high-security account.
 		/// - `guardian`: The guardian account that can cancel pending transfers and recover funds
 		///   from this high-security account.
-		///
-		/// # Choose the guardian carefully
-		///
-		/// The guardian holds instant, total seizure power: `recover_funds`
-		/// sweeps every hold plus the entire free balance to the guardian,
-		/// with no delay, no second approver, and no way to change the
-		/// relationship afterwards. A single-key guardian is therefore a
-		/// single point of failure for the whole scheme. **Use a multisig
-		/// address as the guardian**: `pallet_multisig` dispatches calls as
-		/// its derived address, so a multisig can cancel and recover exactly
-		/// like a plain account.
-		///
-		/// Guardianship is discoverable offchain (e.g. Subsquid) via the
-		/// `HighSecuritySet` event; there is deliberately no on-chain
-		/// guardian index to fill up or grief.
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::set_high_security())]
 		pub fn set_high_security(
@@ -490,10 +388,18 @@ pub mod pallet {
 
 			Self::validate_delay(&delay)?;
 
-			HighSecurityAccounts::<T>::insert(
-				who.clone(),
-				HighSecurityAccountData { guardian: guardian.clone(), delay },
-			);
+			let high_security_account_data =
+				HighSecurityAccountData { guardian: guardian.clone(), delay };
+
+			GuardianIndex::<T>::try_mutate(guardian.clone(), |accounts| {
+				if !accounts.contains(&who) {
+					accounts.try_push(who.clone()).map_err(|_| Error::<T>::TooManyGuardianAccounts)
+				} else {
+					Ok(())
+				}
+			})?;
+
+			HighSecurityAccounts::<T>::insert(who.clone(), &high_security_account_data);
 			Self::deposit_event(Event::HighSecuritySet { who, guardian, delay });
 
 			Ok(())
@@ -519,15 +425,6 @@ pub mod pallet {
 		/// # Parameters
 		///
 		/// - `tx_id`: The unique identifier of the pending transfer to execute.
-		///
-		/// Execution uses `transfer_allow_death` so a sender who spent their leftover
-		/// free balance during the delay still completes. A failed inner transfer (e.g.
-		/// dest overflow, or `amount < ED` to a new account) does not fail this
-		/// extrinsic: the hold is already released and the pending transfer is already
-		/// removed. Propagating that error would roll back those writes (FRAME
-		/// dispatchables are transactional) while Scheduler terminally drops the named
-		/// task, freezing the funds with no retry. The inner result is still recorded on
-		/// [`Event::TransactionExecuted`].
 		///
 		/// # Errors
 		///
@@ -799,7 +696,7 @@ pub mod pallet {
 
 			// Build the transfer call from stored data
 			let to_lookup = T::Lookup::unlookup(pending.to.clone());
-			let call: RuntimeCallOf<T> = pallet_balances::Call::<T>::transfer_allow_death {
+			let call: RuntimeCallOf<T> = pallet_balances::Call::<T>::transfer_keep_alive {
 				dest: to_lookup,
 				value: pending.amount,
 			}
@@ -824,10 +721,8 @@ pub mod pallet {
 			let post_info =
 				call.dispatch(frame_system::RawOrigin::Signed(pending.from.clone()).into());
 
-			// Record only when value actually moved. `transfer_allow_death` treats
-			// `source == dest` as a no-op that still returns `Ok`, and this path runs
-			// in scheduler hook context so the event scanner never sees it.
-			if post_info.is_ok() && pending.from != pending.to {
+			// Record transfer proof if dispatch was successful
+			if post_info.is_ok() {
 				T::ProofRecorder::record_transfer_proof(
 					pending.asset_id.clone(),
 					pending.from.clone(),
@@ -836,25 +731,10 @@ pub mod pallet {
 				);
 			}
 
+			// Emit event
 			Self::deposit_event(Event::TransactionExecuted { tx_id: *tx_id, result: post_info });
 
-			// Best-effort: do not propagate the inner transfer error. FRAME wraps every
-			// dispatchable in `with_storage_layer`, so returning `Err` rolls back the hold
-			// release and pending-transfer removal above. Scheduler then terminally drops
-			// the named task (no retry is configured), leaving funds held with no
-			// scheduled execution — the same freeze `cancel_transfer` and `recover_funds`
-			// already guard against.
-			match post_info {
-				Ok(info) => Ok(info),
-				Err(e) => {
-					log::warn!(
-						"do_execute_transfer: inner transfer for tx {:?} failed: {:?}",
-						tx_id,
-						e.error
-					);
-					Ok(e.post_info)
-				},
-			}
+			post_info
 		}
 
 		/// Simply converts hash output value to a `TaskName`
@@ -1059,30 +939,16 @@ pub mod pallet {
 				Fortitude::Polite,
 			)?;
 
-			// Transfer remaining amount to recipient. A self-directed release (owner
-			// cancel of a one-time schedule) is hold → free on the same account: use
-			// `release` so we do not emit `TransferOnHold { source: A, dest: A }`, which
-			// is not a credit. Cross-account seizures still use `transfer_on_hold`
-			// (`Restriction::Free`) so the destination receives free balance and the
-			// runtime event scanner records a leaf.
-			if recipient == &pending.from {
-				pallet_balances::Pallet::<T>::release(
-					&HoldReason::ScheduledTransfer.into(),
-					&pending.from,
-					remaining_amount,
-					Precision::Exact,
-				)?;
-			} else {
-				pallet_balances::Pallet::<T>::transfer_on_hold(
-					&HoldReason::ScheduledTransfer.into(),
-					&pending.from,
-					recipient,
-					remaining_amount,
-					Precision::Exact,
-					Restriction::Free,
-					Fortitude::Polite,
-				)?;
-			}
+			// Transfer remaining amount to recipient
+			pallet_balances::Pallet::<T>::transfer_on_hold(
+				&HoldReason::ScheduledTransfer.into(),
+				&pending.from,
+				recipient,
+				remaining_amount,
+				Precision::Exact,
+				Restriction::Free,
+				Fortitude::Polite,
+			)?;
 
 			Ok(())
 		}
@@ -1121,6 +987,20 @@ pub mod pallet {
 							delay: wrapped_delay,
 						},
 					);
+
+					// Update GuardianIndex so guardian can look up their protected accounts
+					GuardianIndex::<T>::mutate(guardian, |accounts| {
+						if !accounts.contains(who) {
+							// In genesis, we use saturating push - if limit exceeded, log warning
+							if accounts.try_push(who.clone()).is_err() {
+								log::warn!(
+									"Guardian {:?} has too many accounts, cannot add {:?} to index",
+									guardian,
+									who
+								);
+							}
+						}
+					});
 				} else {
 					// Optionally log a warning during genesis build
 					log::warn!(

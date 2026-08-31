@@ -15,6 +15,7 @@ mod benchmarks {
 	use super::*;
 	use codec::Decode;
 	use frame_support::traits::OnFinalize;
+	use pallet_treasury::TreasuryProvider;
 	use sp_runtime::Saturating;
 
 	#[benchmark]
@@ -41,8 +42,10 @@ mod benchmarks {
 			&Digest { logs: alloc::vec![miner_digest_item] },
 		);
 
-		// Pre-fund the miner so mint_into does not create the account in the hook.
+		// Pre-fund Treasury and miner accounts to ensure they exist
+		let treasury_account = T::Treasury::account_id();
 		let ed = T::Currency::minimum_balance();
+		let _ = T::Currency::mint_into(&treasury_account, ed.saturating_mul(1000u32.into()));
 		let _ = T::Currency::mint_into(&miner, ed.saturating_mul(1000u32.into()));
 
 		#[block]

@@ -622,19 +622,23 @@ impl Stream for WebSocketTransport {
 
 	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
 		if let Poll::Ready(event) = self.listener.poll_next_unpin(cx) {
-			match event {
+			return match event {
 				None => {
 					tracing::error!(
 						target: LOG_TARGET,
-						"Websocket listener closed; existing connections will still be served"
+						"Websocket listener terminated, ignore if the node is stopping",
 					);
+
+					Poll::Ready(None)
 				},
 				Some(Err(error)) => {
-					tracing::warn!(
+					tracing::error!(
 						target: LOG_TARGET,
 						?error,
-						"Websocket accept error; listener will continue",
+						"Websocket listener terminated with error",
 					);
+
+					Poll::Ready(None)
 				},
 				Some(Ok((connection, address))) => {
 					let connection_id = self.context.next_connection_id();
@@ -648,12 +652,9 @@ impl Stream for WebSocketTransport {
 					self.pending_inbound_connections
 						.insert(connection_id, PendingInboundConnection { connection, address });
 
-					return Poll::Ready(Some(TransportEvent::PendingInboundConnection {
-						connection_id,
-						address: address.ip(),
-					}));
+					Poll::Ready(Some(TransportEvent::PendingInboundConnection { connection_id }))
 				},
-			}
+			};
 		}
 
 		while let Poll::Ready(Some(result)) = self.pending_raw_connections.poll_next_unpin(cx) {
@@ -717,7 +718,7 @@ impl Stream for WebSocketTransport {
 			}
 		}
 
-		if let Poll::Ready(Some(connection)) = self.pending_connections.poll_next_unpin(cx) {
+		while let Poll::Ready(Some(connection)) = self.pending_connections.poll_next_unpin(cx) {
 			match connection {
 				Ok(connection) => {
 					let peer = connection.peer();
@@ -738,15 +739,7 @@ impl Stream for WebSocketTransport {
 							error,
 						}));
 					} else {
-						tracing::debug!(
-							target: LOG_TARGET,
-							?error,
-							?connection_id,
-							"Pending inbound connection failed"
-						);
-						return Poll::Ready(Some(TransportEvent::InboundConnectionFailed {
-							connection_id,
-						}));
+						tracing::debug!(target: LOG_TARGET, ?error, ?connection_id, "Pending inbound connection failed");
 					}
 				},
 			}

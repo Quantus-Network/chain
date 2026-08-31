@@ -15,10 +15,8 @@ version = "0.10.0"
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-array-bytes.workspace = true
 clap = { features = ["derive"], workspace = true }
 codec.workspace = true
-frame-benchmarking = { workspace = true, default-features = true, optional = true }
 frame-benchmarking-cli = { workspace = true, default-features = true, optional = true }
 frame-metadata-hash-extension.default-features = true
 frame-metadata-hash-extension.workspace = true
@@ -73,8 +71,6 @@ sc-offchain.default-features = true
 sc-offchain.workspace = true
 sc-rpc-api.default-features = true
 sc-rpc-api.workspace = true
-sc-rpc-spec-v2.default-features = true
-sc-rpc-spec-v2.workspace = true
 sc-service.default-features = true
 sc-service.workspace = true
 sc-telemetry.default-features = true
@@ -113,10 +109,6 @@ tokio-util.workspace = true
 zeroize = { workspace = true, default-features = true }
 
 [dev-dependencies]
-sp-externalities.default-features = true
-sp-externalities.workspace = true
-sp-state-machine.default-features = true
-sp-state-machine.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
 
 [build-dependencies]
@@ -139,10 +131,8 @@ std = [
 tx-logging = [] # Enable transaction pool logging for debugging
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
-	"dep:frame-benchmarking",
 	"dep:frame-benchmarking-cli",
 	"frame-benchmarking-cli?/runtime-benchmarks",
-	"frame-benchmarking/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"quantus-runtime/runtime-benchmarks",

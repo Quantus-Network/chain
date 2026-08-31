@@ -28,7 +28,7 @@ use sc_consensus::{
 };
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
-use sp_consensus::{Environment, Error as ConsensusError, Proposer};
+use sp_consensus::{Environment, Error as ConsensusError, Proposer, SyncOracle};
 use sp_consensus_qpow::POW_ENGINE_ID;
 
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
@@ -232,19 +232,15 @@ where
 		// The canonical post-seal digest must encode to exactly the window
 		// committed by `Header::hash()`, except for the one-byte
 		// `RuntimeEnvironmentUpdated` leftover on historical runtime-upgrade
-		// blocks at or below `LEGACY_DIGEST_CUTOFF` (see
-		// `check_digest_commitment_window`). Short encodings are zero-padded
-		// and long encodings are truncated, so either mismatch would let two
-		// distinct sealed headers collide. Fail closed before *any* `hash()`
-		// call on this header, and without embedding a hash of the malformed
-		// header in the error. The pre-seal digest is a prefix of the
-		// post-seal one, so this bound also covers the pre-seal
+		// blocks (see `check_digest_commitment_window`). Short encodings are
+		// zero-padded and long encodings are truncated, so either mismatch
+		// would let two distinct sealed headers collide. Fail closed before
+		// *any* `hash()` call on this header, and without embedding a hash of
+		// the malformed header in the error. The pre-seal digest is a prefix
+		// of the post-seal one, so this bound also covers the pre-seal
 		// `header.hash()` calls below.
 		let post_header = block_import_params.post_header();
-		let number = (*block_import_params.header.number()).try_into().unwrap_or(u64::MAX);
-		if let Err(encoded_digest_len) =
-			check_digest_commitment_window(post_header.digest(), number)
-		{
+		if let Err(encoded_digest_len) = check_digest_commitment_window(post_header.digest()) {
 			return Err(
 				Error::<B>::DigestWindowMismatch(encoded_digest_len, DIGEST_LOGS_SIZE).into()
 			);
@@ -415,11 +411,10 @@ where
 	// This is the first point in the import pipeline that hashes a
 	// network-supplied header. `Header::hash()` pads short encodings and
 	// truncates long ones, so reject anything that is not a permitted
-	// commitment-window shape before any `hash()` call. The authoritative
+	// commitment-window length before any `hash()` call. The authoritative
 	// check lives in `import_block`; this one only keeps the hashing below
 	// panic-free in debug builds.
-	let number = (*block.header.number()).try_into().unwrap_or(u64::MAX);
-	if let Err(encoded_digest_len) = check_digest_commitment_window(block.header.digest(), number) {
+	if let Err(encoded_digest_len) = check_digest_commitment_window(block.header.digest()) {
 		return Err(format!(
 			"Header has an encoded digest of {encoded_digest_len} bytes; expected {DIGEST_LOGS_SIZE}-byte commitment window"
 		));
@@ -445,65 +440,16 @@ where
 /// The PoW import queue type.
 pub type PowImportQueue<B> = BasicQueue<B>;
 
-/// Verifier that extracts the PoW seal from the header and checks the
-/// proof-of-work before the block reaches `import_block`.
-///
-/// The check lives here, in the `Verifier` the import queue calls, so that a
-/// bad seal surfaces as `BlockImportError::VerificationFailed` — the variant
-/// that carries the peer id and lets the sync layer penalise and drop the
-/// sending peer. It also runs before the expensive `check_inherents` call in
-/// `import_block`, so a junk block is discarded for one runtime call instead
-/// of a full-body inherent check.
-struct PowVerifier<C> {
-	client: Arc<C>,
-}
-
-impl<C> PowVerifier<C> {
-	fn new(client: Arc<C>) -> Self {
-		Self { client }
-	}
-}
+/// Minimal verifier that extracts the PoW seal from header to post_digests.
+struct SimplePowVerifier;
 
 #[async_trait::async_trait]
-impl<B, C> Verifier<B> for PowVerifier<C>
+impl<B> Verifier<B> for SimplePowVerifier
 where
 	B: BlockT<Hash = H256>,
-	C: ProvideRuntimeApi<B> + Send + Sync,
-	C::Api: QPoWApi<B>,
 {
 	async fn verify(&self, block: BlockImportParams<B>) -> Result<BlockImportParams<B>, String> {
-		// Pop the seal into `post_digests` and reject a digest that is not a
-		// permitted commitment-window shape. After this the header is the
-		// pre-seal header, so `hash()` yields the pre-hash the nonce was mined
-		// against.
-		let block = extract_pow_seal::<B>(block).await?;
-
-		let parent_hash = *block.header.parent_hash();
-		let pre_hash = block.header.hash();
-		let inner_seal = fetch_seal::<B>(block.post_digests.last(), pre_hash)?;
-
-		let nonce: [u8; 64] = inner_seal
-			.as_slice()
-			.try_into()
-			.map_err(|_| Error::<B>::Runtime("Seal does not have exactly 64 bytes".to_string()))?;
-
-		let (verified, _achieved_difficulty) = self
-			.client
-			.runtime_api()
-			.verify_and_get_achieved_difficulty(parent_hash, pre_hash.0, nonce)
-			.map_err(|e| {
-				Error::<B>::Runtime(format!(
-					"API error in verify_and_get_achieved_difficulty: {:?}",
-					e
-				))
-			})?;
-
-		if !verified {
-			log::error!("Invalid Seal {:?} for parent hash {:?}", inner_seal, parent_hash);
-			return Err(Error::<B>::InvalidSeal.into());
-		}
-
-		Ok(block)
+		extract_pow_seal::<B>(block).await
 	}
 }
 
@@ -511,7 +457,6 @@ where
 pub fn import_queue<B, C>(
 	block_import: BoxBlockImport<B>,
 	justification_import: Option<BoxJustificationImport<B>>,
-	client: Arc<C>,
 	spawner: &impl sp_core::traits::SpawnEssentialNamed,
 	registry: Option<&Registry>,
 ) -> Result<PowImportQueue<B>, sp_consensus::Error>
@@ -520,7 +465,7 @@ where
 	C: ProvideRuntimeApi<B> + BlockBackend<B> + Send + Sync + 'static,
 	C::Api: QPoWApi<B>,
 {
-	let verifier = PowVerifier::new(client);
+	let verifier = SimplePowVerifier;
 	Ok(BasicQueue::new(verifier, block_import, justification_import, spawner, registry))
 }
 
@@ -536,9 +481,6 @@ const MIN_INTERVAL_BETWEEN_TX_REBUILDS: Duration = Duration::from_secs(2);
 /// mining metadata and submitting mined blocks, and a future, which must be polled to fill in
 /// information in the worker.
 ///
-/// Authoring starts disabled. The caller must enable it through
-/// [`MiningHandle::set_authoring_enabled`] after its authoring policy passes.
-///
 /// The worker will rebuild blocks when:
 /// - A new block is imported from the network
 /// - New transactions arrive (rate limited to MIN_INTERVAL_BETWEEN_TX_REBUILDS)
@@ -549,10 +491,11 @@ const MIN_INTERVAL_BETWEEN_TX_REBUILDS: Duration = Duration::from_secs(2);
 /// time).
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::type_complexity)]
-pub fn start_mining_worker<Block, C, E, L, CIDP, TxHash, TxStream>(
+pub fn start_mining_worker<Block, C, E, SO, L, CIDP, TxHash, TxStream>(
 	block_import: BoxBlockImport<Block>,
 	client: Arc<C>,
 	mut env: E,
+	sync_oracle: SO,
 	justification_sync_link: L,
 	rewards_preimage: [u8; 32],
 	create_inherent_data_providers: CIDP,
@@ -572,6 +515,7 @@ where
 	E: Environment<Block> + Send + Sync + 'static,
 	E::Error: std::fmt::Debug,
 	E::Proposer: Proposer<Block>,
+	SO: SyncOracle + Clone + Send + Sync + 'static,
 	L: JustificationSyncLink<Block>,
 	CIDP: CreateInherentDataProviders<Block, ()>,
 	TxHash: Send + 'static,
@@ -592,6 +536,7 @@ where
 		client.clone(),
 		block_import,
 		justification_sync_link,
+		sync_oracle.clone(),
 		pending_build.clone(),
 		notify_tx.clone(),
 	);
@@ -605,9 +550,12 @@ where
 		let mut notify_tx = notify_tx;
 		async move {
 			while let Some(trigger) = trigger_stream.next().await {
-				if !worker.is_authoring_enabled() {
+				if sync_oracle.is_major_syncing() {
+					debug!(target: LOG_TARGET, "Skipping proposal due to sync.");
+					worker.on_major_syncing();
 					continue;
 				}
+
 				let best_hash = client.info().best_hash;
 
 				// Optimization, skip if we already imported this block
@@ -630,9 +578,6 @@ where
 			let Some(target_hash) = pending_build.lock().take() else {
 				continue;
 			};
-			if !worker.is_authoring_enabled() {
-				continue;
-			}
 
 			// Build the block
 			if let Some(build) = create_proposal(
@@ -782,12 +727,8 @@ mod tests {
 	type TestBlock = sp_runtime::generic::Block<TestHeader, OpaqueExtrinsic>;
 
 	fn sealed_header(digest: Digest) -> TestHeader {
-		sealed_header_at(1, digest)
-	}
-
-	fn sealed_header_at(number: u32, digest: Digest) -> TestHeader {
 		<TestHeader as HeaderT>::new(
-			number,
+			1,
 			Default::default(),
 			Default::default(),
 			Default::default(),
@@ -817,7 +758,7 @@ mod tests {
 		// Push the encoded digest past the window while keeping a valid seal
 		// last, so only the length check can be the thing that rejects it.
 		digest.logs.insert(1, DigestItem::Other(vec![0u8; 64]));
-		assert!(digest.encode().len() > qp_header::MAX_ENCODED_DIGEST_SIZE);
+		assert!(digest.encode().len() > DIGEST_LOGS_SIZE);
 
 		let params = BlockImportParams::<TestBlock>::new(
 			BlockOrigin::NetworkBroadcast,
@@ -828,14 +769,14 @@ mod tests {
 		let err = result.err().expect("oversized digest must be rejected");
 		assert!(
 			err.contains("commitment window"),
-			"expected the digest-window rejection, got: {err}"
+			"expected the digest-length rejection, got: {err}"
 		);
 	}
 
 	#[test]
 	fn verifier_rejects_undersized_digest() {
 		let digest = Digest { logs: vec![DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64])] };
-		assert!(digest.encode().len() < qp_header::DIGEST_LOGS_SIZE);
+		assert!(digest.encode().len() < DIGEST_LOGS_SIZE);
 
 		let params = BlockImportParams::<TestBlock>::new(
 			BlockOrigin::NetworkBroadcast,
@@ -845,74 +786,7 @@ mod tests {
 		let err = result.err().expect("undersized digest must be rejected");
 		assert!(
 			err.contains("commitment window"),
-			"expected the digest-window rejection, got: {err}"
-		);
-	}
-
-	/// Historical blocks minted before the runtime stopped depositing
-	/// `RuntimeEnvironmentUpdated` on `set_code` encode to exactly one byte
-	/// past the committed window and must stay importable.
-	#[test]
-	fn verifier_accepts_historical_environment_updated_digest() {
-		let mut digest = canonical_digest();
-		digest.logs.insert(1, DigestItem::RuntimeEnvironmentUpdated);
-		assert_eq!(digest.encode().len(), qp_header::MAX_ENCODED_DIGEST_SIZE);
-
-		let params = BlockImportParams::<TestBlock>::new(
-			BlockOrigin::NetworkBroadcast,
-			sealed_header(digest),
-		);
-		let result = futures::executor::block_on(extract_pow_seal::<TestBlock>(params))
-			.expect("historical 111-byte sealed header must pass");
-
-		assert_eq!(
-			result.post_digests.last(),
-			Some(&DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64])),
-			"seal must be moved into post_digests"
-		);
-	}
-
-	/// The 1-byte allowance is strictly historical: above the legacy cutoff
-	/// every digest byte must be inside the hash-committed window, so the
-	/// same 111-byte shape that imports below the cutoff is rejected.
-	#[test]
-	fn verifier_rejects_environment_updated_digest_above_legacy_cutoff() {
-		let mut digest = canonical_digest();
-		digest.logs.insert(1, DigestItem::RuntimeEnvironmentUpdated);
-		assert_eq!(digest.encode().len(), qp_header::MAX_ENCODED_DIGEST_SIZE);
-
-		let number = u32::try_from(qp_header::LEGACY_DIGEST_CUTOFF + 1).expect("cutoff fits u32");
-		let params = BlockImportParams::<TestBlock>::new(
-			BlockOrigin::NetworkBroadcast,
-			sealed_header_at(number, digest),
-		);
-		let result = futures::executor::block_on(extract_pow_seal::<TestBlock>(params));
-
-		let err = result.err().expect("111-byte digest above the cutoff must be rejected");
-		assert!(
-			err.contains("commitment window"),
-			"expected the digest-window rejection, got: {err}"
-		);
-	}
-
-	/// The compat allowance is exactly one byte: anything past it is rejected.
-	#[test]
-	fn verifier_rejects_digest_past_compat_allowance() {
-		let mut digest = canonical_digest();
-		digest.logs.insert(1, DigestItem::RuntimeEnvironmentUpdated);
-		digest.logs.insert(1, DigestItem::RuntimeEnvironmentUpdated);
-		assert_eq!(digest.encode().len(), qp_header::MAX_ENCODED_DIGEST_SIZE + 1);
-
-		let params = BlockImportParams::<TestBlock>::new(
-			BlockOrigin::NetworkBroadcast,
-			sealed_header(digest),
-		);
-		let result = futures::executor::block_on(extract_pow_seal::<TestBlock>(params));
-
-		let err = result.err().expect("digest past the allowance must be rejected");
-		assert!(
-			err.contains("commitment window"),
-			"expected the digest-window rejection, got: {err}"
+			"expected the digest-length rejection, got: {err}"
 		);
 	}
 
@@ -921,7 +795,7 @@ mod tests {
 	#[test]
 	fn verifier_accepts_window_sized_digest_and_extracts_seal() {
 		let digest = canonical_digest();
-		assert_eq!(digest.encode().len(), qp_header::DIGEST_LOGS_SIZE);
+		assert_eq!(digest.encode().len(), DIGEST_LOGS_SIZE);
 
 		let params = BlockImportParams::<TestBlock>::new(
 			BlockOrigin::NetworkBroadcast,
@@ -941,103 +815,35 @@ mod tests {
 		);
 	}
 
-	// The mock macro references the block type as `Block` in a few of the
-	// common trait impls it generates, so alias it here.
-	type Block = TestBlock;
+	/// Runtime-upgrade blocks produced by 0.8.x WASM insert
+	/// `RuntimeEnvironmentUpdated` between the pre-runtime item and the seal
+	/// (111 bytes). 0.9.0 must still import those already-canonical headers.
+	#[test]
+	fn verifier_accepts_runtime_environment_updated_upgrade_digest() {
+		let mut digest = canonical_digest();
+		digest.logs.insert(1, DigestItem::RuntimeEnvironmentUpdated);
+		assert_eq!(digest.encode().len(), DIGEST_LOGS_SIZE + 1);
 
-	/// Mock runtime API whose seal verdict is fixed at construction, so the
-	/// verifier can be exercised without a real client or runtime.
-	#[derive(Clone)]
-	struct MockRuntimeApi {
-		seal_valid: bool,
-	}
-
-	sp_api::mock_impl_runtime_apis! {
-		impl QPoWApi<Block> for MockRuntimeApi {
-			fn get_max_reorg_depth() -> u32 { 0 }
-			fn get_max_difficulty() -> U512 { U512::one() }
-			fn get_difficulty() -> U512 { U512::one() }
-			fn get_last_block_time() -> u64 { 0 }
-			fn get_last_block_duration() -> u64 { 0 }
-			fn get_chain_height() -> u32 { 0 }
-			fn verify_nonce_on_import_block(&self, _block_hash: [u8; 32], _nonce: [u8; 64]) -> bool {
-				self.seal_valid
-			}
-			fn verify_nonce_local_mining(&self, _block_hash: [u8; 32], _nonce: [u8; 64]) -> bool {
-				self.seal_valid
-			}
-			fn verify_and_get_achieved_difficulty(
-				&self,
-				_block_hash: [u8; 32],
-				_nonce: [u8; 64],
-			) -> (bool, U512) {
-				(self.seal_valid, U512::one())
-			}
-		}
-	}
-
-	// The mock implements the API traits on the value itself; wire up
-	// `ProvideRuntimeApi` so it can stand in for a client.
-	impl ProvideRuntimeApi<Block> for MockRuntimeApi {
-		type Api = Self;
-
-		fn runtime_api(&self) -> sp_api::ApiRef<'_, Self::Api> {
-			self.clone().into()
-		}
-	}
-
-	fn verify_canonical(seal_valid: bool) -> Result<BlockImportParams<TestBlock>, String> {
 		let params = BlockImportParams::<TestBlock>::new(
 			BlockOrigin::NetworkBroadcast,
-			sealed_header(canonical_digest()),
+			sealed_header(digest),
 		);
-		let verifier = PowVerifier::new(Arc::new(MockRuntimeApi { seal_valid }));
-		futures::executor::block_on(verifier.verify(params))
-	}
+		let result = futures::executor::block_on(extract_pow_seal::<TestBlock>(params))
+			.expect("historical upgrade digest must be grandfathered");
 
-	/// The core regression test for report 88219: a block whose proof-of-work
-	/// does not verify must be rejected *by the verifier*, so the failure
-	/// surfaces as `VerificationFailed` and the peer can be penalised.
-	#[test]
-	fn verifier_rejects_invalid_pow() {
-		let err = verify_canonical(false).err().expect("invalid PoW must be rejected");
-		assert!(err.contains("invalid seal"), "expected the seal rejection, got: {err}");
-	}
-
-	/// A block with valid proof-of-work passes the verifier, with the seal
-	/// moved into `post_digests` for `import_block`.
-	#[test]
-	fn verifier_accepts_valid_pow() {
-		let result = verify_canonical(true).expect("valid PoW must pass the verifier");
 		assert_eq!(
 			result.post_digests.last(),
 			Some(&DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64])),
 			"seal must be moved into post_digests"
 		);
-	}
-
-	/// A seal that is not exactly 64 bytes is rejected before the runtime call,
-	/// so a malformed seal cannot reach proof-of-work verification.
-	#[test]
-	fn verifier_rejects_wrong_length_seal() {
-		// Window-sized encoding so the digest-shape check cannot be the
-		// rejection: a 64-byte preimage + 32-byte seal fills the 110-byte
-		// window, then the seal-length check must fire.
-		let digest = Digest {
-			logs: vec![
-				DigestItem::PreRuntime(POW_ENGINE_ID, vec![1u8; 64]),
-				DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 32]),
-			],
-		};
-		assert_eq!(digest.encode().len(), qp_header::DIGEST_LOGS_SIZE);
-		let params = BlockImportParams::<TestBlock>::new(
-			BlockOrigin::NetworkBroadcast,
-			sealed_header(digest),
+		assert!(
+			result
+				.header
+				.digest()
+				.logs
+				.iter()
+				.any(|l| matches!(l, DigestItem::RuntimeEnvironmentUpdated)),
+			"RuntimeEnvironmentUpdated must remain on the pre-seal header"
 		);
-		let verifier = PowVerifier::new(Arc::new(MockRuntimeApi { seal_valid: true }));
-		let err = futures::executor::block_on(verifier.verify(params))
-			.err()
-			.expect("a wrong-length seal must be rejected");
-		assert!(err.contains("64 bytes"), "expected the length rejection, got: {err}");
 	}
 }

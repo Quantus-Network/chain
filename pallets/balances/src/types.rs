@@ -195,3 +195,22 @@ impl<T: Config<I>, I: 'static> Drop for DustCleaner<T, I> {
 		}
 	}
 }
+
+/// Whether something should be interpreted as an increase or a decrease.
+#[derive(
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	Clone,
+	PartialEq,
+	Eq,
+	RuntimeDebug,
+	MaxEncodedLen,
+	TypeInfo,
+)]
+pub enum AdjustmentDirection {
+	/// Increase the amount.
+	Increase,
+	/// Decrease the amount.
+	Decrease,
+}

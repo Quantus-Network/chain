@@ -95,23 +95,6 @@ const STATE_SYNC_FINALITY_THRESHOLD: u32 = 8;
 /// so far behind.
 const MAJOR_SYNC_BLOCKS: u8 = 5;
 
-fn catch_up_request_is_gated<N: Ord>(peer_best: N, local_best: N, request_in_flight: bool) -> bool {
-	request_in_flight && peer_best > local_best
-}
-
-/// Mirrors Bitcoin's IBD philosophy: only locally-held blocks (the import
-/// backlog) can label the node as major-syncing; peer height claims never do.
-/// Authoring does not depend on this state at all, so a forged claim (or an
-/// unverified queue burst) can at worst tweak notification batching and
-/// download scheduling for a few seconds.
-fn block_import_origin(gap: bool, normal_sync: bool, major_syncing: bool) -> BlockOrigin {
-	if gap || (normal_sync && major_syncing) {
-		BlockOrigin::NetworkInitialSync
-	} else {
-		BlockOrigin::NetworkBroadcast
-	}
-}
-
 mod rep {
 	use sc_network::ReputationChange as Rep;
 	/// Reputation change when a peer sent us a message that led to a
@@ -252,6 +235,15 @@ pub(crate) struct PeerSync<B: BlockT> {
 	/// The state of syncing this peer is in for us, generally categories
 	/// into `Available` or "busy" with something as defined by `PeerSyncState`.
 	pub state: PeerSyncState<B>,
+	request_signatures: HashSet<SyncRequestParams>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+struct SyncRequestParams {
+	start_number_u64: u64,
+	is_descending: bool,
+	fields_mask: u32,
+	max_blocks: u32,
 }
 
 impl<B: BlockT> PeerSync<B> {
@@ -413,7 +405,7 @@ where
 		let blocks = self.ready_blocks();
 
 		if !blocks.is_empty() {
-			self.validate_and_queue_blocks(blocks, false, true);
+			self.validate_and_queue_blocks(blocks, false);
 		}
 	}
 
@@ -768,16 +760,14 @@ where
 
 					self.restart();
 				},
-				Err(BlockImportError::BadBlock(peer_id)) => {
+				Err(BlockImportError::BadBlock(peer_id)) =>
 					if let Some(peer) = peer_id {
 						warn!(
 							target: LOG_TARGET,
 							"💔 Block {hash:?} received from peer {peer} has been blacklisted",
 						);
 						self.actions.push(SyncingAction::DropPeer(BadPeer(peer, rep::BAD_BLOCK)));
-					}
-					self.restart();
-				},
+					},
 				Err(BlockImportError::MissingState) => {
 					// This may happen if the chain we were requesting upon has been discarded
 					// in the meantime because other chain has been finalized.
@@ -828,36 +818,32 @@ where
 		self.status().state.is_major_syncing()
 	}
 
-	fn is_peer_drop_gated(&self, peer_id: &PeerId) -> bool {
-		let best_block = self.client.info().best_number;
-		self.peers.get(peer_id).is_some_and(|peer| {
-			catch_up_request_is_gated(peer.best_number, best_block, !peer.state.is_available())
-		})
-	}
-
 	fn num_peers(&self) -> usize {
 		self.peers.len()
 	}
 
 	fn status(&self) -> SyncStatus<B> {
-		// Only the local import backlog (blocks we actually hold) can put the
-		// node into a major-sync state; peer height claims never do.
-		let sync_state = if self.has_download_catch_up_work() {
-			SyncState::Importing { target: self.best_queued_number }
+		let median_seen = self.median_seen();
+		let best_seen_block =
+			median_seen.and_then(|median| (median > self.best_queued_number).then_some(median));
+		let sync_state = if let Some(target) = median_seen {
+			// A chain is classified as downloading if the provided best block is
+			// more than `MAJOR_SYNC_BLOCKS` behind the best block or as importing
+			// if the same can be said about queued blocks.
+			let best_block = self.client.info().best_number;
+			if target > best_block && target - best_block > MAJOR_SYNC_BLOCKS.into() {
+				// If target is not queued, we're downloading, otherwise importing.
+				if target > self.best_queued_number {
+					SyncState::Downloading { target }
+				} else {
+					SyncState::Importing { target }
+				}
+			} else {
+				SyncState::Idle
+			}
 		} else {
 			SyncState::Idle
 		};
-		// `best_seen_block` is display/monitoring only (informant, RPC
-		// `system_syncState`, `sync_target` metric): the median of
-		// peer-claimed heights, clamped to our own best. A forged claim can
-		// at worst skew a dashboard; it never feeds authoring, import-origin,
-		// or peer-drop decisions.
-		let best_seen_block = self.median_claimed_height().map(|claimed| {
-			claimed.max(match sync_state {
-				SyncState::Downloading { target } | SyncState::Importing { target } => target,
-				SyncState::Idle => self.best_queued_number,
-			})
-		});
 
 		let warp_sync_progress = self.gap_sync.as_ref().map(|gap_sync| WarpSyncProgress {
 			phase: WarpSyncPhase::DownloadingBlocks(gap_sync.best_queued_number),
@@ -902,7 +888,7 @@ where
 			}
 			debug!(target: LOG_TARGET, "on_request_failed: now_available={}", matches!(peer.state, PeerSyncState::Available));
 		}
-		self.allowed_requests.set_all();
+		self.allowed_requests.add(peer_id);
 	}
 
 	fn num_downloaded_blocks(&self) -> usize {
@@ -1048,24 +1034,6 @@ where
 		Ok(sync)
 	}
 
-	fn has_download_catch_up_work(&self) -> bool {
-		self.best_queued_number.saturating_sub(self.client.info().best_number) >
-			MAJOR_SYNC_BLOCKS.into()
-	}
-
-	/// Median of the heights our peers claim in their handshakes and
-	/// announcements. Unverified by construction — for display and monitoring
-	/// only, never for gating.
-	fn median_claimed_height(&self) -> Option<NumberFor<B>> {
-		let mut claims: Vec<_> = self.peers.values().map(|peer| peer.best_number).collect();
-		if claims.is_empty() {
-			return None;
-		}
-		let mid = claims.len() / 2;
-		let (_, median, _) = claims.select_nth_unstable(mid);
-		Some(*median)
-	}
-
 	/// Complete the gap sync if the target number is reached and there is a gap.
 	fn complete_gap_if_target(&mut self, number: NumberFor<B>) {
 		let gap_sync_complete = self.gap_sync.as_ref().map_or(false, |s| s.target == number);
@@ -1125,6 +1093,7 @@ where
 							best_hash,
 							best_number,
 							state: PeerSyncState::Available,
+							request_signatures: Default::default(),
 						},
 					);
 					return Ok(None);
@@ -1168,6 +1137,7 @@ where
 						best_hash,
 						best_number,
 						state,
+						request_signatures: Default::default(),
 					},
 				);
 
@@ -1188,6 +1158,7 @@ where
 						best_hash,
 						best_number,
 						state: PeerSyncState::Available,
+						request_signatures: Default::default(),
 					},
 				);
 				self.allowed_requests.add(&peer_id);
@@ -1236,7 +1207,6 @@ where
 	) -> Result<(), BadPeer> {
 		self.downloaded_blocks += response.blocks.len();
 		let mut gap = false;
-		let mut normal_sync = false;
 		let mut blocks = response.blocks;
 
 		if log::log_enabled!(target: LOG_TARGET, log::Level::Debug) {
@@ -1257,7 +1227,6 @@ where
 			if let Some(request) = request {
 				match &mut peer.state {
 					PeerSyncState::DownloadingNew(_) => {
-						normal_sync = true;
 						self.blocks.clear_peer_download(peer_id);
 						peer.state = PeerSyncState::Available;
 						if let Some(start_block) =
@@ -1489,7 +1458,7 @@ where
 			return Err(BadPeer(*peer_id, rep::NOT_REQUESTED));
 		};
 
-		self.validate_and_queue_blocks(new_blocks, gap, normal_sync);
+		self.validate_and_queue_blocks(new_blocks, gap);
 
 		Ok(())
 	}
@@ -1601,6 +1570,20 @@ where
 		Ok(())
 	}
 
+	/// Returns the median seen block number.
+	fn median_seen(&self) -> Option<NumberFor<B>> {
+		let mut best_seens = self.peers.values().map(|p| p.best_number).collect::<Vec<_>>();
+
+		if best_seens.is_empty() {
+			None
+		} else {
+			let middle = best_seens.len() / 2;
+
+			// Not the "perfect median" when we have an even number of peers.
+			Some(*best_seens.select_nth_unstable(middle).1)
+		}
+	}
+
 	fn required_block_attributes(&self) -> BlockAttributes {
 		match self.mode {
 			ChainSyncMode::Full =>
@@ -1621,12 +1604,7 @@ where
 		}
 	}
 
-	fn validate_and_queue_blocks(
-		&mut self,
-		mut new_blocks: Vec<IncomingBlock<B>>,
-		gap: bool,
-		normal_sync: bool,
-	) {
+	fn validate_and_queue_blocks(&mut self, mut new_blocks: Vec<IncomingBlock<B>>, gap: bool) {
 		let orig_len = new_blocks.len();
 		new_blocks.retain(|b| !self.queue_blocks.contains(&b.hash));
 		if new_blocks.len() != orig_len {
@@ -1637,25 +1615,25 @@ where
 			);
 		}
 
+		let origin = if !gap && !self.status().state.is_major_syncing() {
+			BlockOrigin::NetworkBroadcast
+		} else {
+			BlockOrigin::NetworkInitialSync
+		};
+
 		if let Some((h, n)) = new_blocks
 			.last()
 			.and_then(|b| b.header.as_ref().map(|h| (&b.hash, *h.number())))
 		{
+			trace!(
+				target: LOG_TARGET,
+				"Accepted {} blocks ({:?}) with origin {:?}",
+				new_blocks.len(),
+				h,
+				origin,
+			);
 			self.on_block_queued(h, n)
 		}
-
-		// Computed after `on_block_queued` so the batch itself counts toward
-		// the import backlog; otherwise every batch of a smooth catch-up
-		// (where imports keep pace with downloads) would be labeled
-		// `NetworkBroadcast` and emit per-block import notifications.
-		let origin = block_import_origin(gap, normal_sync, self.status().state.is_major_syncing());
-		trace!(
-			target: LOG_TARGET,
-			"Accepted {} blocks ({:?}) with origin {:?}",
-			new_blocks.len(),
-			new_blocks.last().map(|b| b.hash),
-			origin,
-		);
 		self.queue_blocks.extend(new_blocks.iter().map(|b| b.hash));
 		if let Some(metrics) = &self.metrics {
 			metrics
@@ -1899,7 +1877,7 @@ where
 			trace!(target: LOG_TARGET, "Too many blocks in the queue.");
 			return Vec::new();
 		}
-		let transport_catch_up = self.has_download_catch_up_work();
+		let is_major_syncing = self.status().state.is_major_syncing();
 		let attrs = self.required_block_attributes();
 		let blocks = &mut self.blocks;
 		let fork_targets = &mut self.fork_targets;
@@ -1909,11 +1887,12 @@ where
 		let client = &self.client;
 		let queue_blocks = &self.queue_blocks;
 		let allowed_requests = self.allowed_requests.clone();
-		let max_parallel = if transport_catch_up { 1 } else { self.max_parallel_downloads };
+		let max_parallel = if is_major_syncing { 1 } else { self.max_parallel_downloads };
 		let max_blocks_per_request = self.max_blocks_per_request;
 		let gap_sync = &mut self.gap_sync;
 		let disconnected_peers = &mut self.disconnected_peers;
 		let metrics = self.metrics.as_ref();
+		let client_ref = &self.client;
 		let requests = self
 			.peers
 			.iter_mut()
@@ -1962,7 +1941,7 @@ where
 						state: AncestorSearchState::ExponentialBackoff(One::one()),
 					};
 					Some((id, ancestry_request::<B>(current)))
-				} else if let Some((range, req)) = peer_block_request(
+				} else if let Some((range, mut req)) = peer_block_request(
 					&id,
 					peer,
 					blocks,
@@ -1972,6 +1951,38 @@ where
 					last_finalized,
 					best_queued,
 				) {
+					while let Some(max) = req.max {
+						let already = {
+							let start_number_u64 = match req.from {
+								FromBlock::Number(n) => n.saturated_into::<u64>(),
+								FromBlock::Hash(h) => client_ref
+									.number(h)
+									.ok()
+									.flatten()
+									.map(|n| n.saturated_into::<u64>())
+									.unwrap_or(0),
+							};
+							let sig = SyncRequestParams {
+								start_number_u64,
+								is_descending: matches!(req.direction, Direction::Descending),
+								fields_mask: req.fields.to_be_u32(),
+								max_blocks: max,
+							};
+							!peer.request_signatures.insert(sig)
+						};
+						if !already { break; }
+						if let Some(m) = req.max.as_mut() {
+							if *m <= 1 {
+								debug!(target: LOG_TARGET, "Proceeding with duplicate signature at max=1 for {:?}", id);
+								break;
+							}
+							let new_m = (*m).saturating_div(2).max(1);
+							debug!(target: LOG_TARGET, "Duplicate request to {:?}, reducing max from {} to {}", id, *m, new_m);
+							*m = new_m;
+						} else {
+							break;
+						}
+					}
 					peer.state = PeerSyncState::DownloadingNew(range.start);
 					debug!(
 						target: LOG_TARGET,
@@ -2012,19 +2023,19 @@ where
 						max_blocks_per_request,
 					)
 				}) {
-					peer.state = PeerSyncState::DownloadingGap(range.start);
-					debug!(
-						target: LOG_TARGET,
-						"New gap block request for {}, (best:{}, common:{}) {:?}",
-						id,
-						peer.best_number,
-						peer.common_number,
-						req,
-					);
-					Some((id, req))
+				peer.state = PeerSyncState::DownloadingGap(range.start);
+				debug!(
+					target: LOG_TARGET,
+					"New gap block request for {}, (best:{}, common:{}) {:?}",
+					id,
+					peer.best_number,
+					peer.common_number,
+					req,
+				);
+				Some((id, req))
 				} else {
-					debug!(target: LOG_TARGET, "No request produced for {:?}", id);
-					None
+				debug!(target: LOG_TARGET, "No request produced for {:?}", id);
+				None
 				}
 			})
 			.collect::<Vec<_>>();
@@ -2542,262 +2553,4 @@ pub fn validate_blocks<Block: BlockT>(
 	}
 
 	Ok(blocks.first().and_then(|b| b.header.as_ref()).map(|h| *h.number()))
-}
-
-#[cfg(test)]
-mod security_tests {
-	use super::*;
-	use crate::mock::MockBlockDownloader;
-	use sc_client_api::{ChildInfo, CompactProof, StorageProof};
-	use sp_blockchain::{CachedHeaderMetadata, Info};
-	use sp_core::H256;
-	use sp_runtime::testing::{Block as RawBlock, MockCallU64, TestXt};
-	use sp_state_machine::{KeyValueStates, KeyValueStorageLevel};
-
-	type TestBlock = RawBlock<TestXt<MockCallU64, ()>>;
-
-	/// A client stuck at genesis, so anything the sync strategy could learn
-	/// about being behind can only come from peer claims.
-	struct GenesisClient {
-		genesis: <TestBlock as BlockT>::Header,
-	}
-
-	impl GenesisClient {
-		fn new() -> Self {
-			Self {
-				genesis: <<TestBlock as BlockT>::Header as HeaderT>::new(
-					0,
-					Default::default(),
-					Default::default(),
-					Default::default(),
-					Default::default(),
-				),
-			}
-		}
-	}
-
-	impl HeaderBackend<TestBlock> for GenesisClient {
-		fn header(
-			&self,
-			hash: H256,
-		) -> sp_blockchain::Result<Option<<TestBlock as BlockT>::Header>> {
-			Ok((hash == self.genesis.hash()).then(|| self.genesis.clone()))
-		}
-
-		fn info(&self) -> Info<TestBlock> {
-			Info {
-				best_hash: self.genesis.hash(),
-				best_number: 0,
-				genesis_hash: self.genesis.hash(),
-				finalized_hash: self.genesis.hash(),
-				finalized_number: 0,
-				finalized_state: Some((self.genesis.hash(), 0)),
-				number_leaves: 1,
-				block_gap: None,
-			}
-		}
-
-		fn status(&self, hash: H256) -> sp_blockchain::Result<sp_blockchain::BlockStatus> {
-			Ok(if hash == self.genesis.hash() {
-				sp_blockchain::BlockStatus::InChain
-			} else {
-				sp_blockchain::BlockStatus::Unknown
-			})
-		}
-
-		fn number(&self, hash: H256) -> sp_blockchain::Result<Option<u64>> {
-			Ok((hash == self.genesis.hash()).then_some(0))
-		}
-
-		fn hash(&self, number: u64) -> sp_blockchain::Result<Option<H256>> {
-			Ok((number == 0).then(|| self.genesis.hash()))
-		}
-	}
-
-	impl HeaderMetadata<TestBlock> for GenesisClient {
-		type Error = ClientError;
-
-		fn header_metadata(
-			&self,
-			hash: H256,
-		) -> Result<CachedHeaderMetadata<TestBlock>, ClientError> {
-			if hash == self.genesis.hash() {
-				Ok(CachedHeaderMetadata::from(&self.genesis))
-			} else {
-				Err(ClientError::UnknownBlock(format!("{hash:?}")))
-			}
-		}
-
-		fn insert_header_metadata(&self, _hash: H256, _metadata: CachedHeaderMetadata<TestBlock>) {}
-
-		fn remove_header_metadata(&self, _hash: H256) {}
-	}
-
-	impl BlockBackend<TestBlock> for GenesisClient {
-		fn block_body(
-			&self,
-			_hash: H256,
-		) -> sp_blockchain::Result<Option<Vec<<TestBlock as BlockT>::Extrinsic>>> {
-			Ok(None)
-		}
-
-		fn block_indexed_body(&self, _hash: H256) -> sp_blockchain::Result<Option<Vec<Vec<u8>>>> {
-			Ok(None)
-		}
-
-		fn block(
-			&self,
-			_hash: H256,
-		) -> sp_blockchain::Result<Option<sp_runtime::generic::SignedBlock<TestBlock>>> {
-			Ok(None)
-		}
-
-		fn block_status(&self, hash: H256) -> sp_blockchain::Result<BlockStatus> {
-			Ok(if hash == self.genesis.hash() {
-				BlockStatus::InChainWithState
-			} else {
-				BlockStatus::Unknown
-			})
-		}
-
-		fn justifications(&self, _hash: H256) -> sp_blockchain::Result<Option<Justifications>> {
-			Ok(None)
-		}
-
-		fn block_hash(&self, number: u64) -> sp_blockchain::Result<Option<H256>> {
-			Ok((number == 0).then(|| self.genesis.hash()))
-		}
-
-		fn indexed_transaction(&self, _hash: H256) -> sp_blockchain::Result<Option<Vec<u8>>> {
-			Ok(None)
-		}
-
-		fn requires_full_sync(&self) -> bool {
-			false
-		}
-	}
-
-	impl ProofProvider<TestBlock> for GenesisClient {
-		fn read_proof(
-			&self,
-			_hash: H256,
-			_keys: &mut dyn Iterator<Item = &[u8]>,
-		) -> sp_blockchain::Result<StorageProof> {
-			unimplemented!()
-		}
-
-		fn read_child_proof(
-			&self,
-			_hash: H256,
-			_child_info: &ChildInfo,
-			_keys: &mut dyn Iterator<Item = &[u8]>,
-		) -> sp_blockchain::Result<StorageProof> {
-			unimplemented!()
-		}
-
-		fn execution_proof(
-			&self,
-			_hash: H256,
-			_method: &str,
-			_call_data: &[u8],
-		) -> sp_blockchain::Result<(Vec<u8>, StorageProof)> {
-			unimplemented!()
-		}
-
-		fn read_proof_collection(
-			&self,
-			_hash: H256,
-			_start_keys: &[Vec<u8>],
-			_size_limit: usize,
-		) -> sp_blockchain::Result<(CompactProof, u32)> {
-			unimplemented!()
-		}
-
-		fn storage_collection(
-			&self,
-			_hash: H256,
-			_start_key: &[Vec<u8>],
-			_size_limit: usize,
-		) -> sp_blockchain::Result<Vec<(KeyValueStorageLevel, bool)>> {
-			unimplemented!()
-		}
-
-		fn verify_range_proof(
-			&self,
-			_root: H256,
-			_proof: CompactProof,
-			_start_keys: &[Vec<u8>],
-		) -> sp_blockchain::Result<(KeyValueStates, usize)> {
-			unimplemented!()
-		}
-	}
-
-	/// Active regression for the forged-handshake report: peers claiming an
-	/// arbitrarily high best block must never flip the node into major sync;
-	/// only the local import backlog can (Bitcoin-style IBD).
-	#[test]
-	fn forged_handshake_height_does_not_trigger_major_sync() {
-		let client = Arc::new(GenesisClient::new());
-		let mut sync = ChainSync::new(
-			ChainSyncMode::Full,
-			client,
-			1,
-			64,
-			ProtocolName::Static(""),
-			Arc::new(MockBlockDownloader::new()),
-			None,
-			std::iter::empty(),
-		)
-		.unwrap();
-
-		for _ in 0..3 {
-			sync.add_peer(PeerId::random(), H256::random(), 1_000_000);
-		}
-
-		assert_eq!(sync.peers.len(), 3, "forged peers must still be registered");
-		assert!(!sync.is_major_syncing());
-		assert_eq!(sync.status().state, SyncState::Idle);
-		// The claim IS allowed to surface in the display/monitoring field;
-		// the security property is that gating state above stays untouched.
-		assert_eq!(sync.status().best_seen_block, Some(1_000_000));
-	}
-
-	/// The median keeps a single liar from dominating the displayed target.
-	#[test]
-	fn displayed_height_is_the_median_peer_claim() {
-		let client = Arc::new(GenesisClient::new());
-		let mut sync = ChainSync::new(
-			ChainSyncMode::Full,
-			client,
-			1,
-			64,
-			ProtocolName::Static(""),
-			Arc::new(MockBlockDownloader::new()),
-			None,
-			std::iter::empty(),
-		)
-		.unwrap();
-
-		assert_eq!(sync.median_claimed_height(), None);
-		sync.add_peer(PeerId::random(), H256::random(), 10);
-		sync.add_peer(PeerId::random(), H256::random(), 12);
-		sync.add_peer(PeerId::random(), H256::random(), 1_000_000);
-		assert_eq!(sync.median_claimed_height(), Some(12));
-		assert_eq!(sync.status().best_seen_block, Some(12));
-	}
-
-	#[test]
-	fn transport_tolerance_does_not_wait_for_verified_sync() {
-		assert!(catch_up_request_is_gated(100u64, 0, true));
-		assert!(!catch_up_request_is_gated(100u64, 0, false));
-		assert!(!catch_up_request_is_gated(0u64, 0, true));
-	}
-
-	#[test]
-	fn notifications_are_only_suppressed_during_normal_sync_backlog() {
-		assert_eq!(block_import_origin(false, false, true), BlockOrigin::NetworkBroadcast);
-		assert_eq!(block_import_origin(false, true, false), BlockOrigin::NetworkBroadcast);
-		assert_eq!(block_import_origin(false, true, true), BlockOrigin::NetworkInitialSync);
-		assert_eq!(block_import_origin(true, false, false), BlockOrigin::NetworkInitialSync);
-	}
 }

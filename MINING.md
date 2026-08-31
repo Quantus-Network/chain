@@ -106,8 +106,6 @@ Minimal command - see --help for many more options
 
 **Note:** Use the `inner_hash` from step 3 as your `--rewards-inner-hash`. The node will derive your wormhole address and log it on startup.
 
-**Note on the authoring freshness gate:** a validator refuses to mine until it has seen its best block be at most `--max-tip-age` seconds old (default 24 hours), so a node that is still syncing does not waste work on stale tips. Genesis has no block timestamp and therefore remains gated. To bootstrap a brand-new network, start the intended bootstrap validator with `--force-authoring`; once block 1 exists and peers are connected, restart it without that flag. Never use this override merely to join an established network. It is also the manual recovery option if the entire network has been stalled longer than the tip-age limit.
-
 ### Windows Setup
 
 The native Windows MSVC build (`quantus-node-*-x86_64-pc-windows-msvc.zip`) works on Windows 10/11, but requires two pieces of one-time setup before a full sync will complete.

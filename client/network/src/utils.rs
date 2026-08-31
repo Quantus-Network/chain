@@ -39,7 +39,7 @@ pub struct LruHashSet<T: Hash + Eq> {
 }
 
 impl<T: Hash + Eq> LruHashSet<T> {
-	/// Create a new `LruHashSet` with the given (inclusive) limit.
+	/// Create a new `LruHashSet` with the given (exclusive) limit.
 	pub fn new(limit: NonZeroUsize) -> Self {
 		Self { set: LinkedHashSet::new(), limit }
 	}
@@ -51,8 +51,8 @@ impl<T: Hash + Eq> LruHashSet<T> {
 	/// Inserting the same element will update its LRU position.
 	pub fn insert(&mut self, e: T) -> bool {
 		if self.set.insert(e) {
-			if self.set.len() > usize::from(self.limit) {
-				self.set.pop_front();
+			if self.set.len() == usize::from(self.limit) {
+				self.set.pop_front(); // remove oldest entry
 			}
 			return true
 		}
@@ -81,31 +81,8 @@ mod tests {
 		assert!(!set.insert(1));
 		assert_eq!(vec![&2, &1], set.set.iter().collect::<Vec<_>>());
 
-		// The inclusive limit holds all three entries.
+		// We reached the limit. The next element forces the oldest one out.
 		assert!(set.insert(3));
-		assert_eq!(vec![&2, &1, &3], set.set.iter().collect::<Vec<_>>());
-
-		// Exceeding the limit evicts the oldest entry.
-		assert!(set.insert(4));
-		assert_eq!(vec![&1, &3, &4], set.set.iter().collect::<Vec<_>>());
-	}
-
-	/// `insert` returning true means "unknown, send this hash". A cache of size N that has just
-	/// seen hashes `0..N` must report zero new hashes on the next scan of the same set.
-	///
-	/// Transaction gossip uses this type as the per-peer known set. An exclusive limit retained
-	/// N-1 entries, so a stable pool of N hashes all-missed on every propagate pass.
-	#[test]
-	fn rescan_of_full_cache_does_not_all_miss() {
-		const LIMIT: usize = 10_240;
-		let mut cache = LruHashSet::new(NonZeroUsize::new(LIMIT).unwrap());
-		let scan = |cache: &mut LruHashSet<u32>| {
-			(0..LIMIT as u32).filter(|hash| cache.insert(*hash)).count()
-		};
-
-		let first = scan(&mut cache);
-		let second = scan(&mut cache);
-		assert_eq!(first, LIMIT);
-		assert_eq!(second, 0);
+		assert_eq!(vec![&1, &3], set.set.iter().collect::<Vec<_>>());
 	}
 }

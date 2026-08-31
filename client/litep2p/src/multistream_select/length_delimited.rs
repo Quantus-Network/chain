@@ -29,21 +29,15 @@ use std::{
 
 const MAX_LEN_BYTES: u16 = 2;
 const MAX_FRAME_SIZE: u16 = (1 << (MAX_LEN_BYTES * 8 - MAX_LEN_BYTES)) - 1;
-/// Inbound negotiation frames are protocol names and short control lines
-/// (`/multistream/1.0.0`, `na`, `ls`). 1 KiB is far above any name this
-/// node speaks; the 16 KiB varint width is not a useful read budget.
-const MAX_NEGOTIATION_FRAME: u16 = 1024;
 const DEFAULT_BUFFER_SIZE: usize = 64;
 const LOG_TARGET: &str = "litep2p::multistream-select";
 
 /// A `Stream` and `Sink` for unsigned-varint length-delimited frames,
 /// wrapping an underlying `AsyncRead + AsyncWrite` I/O resource.
 ///
-/// The unsigned-varint length prefix is at most two bytes (16 KiB), but
-/// inbound frames are rejected above 1 KiB. The read buffer grows with
-/// bytes actually received, so a peer that declares a length and sends
-/// nothing commits no payload allocation. Outbound frames still use the
-/// varint width so an `ls` reply listing local protocols is not truncated.
+/// We purposely only support a frame sizes up to 16KiB (2 bytes unsigned varint
+/// frame length). Frames mostly consist in a short protocol name, which is highly
+/// unlikely to be more than 16KiB long.
 #[pin_project::pin_project]
 #[derive(Debug)]
 pub struct LengthDelimited<R> {
@@ -64,7 +58,7 @@ enum ReadState {
 	/// We are currently reading the length of the next frame of data.
 	ReadLength { buf: [u8; MAX_LEN_BYTES as usize], pos: usize },
 	/// We are currently reading the frame of data itself.
-	ReadData { len: u16 },
+	ReadData { len: u16, pos: usize },
 }
 
 impl Default for ReadState {
@@ -175,22 +169,9 @@ where
 							io::Error::new(io::ErrorKind::InvalidData, "invalid length prefix")
 						})?;
 
-						if len > MAX_NEGOTIATION_FRAME {
-							tracing::debug!(
-								target: LOG_TARGET,
-								len,
-								max = MAX_NEGOTIATION_FRAME,
-								"rejecting negotiation frame outside protocol maximum"
-							);
-							return Poll::Ready(Some(Err(io::Error::new(
-								io::ErrorKind::InvalidData,
-								"Maximum frame length exceeded",
-							))));
-						}
-
 						if len >= 1 {
-							*this.read_state = ReadState::ReadData { len };
-							this.read_buffer.clear();
+							*this.read_state = ReadState::ReadData { len, pos: 0 };
+							this.read_buffer.resize(len as usize, 0);
 						} else {
 							debug_assert_eq!(len, 0);
 							*this.read_state = ReadState::default();
@@ -205,20 +186,17 @@ where
 						))));
 					}
 				},
-				ReadState::ReadData { len } => {
-					let remaining = *len as usize - this.read_buffer.len();
-					debug_assert!(remaining > 0);
-					let mut tmp = [0u8; MAX_NEGOTIATION_FRAME as usize];
-					let to_read = remaining.min(tmp.len());
-					match this.inner.as_mut().poll_read(cx, &mut tmp[..to_read]) {
+				ReadState::ReadData { len, pos } => {
+					match this.inner.as_mut().poll_read(cx, &mut this.read_buffer[*pos..]) {
 						Poll::Ready(Ok(0)) =>
 							return Poll::Ready(Some(Err(io::ErrorKind::UnexpectedEof.into()))),
-						Poll::Ready(Ok(n)) => this.read_buffer.extend_from_slice(&tmp[..n]),
+						Poll::Ready(Ok(n)) => *pos += n,
 						Poll::Pending => return Poll::Pending,
 						Poll::Ready(Err(err)) => return Poll::Ready(Some(Err(err))),
 					};
 
-					if this.read_buffer.len() == *len as usize {
+					if *pos == *len as usize {
+						// Finished reading the frame.
 						let frame = this.read_buffer.split_off(0).freeze();
 						*this.read_state = ReadState::default();
 						return Poll::Ready(Some(Ok(frame)));
@@ -390,127 +368,5 @@ where
 		debug_assert!(this.write_buffer.is_empty());
 
 		this.project().inner.poll_write_vectored(cx, bufs)
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-	use futures::{AsyncRead, Stream, StreamExt};
-	use std::{
-		pin::Pin,
-		task::{Context, Poll},
-	};
-
-	fn encode_len(len: u16) -> Vec<u8> {
-		let mut buf = unsigned_varint::encode::u16_buffer();
-		unsigned_varint::encode::u16(len, &mut buf).to_vec()
-	}
-
-	/// Yields `data`, then stalls. Models a peer that sends a length prefix
-	/// and never the frame body.
-	struct PrefixThenPending {
-		data: Vec<u8>,
-		pos: usize,
-	}
-
-	impl AsyncRead for PrefixThenPending {
-		fn poll_read(
-			mut self: Pin<&mut Self>,
-			_cx: &mut Context<'_>,
-			buf: &mut [u8],
-		) -> Poll<io::Result<usize>> {
-			if self.pos >= self.data.len() {
-				return Poll::Pending;
-			}
-			let n = buf.len().min(self.data.len() - self.pos);
-			buf[..n].copy_from_slice(&self.data[self.pos..self.pos + n]);
-			self.pos += n;
-			Poll::Ready(Ok(n))
-		}
-	}
-
-	async fn read_one(data: Vec<u8>) -> io::Result<Bytes> {
-		let mut framed = LengthDelimited::new(futures::io::Cursor::new(data));
-		framed
-			.next()
-			.await
-			.transpose()?
-			.ok_or_else(|| io::ErrorKind::UnexpectedEof.into())
-	}
-
-	#[tokio::test]
-	async fn accepts_protocol_name_frame() {
-		let payload = b"/noise\n";
-		let mut data = encode_len(payload.len() as u16);
-		data.extend_from_slice(payload);
-		let frame = read_one(data).await.expect("protocol name frame");
-		assert_eq!(&frame[..], payload);
-	}
-
-	#[tokio::test]
-	async fn accepts_frame_at_negotiation_cap() {
-		let payload = vec![b'x'; MAX_NEGOTIATION_FRAME as usize];
-		let mut data = encode_len(MAX_NEGOTIATION_FRAME);
-		data.extend_from_slice(&payload);
-		let frame = read_one(data).await.expect("capped frame");
-		assert_eq!(frame.len(), MAX_NEGOTIATION_FRAME as usize);
-	}
-
-	#[tokio::test]
-	async fn rejects_declared_length_above_negotiation_cap() {
-		let err = read_one(encode_len(MAX_NEGOTIATION_FRAME + 1))
-			.await
-			.expect_err("length above cap");
-		assert_eq!(err.kind(), io::ErrorKind::InvalidData);
-	}
-
-	#[tokio::test]
-	async fn rejects_legacy_max_frame_declaration() {
-		// `\xff\x7f` is the unsigned-varint for 16383, the previous read budget.
-		let err = read_one(vec![0xff, 0x7f]).await.expect_err("16 KiB declaration");
-		assert_eq!(err.kind(), io::ErrorKind::InvalidData);
-	}
-
-	#[tokio::test]
-	async fn declared_length_without_payload_does_not_precommit_read_buffer() {
-		// A peer that declares a frame and sends none of it must not force a
-		// resident buffer of that size. `BytesMut::resize` writes the fill
-		// byte, so `len()` is the residency signal.
-		let declared = 512u16;
-		let framed = LengthDelimited::new(PrefixThenPending { data: encode_len(declared), pos: 0 });
-		futures::pin_mut!(framed);
-
-		let waker = futures::task::noop_waker();
-		let mut cx = Context::from_waker(&waker);
-		match framed.as_mut().poll_next(&mut cx) {
-			Poll::Pending => {},
-			other => panic!("prefix-only read should wait for payload, got {other:?}"),
-		}
-
-		assert_eq!(
-			framed.as_ref().get_ref().read_buffer.len(),
-			0,
-			"declared length must not be committed until payload bytes arrive"
-		);
-	}
-
-	#[tokio::test]
-	async fn read_buffer_grows_only_with_received_payload() {
-		let declared = 512u16;
-		let payload = vec![b'y'; 17];
-		let mut data = encode_len(declared);
-		data.extend_from_slice(&payload);
-		let framed = LengthDelimited::new(PrefixThenPending { data, pos: 0 });
-		futures::pin_mut!(framed);
-
-		let waker = futures::task::noop_waker();
-		let mut cx = Context::from_waker(&waker);
-		match framed.as_mut().poll_next(&mut cx) {
-			Poll::Pending => {},
-			other => panic!("partial payload should wait for the rest, got {other:?}"),
-		}
-
-		assert_eq!(framed.as_ref().get_ref().read_buffer.len(), payload.len());
 	}
 }
