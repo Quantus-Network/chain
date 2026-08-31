@@ -1339,6 +1339,7 @@ mod fixture_gen {
 				exit_account_2: BytesDigest::default(),
 				block_hash,
 				block_number,
+				input_amount,
 			},
 			private: PrivateCircuitInputs {
 				secret: secret.into(),
@@ -1348,7 +1349,6 @@ mod fixture_gen {
 				state_root: BytesDigest::new_unchecked(state_root),
 				extrinsics_root: BytesDigest::new_unchecked(extrinsics_root),
 				digest,
-				input_amount,
 				zk_tree_root,
 				zk_merkle_siblings: vec![],
 				zk_merkle_positions: vec![],
