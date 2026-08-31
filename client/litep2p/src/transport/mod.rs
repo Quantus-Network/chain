@@ -26,7 +26,7 @@ use futures::{future::BoxFuture, Stream};
 use hickory_resolver::TokioResolver;
 use multiaddr::Multiaddr;
 
-use std::{fmt::Debug, sync::Arc, time::Duration};
+use std::{fmt::Debug, net::IpAddr, sync::Arc, time::Duration};
 
 pub(crate) mod common;
 pub mod tcp;
@@ -127,6 +127,17 @@ pub(crate) enum TransportEvent {
 	},
 
 	PendingInboundConnection {
+		/// Connection ID.
+		connection_id: ConnectionId,
+		/// Remote IP used for per-source inbound limits.
+		address: IpAddr,
+	},
+
+	/// Inbound connection failed during handshake (noise/multistream).
+	///
+	/// The connection was counted against pending inbound limits and must be
+	/// released by the transport manager.
+	InboundConnectionFailed {
 		/// Connection ID.
 		connection_id: ConnectionId,
 	},

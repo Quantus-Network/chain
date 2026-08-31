@@ -725,6 +725,163 @@ fn cancel_releases_funds_when_scheduled_task_already_gone() {
 	});
 }
 
+/// Auto-execution uses `transfer_allow_death`, so a sender who spends their leftover
+/// free balance during the delay still completes: the held amount is delivered even
+/// if that reaps the sender. `transfer_keep_alive` would have failed this path.
+#[test]
+fn allow_death_completes_transfer_when_sender_would_go_below_ed() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let sender = charlie();
+		let recipient = dave();
+		let leftover_sink = eve();
+		let amount = 10_000u128;
+		let delay = BlockNumberOrTimestamp::BlockNumber(5);
+
+		let initial_recipient = Balances::free_balance(&recipient);
+		let call = transfer_call(recipient.clone(), amount);
+		let tx_id = calculate_tx_id::<Test>(sender.clone(), &call);
+		let execute_block = BlockNumberOrTimestamp::BlockNumber(System::block_number())
+			.saturating_add(&delay)
+			.unwrap();
+
+		assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+			RuntimeOrigin::signed(sender.clone()),
+			recipient.clone(),
+			amount,
+			delay,
+		));
+		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
+		assert_eq!(
+			Balances::balance_on_hold(
+				&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+				&sender
+			),
+			amount
+		);
+		assert!(!Agenda::<Test>::get(execute_block).is_empty());
+
+		// Spend leftover free balance during the delay. `transfer_all` cannot take the
+		// last ED while a hold keeps the account alive; write the last unit directly
+		// so execute would drop the sender below ED.
+		assert_ok!(Balances::transfer_all(
+			RuntimeOrigin::signed(sender.clone()),
+			leftover_sink,
+			false,
+		));
+		frame_system::Account::<Test>::mutate(&sender, |info| {
+			info.data.free = 0;
+		});
+		assert_eq!(Balances::free_balance(&sender), 0);
+
+		run_to_block(execute_block.as_block_number().unwrap());
+
+		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
+		assert_eq!(
+			Balances::balance_on_hold(
+				&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+				&sender
+			),
+			0
+		);
+		assert_eq!(Balances::free_balance(&sender), 0);
+		assert_eq!(Balances::free_balance(&recipient), initial_recipient + amount);
+		assert_eq!(Agenda::<Test>::get(execute_block).len(), 0);
+		System::assert_has_event(
+			Event::TransactionExecuted { tx_id, result: Ok(().into()) }.into(),
+		);
+	});
+}
+
+/// Auto-execution must not freeze funds when the inner transfer still fails
+/// (`allow_death` is not infallible: dest overflow, dust to a new account, …).
+///
+/// FRAME wraps every dispatchable in `with_storage_layer`, and Scheduler treats any
+/// outcome as terminal when no retry is configured. If `do_execute_transfer` returns
+/// the inner `Err`, the hold release and pending-transfer removal roll back while
+/// the named task is permanently dropped — leaving funds held with no scheduled
+/// execution. The hold and bookkeeping must commit independently of the inner
+/// transfer, and the failure must stay visible as `TransactionExecuted { Err }`.
+#[test]
+fn failed_inner_transfer_does_not_leave_funds_held_after_scheduler_drops_task() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let sender = charlie();
+		let recipient = dave();
+		let amount = 10_000u128;
+		let delay = BlockNumberOrTimestamp::BlockNumber(5);
+
+		let initial_sender = Balances::free_balance(&sender);
+		let call = transfer_call(recipient.clone(), amount);
+		let tx_id = calculate_tx_id::<Test>(sender.clone(), &call);
+		let execute_block = BlockNumberOrTimestamp::BlockNumber(System::block_number())
+			.saturating_add(&delay)
+			.unwrap();
+
+		assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+			RuntimeOrigin::signed(sender.clone()),
+			recipient.clone(),
+			amount,
+			delay,
+		));
+		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
+		assert!(!Agenda::<Test>::get(execute_block).is_empty());
+
+		// Overflow the recipient so `transfer_allow_death` fails after the hold is
+		// released. The mock ED is 1, so the real-runtime "dust to a new account"
+		// trigger is unreachable here.
+		let _ = <Balances as frame_support::traits::Currency<_>>::make_free_balance_be(
+			&recipient,
+			u128::MAX,
+		);
+
+		run_to_block(execute_block.as_block_number().unwrap());
+
+		assert!(
+			ReversibleTransfers::pending_dispatches(tx_id).is_none(),
+			"failed auto-execution must clear the pending transfer, not leave it stuck"
+		);
+		assert_eq!(
+			Balances::balance_on_hold(
+				&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+				&sender
+			),
+			0,
+			"held funds must be released when the inner transfer fails"
+		);
+		assert_eq!(
+			Balances::free_balance(&sender),
+			initial_sender,
+			"released hold must return to the sender when the transfer does not complete"
+		);
+		assert_eq!(Balances::free_balance(&recipient), u128::MAX);
+		assert_eq!(
+			Agenda::<Test>::get(execute_block).len(),
+			0,
+			"scheduler must drop the named task after dispatch (no retry is configured)"
+		);
+
+		let executed_with_error = System::events().iter().any(|rec| {
+			matches!(
+				&rec.event,
+				RuntimeEvent::ReversibleTransfers(Event::TransactionExecuted {
+					tx_id: tid,
+					result: Err(_),
+				}) if *tid == tx_id
+			)
+		});
+		assert!(
+			executed_with_error,
+			"failed auto-execution must emit TransactionExecuted with Err"
+		);
+
+		assert_err!(
+			ReversibleTransfers::cancel(RuntimeOrigin::signed(sender), tx_id),
+			Error::<Test>::PendingTxNotFound
+		);
+	});
+}
+
 /// A one-time schedule freezes *cancel* authority in `pending.guardian` (= sender).
 /// Later `set_high_security` must not rewrite that: the owner keeps full-refund cancel
 /// rights, and the new guardian must not be able to cancel/seize via `cancel`.
@@ -966,7 +1123,8 @@ fn full_flow_execute_works() {
 		));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
 		assert!(!Agenda::<Test>::get(execute_block).is_empty());
-		assert_eq!(Balances::free_balance(&user), initial_user_balance - 50); // Not executed yet, but on hold
+		// Not executed yet, but on hold
+		assert_eq!(Balances::free_balance(&user), initial_user_balance - 50);
 
 		run_to_block(execute_block.as_block_number().unwrap());
 
@@ -1524,220 +1682,22 @@ fn schedule_transfer_with_timestamp_delay_executes_correctly() {
 	});
 }
 
+/// There is deliberately no on-chain guardian index: a guardian can protect
+/// any number of accounts, so a stranger cannot exhaust a popular guardian's
+/// capacity with unwanted enrollments. Discovery of "which accounts do I
+/// guard?" is offchain (Subsquid) via `HighSecuritySet` events.
 #[test]
-fn guardian_index_works_with_guardian() {
+fn guardian_capacity_is_unbounded() {
 	new_test_ext().execute_with(|| {
-		let reversible_account = account_id(100);
-		let guardian = account_id(101);
+		let guardian = account_id(99);
 		let delay = BlockNumberOrTimestamp::BlockNumber(10);
-
-		// Initially, guardian should have empty list
-		assert_eq!(ReversibleTransfers::guardian_index(&guardian).len(), 0);
-
-		// Set up reversibility with explicit reverser
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(reversible_account.clone()),
-			delay,
-			guardian.clone(),
-		));
-
-		// Verify guardian index is updated
-		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
-		assert_eq!(guardian_accounts.len(), 1);
-		assert_eq!(guardian_accounts[0], reversible_account.clone());
-
-		// Verify account has correct reversibility data
-		assert_eq!(
-			ReversibleTransfers::is_high_security(&reversible_account),
-			Some(HighSecurityAccountData { delay, guardian: guardian.clone() })
-		);
-	});
-}
-
-#[test]
-fn guardian_index_handles_multiple_accounts() {
-	new_test_ext().execute_with(|| {
-		let guardian = account_id(100);
-		let account1 = account_id(101);
-		let account2 = account_id(102);
-		let account3 = account_id(103);
-		let delay = BlockNumberOrTimestamp::BlockNumber(10);
-
-		// Set up multiple accounts with same guardian
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(account1.clone()),
-			delay,
-			guardian.clone(),
-		));
-
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(account2.clone()),
-			delay,
-			guardian.clone(),
-		));
-
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(account3.clone()),
-			delay,
-			guardian.clone(),
-		));
-
-		// Verify guardian index contains all accounts
-		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
-		assert_eq!(guardian_accounts.len(), 3);
-		assert!(guardian_accounts.contains(&account1));
-		assert!(guardian_accounts.contains(&account2));
-		assert!(guardian_accounts.contains(&account3));
-	});
-}
-
-#[test]
-fn guardian_index_prevents_duplicates() {
-	new_test_ext().execute_with(|| {
-		let reversible_account = account_id(100);
-		let guardian = account_id(101);
-		let delay = BlockNumberOrTimestamp::BlockNumber(10);
-
-		// Set up reversibility with explicit reverser
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(reversible_account.clone()),
-			delay,
-			guardian.clone(),
-		));
-
-		// Verify initial state
-		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
-		assert_eq!(guardian_accounts.len(), 1);
-		assert_eq!(guardian_accounts[0], reversible_account.clone());
-
-		// Try to add the same account again (this should fail due to AccountAlreadyReversible)
-		assert_err!(
-			ReversibleTransfers::set_high_security(
-				RuntimeOrigin::signed(reversible_account.clone()),
-				delay,
-				guardian.clone(),
-			),
-			Error::<Test>::AccountAlreadyHighSecurity
-		);
-
-		// Verify no duplicates in guardian index
-		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
-		assert_eq!(guardian_accounts.len(), 1);
-	});
-}
-
-#[test]
-fn guardian_index_respects_max_limit() {
-	new_test_ext().execute_with(|| {
-		let guardian = account_id(100);
-		let delay = BlockNumberOrTimestamp::BlockNumber(10);
-
-		// Add accounts up to the limit (MaxGuardianAccounts = 10 in mock)
-		for i in 101..=110 {
+		for i in 100..150 {
 			assert_ok!(ReversibleTransfers::set_high_security(
 				RuntimeOrigin::signed(account_id(i)),
 				delay,
 				guardian.clone(),
 			));
 		}
-
-		// Verify we have the maximum number of accounts
-		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
-		assert_eq!(guardian_accounts.len(), 10);
-
-		// Try to add one more account - should fail
-		assert_err!(
-			ReversibleTransfers::set_high_security(
-				RuntimeOrigin::signed(account_id(111)),
-				delay,
-				guardian.clone(),
-			),
-			Error::<Test>::TooManyGuardianAccounts
-		);
-
-		// Verify count didn't change
-		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
-		assert_eq!(guardian_accounts.len(), 10);
-	});
-}
-
-#[test]
-fn guardian_index_empty_for_non_guardians() {
-	new_test_ext().execute_with(|| {
-		let non_guardian = account_id(100);
-		let reversible_account = account_id(101);
-		let delay = BlockNumberOrTimestamp::BlockNumber(10);
-
-		// Set up account without explicit reverser
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(reversible_account.clone()),
-			delay,
-			account_id(201),
-		));
-
-		// Verify non-guardian has empty list
-		assert_eq!(ReversibleTransfers::guardian_index(&non_guardian).len(), 0);
-		assert_eq!(ReversibleTransfers::guardian_index(&reversible_account).len(), 0);
-	});
-}
-
-#[test]
-fn guardian_index_different_guardians_separate_lists() {
-	new_test_ext().execute_with(|| {
-		let guardian1 = account_id(101);
-		let guardian2 = account_id(102);
-		let account1 = account_id(102);
-		let account2 = account_id(103);
-		let delay = BlockNumberOrTimestamp::BlockNumber(10);
-
-		// Set up accounts with different guardians
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(account1.clone()),
-			delay,
-			guardian1.clone(),
-		));
-
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(account2.clone()),
-			delay,
-			guardian2.clone(),
-		));
-
-		// Verify each guardian has their own separate list
-		let guardian1_accounts = ReversibleTransfers::guardian_index(&guardian1);
-		assert_eq!(guardian1_accounts.len(), 1);
-		assert_eq!(guardian1_accounts[0], account1);
-
-		let guardian2_accounts = ReversibleTransfers::guardian_index(&guardian2);
-		assert_eq!(guardian2_accounts.len(), 1);
-		assert_eq!(guardian2_accounts[0], account2);
-	});
-}
-
-#[test]
-fn guardian_index_works_with_policy() {
-	new_test_ext().execute_with(|| {
-		let reversible_account = account_id(100);
-		let guardian = account_id(101);
-		let delay = BlockNumberOrTimestamp::BlockNumber(10);
-
-		// Set up reversibility with Intercept policy and explicit reverser
-		assert_ok!(ReversibleTransfers::set_high_security(
-			RuntimeOrigin::signed(reversible_account.clone()),
-			delay,
-			guardian.clone(),
-		));
-
-		// Verify guardian index is updated regardless of policy
-		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
-		assert_eq!(guardian_accounts.len(), 1);
-		assert_eq!(guardian_accounts[0], reversible_account.clone());
-
-		// Verify account has correct policy
-		assert_eq!(
-			ReversibleTransfers::is_high_security(&reversible_account),
-			Some(HighSecurityAccountData { delay, guardian: guardian.clone() })
-		);
 	});
 }
 
@@ -1769,8 +1729,8 @@ fn next_transaction_id_increments_correctly() {
 		let tx_id = ReversibleTransfers::next_transaction_id();
 		assert_eq!(tx_id, 1);
 
-		// batch call should have all unique tx ids and increment counter
-		assert_ok!(Utility::batch(
+		// batch_all call should have all unique tx ids and increment counter
+		assert_ok!(Utility::batch_all(
 			RuntimeOrigin::signed(reversible_account.clone()),
 			vec![
 				ReversibleTransfersCall::schedule_transfer { dest: receiver.clone(), amount }
@@ -1837,6 +1797,41 @@ fn reversible_transfer_records_transfer_proof_on_execution() {
 }
 
 #[test]
+fn self_directed_scheduled_transfer_does_not_record_proof() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		MockProofRecorder::clear();
+
+		let user = charlie();
+		let amount = 50;
+		let delay = BlockNumberOrTimestamp::BlockNumber(10);
+		let start_block = BlockNumberOrTimestamp::BlockNumber(System::block_number());
+		let execute_block = start_block.saturating_add(&delay).unwrap();
+		let free_before = Balances::free_balance(&user);
+
+		assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+			RuntimeOrigin::signed(user.clone()),
+			user.clone(),
+			amount,
+			delay,
+		));
+		assert!(MockProofRecorder::get_recorded_proofs().is_empty());
+
+		run_to_block(execute_block.as_block_number().unwrap());
+
+		assert!(
+			MockProofRecorder::get_recorded_proofs().is_empty(),
+			"a self-directed execution moves no value and must not record a proof"
+		);
+		assert_eq!(
+			Balances::free_balance(&user),
+			free_before,
+			"a self-directed execution must restore the sender's free balance"
+		);
+	});
+}
+
+#[test]
 fn cancelled_reversible_transfer_does_not_record_proof() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
@@ -1862,6 +1857,33 @@ fn cancelled_reversible_transfer_does_not_record_proof() {
 		assert!(
 			MockProofRecorder::get_recorded_proofs().is_empty(),
 			"Cancelled transfer should not record any proof"
+		);
+	});
+}
+
+#[test]
+fn owner_cancel_of_one_time_schedule_does_not_record_proof() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		MockProofRecorder::clear();
+
+		let user = charlie();
+		let dest = dave();
+		let amount = 50;
+		let call = transfer_call(dest.clone(), amount);
+		let tx_id = calculate_tx_id::<Test>(user.clone(), &call);
+
+		assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+			RuntimeOrigin::signed(user.clone()),
+			dest,
+			amount,
+			BlockNumberOrTimestamp::BlockNumber(5),
+		));
+		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(user), tx_id));
+
+		assert!(
+			MockProofRecorder::get_recorded_proofs().is_empty(),
+			"owner cancel must not record via ProofRecorder; the runtime scanner is the only recorder, and a self-release is not a credit"
 		);
 	});
 }

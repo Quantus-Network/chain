@@ -112,15 +112,16 @@ pub struct FullDeps<C, P> {
 /// policy (not a module-level gate). Classify each merged method as:
 /// - **Unsafe**: call `sc_rpc_api::check_if_safe(ext)` first (e.g. [`Peer::get_network_info`],
 ///   `system_dryRun`).
-/// - **Safe**: public data with bounded per-request work (e.g. zkTree proof-window guard, TxWatch's
-///   fixed broadcast capacity).
+/// - **Safe**: public data with bounded per-request work (e.g. zkTree proof-window guard, including
+///   the `state_call` and `archive_v1_call` replacements for `ZkTreeApi_get_merkle_proof`,
+///   TxWatch's fixed broadcast capacity).
 pub fn create_full<C, P>(
 	deps: FullDeps<C, P>,
 ) -> Result<RpcModule<()>, Box<dyn std::error::Error + Send + Sync>>
 where
 	C: ProvideRuntimeApi<Block>,
 	C: HeaderBackend<Block> + HeaderMetadata<Block, Error = BlockChainError> + 'static,
-	C: Send + Sync + 'static,
+	C: sc_client_api::ExecutorProvider<Block> + Send + Sync + 'static,
 	C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
 	C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
 	C::Api: sp_consensus_qpow::QPoWApi<Block>,
@@ -130,7 +131,10 @@ where
 {
 	use crate::{
 		txwatch::{TxWatch, TxWatchApiServer},
-		zktree_rpc::{ZkTree, ZkTreeApiServer},
+		zktree_rpc::{
+			ArchiveCallApiServer, GatedArchiveCall, GatedStateCall, StateCallApiServer, ZkTree,
+			ZkTreeApiServer,
+		},
 	};
 	use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
 	use substrate_frame_rpc_system::{System, SystemApiServer};
@@ -142,6 +146,8 @@ where
 	module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
 	module.merge(Peer::new(network).into_rpc())?;
 	module.merge(TxWatch::new(pool).into_rpc())?;
+	module.merge(GatedStateCall::new(client.clone()).into_rpc())?;
+	module.merge(GatedArchiveCall::new(client.clone()).into_rpc())?;
 	module.merge(ZkTree::new(client).into_rpc())?;
 
 	Ok(module)

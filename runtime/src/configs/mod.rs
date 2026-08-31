@@ -39,8 +39,7 @@ use frame_support::{
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
-		IdentityFee, Weight, WeightToFeeCoefficient, WeightToFeeCoefficients,
-		WeightToFeePolynomial,
+		Weight, WeightToFeeCoefficient, WeightToFeeCoefficients, WeightToFeePolynomial,
 	},
 	PalletId,
 };
@@ -49,23 +48,23 @@ use frame_system::{
 	EnsureRoot, EnsureRootWithSuccess,
 };
 use pallet_ranked_collective::Linear;
-use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
+use pallet_transaction_payment::{ConstFeeMultiplier, Multiplier};
 use smallvec::smallvec;
 
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
 	traits::{BlakeTwo256, One},
-	AccountId32, Perbill, Permill,
+	AccountId32, MultiAddress, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
-	AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
-	PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
+	scale_fee, AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash, Nonce,
+	OriginCaller, PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
 	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Wormhole, ZkTree,
-	DAYS, EXISTENTIAL_DEPOSIT, MAX_SUPPLY, MICRO_UNIT, MILLIS_PER_DAY, TARGET_BLOCK_TIME_MS, UNIT,
-	VERSION,
+	DAYS, EXISTENTIAL_DEPOSIT, FEE_SCALE_DEN, FEE_SCALE_NUM, MAX_SUPPLY, MICRO_UNIT,
+	MILLIS_PER_DAY, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
 use sp_core::U512;
 
@@ -142,7 +141,6 @@ impl pallet_mining_rewards::Config for Runtime {
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
 	type MaxSupply = ConstU128<{ MAX_SUPPLY }>;
 	type EmissionDivisor = ConstU128<15_163_560>; // Divide remaining supply by this amount
-	type Treasury = pallet_treasury::Pallet<Runtime>;
 	type MintingAccount = MintingAccount;
 	type Unit = MiningUnit;
 }
@@ -249,7 +247,7 @@ parameter_types! {
 	// `unnote`. 64 KiB is ample for any tech-collective call.
 	pub const MaxReferendaProposalSize: u32 = 64 * 1024;
 	// Submission deposit for referenda
-	pub const ReferendumSubmissionDeposit: Balance = 100 * UNIT;
+	pub const ReferendumSubmissionDeposit: Balance = scale_fee(100 * UNIT);
 	// Undeciding timeout (45 days): a submitted referendum that is NOT in the track queue —
 	// e.g. one that never received a decision deposit — is rejected as TimedOut after this
 	// long. Referenda that ARE queued for deciding are exempt: the timeout check
@@ -370,7 +368,7 @@ impl pallet_scheduler::Config for Runtime {
 // Fee Structure:
 // - **Compute (ref_time):** 1 balance unit per unit of ref_time
 //   - 1 second of compute ≈ 1 UNIT (since WEIGHT_REF_TIME_PER_SECOND = 10^12)
-//   - Uses `IdentityFee<Balance>` for direct 1:1 mapping
+//   - Uses `ScaledIdentityFee`: direct 1:1 mapping × `FEE_SCALE`
 //
 // - **Extrinsic Length:** 1 UNIT per megabyte (LENGTH_FEE_MULTIPLIER = 10^6)
 //   - This brings storage/bandwidth costs in line with compute costs
@@ -384,11 +382,12 @@ impl pallet_scheduler::Config for Runtime {
 //
 // Fee Destination:
 // - 100% of transaction fees go to the block miner
-// - Block rewards are split: 70% miner, 30% treasury
+// - Block rewards go 100% to the miner (quantized to the wormhole leaf quantum; any sub-quantum
+//   remainder stays in CollectedFees for the next miner)
 //
 // Spam Prevention:
 // - Existential deposit: 0.001 UNIT
-// - Various pallet-specific deposits (multisig, governance, recovery, etc.)
+// - Various pallet-specific deposits (multisig, governance, etc.)
 // - Miners can reject transactions below their minimum fee threshold
 //
 // ============================================================================
@@ -461,12 +460,35 @@ impl WeightToFeePolynomial for LengthToFeeMultiplier {
 	type Balance = Balance;
 
 	fn polynomial() -> WeightToFeeCoefficients<Self::Balance> {
-		smallvec![WeightToFeeCoefficient {
-			degree: 1,
-			negative: false,
-			coeff_frac: Perbill::zero(),
-			coeff_integer: LENGTH_FEE_MULTIPLIER,
-		}]
+		smallvec![fee_scaled_coeff(LENGTH_FEE_MULTIPLIER)]
+	}
+}
+
+/// Degree-1 coefficient of `base × FEE_SCALE`, split into integer and fractional
+/// parts so fractional scales (`FEE_SCALE_DEN > 1`) keep precision.
+// modulo_one/identity_op fire only while FEE_SCALE is 1/1, where `% DEN` and
+// `/ DEN` constant-fold to no-ops; the split is load-bearing for any other DEN.
+#[allow(clippy::modulo_one, clippy::identity_op)]
+fn fee_scaled_coeff(base: Balance) -> WeightToFeeCoefficient<Balance> {
+	let num = base * FEE_SCALE_NUM;
+	WeightToFeeCoefficient {
+		degree: 1,
+		negative: false,
+		coeff_integer: num / FEE_SCALE_DEN,
+		coeff_frac: Perbill::from_rational(num % FEE_SCALE_DEN, FEE_SCALE_DEN),
+	}
+}
+
+/// `IdentityFee` (1 planck per ps of ref_time) scaled by `FEE_SCALE`. Applied by
+/// `pallet_transaction_payment` to both the base fee and the weight fee, so the
+/// dial moves them together.
+pub struct ScaledIdentityFee;
+
+impl WeightToFeePolynomial for ScaledIdentityFee {
+	type Balance = Balance;
+
+	fn polynomial() -> WeightToFeeCoefficients<Self::Balance> {
+		smallvec![fee_scaled_coeff(1)]
 	}
 }
 
@@ -476,48 +498,28 @@ parameter_types! {
 
 impl pallet_transaction_payment::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type OnChargeTransaction =
-		FungibleAdapter<Balances, pallet_mining_rewards::TransactionFeesCollector<Runtime>>;
-	/// Converts compute weight (ref_time) to fee. Uses identity (1:1) mapping,
-	/// so 1 second of compute costs approximately 1 UNIT.
-	type WeightToFee = IdentityFee<Balance>;
+	// Wraps `FungibleAdapter<Balances, TransactionFeesCollector>` and rejects
+	// any non-zero tip from a high-security signer. Enforced here rather than
+	// in the extension tuple so no `TxExtension` refactor can silently reopen
+	// the tip channel.
+	type OnChargeTransaction = crate::transaction_extensions::HighSecurityFungibleAdapter;
+	/// Converts compute weight (ref_time) to fee. Identity (1:1) mapping scaled
+	/// by `FEE_SCALE`, so 1 second of compute costs approximately `FEE_SCALE` UNIT.
+	type WeightToFee = ScaledIdentityFee;
 	/// Converts extrinsic length to fee. Uses 10^6 multiplier so 1 MB costs ~1 UNIT,
 	/// bringing storage/bandwidth costs in line with compute costs.
 	type LengthToFee = LengthToFeeMultiplier;
 	type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
 	type OperationalFeeMultiplier = ConstU8<5>;
-	type WeightInfo = pallet_transaction_payment::weights::SubstrateWeight<Runtime>;
+	// Stock weights plus the two `HighSecurityAccounts` reads from the tip
+	// policy and the `CollectedFees` read/write from `TransactionFeesCollector`.
+	type WeightInfo = crate::transaction_extensions::PaymentWeightsWithTipPolicy;
 }
 
 impl pallet_utility::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 	type RuntimeEvent = RuntimeEvent;
-	type PalletsOrigin = OriginCaller;
 	type WeightInfo = pallet_utility::weights::SubstrateWeight<Runtime>;
-	type HighSecurity = HighSecurityConfig;
-}
-
-parameter_types! {
-	/// Base deposit for creating a recovery configuration
-	pub const ConfigDepositBase: Balance = 10 * UNIT;
-	/// Deposit required per friend
-	pub const FriendDepositFactor: Balance = UNIT;
-	/// Maximum number of friends allowed in a recovery configuration
-	pub const MaxFriends: u32 = 9;
-	/// Deposit required to initiate a recovery
-	pub const RecoveryDeposit: Balance = 10 * UNIT;
-}
-
-impl pallet_recovery::Config for Runtime {
-	type WeightInfo = pallet_recovery::weights::SubstrateWeight<Runtime>;
-	type RuntimeCall = RuntimeCall;
-	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
-	type ConfigDepositBase = ConfigDepositBase;
-	type FriendDepositFactor = FriendDepositFactor;
-	type MaxFriends = MaxFriends;
-	type RecoveryDeposit = RecoveryDeposit;
-	type BlockNumberProvider = System;
 	type HighSecurity = HighSecurityConfig;
 }
 
@@ -525,11 +527,42 @@ parameter_types! {
 	pub const ReversibleTransfersPalletIdValue: PalletId = PalletId(*b"rtpallet");
 	pub const DefaultDelay: BlockNumberOrTimestamp<BlockNumber, Moment> = BlockNumberOrTimestamp::BlockNumber(DAYS);
 	pub const MinDelayPeriodBlocks: BlockNumber = 2;
-	pub const MaxGuardianAccounts: u32 = 32;
 	pub const MaxPendingPerAccount: u32 = 16;
+	/// Maximum leaf calls in a high-security `batch_all`. Deliberately its own
+	/// constant rather than reusing `MaxPendingPerAccount`: a future bump of
+	/// pending-transfer capacity must not silently widen the maximum fee
+	/// surface of a single high-security extrinsic.
+	pub const MaxHighSecurityBatchLen: u32 = 16;
+	/// Rolling 24h cap on signed extrinsics from a high-security account.
+	pub const MaxHighSecurityTxsPerWindow: u32 = 16;
+	pub const HighSecurityTxWindowBlocks: BlockNumber = DAYS;
 	/// Volume fee for reversed transactions from high-security accounts only (1% fee is burned)
 	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
 }
+
+/// Max encoded bytes of a high-security signer's extrinsic; larger ones are rejected
+/// before any fee is withdrawn, capping the length fee.
+///
+/// The largest legitimate one is a flat `batch_all` of [`MaxHighSecurityBatchLen`]
+/// `schedule_transfer`s (~7.2 KiB Dilithium sig+pubkey + ~0.8 KiB call ≈ 8.1 KiB).
+/// 10 KiB leaves headroom; revisit if that ceiling grows.
+pub const MAX_HIGH_SECURITY_EXTRINSIC_LEN: u32 = 10 * 1024;
+
+/// Max zero-tip inclusion fee of a high-security signer's extrinsic; costlier
+/// ones are rejected before any fee is withdrawn.
+///
+/// Unlike the per-call shape rules (Id-only dest, flat batch, arity, the
+/// length cap above), this bounds the fee itself, so a future whitelisted
+/// call with an unforeseen length or weight surface cannot reopen the
+/// fee-drain channel. The costliest legitimate extrinsic today is
+/// `recover_funds` at ~0.098 UNIT (17 statically charged wormhole proof
+/// reservations); a 16-leaf `batch_all` of `schedule_transfer`s is
+/// ~0.021 UNIT. 1 UNIT gives ~10x headroom for re-benchmarking drift and
+/// caps the worst-case drain at `MaxHighSecurityTxsPerWindow` UNIT per
+/// rolling day. Deterministic: `FeeMultiplierUpdate` is a constant one.
+/// Scaled by `FEE_SCALE` in lockstep with the fees it bounds, so the headroom
+/// is scale-invariant.
+pub const MAX_HIGH_SECURITY_INCLUSION_FEE: Balance = scale_fee(UNIT);
 
 impl pallet_reversible_transfers::Config for Runtime {
 	type AssetId = AssetId;
@@ -545,8 +578,9 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type Moment = Moment;
 	type TimeProvider = Timestamp;
-	type MaxGuardianAccounts = MaxGuardianAccounts;
 	type MaxPendingPerAccount = MaxPendingPerAccount;
+	type MaxHighSecurityTxsPerWindow = MaxHighSecurityTxsPerWindow;
+	type HighSecurityTxWindowBlocks = HighSecurityTxWindowBlocks;
 	type VolumeFee = HighSecurityVolumeFee;
 	type ProofRecorder = Wormhole;
 }
@@ -646,9 +680,9 @@ parameter_types! {
 	pub const MaxSigners: u32 = 100;
 	pub const MaxTotalProposalsInStorage: u32 = 200; // Max Active + Approved proposals per multisig
 	pub const MaxCallSize: u32 = 10240; // 10KB
-	pub const MultisigFee: Balance = 600 * MILLI_UNIT; // 0.6 UNIT (non-refundable, burned)
-	pub const ProposalDeposit: Balance = 1000 * MILLI_UNIT; // 1 UNIT (locked until cleanup)
-	pub const ProposalFee: Balance = 1000 * MILLI_UNIT; // 1 UNIT (non-refundable)
+	pub const MultisigFee: Balance = scale_fee(600 * MILLI_UNIT); // 0.6 UNIT (non-refundable, burned)
+	pub const ProposalDeposit: Balance = scale_fee(1000 * MILLI_UNIT); // 1 UNIT (locked until cleanup)
+	pub const ProposalFee: Balance = scale_fee(1000 * MILLI_UNIT); // 1 UNIT (non-refundable)
 	pub const SignerStepFactorParam: Permill = Permill::from_percent(1);
 	pub const MaxExpiryDuration: BlockNumber = 100_800; // ~2 weeks at 12s blocks (14 days * 24h * 60m * 60s / 12s)
 	// Maximum weight for inner calls executed via multisig.
@@ -666,13 +700,55 @@ parameter_types! {
 /// - Multisig pallet: validates calls in `propose()` extrinsic
 /// - Transaction extensions: validates calls for high-security EOAs
 ///
-/// Whitelist includes only delayed, reversible operations plus vesting claims:
-/// - `schedule_transfer`: Schedule delayed native token transfer
+/// Whitelist includes only delayed, reversible operations:
+/// - `schedule_transfer`: delayed native transfer; dest must be `MultiAddress::Id` so a stolen key
+///   cannot pad `MultiAddress::Raw` and exfiltrate via the length fee
 /// - `cancel`: Cancel pending delayed transfer
 /// - `recover_funds`: Guardian-initiated recovery
-/// - `Vesting::claim`: safe because the payout goes to the schedule's stored beneficiary, never to
-///   the caller
+/// - `Utility::batch_all`: a flat, non-empty batch of at most [`MaxHighSecurityBatchLen`] leaf
+///   calls, each of which must itself be whitelisted. Nested `batch_all` is rejected so a packed
+///   wrapper cannot inflate the inclusion fee. The pallet still re-checks each child at dispatch so
+///   a same-tx enrollment cannot smuggle a later drain.
+///
+/// `Vesting::claim` is not listed: it is permissionless, so a third party can
+/// claim on behalf of a high-security beneficiary. The HS signer does not need
+/// it, and leaving it on the list was only another no-op fee path.
+///
+/// The tip is not part of `RuntimeCall`. High-security signers are forced to a
+/// zero tip by `transaction_extensions::HighSecurityFungibleAdapter` inside
+/// `OnChargeTransaction`, which every fee path goes through.
+/// Signed extrinsics from a high-security account are also capped at 16 per
+/// rolling day by `ReversibleTransactionExtension` (see `HighSecurityTxQuota`),
+/// and at [`MAX_HIGH_SECURITY_EXTRINSIC_LEN`] encoded bytes so the length fee
+/// cannot be inflated through any variable-length field.
+///
+/// The quota keys on the outer signer, so a *single-key* high-security
+/// guardian shares it with its own traffic and can be quota-locked out of
+/// `cancel`/`recover_funds` for up to a day. Documented limitation: an
+/// exemption for live guardian interventions would be farmable (enrollment
+/// needs no guardian consent), and the recommended multisig guardian is
+/// immune — its derived address never signs an extrinsic, so the quota never
+/// applies to it, even when the multisig is itself high-security.
 pub struct HighSecurityConfig;
+
+impl HighSecurityConfig {
+	/// Leaf whitelist: reversible-transfer calls only. `batch_all` is a wrapper
+	/// and is never a valid child, so nesting cannot pad fees.
+	/// `schedule_transfer` dest must be `MultiAddress::Id` so a stolen key
+	/// cannot pad `Raw` and inflate the length fee.
+	fn is_whitelisted_leaf(call: &RuntimeCall) -> bool {
+		match call {
+			RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_transfer { dest, .. },
+			) => matches!(dest, MultiAddress::Id(_)),
+			RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::cancel { .. } |
+				pallet_reversible_transfers::Call::recover_funds { .. },
+			) => true,
+			_ => false,
+		}
+	}
+}
 
 impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSecurityConfig {
 	fn is_high_security(who: &AccountId) -> bool {
@@ -681,15 +757,15 @@ impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSec
 	}
 
 	fn is_whitelisted(call: &RuntimeCall) -> bool {
-		matches!(
-			call,
-			RuntimeCall::ReversibleTransfers(
-				pallet_reversible_transfers::Call::schedule_transfer { .. }
-			) | RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. }) |
-				RuntimeCall::ReversibleTransfers(
-					pallet_reversible_transfers::Call::recover_funds { .. }
-				) | RuntimeCall::Vesting(pallet_vesting::Call::claim { .. })
-		)
+		match call {
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) => {
+				let n = calls.len() as u32;
+				n > 0 &&
+					n <= MaxHighSecurityBatchLen::get() &&
+					calls.iter().all(Self::is_whitelisted_leaf)
+			},
+			_ => Self::is_whitelisted_leaf(call),
+		}
 	}
 
 	fn guardian(who: &AccountId) -> Option<AccountId> {
@@ -727,9 +803,9 @@ impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 
 parameter_types! {
 	/// Volume fee rate in basis points (4 bps = 0.04%).
-	/// The circuit already enforces a one-quantum (0.01 QUAN) minimum fee via ceil
-	/// rounding of `(out₁ + out₂) × 10000 ≤ input × (10000 − bps)`, so small exits
-	/// pay a flat 0.01 QUAN and large exits pay the headline rate. There is no
+	/// Settlement ceil-rounds once per accepted private segment, then sums those
+	/// fees across a public batch. Small segments therefore pay at least one
+	/// quantum (0.01 QUAN); larger segments pay the headline rate. There is no
 	/// separate on-chain minimum exit amount.
 	pub const VolumeFeeRateBps: u32 = 4;
 	/// Proportion of volume fees to burn (50% burned, 50% to miner)

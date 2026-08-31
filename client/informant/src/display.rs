@@ -25,6 +25,11 @@ use std::{fmt, time::Instant};
 
 use crate::PrintFullHashOnDebugLogging;
 
+/// How far ahead (in blocks) the median peer claim must be before the
+/// informant shows "Syncing" instead of "Idle". Avoids flickering on the
+/// ordinary one-block gap while a freshly announced block is fetched.
+const DOWNLOAD_DISPLAY_THRESHOLD: u32 = 5;
+
 /// State of the informant display system.
 ///
 /// This is the system that handles the line that gets regularly printed and that looks something
@@ -124,6 +129,19 @@ impl<B: BlockT> InformantDisplay<B> {
 						(state.size as f32) / (1024f32 * 1024f32)
 					),
 				),
+				// The sync state stays `Idle` until downloaded blocks pile up
+				// in the local import queue (peer height claims never drive
+				// it), so surface the download phase of a catch-up here:
+				// peers claiming to be well ahead means block requests are in
+				// flight even though nothing is queued yet.
+				(SyncState::Idle, _, _)
+					if sync_status.best_seen_block.is_some_and(|seen| {
+						seen > best_number + DOWNLOAD_DISPLAY_THRESHOLD.into()
+					}) =>
+				{
+					let target = sync_status.best_seen_block.expect("checked is_some above; qed");
+					("⚙️ ", format!("Syncing{}", speed), format!(", target=#{target} (claimed)"))
+				},
 				(SyncState::Idle, _, _) => ("💤", "Idle".into(), "".into()),
 				(SyncState::Downloading { target }, _, _) =>
 					("⚙️ ", format!("Syncing{}", speed), format!(", target=#{target}")),

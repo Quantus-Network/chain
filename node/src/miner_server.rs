@@ -174,10 +174,10 @@ impl MinerServer {
 		}
 	}
 
-	/// Clear the stored job so miners connecting while mining is paused (major
-	/// sync, no peers) don't receive stale work on connect. Already-connected
-	/// miners keep grinding their last job — the protocol has no cancel
-	/// message — until the next broadcast supersedes it.
+	/// Clear the stored job so miners connecting while authoring is paused
+	/// (stale tip, unreadable clock, no peers) don't receive stale work on
+	/// connect. Already-connected miners keep grinding their last job — the
+	/// protocol has no cancel message — until the next broadcast supersedes it.
 	pub async fn clear_current_job(&self) {
 		if self.current_job.write().await.take().is_some() {
 			log::debug!("Cleared pending miner job while mining is paused");

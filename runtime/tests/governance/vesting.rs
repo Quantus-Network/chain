@@ -16,7 +16,7 @@ mod tests {
 		System, Vesting, Wormhole, EXISTENTIAL_DEPOSIT, UNIT,
 	};
 	use sp_core::crypto::AccountId32;
-	use sp_runtime::{BuildStorage, DispatchError, Permill};
+	use sp_runtime::{BuildStorage, DispatchError};
 
 	const END_MS: u64 = 1_000_000;
 	const GRANT: Balance = 100 * UNIT;
@@ -35,12 +35,9 @@ mod tests {
 
 	fn new_test_ext(treasury: Option<AccountId>) -> sp_io::TestExternalities {
 		let mut t = frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
-		pallet_treasury::GenesisConfig::<Runtime> {
-			treasury_account: treasury.clone(),
-			treasury_portion: treasury.map(|_| Permill::from_percent(50)),
-		}
-		.assimilate_storage(&mut t)
-		.unwrap();
+		pallet_treasury::GenesisConfig::<Runtime> { treasury_account: treasury.clone() }
+			.assimilate_storage(&mut t)
+			.unwrap();
 		let mut ext = sp_io::TestExternalities::new(t);
 		ext.execute_with(|| {
 			System::set_block_number(1);
@@ -54,6 +51,22 @@ mod tests {
 
 	fn set_time(now_ms: u64) {
 		pallet_timestamp::Now::<Runtime>::put(now_ms);
+	}
+
+	fn max_exitable_from_recorded_leaves(beneficiary: &AccountId) -> (usize, Balance) {
+		let quantum = VestingPayoutQuantum::get();
+		let fee_bps = VolumeFeeRateBps::get() as u128;
+		let leaves: Vec<_> = pallet_zk_tree::Leaves::<Runtime>::iter_values()
+			.filter(|leaf| &leaf.to == beneficiary)
+			.collect();
+		let max_exit = leaves
+			.iter()
+			.map(|leaf| {
+				let input_quanta = leaf.amount / quantum;
+				input_quanta * (10_000 - fee_bps) / 10_000 * quantum
+			})
+			.sum();
+		(leaves.len(), max_exit)
 	}
 
 	fn propose_approve_execute(call: RuntimeCall, proposal_id: u32) {
@@ -94,6 +107,38 @@ mod tests {
 		assert!(max_quantized_output > 0);
 		assert!(max_quantized_output < quantized_minimum);
 		assert_eq!(VestingMinClaimInterval::get(), 24 * 60 * 60 * 1000);
+		assert_eq!(quantum * pallet_vesting::NON_FINAL_PAYOUT_QUANTA, 25 * UNIT);
+		assert_eq!(
+			pallet_vesting::NON_FINAL_PAYOUT_QUANTA * VolumeFeeRateBps::get() as u128 % 10_000,
+			0
+		);
+	}
+
+	#[test]
+	fn end_schedule_does_not_record_a_one_quantum_leaf() {
+		new_test_ext(Some(account(4))).execute_with(|| {
+			let treasury = account(4);
+			let beneficiary = account(9);
+			Balances::make_free_balance_be(&treasury, 1000 * UNIT);
+			let total = 100 * UNIT;
+			let quantum = VestingPayoutQuantum::get();
+			assert_ok!(Vesting::create_schedule(
+				RuntimeOrigin::root(),
+				beneficiary.clone(),
+				0,
+				0,
+				END_MS,
+				total,
+			));
+			// One quantum vested — nearest is one quantum, below MinimumPayout.
+			set_time((END_MS as u128 * quantum / total) as u64);
+			let leaves_before = Wormhole::transfer_count(&beneficiary);
+			assert_ok!(Vesting::end_schedule(RuntimeOrigin::root(), 0));
+			assert_eq!(Balances::total_balance(&beneficiary), 0);
+			assert_eq!(Wormhole::transfer_count(&beneficiary), leaves_before);
+			assert_eq!(Balances::total_balance(&treasury), 1000 * UNIT);
+			assert_eq!(max_exitable_from_recorded_leaves(&beneficiary), (0, 0));
+		});
 	}
 
 	#[test]
@@ -267,6 +312,58 @@ mod tests {
 				pallet_vesting::Error::<Runtime>::NothingToClaim
 			);
 		});
+	}
+
+	#[test]
+	fn non_final_alignment_stops_daily_fragmentation_from_reducing_exit_value() {
+		const DAY: u64 = 24 * 60 * 60 * 1000;
+		const DAYS: u64 = 365;
+		const TOTAL: Balance = DAYS as Balance * UNIT;
+		let beneficiary = account(9);
+
+		let (periodic_leaves, periodic_max_exit) =
+			new_test_ext(Some(account(4))).execute_with(|| {
+				Balances::make_free_balance_be(&account(4), 1000 * UNIT);
+				assert_ok!(Vesting::create_schedule(
+					RuntimeOrigin::root(),
+					beneficiary.clone(),
+					0,
+					0,
+					DAYS * DAY,
+					TOTAL,
+				));
+				set_time(DAY);
+				assert_noop!(
+					Vesting::claim(RuntimeOrigin::signed(account(8)), 0),
+					pallet_vesting::Error::<Runtime>::NothingToClaim
+				);
+				for day in 1..=DAYS {
+					set_time(day * DAY);
+					let _ = Vesting::claim(RuntimeOrigin::signed(account(8)), 0);
+				}
+				assert_eq!(pallet_vesting::Schedules::<Runtime>::get(0).unwrap().claimed, TOTAL);
+				max_exitable_from_recorded_leaves(&beneficiary)
+			});
+
+		let (single_leaves, single_max_exit) = new_test_ext(Some(account(4))).execute_with(|| {
+			Balances::make_free_balance_be(&account(4), 1000 * UNIT);
+			assert_ok!(Vesting::create_schedule(
+				RuntimeOrigin::root(),
+				beneficiary.clone(),
+				0,
+				0,
+				DAYS * DAY,
+				TOTAL,
+			));
+			set_time(DAYS * DAY);
+			assert_ok!(Vesting::claim(RuntimeOrigin::signed(account(8)), 0));
+			max_exitable_from_recorded_leaves(&beneficiary)
+		});
+
+		assert_eq!(single_leaves, 1);
+		assert_eq!(periodic_leaves, 15);
+		assert_eq!(periodic_max_exit, single_max_exit);
+		assert_eq!(single_max_exit, 36_485 * VestingPayoutQuantum::get());
 	}
 
 	#[test]

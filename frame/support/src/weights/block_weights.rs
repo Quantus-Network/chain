@@ -15,25 +15,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! THIS FILE WAS AUTO-GENERATED USING THE SUBSTRATE BENCHMARK CLI VERSION 32.0.0
-//! DATE: 2024-11-08 (Y/M/D)
-//! HOSTNAME: `runner-wiukf8gn-project-674-concurrent-0`, CPU: `Intel(R) Xeon(R) CPU @ 2.60GHz`
+//! THIS FILE WAS AUTO-GENERATED USING THE SUBSTRATE BENCHMARK CLI VERSION 53.0.0
+//! DATE: 2026-08-18 (Y/M/D)
+//! HOSTNAME: `Yuvis-MacBook-Air.local`, CPU: `<UNKNOWN>`
 //!
-//! SHORT-NAME: `block`, LONG-NAME: `BlockExecution`, RUNTIME: `Development`
+//! SHORT-NAME: `block`, LONG-NAME: `BlockExecution`, RUNTIME: `Quantus DevNet`
 //! WARMUPS: `10`, REPEAT: `100`
-//! WEIGHT-PATH: `./substrate/frame/support/src/weights/`
+//! WEIGHT-PATH: `/tmp/quantus-overhead`
 //! WEIGHT-METRIC: `Average`, WEIGHT-MUL: `1.0`, WEIGHT-ADD: `0`
 
 // Executed Command:
-//   ./target/production/substrate-node
+//   ./target/release/quantus-node
 //   benchmark
 //   overhead
 //   --chain=dev
 //   --wasm-execution=compiled
-//   --weight-path=./substrate/frame/support/src/weights/
-//   --header=./substrate/HEADER-APACHE2
 //   --warmup=10
 //   --repeat=100
+//   --weight-path=/tmp/quantus-overhead
 
 use sp_core::parameter_types;
 use sp_weights::{constants::WEIGHT_REF_TIME_PER_NANOS, Weight};
@@ -43,17 +42,17 @@ parameter_types! {
 	/// Calculated by multiplying the *Average* with `1.0` and adding `0`.
 	///
 	/// Stats nanoseconds:
-	///   Min, Max: 419_969, 685_012
-	///   Average:  431_614
-	///   Median:   427_388
-	///   Std-Dev:  26437.34
+	///   Min, Max: 686_334, 840_625
+	///   Average:  710_231
+	///   Median:   705_458
+	///   Std-Dev:  24265.71
 	///
 	/// Percentiles nanoseconds:
-	///   99th: 456_205
-	///   95th: 443_420
-	///   75th: 431_833
+	///   99th: 817_083
+	///   95th: 759_000
+	///   75th: 713_750
 	pub const BlockExecutionWeight: Weight =
-		Weight::from_parts(WEIGHT_REF_TIME_PER_NANOS.saturating_mul(431_614), 0);
+		Weight::from_parts(WEIGHT_REF_TIME_PER_NANOS.saturating_mul(710_231), 0);
 }
 
 #[cfg(test)]

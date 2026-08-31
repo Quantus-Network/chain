@@ -237,7 +237,7 @@ pub mod pallet {
 		transaction_validity::{
 			InvalidTransaction, TransactionSource, TransactionValidity, ValidTransaction,
 		},
-		Permill,
+		Permill, TokenError,
 	};
 
 	pub type BalanceOf<T> = <T as Config>::NativeBalance;
@@ -429,9 +429,9 @@ pub mod pallet {
 		/// nullifier that is already used (or the single segment of a private-batch
 		/// proof does).
 		NullifierAlreadyUsed,
-		/// The bundle contains only dummy (all-zero) padding segments, so there is
-		/// nothing to exit. Distinct from [`Error::NullifierAlreadyUsed`], which is a
-		/// replay of real segments.
+		/// The bundle has nothing to settle: only dummy (all-zero) padding, or
+		/// every valid segment exits zero. Distinct from [`Error::NullifierAlreadyUsed`],
+		/// which is a replay of real segments.
 		NoValidSegments,
 		BlockNotFound,
 		VerifierNotAvailable,
@@ -454,13 +454,15 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		/// On block 1, record a transfer proof for every account that exists with a
-		/// balance — i.e. exactly the genesis balances.
+		/// free balance — i.e. exactly the spendable genesis endowments.
 		///
 		/// The genesis state is the single source of truth: proofs are *derived* from the
-		/// balances actually issued (there is no separate endowment list that could
+		/// free balances actually issued (there is no separate endowment list that could
 		/// disagree with them), so an exitable leaf that isn't backed by real issuance is
-		/// unrepresentable. This runs before any extrinsic has ever executed, so the
-		/// account set observed here is precisely the genesis set.
+		/// unrepresentable. Reserved funds are omitted: an exit mints free balance and
+		/// does not consume the source reserve, so including them would turn a lock into
+		/// a second, spendable copy. This runs before any extrinsic has ever executed, so
+		/// the account set observed here is precisely the genesis set.
 		///
 		/// We do this at block 1 rather than in a genesis build because events emitted
 		/// during genesis are not persisted (Substrate limitation); recording here emits
@@ -477,7 +479,7 @@ pub mod pallet {
 
 			for who in frame_system::Account::<T>::iter_keys() {
 				accounts_seen = accounts_seen.saturating_add(1);
-				let amount = <T::Currency as Currency<_>>::total_balance(&who);
+				let amount = <T::Currency as Currency<_>>::free_balance(&who);
 				if amount.is_zero() {
 					continue;
 				}
@@ -607,7 +609,7 @@ pub mod pallet {
 				},
 			};
 
-			Self::process_exit_bundle(bundle)
+			Self::settle_exit_bundle(bundle, ExitSettlementKind::Private)
 		}
 
 		/// Verify a public-batch wormhole proof and process all valid exit segments.
@@ -642,8 +644,15 @@ pub mod pallet {
 				},
 			};
 
-			Self::process_exit_bundle(bundle)
+			Self::settle_exit_bundle(bundle, ExitSettlementKind::Public)
 		}
+	}
+
+	/// Which verify path settled the bundle. Selects the ZK / pre-validate base
+	/// and the declared-weight cap for the success refund.
+	pub(crate) enum ExitSettlementKind {
+		Private,
+		Public,
 	}
 
 	impl<T: Config> Pallet<T> {
@@ -664,8 +673,9 @@ pub mod pallet {
 		/// well-formed batch never repeats a real nullifier, so this only rejects replays.
 		/// (The circuit now also enforces this, but the check is cheap and kept here as an
 		/// in-consensus defense that does not trust the aggregation circuit's constraints.)
-		/// Zero nullifiers (from dummy leaf padding inside a real private batch) mint
-		/// nothing and are exempt from the collision checks entirely.
+		/// All-zero nullifiers (public-batch dummy inner padding) mint nothing and
+		/// are skipped. Dummy *leaf* padding inside a real private batch produces
+		/// non-zero `H(H(p))` nullifiers that are persisted; those are not exempt.
 		pub(crate) fn segment_validity(bundle: &ExitBundle) -> Result<Vec<bool>, Error<T>> {
 			let mut claimed = alloc::collections::BTreeSet::<[u8; 32]>::new();
 			let mut validity = Vec::with_capacity(bundle.segments.len());
@@ -709,14 +719,28 @@ pub mod pallet {
 			Ok(validity)
 		}
 
-		/// Reject a bundle in which no segment is valid, distinguishing an all-dummy
-		/// bundle (nothing to exit) from a replay of real segments.
+		/// Reject a bundle that cannot settle any value: all-dummy padding, a replay
+		/// of real segments, or valid segments that all exit zero.
 		fn ensure_any_segment_valid(
 			bundle: &ExitBundle,
 			validity: &[bool],
 		) -> Result<(), Error<T>> {
 			if validity.iter().any(|v| *v) {
-				return Ok(());
+				// Mirrors the mint-loop skip condition exactly: a slot mints only if
+				// the amount is nonzero AND the exit account is nonzero (the circuit
+				// zeroes deduplicated exit accounts).
+				let mintable =
+					bundle.segments.iter().zip(validity.iter()).any(|(segment, valid)| {
+						*valid &&
+							segment.account_data.iter().any(|account| {
+								account.summed_output_amount > 0 &&
+									account.exit_account.as_ref() != &[0u8; 32]
+							})
+					});
+				if mintable {
+					return Ok(());
+				}
+				return Err(Error::<T>::NoValidSegments);
 			}
 			if bundle.segments.iter().all(Self::segment_is_inert) {
 				Err(Error::<T>::NoValidSegments)
@@ -725,16 +749,26 @@ pub mod pallet {
 			}
 		}
 
+		/// Settle a private-batch bundle; test-only shorthand for [`Self::settle_exit_bundle`].
+		#[cfg(test)]
+		pub(crate) fn process_exit_bundle(bundle: ExitBundle) -> DispatchResultWithPostInfo {
+			Self::settle_exit_bundle(bundle, ExitSettlementKind::Private)
+		}
+
 		/// Process a validated exit bundle: mark nullifiers, mint exits, distribute fees.
 		///
 		/// Invalid segments (a nullifier already used on-chain, or colliding with an earlier
 		/// valid segment of this bundle) are denied as a whole — none of their exits are
 		/// minted and none of their nullifiers are marked — while the remaining segments
-		/// are processed normally. The bundle is rejected outright if no segment is valid.
+		/// are processed normally. The bundle is rejected outright if no segment is
+		/// valid or if every valid segment exits zero.
 		///
 		/// Validity is recomputed here rather than reused from `validate_proof` because
 		/// chain state may have changed between pool validation and block inclusion.
-		pub(crate) fn process_exit_bundle(bundle: ExitBundle) -> DispatchResultWithPostInfo {
+		pub(crate) fn settle_exit_bundle(
+			bundle: ExitBundle,
+			kind: ExitSettlementKind,
+		) -> DispatchResultWithPostInfo {
 			let validity = Self::segment_validity(&bundle)?;
 			Self::ensure_any_segment_valid(&bundle, &validity)?;
 
@@ -743,7 +777,9 @@ pub mod pallet {
 
 			let mut nullifier_list = Vec::<[u8; 32]>::new();
 			let mut denied_segments = Vec::<u32>::new();
+			let mut extra_leaf_inserts: u64 = 0;
 			let mut processed_accounts: Vec<(
+				usize,
 				<T as frame_system::Config>::AccountId,
 				BalanceOf<T>,
 			)> = Vec::new();
@@ -803,7 +839,7 @@ pub mod pallet {
 					)
 					.map_err(|_| Error::<T>::InvalidProofPublicInputs)?;
 
-					processed_accounts.push((exit_account, exit_balance));
+					processed_accounts.push((seg_idx, exit_account, exit_balance));
 				}
 			}
 
@@ -815,21 +851,12 @@ pub mod pallet {
 
 			// Mint exits first; fees and ProofVerified use only successfully minted amounts.
 			let mut minted_exit_amount: BalanceOf<T> = Zero::zero();
-			for (exit_account, exit_balance) in &processed_accounts {
+			let mut minted_exit_by_segment: Vec<BalanceOf<T>> =
+				alloc::vec![Zero::zero(); bundle.segments.len()];
+			for (seg_idx, exit_account, exit_balance) in &processed_accounts {
 				// Skip failed credits (e.g. below ED); nullifier already marked, value
 				// excluded from fee settlement / event.
-				//
-				// NOTE: this must stay `Unbalanced::increase_balance` (event-free). The runtime's
-				// `WormholeProofRecorderExtension` records a transfer proof for every
-				// `Balances::Minted` event it scans, and this exit already records its own proof
-				// via `record_transfer` below — switching to `mint_into` (which emits `Minted`)
-				// could double-record the credit. Pinned by the test
-				// `exit_credits_emit_no_scannable_transfer_events`.
-				match <T::Currency as Unbalanced<_>>::increase_balance(
-					exit_account,
-					*exit_balance,
-					frame_support::traits::tokens::Precision::Exact,
-				) {
+				match Self::credit_and_record(exit_account, *exit_balance, &mint_account) {
 					Ok(_) => {},
 					Err(e) => {
 						log::warn!(
@@ -847,62 +874,59 @@ pub mod pallet {
 				}
 
 				minted_exit_amount = minted_exit_amount.saturating_add(*exit_balance);
-
-				// Record transfer proof for the minted tokens
-				let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
-				let to_account: <T as Config>::WormholeAccountId = exit_account.clone().into();
-				Self::record_transfer(
-					T::AssetId::default(),
-					&from_account,
-					&to_account,
-					*exit_balance,
-				);
+				minted_exit_by_segment[*seg_idx] =
+					minted_exit_by_segment[*seg_idx].saturating_add(*exit_balance);
 			}
 
+			let nullifier_writes = nullifier_list.len() as u64;
 			Self::deposit_event(Event::ProofVerified {
 				exit_amount: minted_exit_amount,
 				nullifiers: nullifier_list,
 			});
 
-			let total_exit_u128: u128 = minted_exit_amount.try_into().map_err(|_| {
-				log::error!("Failed to convert minted_exit_amount to u128");
-				Error::<T>::InvalidProofPublicInputs
-			})?;
-			let total_fee_u128 =
-				Self::volume_fee_for_exit(total_exit_u128, T::VolumeFeeRateBps::get());
+			let total_fee_u128 = minted_exit_by_segment.into_iter().try_fold(
+				0u128,
+				|total, segment_balance| -> Result<u128, Error<T>> {
+					let segment_u128: u128 = segment_balance.try_into().map_err(|_| {
+						log::error!("Failed to convert segment minted amount to u128");
+						Error::<T>::InvalidProofPublicInputs
+					})?;
+					Ok(total.saturating_add(Self::volume_fee_for_exit(
+						segment_u128,
+						T::VolumeFeeRateBps::get(),
+					)))
+				},
+			)?;
 
-			// Fee distribution: configurable portion burned, remainder to miner
+			// Fee distribution: configurable portion burned, remainder to miner.
 			//
 			// Original deposit locked `input_amount` in an unspendable account (tokens still
 			// exist). On exit we mint `output_amount` to user, where: input >= output + fee
 			//
-			// Fee split (controlled by VolumeFeesBurnRate):
-			//   - burn_amount = fee * burn_rate  (reduces total issuance via Currency::burn)
-			//   - miner_fee = fee - burn_amount  (minted to block author via increase_balance)
+			// The split is computed in whole QUANTA, not planck. The ZK leaf commits
+			// `amount / SCALE_DOWN_FACTOR` as a u32 and fee recipients are keyless
+			// wormhole addresses whose only spend path is that leaf, so any share
+			// that is not a whole number of quanta would be (partly) frozen. The fee
+			// itself is already whole quanta (`volume_fee_for_exit`); splitting the
+			// quanta count keeps every share exitable by construction:
+			//   - burn_quanta  = ceil(burn_rate · fee_quanta)   — rounds against the miner
+			//   - miner_quanta = fee_quanta − burn_quanta
+			//   - rebate_quanta = floor(aggregator_rate · burn_quanta) — rounds against the
+			//     aggregator, remainder stays burned
 			//
 			// Supply accounting:
 			//   - Minting exit amounts: increases balances but NOT issuance by sum(output_amounts)
-			//   - Minting miner fee: increases balance but NOT issuance (increase_balance)
-			//   - Burning: decreases total issuance by burn_amount
-			//   - Net change: +sum(output_amounts) - burn_amount
-			let burn_rate = T::VolumeFeesBurnRate::get();
-			let mut burn_amount_u128 = burn_rate * total_fee_u128;
-			let miner_fee_u128 = total_fee_u128.saturating_sub(burn_amount_u128);
+			//   - Minting miner fee / rebate: increases balance but NOT issuance (increase_balance)
+			//   - Burning: decreases total issuance by burn_quanta · SCALE_DOWN_FACTOR
+			let fee_quanta = total_fee_u128 / crate::SCALE_DOWN_FACTOR;
+			let mut burn_quanta = T::VolumeFeesBurnRate::get().mul_ceil(fee_quanta);
+			let miner_quanta = fee_quanta.saturating_sub(burn_quanta);
 
 			// Public-batch aggregator rebate: redirect part of the burn bucket to the
 			// aggregator. The miner's share is unchanged.
 			if let Some(aggregator_address) = &bundle.aggregator_address {
-				let aggregator_rate = T::VolumeFeesAggregatorRate::get();
-				let aggregator_fee_u128 = aggregator_rate * burn_amount_u128;
-				burn_amount_u128 = burn_amount_u128.saturating_sub(aggregator_fee_u128);
-
-				if aggregator_fee_u128 > 0 {
-					let aggregator_fee: BalanceOf<T> =
-						aggregator_fee_u128.try_into().map_err(|_| {
-							log::error!("Failed to convert aggregator_fee_u128 to BalanceOf");
-							Error::<T>::InvalidProofPublicInputs
-						})?;
-
+				let rebate_quanta = T::VolumeFeesAggregatorRate::get().mul_floor(burn_quanta);
+				if rebate_quanta > 0 {
 					let aggregator_bytes: [u8; 32] = (*aggregator_address)
 						.as_ref()
 						.try_into()
@@ -911,82 +935,62 @@ pub mod pallet {
 						<T as frame_system::Config>::AccountId::decode(&mut &aggregator_bytes[..])
 							.map_err(|_| Error::<T>::InvalidProofPublicInputs)?;
 
-					// A failed rebate mint (e.g. the aggregator account doesn't exist
-					// and the rebate is below the existential deposit) must not revert
-					// the whole bundle - that would drag users' exits down with a
-					// problem the aggregator inflicted on itself. Burn the rebate
-					// instead and process the exits normally.
-					match <T::Currency as Unbalanced<_>>::increase_balance(
+					// A failed rebate mint (e.g. below ED) must not revert the whole
+					// bundle; the share simply stays in the burn bucket.
+					if Self::try_credit_fee_quanta(
 						&aggregator_account,
-						aggregator_fee,
-						frame_support::traits::tokens::Precision::Exact,
-					) {
-						Ok(_) => {},
-						Err(e) => {
-							log::warn!(
-								"Aggregator rebate of {:?} could not be minted ({:?}); burning it instead",
-								aggregator_fee,
-								e
-							);
-							burn_amount_u128 = burn_amount_u128.saturating_add(aggregator_fee_u128);
-						},
+						rebate_quanta,
+						&mint_account,
+					)?
+					.is_some()
+					{
+						extra_leaf_inserts = extra_leaf_inserts.saturating_add(1);
+						burn_quanta = burn_quanta.saturating_sub(rebate_quanta);
 					}
 				}
 			}
 
-			let miner_fee: BalanceOf<T> = miner_fee_u128.try_into().map_err(|_| {
-				log::error!("Failed to convert miner_fee_u128 to BalanceOf");
-				Error::<T>::InvalidProofPublicInputs
-			})?;
-
-			// Mint miner's portion of volume fee to block author
-			// If no author is found, add to burn amount instead of silently losing it
-			if !miner_fee.is_zero() {
+			// Mint miner's portion of volume fee to block author.
+			// If no author is found (or the mint fails), burn it instead of
+			// silently losing it.
+			if miner_quanta > 0 {
 				let digest = frame_system::Pallet::<T>::digest();
-				if let Some(author) = qp_wormhole::extract_author_from_digest::<
+				let credited = match qp_wormhole::extract_author_from_digest::<
 					<T as frame_system::Config>::AccountId,
 					_,
 				>(digest.logs.iter())
 				{
-					// A failed miner-fee mint (e.g. the author account doesn't exist and
-					// the fee is below the existential deposit) must not revert the whole
-					// bundle and drag users' exits down with it. Burn it instead, exactly
-					// like the no-author branch below and the aggregator-rebate fallback.
-					match <T::Currency as Unbalanced<_>>::increase_balance(
-						&author,
-						miner_fee,
-						frame_support::traits::tokens::Precision::Exact,
-					) {
-						Ok(_) => {
+					Some(author) => {
+						let credited =
+							Self::try_credit_fee_quanta(&author, miner_quanta, &mint_account)?;
+						if let Some(amount) = credited {
+							extra_leaf_inserts = extra_leaf_inserts.saturating_add(1);
 							Self::deposit_event(Event::MinerVolumeFeePaid {
 								miner: author,
-								amount: miner_fee,
+								amount,
 							});
-						},
-						Err(e) => {
-							log::warn!(
-								"Miner fee of {:?} could not be minted ({:?}); burning it instead",
-								miner_fee,
-								e
-							);
-							burn_amount_u128 = burn_amount_u128.saturating_add(miner_fee_u128);
-						},
-					}
-				} else {
-					// No block author found - add miner fee to burn amount
-					log::warn!(
-						"No block author found, burning miner fee of {:?} instead",
-						miner_fee
-					);
-					burn_amount_u128 = burn_amount_u128.saturating_add(miner_fee_u128);
+						}
+						credited.is_some()
+					},
+					None => {
+						log::warn!(
+							"No block author found, burning miner fee of {} quanta instead",
+							miner_quanta
+						);
+						false
+					},
+				};
+				if !credited {
+					burn_quanta = burn_quanta.saturating_add(miner_quanta);
 				}
 			}
 
-			// Burn the total burn amount (base burn + any orphaned miner fee)
-			let burn_amount: BalanceOf<T> = burn_amount_u128.try_into().map_err(|_| {
-				log::error!("Failed to convert burn_amount_u128 to BalanceOf");
-				Error::<T>::InvalidProofPublicInputs
-			})?;
+			// Burn the total burn amount (base burn + any uncredited fee shares)
+			let burn_amount: BalanceOf<T> =
+				burn_quanta.saturating_mul(crate::SCALE_DOWN_FACTOR).try_into().map_err(|_| {
+					log::error!("Failed to convert burn amount to BalanceOf");
+					Error::<T>::InvalidProofPublicInputs
+				})?;
 			if !burn_amount.is_zero() {
 				let current = <T::Currency as FungibleInspect<_>>::total_issuance();
 				<T::Currency as Unbalanced<_>>::set_total_issuance(
@@ -994,8 +998,30 @@ pub mod pallet {
 				);
 			}
 
-			// Success - use declared weight (actual_weight: None means use declared weight)
-			Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
+			// Declaration is worst-case; report actual work so unused block quota
+			// is reclaimed. `Pays::No` — this is not a user fee refund. Nullifier
+			// writes are counted separately from exits: a valid zero-output
+			// segment writes nullifiers but mints nothing.
+			let exits = processed_accounts.len() as u64;
+			let (settled, declared) = match kind {
+				ExitSettlementKind::Private => (
+					<T as Config>::WeightInfo::verify_private_batch_settled(
+						exits,
+						nullifier_writes,
+						extra_leaf_inserts,
+					),
+					<T as Config>::WeightInfo::verify_private_batch(),
+				),
+				ExitSettlementKind::Public => (
+					<T as Config>::WeightInfo::verify_public_batch_settled(
+						exits,
+						nullifier_writes,
+						extra_leaf_inserts,
+					),
+					<T as Config>::WeightInfo::verify_public_batch(),
+				),
+			};
+			Ok(PostDispatchInfo { actual_weight: Some(settled.min(declared)), pays_fee: Pays::No })
 		}
 	}
 
@@ -1071,9 +1097,9 @@ pub mod pallet {
 		/// the minimum fee gap the proofs lock. In particular the smallest valid
 		/// exit (one quantum out forces `input ≥ 2` quanta) settles a full
 		/// one-quantum fee, where truncating base-unit division would settle only
-		/// `bps / (10000 − bps)` of a quantum. Computed over the bundle's minted
-		/// total, the result never exceeds what the individual proofs locked
-		/// (ceil of a sum ≤ sum of ceils).
+		/// `bps / (10000 − bps)` of a quantum. Public-batch settlement applies
+		/// this ceiling independently to each accepted private segment and sums
+		/// the results, matching the protocol's private-segment fee boundary.
 		///
 		/// `minted_exit` is always a whole number of quanta: every exit balance is
 		/// a quantized `u32` output times [`SCALE_DOWN_FACTOR`], so the quantum
@@ -1239,16 +1265,20 @@ pub mod pallet {
 		}
 
 		/// Stable, semantic transaction-pool dedup tag for an exit bundle: a hash of the
-		/// bundle's nullifiers. Two encodings of the same logical exit (e.g. a proof
-		/// resubmitted with a mutated non-PI byte) share nullifiers and therefore collide
-		/// on this tag, so the pool holds one entry per logical exit instead of one per
-		/// distinct byte string (which `blake2_256(proof_bytes)` allowed an attacker to
-		/// bypass with a single-byte change).
-		fn exit_bundle_provides_tag(bundle: &ExitBundle) -> [u8; 32] {
+		/// bundle's nullifiers, sorted within each private segment. Private-batch proofs
+		/// may publish the same nullifier multiset in different privately chosen orders;
+		/// normalizing each segment keeps those equivalent proofs on one pool tag while
+		/// preserving segment boundaries.
+		pub(crate) fn exit_bundle_provides_tag(bundle: &ExitBundle) -> [u8; 32] {
 			let mut preimage = Vec::new();
+			preimage.extend_from_slice(&(bundle.segments.len() as u32).to_le_bytes());
 			for segment in &bundle.segments {
-				for nullifier in &segment.nullifiers {
-					preimage.extend_from_slice(nullifier.as_ref());
+				preimage.extend_from_slice(&(segment.nullifiers.len() as u32).to_le_bytes());
+				let mut nullifiers: Vec<&[u8]> =
+					segment.nullifiers.iter().map(AsRef::as_ref).collect();
+				nullifiers.sort_unstable();
+				for nullifier in nullifiers {
+					preimage.extend_from_slice(nullifier);
 				}
 			}
 			sp_io::hashing::blake2_256(&preimage)
@@ -1268,6 +1298,73 @@ pub mod pallet {
 				Ok(bytes) => pallet_zk_tree::tree::canonicalize_account_bytes(bytes).into(),
 				Err(_) => to.clone(),
 			}
+		}
+
+		/// Credit a fee share of `quanta` whole quanta to `to`, or leave it for
+		/// the burn bucket.
+		///
+		/// Returns the credited balance, or `None` when the mint failed (e.g. the
+		/// account doesn't exist and the share is below the existential deposit).
+		/// A failed fee credit must not revert the bundle — users' exits would be
+		/// dragged down with it — so the caller burns the share instead.
+		fn try_credit_fee_quanta(
+			to: &<T as frame_system::Config>::AccountId,
+			quanta: u128,
+			mint_account: &<T as frame_system::Config>::AccountId,
+		) -> Result<Option<BalanceOf<T>>, Error<T>> {
+			let amount: BalanceOf<T> =
+				quanta.saturating_mul(crate::SCALE_DOWN_FACTOR).try_into().map_err(|_| {
+					log::error!("Failed to convert fee credit to BalanceOf");
+					Error::<T>::InvalidProofPublicInputs
+				})?;
+			match Self::credit_and_record(to, amount, mint_account) {
+				Ok(_) => Ok(Some(amount)),
+				Err(e) => {
+					log::warn!(
+						"Fee credit of {:?} to {:?} failed ({:?}); burning it instead",
+						amount,
+						to,
+						e
+					);
+					Ok(None)
+				},
+			}
+		}
+
+		/// Credit `amount` to `to` via event-free `increase_balance` and insert a
+		/// zk-tree leaf so the credit is exitable.
+		///
+		/// Must stay paired: wormhole-derived accounts have no signing key, so a
+		/// balance without a leaf is permanently frozen. Must stay
+		/// `Unbalanced::increase_balance` (not `mint_into`): the runtime's
+		/// `WormholeProofRecorderExtension` would otherwise double-record from the
+		/// `Minted` event. Pinned by `exit_credits_emit_no_scannable_transfer_events`
+		/// and the miner-fee / aggregator-rebate leaf tests.
+		///
+		/// `amount` must be a positive multiple of [`SCALE_DOWN_FACTOR`]: the leaf
+		/// hash commits `amount / 10^10`, so a sub-quantum credit would insert a
+		/// zero-commitment leaf and freeze the balance. All callers satisfy this by
+		/// construction (exit balances are quantized circuit outputs; fee shares are
+		/// split in quanta); the check is a backstop for future call sites.
+		fn credit_and_record(
+			to: &<T as frame_system::Config>::AccountId,
+			amount: BalanceOf<T>,
+			mint_account: &<T as frame_system::Config>::AccountId,
+		) -> Result<BalanceOf<T>, DispatchError> {
+			let amount_u128: u128 = amount.try_into().map_err(|_| TokenError::BelowMinimum)?;
+			ensure!(
+				amount_u128 > 0 && amount_u128 % crate::SCALE_DOWN_FACTOR == 0,
+				TokenError::BelowMinimum
+			);
+			let credited = <T::Currency as Unbalanced<_>>::increase_balance(
+				to,
+				amount,
+				frame_support::traits::tokens::Precision::Exact,
+			)?;
+			let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
+			let to_account: <T as Config>::WormholeAccountId = to.clone().into();
+			Self::record_transfer(T::AssetId::default(), &from_account, &to_account, amount);
+			Ok(credited)
 		}
 
 		/// Record a transfer in the ZK tree and emit events.
@@ -1352,6 +1449,15 @@ pub mod pallet {
 			// chokepoint every event-scan / call-site recorder goes through — and report
 			// it as not recorded so weight reconciliation does not count a leaf insert.
 			if amount.is_zero() {
+				return false;
+			}
+			// A self-directed credit moves no value either: nothing is debited from one
+			// account and credited to another. Recording it would still advance the
+			// recipient's transfer count, enlarge the ZK tree, and emit a transfer event
+			// for nothing. Reachable from `transfer_on_hold(A, A)` (FRAME has no
+			// self-short-circuit on the hold path) and from hook-context recorders that
+			// key off dispatch `Ok` rather than a moved amount.
+			if from == to {
 				return false;
 			}
 			// The wormhole tags native leaves with `asset_id == 0`, but `pallet_assets` uses

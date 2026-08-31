@@ -1,158 +1,104 @@
 use crate::{mock::*, weights::WeightInfo, Event};
 use frame_support::traits::{Currency, Hooks};
-use pallet_treasury::TreasuryProvider;
 use qp_wormhole::derive_wormhole_address;
 use sp_runtime::testing::Digest;
+
+/// Block reward `on_finalize` will compute from the current issuance (and any
+/// collected fees, which the pallet treats as already-burned supply).
+fn expected_block_reward(tx_fees: Balance) -> Balance {
+	let current_supply = Balances::total_issuance().saturating_add(tx_fees);
+	(MaxSupply::get() - current_supply) / EmissionDivisor::get()
+}
+
+fn leaf_quantum() -> Balance {
+	pallet_zk_tree::tree::AMOUNT_SCALE_DOWN_FACTOR
+}
+
+fn quantize(amount: Balance) -> (Balance, Balance) {
+	let quantum = leaf_quantum();
+	let dust = amount % quantum;
+	(amount - dust, dust)
+}
+
+/// What `on_finalize` actually credits the miner: fees + emission, floored to the leaf quantum.
+fn miner_payout(tx_fees: Balance) -> (Balance, Balance) {
+	quantize(expected_block_reward(tx_fees) + tx_fees)
+}
 
 #[test]
 fn miner_reward_works() {
 	new_test_ext().execute_with(|| {
-		// Remember initial balance (ExistentialDeposit)
 		let initial_balance = Balances::free_balance(MINER_1.account_id());
-
-		// Add a miner to the pre-runtime digest
 		set_miner_preimage_digest(MINER_1.preimage());
 
-		// Calculate expected rewards with treasury portion
-		// Initial supply is just the existential deposits (2 accounts * 1 unit each = 2)
-		let current_supply = Balances::total_issuance();
-		let total_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let treasury_reward = Treasury::portion().mul_floor(total_reward);
-		let miner_reward = total_reward - treasury_reward;
+		let (miner_reward, _) = miner_payout(0);
 
-		// Run the on_finalize hook
 		MiningRewards::on_finalize(1);
 
-		// Check that the miner received the calculated block reward (minus treasury portion)
 		assert_eq!(Balances::free_balance(MINER_1.account_id()), initial_balance + miner_reward);
-
-		// Check the miner reward event was emitted
 		System::assert_has_event(
 			Event::MinerRewarded { miner: MINER_1.account_id(), reward: miner_reward }.into(),
 		);
-
-		// Check the treasury reward event was emitted
-		System::assert_has_event(Event::TreasuryRewarded { reward: treasury_reward }.into());
 	});
 }
 
 #[test]
 fn miner_reward_with_transaction_fees_works() {
 	new_test_ext().execute_with(|| {
-		// Remember initial balance
 		let initial_balance = Balances::free_balance(MINER_1.account_id());
-
-		// Add a miner to the pre-runtime digest
 		set_miner_preimage_digest(MINER_1.preimage());
 
-		// Manually add some transaction fees
 		let fees: Balance = 25;
 		MiningRewards::collect_transaction_fees(fees);
-
-		// Check fees collection event
 		System::assert_has_event(Event::FeesCollected { amount: 25, total: 25 }.into());
 
-		// Calculate expected rewards with treasury portion
-		let current_supply = Balances::total_issuance();
-		let total_block_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let treasury_reward = Treasury::portion().mul_floor(total_block_reward);
-		let miner_block_reward = total_block_reward - treasury_reward;
+		let (miner_reward, _) = miner_payout(fees);
 
-		// Run the on_finalize hook
 		MiningRewards::on_finalize(1);
 
-		// Check that the miner received the miner portion of block reward + all fees
-		assert_eq!(
-			Balances::free_balance(MINER_1.account_id()),
-			initial_balance + miner_block_reward + fees
-		);
-
-		// Check the events were emitted with the correct amounts
-		// First event: miner reward for fees
+		assert_eq!(Balances::free_balance(MINER_1.account_id()), initial_balance + miner_reward);
 		System::assert_has_event(
-			Event::MinerRewarded {
-				miner: MINER_1.account_id(),
-				reward: 25, // all fees go to miner
-			}
-			.into(),
+			Event::MinerRewarded { miner: MINER_1.account_id(), reward: miner_reward }.into(),
 		);
-		// Second event: miner reward for block reward
-		System::assert_has_event(
-			Event::MinerRewarded { miner: MINER_1.account_id(), reward: miner_block_reward }.into(),
-		);
-		// Third event: treasury reward
-		System::assert_has_event(Event::TreasuryRewarded { reward: treasury_reward }.into());
 	});
 }
 
 #[test]
 fn on_unbalanced_collects_fees() {
 	new_test_ext().execute_with(|| {
-		// Remember initial balance
 		let initial_balance = Balances::free_balance(MINER_1.account_id());
-
-		// Use collect_transaction_fees instead of directly calling on_unbalanced
 		MiningRewards::collect_transaction_fees(30);
-
-		// Check that fees were collected
 		assert_eq!(MiningRewards::collected_fees(), 30);
 
-		// Calculate expected rewards with treasury portion
-		let current_supply = Balances::total_issuance();
-		let total_block_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let treasury_reward = Treasury::portion().mul_floor(total_block_reward);
-		let miner_block_reward = total_block_reward - treasury_reward;
-
-		// Add a miner to the pre-runtime digest and distribute rewards
+		let (miner_reward, _) = miner_payout(30);
 		set_miner_preimage_digest(MINER_1.preimage());
 		MiningRewards::on_finalize(1);
 
-		// Check that the miner received the miner portion of block reward + all fees
-		assert_eq!(
-			Balances::free_balance(MINER_1.account_id()),
-			initial_balance + miner_block_reward + 30
-		);
+		assert_eq!(Balances::free_balance(MINER_1.account_id()), initial_balance + miner_reward);
 	});
 }
 
 #[test]
 fn multiple_blocks_accumulate_rewards() {
 	new_test_ext().execute_with(|| {
-		// Remember initial balance
 		let initial_balance = Balances::free_balance(MINER_1.account_id());
 
-		// Block 1
 		set_miner_preimage_digest(MINER_1.preimage());
 		MiningRewards::collect_transaction_fees(10);
-
-		// Calculate rewards for block 1 with treasury portion
-		let current_supply_block1 = Balances::total_issuance();
-		let total_block1_reward =
-			(MaxSupply::get() - current_supply_block1) / EmissionDivisor::get();
-		let miner_block1_reward =
-			total_block1_reward - Treasury::portion().mul_floor(total_block1_reward);
-
+		let (miner_block1_reward, _) = miner_payout(10);
 		MiningRewards::on_finalize(1);
 
-		let balance_after_block_1 = initial_balance + miner_block1_reward + 10;
+		let balance_after_block_1 = initial_balance + miner_block1_reward;
 		assert_eq!(Balances::free_balance(MINER_1.account_id()), balance_after_block_1);
 
-		// Block 2 - supply has increased after block 1, so reward will be different
 		set_miner_preimage_digest(MINER_1.preimage());
 		MiningRewards::collect_transaction_fees(15);
-
-		let current_supply_block2 = Balances::total_issuance();
-		let total_block2_reward =
-			(MaxSupply::get() - current_supply_block2) / EmissionDivisor::get();
-		let miner_block2_reward =
-			total_block2_reward - Treasury::portion().mul_floor(total_block2_reward);
-
+		let (miner_block2_reward, _) = miner_payout(15);
 		MiningRewards::on_finalize(2);
 
-		// Check total rewards for both blocks
 		assert_eq!(
 			Balances::free_balance(MINER_1.account_id()),
-			initial_balance + miner_block1_reward + 10 + miner_block2_reward + 15
+			initial_balance + miner_block1_reward + miner_block2_reward
 		);
 	});
 }
@@ -160,49 +106,28 @@ fn multiple_blocks_accumulate_rewards() {
 #[test]
 fn different_miners_get_different_rewards() {
 	new_test_ext().execute_with(|| {
-		// Remember initial balances
 		let initial_balance_miner1 = Balances::free_balance(MINER_1.account_id());
 		let initial_balance_miner2 = Balances::free_balance(MINER_2.account_id());
 
-		// Block 1 - First miner
 		set_miner_preimage_digest(MINER_1.preimage());
 		MiningRewards::collect_transaction_fees(10);
-
-		let current_supply_block1 = Balances::total_issuance();
-		let total_block1_reward =
-			(MaxSupply::get() - current_supply_block1) / EmissionDivisor::get();
-		let miner_block1_reward =
-			total_block1_reward - Treasury::portion().mul_floor(total_block1_reward);
-
+		let (miner_block1_reward, _) = miner_payout(10);
 		MiningRewards::on_finalize(1);
 
-		let balance_after_block_1 = initial_balance_miner1 + miner_block1_reward + 10;
+		let balance_after_block_1 = initial_balance_miner1 + miner_block1_reward;
 		assert_eq!(Balances::free_balance(MINER_1.account_id()), balance_after_block_1);
 
-		// Block 2 - Second miner
 		let block_1 = System::finalize();
-		// reset logs and go to block 2
 		System::initialize(&2, &block_1.hash(), &Digest { logs: vec![] });
 		set_miner_preimage_digest(MINER_2.preimage());
 		MiningRewards::collect_transaction_fees(20);
-
-		let current_supply_block2 = Balances::total_issuance();
-		let total_block2_reward =
-			(MaxSupply::get() - current_supply_block2) / EmissionDivisor::get();
-		let miner_block2_reward =
-			total_block2_reward - Treasury::portion().mul_floor(total_block2_reward);
-
+		let (miner_block2_reward, _) = miner_payout(20);
 		MiningRewards::on_finalize(2);
 
-		println!("Balance {}", Balances::free_balance(MINER_1.account_id()));
-
-		// Check second miner balance
 		assert_eq!(
 			Balances::free_balance(MINER_2.account_id()),
-			initial_balance_miner2 + miner_block2_reward + 20
+			initial_balance_miner2 + miner_block2_reward
 		);
-
-		// First miner balance should remain unchanged
 		assert_eq!(Balances::free_balance(MINER_1.account_id()), balance_after_block_1);
 	});
 }
@@ -210,32 +135,18 @@ fn different_miners_get_different_rewards() {
 #[test]
 fn transaction_fees_collector_works() {
 	new_test_ext().execute_with(|| {
-		// Remember initial balance
 		let initial_balance = Balances::free_balance(MINER_1.account_id());
 
-		// Use collect_transaction_fees to gather fees
 		MiningRewards::collect_transaction_fees(10);
 		MiningRewards::collect_transaction_fees(15);
 		MiningRewards::collect_transaction_fees(5);
-
-		// Check accumulated fees
 		assert_eq!(MiningRewards::collected_fees(), 30);
 
-		// Calculate expected rewards with treasury portion
-		let current_supply = Balances::total_issuance();
-		let total_block_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let miner_block_reward =
-			total_block_reward - Treasury::portion().mul_floor(total_block_reward);
-
-		// Reward miner
+		let (miner_reward, _) = miner_payout(30);
 		set_miner_preimage_digest(MINER_1.preimage());
 		MiningRewards::on_finalize(1);
 
-		// Check that the miner received the miner portion of block reward + all collected fees
-		assert_eq!(
-			Balances::free_balance(MINER_1.account_id()),
-			initial_balance + miner_block_reward + 30
-		);
+		assert_eq!(Balances::free_balance(MINER_1.account_id()), initial_balance + miner_reward);
 	});
 }
 
@@ -250,208 +161,139 @@ fn on_initialize_returns_correct_weight() {
 #[test]
 fn test_run_to_block_helper() {
 	new_test_ext().execute_with(|| {
-		// Remember initial balance
 		let initial_balance = Balances::free_balance(MINER_1.account_id());
-
-		// Set up miner
 		set_miner_preimage_digest(MINER_1.preimage());
-
-		// Add fees for block 1
 		MiningRewards::collect_transaction_fees(10);
-
-		// Note: This test is complex with run_to_block as rewards change with supply
-		// We'll just verify the mechanism works and final balance is reasonable
 		let initial_supply = Balances::total_issuance();
 
-		// Run to block 3 (this should process blocks 1 and 2)
 		run_to_block(3);
 
-		// Verify we're at the expected block number
 		assert_eq!(System::block_number(), 3);
-
-		// Check that miner balance increased (should have rewards from both blocks + fees)
-		let final_balance = Balances::free_balance(MINER_1.account_id());
-		assert!(final_balance > initial_balance, "Miner should have received rewards");
-
-		// Verify supply increased due to minted rewards
-		let final_supply = Balances::total_issuance();
-		assert!(final_supply > initial_supply, "Total supply should have increased");
+		assert!(
+			Balances::free_balance(MINER_1.account_id()) > initial_balance,
+			"Miner should have received rewards"
+		);
+		assert!(Balances::total_issuance() > initial_supply, "Total supply should have increased");
 	});
 }
 
 #[test]
-fn rewards_go_to_treasury_when_no_miner() {
+fn rewards_are_deferred_when_no_miner() {
 	new_test_ext().execute_with(|| {
-		// Get Treasury account
-		let treasury_account = Treasury::account_id();
-		let initial_treasury_balance = Balances::free_balance(&treasury_account);
+		let issuance_before = Balances::total_issuance();
+		let miner_before = Balances::free_balance(MINER_1.account_id());
+		let total_reward = expected_block_reward(0);
 
-		// Calculate expected rewards - when no miner, all rewards go to treasury
-		let current_supply = Balances::total_issuance();
-		let total_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let treasury_portion_reward = Treasury::portion().mul_floor(total_reward);
-		let miner_portion_reward = total_reward - treasury_portion_reward;
-
-		// Create a block without a miner (no digest set)
 		System::set_block_number(1);
 		MiningRewards::on_finalize(System::block_number());
 
-		// Check that Treasury received both its portion and the miner's portion (since no miner)
 		assert_eq!(
-			Balances::free_balance(treasury_account),
-			initial_treasury_balance + treasury_portion_reward + miner_portion_reward
+			Balances::total_issuance(),
+			issuance_before,
+			"nothing is minted without a miner"
 		);
-
-		// Check that the events were emitted
-		System::assert_has_event(
-			Event::TreasuryRewarded { reward: treasury_portion_reward }.into(),
-		);
-		System::assert_has_event(Event::TreasuryRewarded { reward: miner_portion_reward }.into());
+		assert_eq!(Balances::free_balance(MINER_1.account_id()), miner_before);
+		assert_eq!(MiningRewards::collected_fees(), total_reward);
+		System::assert_has_event(Event::PayoutDeferred { amount: total_reward }.into());
 	});
 }
 
-/// EQ-QNT-MINING-R-02: Test that transaction fees go to treasury when no miner is present.
-/// This exercises the fee fallback path where `mint_reward(None, tx_fees)` routes fees to treasury.
+/// EQ-QNT-MINING-R-02: transaction fees stay with the miner credit when no miner is present.
 #[test]
-fn fees_go_to_treasury_when_no_miner() {
+fn fees_are_deferred_when_no_miner() {
 	new_test_ext().execute_with(|| {
-		// Get Treasury account
-		let treasury_account = Treasury::account_id();
-		let initial_treasury_balance = Balances::free_balance(&treasury_account);
-
-		// Calculate expected block rewards - when no miner, all rewards go to treasury
-		let current_supply = Balances::total_issuance();
-		let total_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let treasury_portion_reward = Treasury::portion().mul_floor(total_reward);
-		let miner_portion_reward = total_reward - treasury_portion_reward;
-
-		// Collect transaction fees BEFORE on_finalize (no miner digest set)
+		let issuance_before = Balances::total_issuance();
 		let tx_fees: u128 = 500;
+		let total_reward = expected_block_reward(tx_fees);
 		MiningRewards::collect_transaction_fees(tx_fees);
 
-		// Create a block without a miner (no digest set)
 		System::set_block_number(1);
 		MiningRewards::on_finalize(System::block_number());
 
-		// Check that Treasury received:
-		// 1. Its portion of the block reward
-		// 2. The miner's portion of the block reward (since no miner)
-		// 3. The accumulated transaction fees (since no miner to receive them)
-		let expected_treasury_total =
-			initial_treasury_balance + treasury_portion_reward + miner_portion_reward + tx_fees;
-		assert_eq!(Balances::free_balance(&treasury_account), expected_treasury_total);
-
-		// Check that the events were emitted
-		System::assert_has_event(
-			Event::TreasuryRewarded { reward: treasury_portion_reward }.into(),
-		);
-		// Miner portion goes to treasury when no miner
-		System::assert_has_event(Event::TreasuryRewarded { reward: miner_portion_reward }.into());
-		// Fees also go to treasury when no miner
-		System::assert_has_event(Event::TreasuryRewarded { reward: tx_fees }.into());
+		assert_eq!(Balances::total_issuance(), issuance_before);
+		assert_eq!(MiningRewards::collected_fees(), total_reward + tx_fees);
+		System::assert_has_event(Event::PayoutDeferred { amount: total_reward + tx_fees }.into());
 	});
 }
 
-/// Failed treasury mints are retained in CollectedFees and recovered later.
+/// Failed miner mints are retained in CollectedFees and recovered later.
 #[test]
-fn failed_treasury_mint_is_retained_and_recovered() {
+fn failed_miner_mint_is_retained_and_recovered() {
 	new_test_ext().execute_with(|| {
-		let treasury_account = Treasury::account_id();
-		let balance_before = Balances::free_balance(&treasury_account);
+		let miner = MINER_1.account_id();
+		let miner_before = Balances::free_balance(&miner);
 		let issuance_before = Balances::total_issuance();
 
-		// Fees burned from payers during block 1's execution, awaiting re-mint.
 		let tx_fees: Balance = 1_000 * Unit::get();
 		MiningRewards::collect_transaction_fees(tx_fees);
+		set_miner_preimage_digest(MINER_1.preimage());
 
-		// No miner digest: fees, miner portion and treasury portion are all
-		// treasury-directed. Raise the ED so every one of those mints fails.
-		let total_reward_1 =
-			(MaxSupply::get() - (issuance_before + tx_fees)) / EmissionDivisor::get();
-		let lost = tx_fees + total_reward_1;
+		let lost = expected_block_reward(tx_fees) + tx_fees;
 		ExistentialDeposit::set(MaxSupply::get());
 		MiningRewards::on_finalize(1);
 
-		// The outage block minted nothing; the full amount was rolled back into
-		// CollectedFees, awaiting redistribution by the next finalize.
-		assert_eq!(Balances::free_balance(&treasury_account), balance_before);
+		assert_eq!(Balances::free_balance(&miner), miner_before);
 		assert_eq!(Balances::total_issuance(), issuance_before);
-		System::assert_has_event(Event::TreasuryMintFailed { reward: tx_fees }.into());
+		System::assert_has_event(
+			Event::MinerMintFailed { miner: miner.clone(), reward: quantize(lost).0 }.into(),
+		);
 		assert_eq!(
 			MiningRewards::collected_fees(),
 			lost,
-			"every failed mint must be retained for retry"
+			"quantized credit plus dust must both be retained for retry"
 		);
 
-		// The treasury becomes receivable again; the next finalize must recover
-		// the retained block-1 amounts (block 2's own emission comes on top).
 		ExistentialDeposit::set(1);
+		set_miner_preimage_digest(MINER_1.preimage());
+		let (paid, dust) = quantize(lost + expected_block_reward(lost));
 		MiningRewards::on_finalize(2);
 
-		let gained = Balances::free_balance(&treasury_account) - balance_before;
-		assert!(
-			gained >= lost,
-			"a recoverable treasury outage must not lose that block's rewards: \
-			 gained {gained}, needed at least {lost}"
-		);
-		assert_eq!(
-			MiningRewards::collected_fees(),
-			0,
-			"recovered rewards must leave the retry bucket"
-		);
+		assert_eq!(Balances::free_balance(&miner), miner_before + paid);
+		assert_eq!(MiningRewards::collected_fees(), dust);
 	});
 }
 
 #[test]
-fn unminted_rewards_accumulate_across_consecutive_outage_blocks() {
+fn unminted_rewards_accumulate_across_consecutive_blocks_without_a_miner() {
 	new_test_ext().execute_with(|| {
-		let treasury_account = Treasury::account_id();
-		let balance_before = Balances::free_balance(&treasury_account);
-
-		ExistentialDeposit::set(MaxSupply::get());
-
 		MiningRewards::on_finalize(1);
 		let retained_after_1 = MiningRewards::collected_fees();
-		assert!(retained_after_1 > 0, "outage block must retain its rewards");
+		assert!(retained_after_1 > 0, "a miner-less block must retain its rewards");
 
 		MiningRewards::on_finalize(2);
 		let retained_after_2 = MiningRewards::collected_fees();
 		assert!(
 			retained_after_2 > retained_after_1,
-			"a second outage block must add its own rewards to the retained pool"
+			"a second miner-less block must add its own rewards to the retained pool"
 		);
 
-		// Once the treasury recovers, the whole accumulated pool is minted.
-		ExistentialDeposit::set(1);
+		let miner_before = Balances::free_balance(MINER_1.account_id());
+		set_miner_preimage_digest(MINER_1.preimage());
+		let (paid, dust) = quantize(retained_after_2 + expected_block_reward(retained_after_2));
 		MiningRewards::on_finalize(3);
-		assert_eq!(MiningRewards::collected_fees(), 0);
-		assert!(
-			Balances::free_balance(&treasury_account) - balance_before >= retained_after_2,
-			"recovery must mint the entire accumulated pool"
-		);
+
+		assert_eq!(Balances::free_balance(MINER_1.account_id()), miner_before + paid);
+		assert_eq!(MiningRewards::collected_fees(), dust);
 	});
 }
 
 #[test]
 fn retried_rewards_follow_fee_destination_to_next_miner() {
 	new_test_ext().execute_with(|| {
-		// Block 1: no miner, treasury unreachable — everything is retained.
-		ExistentialDeposit::set(MaxSupply::get());
 		MiningRewards::on_finalize(1);
 		let retained = MiningRewards::collected_fees();
 		assert!(retained > 0);
 
-		// Block 2 has a miner and mints work again: the retained amount is
-		// distributed as that block's fees, i.e. to the miner.
-		ExistentialDeposit::set(1);
 		let miner_before = Balances::free_balance(MINER_1.account_id());
 		set_miner_preimage_digest(MINER_1.preimage());
+		let (paid, dust) = quantize(retained + expected_block_reward(retained));
 		MiningRewards::on_finalize(2);
 
-		assert_eq!(MiningRewards::collected_fees(), 0);
-		assert!(
-			Balances::free_balance(MINER_1.account_id()) >= miner_before + retained,
-			"retried rewards must reach the next block's miner via the fee path"
+		assert_eq!(MiningRewards::collected_fees(), dust);
+		assert_eq!(
+			Balances::free_balance(MINER_1.account_id()),
+			miner_before + paid,
+			"deferred rewards must reach the next block's miner via the fee path"
 		);
 	});
 }
@@ -460,195 +302,174 @@ fn retried_rewards_follow_fee_destination_to_next_miner() {
 // EQ-QNT-WORMHOLE-F-03: Tests for extract_author_from_digest edge cases
 // =========================================================================
 
-/// Test that a digest with an incorrect engine ID is ignored.
-/// The miner extraction should return None, causing rewards to go to treasury.
 #[test]
 fn incorrect_engine_id_ignored() {
 	new_test_ext().execute_with(|| {
-		let treasury_account = Treasury::account_id();
-		let initial_treasury_balance = Balances::free_balance(&treasury_account);
+		let total_reward = expected_block_reward(0);
 
-		// Calculate expected rewards
-		let current_supply = Balances::total_issuance();
-		let total_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let treasury_portion_reward = Treasury::portion().mul_floor(total_reward);
-		let miner_portion_reward = total_reward - treasury_portion_reward;
-
-		// Set a digest with a WRONG engine ID (not POW_ENGINE_ID)
-		// Using arbitrary engine ID that doesn't match POW_ENGINE_ID
 		let wrong_engine_id: [u8; 4] = *b"FAKE";
 		set_digest_with_engine_id(wrong_engine_id, MINER_1.preimage().to_vec());
 
-		// Run on_finalize
 		System::set_block_number(1);
 		MiningRewards::on_finalize(System::block_number());
 
-		// Since the engine ID is wrong, miner extraction fails.
-		// All rewards should go to treasury (same as no miner case).
-		assert_eq!(
-			Balances::free_balance(&treasury_account),
-			initial_treasury_balance + treasury_portion_reward + miner_portion_reward
-		);
-
-		// MINER_1 should NOT have received any rewards
+		assert_eq!(MiningRewards::collected_fees(), total_reward);
 		assert_eq!(
 			Balances::free_balance(MINER_1.account_id()),
-			ExistentialDeposit::get(), // Only the initial existential deposit
+			ExistentialDeposit::get(),
 			"Miner should not receive rewards when engine ID is incorrect"
 		);
+		System::assert_has_event(Event::PayoutDeferred { amount: total_reward }.into());
 	});
 }
 
-/// Test that a digest with malformed preimage data (wrong length) is ignored.
-/// The miner extraction should return None, causing rewards to go to treasury.
 #[test]
 fn malformed_preimage_data_ignored() {
 	new_test_ext().execute_with(|| {
 		use sp_consensus_qpow::POW_ENGINE_ID;
 
-		let treasury_account = Treasury::account_id();
-		let initial_treasury_balance = Balances::free_balance(&treasury_account);
+		let total_reward = expected_block_reward(0);
 
-		// Calculate expected rewards
-		let current_supply = Balances::total_issuance();
-		let total_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let treasury_portion_reward = Treasury::portion().mul_floor(total_reward);
-		let miner_portion_reward = total_reward - treasury_portion_reward;
-
-		// Set a digest with correct engine ID but WRONG data length (not 32 bytes)
-		let short_data: Vec<u8> = vec![1, 2, 3, 4, 5]; // Only 5 bytes instead of 32
+		let short_data: Vec<u8> = vec![1, 2, 3, 4, 5];
 		set_digest_with_engine_id(POW_ENGINE_ID, short_data);
 
-		// Run on_finalize
 		System::set_block_number(1);
 		MiningRewards::on_finalize(System::block_number());
 
-		// Since the preimage data is malformed (wrong length), miner extraction fails.
-		// All rewards should go to treasury (same as no miner case).
-		assert_eq!(
-			Balances::free_balance(&treasury_account),
-			initial_treasury_balance + treasury_portion_reward + miner_portion_reward
-		);
+		assert_eq!(MiningRewards::collected_fees(), total_reward);
+		System::assert_has_event(Event::PayoutDeferred { amount: total_reward }.into());
 	});
 }
 
-/// Test that an empty digest (no PreRuntime entries) results in treasury fallback.
 #[test]
-fn empty_digest_falls_back_to_treasury() {
+fn empty_digest_defers_payout() {
 	new_test_ext().execute_with(|| {
-		let treasury_account = Treasury::account_id();
-		let initial_treasury_balance = Balances::free_balance(&treasury_account);
+		let total_reward = expected_block_reward(0);
 
-		// Calculate expected rewards
-		let current_supply = Balances::total_issuance();
-		let total_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let treasury_portion_reward = Treasury::portion().mul_floor(total_reward);
-		let miner_portion_reward = total_reward - treasury_portion_reward;
-
-		// Don't set any digest at all - the digest will be empty
 		System::set_block_number(1);
 		MiningRewards::on_finalize(System::block_number());
 
-		// With no PreRuntime digest, miner extraction returns None.
-		// All rewards should go to treasury.
-		assert_eq!(
-			Balances::free_balance(&treasury_account),
-			initial_treasury_balance + treasury_portion_reward + miner_portion_reward
-		);
-
-		// Verify the treasury events were emitted
-		System::assert_has_event(
-			Event::TreasuryRewarded { reward: treasury_portion_reward }.into(),
-		);
-		System::assert_has_event(Event::TreasuryRewarded { reward: miner_portion_reward }.into());
+		assert_eq!(MiningRewards::collected_fees(), total_reward);
+		System::assert_has_event(Event::PayoutDeferred { amount: total_reward }.into());
 	});
 }
 
-/// Test that a digest with too-long preimage data (more than 32 bytes) is ignored.
 #[test]
 fn oversized_preimage_data_ignored() {
 	new_test_ext().execute_with(|| {
 		use sp_consensus_qpow::POW_ENGINE_ID;
 
-		let treasury_account = Treasury::account_id();
-		let initial_treasury_balance = Balances::free_balance(&treasury_account);
+		let total_reward = expected_block_reward(0);
 
-		// Calculate expected rewards
-		let current_supply = Balances::total_issuance();
-		let total_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let treasury_portion_reward = Treasury::portion().mul_floor(total_reward);
-		let miner_portion_reward = total_reward - treasury_portion_reward;
-
-		// Set a digest with correct engine ID but data that's too long (64 bytes)
 		let long_data: Vec<u8> = vec![42u8; 64];
 		set_digest_with_engine_id(POW_ENGINE_ID, long_data);
 
-		// Run on_finalize
 		System::set_block_number(1);
 		MiningRewards::on_finalize(System::block_number());
 
-		// Since the preimage data is wrong length, miner extraction fails.
-		// All rewards should go to treasury.
-		assert_eq!(
-			Balances::free_balance(&treasury_account),
-			initial_treasury_balance + treasury_portion_reward + miner_portion_reward
-		);
+		assert_eq!(MiningRewards::collected_fees(), total_reward);
+		System::assert_has_event(Event::PayoutDeferred { amount: total_reward }.into());
 	});
 }
 
 #[test]
 fn test_fees_and_rewards_to_miner() {
 	new_test_ext().execute_with(|| {
-		// Use a test preimage and derive the wormhole address
-		let test_preimage = [42u8; 32]; // Use a distinct preimage for this test
+		let test_preimage = [42u8; 32];
 		let miner_wormhole_address = sp_core::crypto::AccountId32::from(
 			derive_wormhole_address(test_preimage).expect("test preimage limbs are canonical"),
 		);
-		let _ = Balances::deposit_creating(&miner_wormhole_address, 0); // Create account
+		let _ = Balances::deposit_creating(&miner_wormhole_address, 0);
 		let actual_initial_balance_after_creation = Balances::free_balance(&miner_wormhole_address);
 
-		// Set transaction fees
 		let tx_fees = 100;
 		MiningRewards::collect_transaction_fees(tx_fees);
+		let (miner_reward, _) = miner_payout(tx_fees);
 
-		// Calculate expected rewards with treasury portion
-		let current_supply = Balances::total_issuance();
-		let total_block_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let treasury_reward = Treasury::portion().mul_floor(total_block_reward);
-		let miner_block_reward = total_block_reward - treasury_reward;
-
-		// Create a block with the preimage
 		System::set_block_number(1);
 		set_miner_preimage_digest(test_preimage);
-
-		// Run on_finalize
 		MiningRewards::on_finalize(System::block_number());
 
-		// Get actual values from the system AFTER on_finalize
-		let miner_balance_after_finalize = Balances::free_balance(&miner_wormhole_address);
-
-		// Check miner balance - should get miner portion of block reward + all fees
 		assert_eq!(
-			miner_balance_after_finalize,
-			actual_initial_balance_after_creation + miner_block_reward + tx_fees,
-			"Miner should receive miner portion of block reward + all fees"
+			Balances::free_balance(&miner_wormhole_address),
+			actual_initial_balance_after_creation + miner_reward,
+			"Miner should receive the quantized block reward + fees"
 		);
-
-		// Verify events
 		System::assert_has_event(
-			Event::MinerRewarded {
-				miner: miner_wormhole_address.clone(),
-				reward: 100, // all fees go to miner
-			}
-			.into(),
+			Event::MinerRewarded { miner: miner_wormhole_address, reward: miner_reward }.into(),
 		);
+	});
+}
 
+#[test]
+fn miner_payout_is_quantized_and_dust_is_held() {
+	new_test_ext().execute_with(|| {
+		let quantum = leaf_quantum();
+		let initial_miner = Balances::free_balance(MINER_1.account_id());
+		set_miner_preimage_digest(MINER_1.preimage());
+
+		let fees: Balance = 25;
+		MiningRewards::collect_transaction_fees(fees);
+		let (quantized, dust) = miner_payout(fees);
+		assert!(dust > 0, "test setup must produce a sub-quantum remainder");
+		assert_eq!(quantized % quantum, 0);
+
+		MiningRewards::on_finalize(1);
+
+		assert_eq!(Balances::free_balance(MINER_1.account_id()), initial_miner + quantized);
+		assert_eq!(MiningRewards::collected_fees(), dust);
 		System::assert_has_event(
-			Event::MinerRewarded { miner: miner_wormhole_address, reward: miner_block_reward }
-				.into(),
+			Event::MinerRewarded { miner: MINER_1.account_id(), reward: quantized }.into(),
+		);
+	});
+}
+
+#[test]
+fn combined_fee_and_reward_can_recover_a_quantum() {
+	new_test_ext().execute_with(|| {
+		let quantum = leaf_quantum();
+		set_miner_preimage_digest(MINER_1.preimage());
+
+		// Fee remainder is quantum-1, so any non-zero reward remainder crosses a quantum.
+		let fees = quantum - 1;
+		MiningRewards::collect_transaction_fees(fees);
+
+		let reward = expected_block_reward(fees);
+		assert!(reward % quantum > 0, "block reward must not already be aligned");
+		let (combined, _dust) = quantize(reward + fees);
+		let (reward_only, _) = quantize(reward);
+		let (fee_only, _) = quantize(fees);
+		assert!(
+			combined > reward_only + fee_only,
+			"summing before the floor must recover a quantum that two floors would drop"
 		);
 
-		System::assert_has_event(Event::TreasuryRewarded { reward: treasury_reward }.into());
+		let initial_miner = Balances::free_balance(MINER_1.account_id());
+		MiningRewards::on_finalize(1);
+		assert_eq!(Balances::free_balance(MINER_1.account_id()), initial_miner + combined);
+	});
+}
+
+#[test]
+fn sub_quantum_credit_does_not_record_a_leaf() {
+	new_test_ext().execute_with(|| {
+		MockProofRecorder::clear();
+		set_miner_preimage_digest(MINER_1.preimage());
+
+		let fees: Balance = 25;
+		MiningRewards::collect_transaction_fees(fees);
+		let (quantized, dust) = miner_payout(fees);
+		assert!(dust > 0 && dust < leaf_quantum());
+
+		MiningRewards::on_finalize(1);
+
+		let proofs = MockProofRecorder::get_recorded_proofs();
+		let miner_proofs: Vec<_> = proofs.iter().filter(|p| p.to == MINER_1.account_id()).collect();
+		assert_eq!(miner_proofs.len(), 1);
+		assert_eq!(miner_proofs[0].amount, quantized);
+		assert_eq!(miner_proofs[0].amount % leaf_quantum(), 0);
+		assert_eq!(MiningRewards::collected_fees(), dust);
+		assert_eq!(proofs.len(), 1, "held dust must not record a wormhole leaf");
 	});
 }
 
@@ -656,152 +477,121 @@ fn test_fees_and_rewards_to_miner() {
 #[ignore] // This test takes a very long time (~120M blocks simulation), run manually with --ignored
 fn test_emission_simulation_120m_blocks() {
 	new_test_ext().execute_with(|| {
-		// No pre-mine at genesis: the treasury starts empty and the initial supply is just the
-		// existential deposits of the test accounts (negligible vs. MaxSupply).
-
 		println!("=== Mining Rewards Emission Simulation ===");
 		println!("Max Supply: {:.0} tokens", MaxSupply::get() as f64 / UNIT as f64);
 		println!("Emission Divisor: {:?}", EmissionDivisor::get());
-		println!("Treasury Portion: {:?}", Treasury::portion());
 		println!();
 
 		const MAX_BLOCKS: u64 = 130_000_000;
-		const REPORT_INTERVAL: u64 = 1_000_000; // Report every 1M blocks
-		const UNIT: u128 = 1_000_000_000_000; // For readable output
-		// 4 years of 12-second blocks: 4 * 365.25 days * 86400 s / 12 s
+		const REPORT_INTERVAL: u64 = 1_000_000;
+		const UNIT: u128 = 1_000_000_000_000;
 		const FOUR_YEARS_BLOCKS: u64 = 10_519_200;
 
 		let initial_supply = Balances::total_issuance();
 		let mut current_supply = initial_supply;
 		let mut total_miner_rewards = 0u128;
-		let mut total_treasury_rewards = 0u128;
 		let mut block = 0u64;
-		let mut four_year_stats: Option<(u128, u128, u128)> = None;
+		let mut four_year_stats: Option<(u128, u128)> = None;
 
-		println!("Block       Supply        %MaxSupply  BlockReward   ToTreasury   ToMiner      Remaining");
-		println!("{}", "-".repeat(90));
+		println!("Block       Supply        %MaxSupply  BlockReward   Remaining");
+		println!("{}", "-".repeat(70));
 
-		// Print initial state
 		let remaining = MaxSupply::get() - current_supply;
 		let block_reward = if remaining > 0 { remaining / EmissionDivisor::get() } else { 0 };
-		let treasury_reward = Treasury::portion().mul_floor(block_reward);
-		let miner_reward = block_reward - treasury_reward;
-
 		println!(
-			"{:<11} {:<13} {:<11.2}% {:<13.6} {:<12.6} {:<12.6} {:<13}",
+			"{:<11} {:<13} {:<11.2}% {:<13.6} {:<13}",
 			block,
 			current_supply / UNIT,
 			(current_supply as f64 / MaxSupply::get() as f64) * 100.0,
 			block_reward as f64 / UNIT as f64,
-			treasury_reward as f64 / UNIT as f64,
-			miner_reward as f64 / UNIT as f64,
 			remaining / UNIT
 		);
 
-		// Set up a consistent miner
 		set_miner_preimage_digest(MINER_1.preimage());
 
-		// Single flattened loop - continues until block_reward reaches 0 or max blocks exceeded
-		// This ensures we stress-test the supply cap properly (no early exit on small rewards)
 		loop {
-			// Calculate reward for this block
 			let remaining_supply = MaxSupply::get().saturating_sub(current_supply);
 			let block_reward = remaining_supply / EmissionDivisor::get();
-
-			// Exit when block reward reaches zero (emission exhausted) or max blocks exceeded
 			if block_reward == 0 || block >= MAX_BLOCKS {
 				break;
 			}
 
-			let treasury_reward = Treasury::portion().mul_floor(block_reward);
-			let miner_reward = block_reward - treasury_reward;
-
-			// Update totals (simulate the minting)
 			current_supply += block_reward;
-			total_treasury_rewards += treasury_reward;
-			total_miner_rewards += miner_reward;
+			total_miner_rewards += block_reward;
 			block += 1;
 
-			// Snapshot state at the 4-year mark for tokenomics validation
 			if block == FOUR_YEARS_BLOCKS {
-				four_year_stats =
-					Some((current_supply, total_miner_rewards, total_treasury_rewards));
+				four_year_stats = Some((current_supply, total_miner_rewards));
 			}
 
-			// Print progress report at intervals
 			if block.is_multiple_of(REPORT_INTERVAL) {
 				let remaining = MaxSupply::get().saturating_sub(current_supply);
-				let next_block_reward = if remaining > 0 { remaining / EmissionDivisor::get() } else { 0 };
-				let next_treasury = Treasury::portion().mul_floor(next_block_reward);
-				let next_miner = next_block_reward - next_treasury;
-
+				let next_block_reward =
+					if remaining > 0 { remaining / EmissionDivisor::get() } else { 0 };
 				println!(
-					"{:<11} {:<13} {:<11.2}% {:<13.6} {:<12.6} {:<12.6} {:<13}",
+					"{:<11} {:<13} {:<11.2}% {:<13.6} {:<13}",
 					block,
 					current_supply / UNIT,
 					(current_supply as f64 / MaxSupply::get() as f64) * 100.0,
 					next_block_reward as f64 / UNIT as f64,
-					next_treasury as f64 / UNIT as f64,
-					next_miner as f64 / UNIT as f64,
 					remaining / UNIT
 				);
 			}
 		}
 
-		// Print final state
 		let remaining = MaxSupply::get().saturating_sub(current_supply);
 		let next_block_reward = if remaining > 0 { remaining / EmissionDivisor::get() } else { 0 };
 		println!(
-			"{:<11} {:<13} {:<11.2}% {:<13.6} {:<12.6} {:<12.6} {:<13} (final)",
+			"{:<11} {:<13} {:<11.2}% {:<13.6} {:<13} (final)",
 			block,
 			current_supply / UNIT,
 			(current_supply as f64 / MaxSupply::get() as f64) * 100.0,
 			next_block_reward as f64 / UNIT as f64,
-			0.0,
-			0.0,
 			remaining / UNIT
 		);
 
-		println!("{}", "-".repeat(90));
+		println!("{}", "-".repeat(70));
 		println!();
 		println!("=== Final Summary ===");
 		println!("Total Blocks Processed: {}", block);
 		println!("Final Supply: {:.6} tokens", current_supply as f64 / UNIT as f64);
-		println!("Percentage of Max Supply: {:.4}%", (current_supply as f64 / MaxSupply::get() as f64) * 100.0);
-		println!("Remaining Supply: {:.6} tokens", (MaxSupply::get() - current_supply) as f64 / UNIT as f64);
+		println!(
+			"Percentage of Max Supply: {:.4}%",
+			(current_supply as f64 / MaxSupply::get() as f64) * 100.0
+		);
+		println!(
+			"Remaining Supply: {:.6} tokens",
+			(MaxSupply::get() - current_supply) as f64 / UNIT as f64
+		);
 		println!();
 		println!("Total Miner Rewards: {:.6} tokens", total_miner_rewards as f64 / UNIT as f64);
-		println!("Total Treasury Rewards: {:.6} tokens", total_treasury_rewards as f64 / UNIT as f64);
-		println!("Total Rewards Distributed: {:.6} tokens", (total_miner_rewards + total_treasury_rewards) as f64 / UNIT as f64);
-		println!();
-		println!("Miner Share: {:.1}%", (total_miner_rewards as f64 / (total_miner_rewards + total_treasury_rewards) as f64) * 100.0);
-		println!("Treasury Share: {:.1}%", (total_treasury_rewards as f64 / (total_miner_rewards + total_treasury_rewards) as f64) * 100.0);
 
-		// Time estimates (assuming 12 second blocks)
 		let total_seconds = block as f64 * 12.0;
 		let days = total_seconds / (24.0 * 3600.0);
 		let years = days / 365.25;
-
 		println!();
 		println!("=== Time Estimates (12s blocks) ===");
 		println!("Total Time: {:.1} days ({:.1} years)", days, years);
 
-		// === 4-Year Checkpoint Validation ===
-		// Target tokenomics: after ~4 years of 12s blocks, approximately 50% of the mineable
-		// supply has been emitted, half of it (25% of mineable supply) to the treasury.
-		let (supply_4y, miner_4y, treasury_4y) =
+		let (supply_4y, miner_4y) =
 			four_year_stats.expect("simulation must run past the 4-year mark");
 		let mineable_supply = MaxSupply::get() - initial_supply;
 		let emitted_4y = supply_4y - initial_supply;
 		let emitted_pct_4y = (emitted_4y as f64 / mineable_supply as f64) * 100.0;
 		let miner_pct_4y = (miner_4y as f64 / mineable_supply as f64) * 100.0;
-		let treasury_pct_4y = (treasury_4y as f64 / mineable_supply as f64) * 100.0;
 
 		println!();
 		println!("=== 4-Year Checkpoint (block {}) ===", FOUR_YEARS_BLOCKS);
-		println!("Emitted: {:.6} tokens ({:.2}% of mineable supply)", emitted_4y as f64 / UNIT as f64, emitted_pct_4y);
-		println!("To Miners: {:.6} tokens ({:.2}% of mineable supply)", miner_4y as f64 / UNIT as f64, miner_pct_4y);
-		println!("To Treasury: {:.6} tokens ({:.2}% of mineable supply)", treasury_4y as f64 / UNIT as f64, treasury_pct_4y);
+		println!(
+			"Emitted: {:.6} tokens ({:.2}% of mineable supply)",
+			emitted_4y as f64 / UNIT as f64,
+			emitted_pct_4y
+		);
+		println!(
+			"To Miners: {:.6} tokens ({:.2}% of mineable supply)",
+			miner_4y as f64 / UNIT as f64,
+			miner_pct_4y
+		);
 
 		assert!(
 			(49.0..=51.0).contains(&emitted_pct_4y),
@@ -809,32 +599,40 @@ fn test_emission_simulation_120m_blocks() {
 			emitted_pct_4y
 		);
 		assert!(
-			(24.0..=26.0).contains(&treasury_pct_4y),
-			"~25% of mineable supply should have gone to treasury after 4 years, got {:.2}%",
-			treasury_pct_4y
-		);
-		assert!(
-			(24.0..=26.0).contains(&miner_pct_4y),
-			"~25% of mineable supply should have gone to miners after 4 years, got {:.2}%",
+			(49.0..=51.0).contains(&miner_pct_4y),
+			"~50% of mineable supply should have gone to miners after 4 years, got {:.2}%",
 			miner_pct_4y
 		);
-
-		// === Comprehensive Emission Validation ===
 
 		assert!(current_supply >= initial_supply, "Supply should have increased");
 		assert!(current_supply <= MaxSupply::get(), "Supply should not exceed max supply");
 
 		let emitted_tokens = current_supply - initial_supply;
-		let emission_percentage = (emitted_tokens as f64 / (MaxSupply::get() - initial_supply) as f64) * 100.0;
-		assert!(emission_percentage > 99.0, "Should have emitted >99% of available supply, got {:.2}%", emission_percentage);
+		let emission_percentage =
+			(emitted_tokens as f64 / (MaxSupply::get() - initial_supply) as f64) * 100.0;
+		assert!(
+			emission_percentage > 99.0,
+			"Should have emitted >99% of available supply, got {:.2}%",
+			emission_percentage
+		);
 
 		assert!(total_miner_rewards > 0, "Miners should have received rewards");
-		assert!(total_treasury_rewards > 0, "Treasury should have received rewards");
-		assert_eq!(total_miner_rewards + total_treasury_rewards, emitted_tokens, "Total rewards should equal emitted tokens");
+		assert_eq!(
+			total_miner_rewards, emitted_tokens,
+			"Total miner rewards should equal emitted tokens"
+		);
 
-		let remaining_percentage = ((MaxSupply::get() - current_supply) as f64 / MaxSupply::get() as f64) * 100.0;
-		assert!(remaining_percentage < 1.0, "Should have <1% supply remaining, got {:.2}%", remaining_percentage);
-		assert!(remaining_percentage > 0.0, "Should still have some supply remaining for future emission");
+		let remaining_percentage =
+			((MaxSupply::get() - current_supply) as f64 / MaxSupply::get() as f64) * 100.0;
+		assert!(
+			remaining_percentage < 1.0,
+			"Should have <1% supply remaining, got {:.2}%",
+			remaining_percentage
+		);
+		assert!(
+			remaining_percentage > 0.0,
+			"Should still have some supply remaining for future emission"
+		);
 
 		println!();
 		println!("✅ All emission validation checks passed!");
@@ -850,110 +648,57 @@ fn test_emission_simulation_120m_blocks() {
 fn miner_reward_records_transfer_proof() {
 	new_test_ext().execute_with(|| {
 		MockProofRecorder::clear();
-
-		// Add a miner to the pre-runtime digest
 		set_miner_preimage_digest(MINER_1.preimage());
-
-		// Verify no proofs recorded yet
 		assert_eq!(MockProofRecorder::proof_count(), 0);
 
-		// Run the on_finalize hook (this mints rewards)
 		MiningRewards::on_finalize(1);
 
-		// Should have recorded proofs for:
-		// 1. Miner block reward
-		// 2. Treasury block reward
 		let proofs = MockProofRecorder::get_recorded_proofs();
-		assert!(
-			proofs.len() >= 2,
-			"Should have recorded at least 2 proofs (miner + treasury), got {}",
-			proofs.len()
-		);
+		assert_eq!(proofs.len(), 1, "one combined miner leaf, no treasury split");
 
-		// Verify miner reward proof
 		let miner_proof = proofs.iter().find(|p| p.to == MINER_1.account_id());
 		assert!(miner_proof.is_some(), "Should have a proof for miner reward");
 		let miner_proof = miner_proof.unwrap();
 		assert_eq!(miner_proof.asset_id, None, "Miner reward should be native token");
 		assert_eq!(miner_proof.from, MintingAccount::get(), "From should be MintingAccount");
 		assert!(miner_proof.amount > 0, "Miner reward amount should be positive");
-
-		// Verify treasury reward proof
-		let treasury_proof = proofs.iter().find(|p| p.to == MockTreasury::account_id());
-		assert!(treasury_proof.is_some(), "Should have a proof for treasury reward");
-		let treasury_proof = treasury_proof.unwrap();
-		assert_eq!(treasury_proof.asset_id, None, "Treasury reward should be native token");
-		assert_eq!(treasury_proof.from, MintingAccount::get(), "From should be MintingAccount");
-		assert!(treasury_proof.amount > 0, "Treasury reward amount should be positive");
 	});
 }
 
 #[test]
-fn miner_reward_with_fees_records_multiple_proofs() {
+fn miner_reward_with_fees_records_one_combined_proof() {
 	new_test_ext().execute_with(|| {
 		MockProofRecorder::clear();
-
-		// Add a miner to the pre-runtime digest
 		set_miner_preimage_digest(MINER_1.preimage());
 
-		// Collect some transaction fees
 		let fees: Balance = 100;
 		MiningRewards::collect_transaction_fees(fees);
+		let (expected, _) = miner_payout(fees);
 
-		// Run the on_finalize hook
 		MiningRewards::on_finalize(1);
 
-		// Should have recorded proofs for:
-		// 1. Miner fee reward
-		// 2. Miner block reward
-		// 3. Treasury block reward
 		let proofs = MockProofRecorder::get_recorded_proofs();
-		assert!(proofs.len() >= 3, "Should have recorded at least 3 proofs, got {}", proofs.len());
-
-		// Count proofs going to miner
 		let miner_proofs: Vec<_> = proofs.iter().filter(|p| p.to == MINER_1.account_id()).collect();
-		assert_eq!(miner_proofs.len(), 2, "Miner should have 2 proofs (fees + block reward)");
-
-		// One should be the fee amount
-		let fee_proof = miner_proofs.iter().find(|p| p.amount == fees);
-		assert!(fee_proof.is_some(), "Should have a proof for the exact fee amount");
-
-		// All miner proofs should have MintingAccount as from
-		for proof in &miner_proofs {
-			assert_eq!(
-				proof.from,
-				MintingAccount::get(),
-				"All miner proofs should be from MintingAccount"
-			);
-		}
+		assert_eq!(miner_proofs.len(), 1, "fees and block reward share one leaf");
+		assert_eq!(miner_proofs[0].amount, expected);
+		assert_eq!(miner_proofs[0].from, MintingAccount::get());
 	});
 }
 
 #[test]
-fn treasury_only_reward_records_proof_when_no_miner() {
+fn no_miner_defers_payout_without_a_leaf() {
 	new_test_ext().execute_with(|| {
 		MockProofRecorder::clear();
+		let gross = expected_block_reward(0);
 
-		// Don't set a miner digest - rewards go to treasury only
-		// (no set_miner_digest call)
-
-		// Run the on_finalize hook
 		MiningRewards::on_finalize(1);
 
-		// Should have recorded proof for treasury reward only
-		let proofs = MockProofRecorder::get_recorded_proofs();
-		assert!(!proofs.is_empty(), "Should have recorded at least one proof");
-
-		// All proofs should go to treasury
-		for proof in &proofs {
-			assert_eq!(
-				proof.to,
-				MockTreasury::account_id(),
-				"Without miner, all rewards go to treasury"
-			);
-			assert_eq!(proof.from, MintingAccount::get(), "From should be MintingAccount");
-			assert_eq!(proof.asset_id, None, "Should be native token");
-		}
+		assert!(
+			MockProofRecorder::get_recorded_proofs().is_empty(),
+			"a deferred payout must not insert a leaf"
+		);
+		assert_eq!(MiningRewards::collected_fees(), gross);
+		System::assert_has_event(Event::PayoutDeferred { amount: gross }.into());
 	});
 }
 
@@ -961,30 +706,14 @@ fn treasury_only_reward_records_proof_when_no_miner() {
 fn zero_reward_does_not_record_proof() {
 	new_test_ext().execute_with(|| {
 		MockProofRecorder::clear();
-
-		// Set supply to max so no more rewards can be minted
-		// We do this by running many blocks until emission is exhausted
-		// For simplicity, we'll just verify behavior with current supply
-
-		// With default test setup, rewards should be non-zero
-		// This test verifies that the code path for zero rewards exists
-
-		// Add a miner
 		set_miner_preimage_digest(MINER_1.preimage());
-
-		// Run finalize
 		MiningRewards::on_finalize(1);
-
-		// Get the number of proofs
 		let proof_count = MockProofRecorder::proof_count();
 
-		// Clear and run again - should get same number of proofs
-		// (this just verifies consistency)
 		MockProofRecorder::clear();
 		MiningRewards::on_finalize(2);
 		let proof_count_2 = MockProofRecorder::proof_count();
 
-		// Both blocks should have recorded proofs (since we're not at max supply)
 		assert!(proof_count > 0, "First block should have proofs");
 		assert!(proof_count_2 > 0, "Second block should have proofs");
 	});
@@ -995,20 +724,14 @@ fn wormhole_miner_address_records_correct_proof() {
 	new_test_ext().execute_with(|| {
 		MockProofRecorder::clear();
 
-		// Use a wormhole-derived address as miner
-		// We set the preimage in the digest, and the miner address is derived from it
 		let preimage = [42u8; 32];
 		let wormhole_miner = sp_core::crypto::AccountId32::from(
 			derive_wormhole_address(preimage).expect("test preimage limbs are canonical"),
 		);
 
-		// Set the preimage directly in the digest (not the derived address)
 		set_miner_preimage_digest(preimage);
-
-		// Run the on_finalize hook
 		MiningRewards::on_finalize(1);
 
-		// Verify proof was recorded for the wormhole address
 		let proofs = MockProofRecorder::get_recorded_proofs();
 		let miner_proof = proofs.iter().find(|p| p.to == wormhole_miner);
 		assert!(miner_proof.is_some(), "Should have proof for wormhole miner address");

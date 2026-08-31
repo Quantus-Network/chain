@@ -1,9 +1,6 @@
 use crate::{
-	mock::{
-		account_id, new_test_ext, new_test_ext_with_treasury, new_test_ext_without_treasury, Test,
-		Treasury,
-	},
-	pallet::{TreasuryAccount, TreasuryPortion},
+	mock::{account_id, new_test_ext, new_test_ext_without_treasury, Test, Treasury},
+	pallet::TreasuryAccount,
 	Error, Event, TreasuryProvider,
 };
 use frame_support::{assert_err, assert_ok};
@@ -12,11 +9,8 @@ use frame_system::Pallet as System;
 #[test]
 fn genesis_sets_treasury_config() {
 	new_test_ext().execute_with(|| {
-		// Explicit check: both storages must be populated by genesis
 		assert!(TreasuryAccount::<Test>::get().is_some(), "TreasuryAccount must be set in genesis");
-		assert!(TreasuryPortion::<Test>::get().is_some(), "TreasuryPortion must be set in genesis");
 		assert_eq!(Treasury::account_id(), account_id(1));
-		assert_eq!(Treasury::portion(), sp_runtime::Permill::from_percent(50));
 	});
 }
 
@@ -66,7 +60,7 @@ fn set_treasury_account_rejects_zero() {
 /// The genesis default must not invent a treasury config: the old default account was
 /// the `[1u8; 32]` minting sentinel, so any chain spec that omitted the treasury section
 /// silently assigned all treasury funds to an unspendable address. The default must
-/// configure nothing, leaving `account_id()`/`portion()` to panic on first use.
+/// configure nothing, leaving `account_id()` to panic on first use.
 #[test]
 fn default_genesis_configures_nothing() {
 	let default = crate::GenesisConfig::<Test>::default();
@@ -74,69 +68,6 @@ fn default_genesis_configures_nothing() {
 		default.treasury_account.is_none(),
 		"treasury_account must have no default; chain specs must configure it explicitly"
 	);
-	assert!(default.treasury_portion.is_none(), "treasury_portion must have no default");
-}
-
-/// A spec that sets one treasury field but not the other is misconfigured and must be
-/// rejected at genesis build (unlike the fully-empty `Default`, which FRAME requires to
-/// build and which fails at first use instead).
-#[test]
-#[should_panic(expected = "Treasury portion must be set in genesis")]
-fn half_configured_treasury_genesis_is_rejected() {
-	use sp_runtime::BuildStorage;
-	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-	crate::GenesisConfig::<Test> { treasury_account: Some(account_id(2)), treasury_portion: None }
-		.assimilate_storage(&mut t)
-		.unwrap();
-}
-
-#[test]
-fn set_treasury_portion_works() {
-	new_test_ext().execute_with(|| {
-		let portion = sp_runtime::Permill::from_percent(30);
-		assert_ok!(Treasury::set_treasury_portion(frame_system::RawOrigin::Root.into(), portion));
-		assert_eq!(Treasury::portion(), portion);
-		System::<Test>::assert_has_event(
-			Event::<Test>::TreasuryPortionUpdated { new_portion: portion }.into(),
-		);
-	});
-}
-
-#[test]
-fn set_treasury_portion_requires_root() {
-	new_test_ext().execute_with(|| {
-		assert_err!(
-			Treasury::set_treasury_portion(
-				frame_system::RawOrigin::Signed(account_id(1)).into(),
-				sp_runtime::Permill::from_percent(30)
-			),
-			sp_runtime::DispatchError::BadOrigin
-		);
-	});
-}
-
-#[test]
-fn set_treasury_portion_boundary_0_percent() {
-	// 0% = treasury gets nothing, miner gets 100%
-	new_test_ext_with_treasury(account_id(1), sp_runtime::Permill::zero()).execute_with(|| {
-		assert_eq!(Treasury::portion(), sp_runtime::Permill::zero());
-	});
-}
-
-#[test]
-fn set_treasury_portion_accepts_100_percent() {
-	// 100% = miner gets nothing, treasury gets 100%
-	new_test_ext().execute_with(|| {
-		assert_ok!(Treasury::set_treasury_portion(
-			frame_system::RawOrigin::Root.into(),
-			sp_runtime::Permill::one()
-		));
-		assert_eq!(Treasury::portion(), sp_runtime::Permill::one());
-		System::<Test>::assert_has_event(
-			Event::<Test>::TreasuryPortionUpdated { new_portion: sp_runtime::Permill::one() }
-				.into(),
-		);
-	});
 }
 
 #[test]
@@ -148,18 +79,8 @@ fn account_id_panics_when_not_configured() {
 }
 
 #[test]
-#[should_panic(expected = "Treasury portion must be set in genesis")]
-fn portion_panics_when_not_configured() {
-	new_test_ext_without_treasury().execute_with(|| {
-		let _ = Treasury::portion();
-	});
-}
-
-#[test]
 fn treasury_provider_trait_matches_pallet() {
 	new_test_ext().execute_with(|| {
-		// TreasuryProvider is the interface consumed by mining-rewards
 		assert_eq!(<Treasury as TreasuryProvider>::account_id(), Treasury::account_id());
-		assert_eq!(<Treasury as TreasuryProvider>::portion(), Treasury::portion());
 	});
 }

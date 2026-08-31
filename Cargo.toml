@@ -14,6 +14,7 @@ members = [
 	"client/litep2p",
 	"client/network",
 	"client/network-sync",
+	"client/network-transactions",
 	"client/network-types",
 	"client/service",
 	"client/telemetry",
@@ -39,7 +40,6 @@ members = [
 	"pallets/preimage",
 	"pallets/qpow",
 	"pallets/ranked-collective",
-	"pallets/recovery",
 	"pallets/referenda",
 	"pallets/reversible-transfers",
 	"pallets/scheduler",
@@ -176,7 +176,6 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 rusty-fork = { version = "0.3.1" }
 sc-client-db = { version = "0.51.0", default-features = false }
 sc-keystore = { version = "39.0.0", default-features = true }
-sc-mixnet = { version = "0.25.0", default-features = true }
 sc-tracing = { version = "44.0.0" }
 scale-info = { version = "2.11.6", default-features = false }
 schnellru = { version = "0.2.3" }
@@ -266,7 +265,6 @@ frame-try-runtime = { path = "./frame/try-runtime", default-features = false }
 hickory-resolver = { version = "0.26.1" }
 pallet-preimage = { path = "./pallets/preimage", default-features = false }
 pallet-ranked-collective = { path = "./pallets/ranked-collective", default-features = false }
-pallet-recovery = { path = "./pallets/recovery", default-features = false }
 pallet-referenda = { path = "./pallets/referenda", default-features = false }
 pallet-timestamp = { path = "./pallets/timestamp", default-features = false }
 pallet-transaction-payment = { path = "./pallets/transaction-payment", default-features = false }
@@ -286,7 +284,6 @@ sc-executor = { version = "0.47.0", default-features = false }
 sc-informant = { version = "0.54.0", default-features = false }
 sc-network = { version = "0.55.1", default-features = false }
 sc-network-common = { version = "0.52.0", default-features = false }
-sc-network-light = { version = "0.54.0", default-features = false }
 sc-network-sync = { version = "0.54.0", default-features = false }
 sc-network-transactions = { version = "0.54.0", default-features = false }
 sc-network-types = { version = "0.20.3", default-features = false }
@@ -363,6 +360,7 @@ sc-executor-wasmtime = { path = "./client/executor-wasmtime" }
 sc-informant = { path = "./client/informant" }
 sc-network = { path = "client/network" }
 sc-network-sync = { path = "client/network-sync" }
+sc-network-transactions = { path = "client/network-transactions" }
 sc-network-types = { path = "client/network-types" }
 sc-service = { path = "client/service" }
 sc-telemetry = { path = "client/telemetry" }

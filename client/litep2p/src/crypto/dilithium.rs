@@ -109,7 +109,11 @@ impl Keypair {
 	pub fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, SignError> {
 		let internal_kp = self.derive_internal();
 
-		// Sign without context, with hedged randomness for side-channel protection
+		// Empty FIPS 204 context: node keys are not account keys, and a
+		// non-empty context would break Noise handshakes with older nodes.
+		// Extrinsics use `QUANTUS_EXTRINSIC`, so these signatures still
+		// cannot verify on-chain. Noise also prefixes the payload with
+		// `noise-libp2p-static-key:`.
 		let mut hedge = [0u8; 32];
 		rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut hedge);
 		let hedge = SensitiveBytes32::from(&mut hedge);
@@ -302,6 +306,20 @@ mod tests {
 		// Wrong message
 		let invalid_msg = "h3ll0 w0rld".as_bytes();
 		assert!(!pk.verify(invalid_msg, &sig));
+	}
+
+	#[test]
+	fn dilithium_signature_rejects_extrinsic_context() {
+		let kp = Keypair::generate();
+		let pk = kp.public();
+		let msg = b"hello world";
+
+		let internal_kp = kp.derive_internal();
+		let extrinsic_sig = internal_kp
+			.sign(msg, Some(b"QUANTUS_EXTRINSIC"), None)
+			.expect("signing should succeed");
+
+		assert!(!pk.verify(msg, extrinsic_sig.as_ref()));
 	}
 
 	#[test]

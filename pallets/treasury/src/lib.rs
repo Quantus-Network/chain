@@ -7,10 +7,8 @@
 //!
 //! ## Purpose & Rationale
 //!
-//! While the current functionality is limited to treasury account and portion settings
-//! consumed by the `mining-rewards` pallet, this separation is intentional. The long-term
-//! goal is to consolidate all "tunable knobs" that governance or a technical collective
-//! should be able to adjust into a small, well-defined set of pallets.
+//! The treasury is not paid from mining rewards. This pallet stores the account
+//! that holds treasury funds (endowments and later spending).
 //!
 //! This architecture enables:
 //!
@@ -18,31 +16,22 @@
 //!   set of configuration parameters rather than arbitrary runtime calls.
 //! - **Auditability**: All adjustable parameters are explicitly defined in dedicated pallets,
 //!   making it clear what can and cannot be changed post-genesis.
-//! - **Future extensibility**: As the treasury subsystem grows (e.g., budgets, spending proposals,
-//!   vesting schedules), this pallet provides a natural home for that logic.
+//! - **Future extensibility**: As the treasury subsystem grows (e.g., budgets, spending proposals),
+//!   this pallet provides a natural home for that logic.
 //!
 //! ## Current Features
 //!
-//! - [`TreasuryAccount`]: The account that receives the treasury's share of mining rewards.
-//! - [`TreasuryPortion`]: The percentage (as `Permill`) of mining rewards allocated to treasury.
-//! - [`TreasuryProvider`] trait: Consumed by `mining-rewards` to query treasury configuration.
-//!
-//! ## Integration
-//!
-//! The `mining-rewards` pallet uses the [`TreasuryProvider`] trait to determine where and
-//! how much of each block reward should be allocated to the treasury.
+//! - [`TreasuryAccount`]: The account that holds treasury funds.
+//! - [`TreasuryProvider`] trait: Account lookup for pallets that spend from or pay to treasury.
 
 pub mod migrations;
 pub mod weights;
 pub use weights::WeightInfo;
 
-use sp_runtime::Permill;
-
-/// Trait for providing treasury account and portion to mining-rewards.
+/// Trait for providing the treasury account.
 pub trait TreasuryProvider {
 	type AccountId;
 	fn account_id() -> Self::AccountId;
-	fn portion() -> Permill;
 }
 
 #[frame_support::pallet]
@@ -50,15 +39,12 @@ pub mod pallet {
 	use super::WeightInfo;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-	use sp_runtime::Permill;
 
 	/// The in-code storage version.
 	///
-	/// This establishes an explicit baseline for future storage migrations.
-	/// Increment this and add a migration hook when storage layout changes.
-	///
 	/// v1: `TreasuryPortion` set to 50% (50/50 treasury/miner split, see `migrations::v1`).
-	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+	/// v2: `TreasuryPortion` removed; treasury is not paid from block rewards.
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
 	#[pallet::pallet]
 	#[pallet::storage_version(STORAGE_VERSION)]
@@ -69,21 +55,14 @@ pub mod pallet {
 		type WeightInfo: crate::WeightInfo;
 	}
 
-	/// The treasury account that receives mining rewards.
+	/// The treasury account that holds treasury funds.
 	#[pallet::storage]
 	#[pallet::getter(fn treasury_account)]
 	pub type TreasuryAccount<T: Config> = StorageValue<_, T::AccountId, OptionQuery>;
 
-	/// The portion of mining rewards that goes to treasury (Permill, 0–100%).
-	/// Uses OptionQuery so genesis is required. Permill allows fine granularity (e.g. 33.3%).
-	#[pallet::storage]
-	#[pallet::getter(fn treasury_portion)]
-	pub type TreasuryPortion<T: Config> = StorageValue<_, Permill, OptionQuery>;
-
 	#[pallet::genesis_config]
 	pub struct GenesisConfig<T: Config> {
 		pub treasury_account: Option<T::AccountId>,
-		pub treasury_portion: Option<Permill>,
 	}
 
 	impl<T: Config> Default for GenesisConfig<T> {
@@ -93,7 +72,7 @@ pub mod pallet {
 		/// address nobody can sign for. (FRAME requires the impl to exist and to build:
 		/// `RuntimeGenesisConfig` derives `Default` from it.)
 		fn default() -> Self {
-			Self { treasury_account: None, treasury_portion: None }
+			Self { treasury_account: None }
 		}
 	}
 
@@ -104,25 +83,14 @@ pub mod pallet {
 	{
 		fn build(&self) {
 			// The all-`None` state is the `Default`, which FRAME requires to build (see
-			// the `Default` impl above). Write nothing: `account_id()`/`portion()` panic
-			// on first use, so a spec that forgot the treasury section still fails loudly.
-			if self.treasury_account.is_none() && self.treasury_portion.is_none() {
+			// the `Default` impl above). Write nothing: `account_id()` panics on first
+			// use, so a spec that forgot the treasury section still fails loudly.
+			let Some(account) = self.treasury_account.as_ref() else {
 				return;
-			}
-			// A half-configured treasury is a plain misconfiguration; reject at build.
-			let account = self
-				.treasury_account
-				.as_ref()
-				.expect("Treasury account must be set in genesis; chain is misconfigured");
-			let portion = self
-				.treasury_portion
-				.as_ref()
-				.expect("Treasury portion must be set in genesis; chain is misconfigured");
-			assert!(*portion <= Permill::one(), "Treasury portion must be <= 100%");
+			};
 			let zero: T::AccountId = [0u8; 32].into();
 			assert!(account != &zero, "Treasury account must not be zero address");
 			TreasuryAccount::<T>::put(account.clone());
-			TreasuryPortion::<T>::put(*portion);
 		}
 	}
 
@@ -131,17 +99,15 @@ pub mod pallet {
 	pub enum Event<T: Config> {
 		/// The treasury account was updated.
 		///
-		/// Note: This only redirects where future mining rewards are sent. Any balance
+		/// Note: This only redirects where future treasury credits are sent. Any balance
 		/// accumulated in the old account remains there and is NOT automatically migrated.
 		/// Use a separate balance transfer if funds need to be moved.
 		TreasuryAccountUpdated {
 			/// The previous treasury account (None if this is the first time setting it).
 			old_account: Option<T::AccountId>,
-			/// The new treasury account that will receive future rewards.
+			/// The new treasury account that will receive future credits.
 			new_account: T::AccountId,
 		},
-		/// The treasury portion (share of mining rewards) was updated.
-		TreasuryPortionUpdated { new_portion: Permill },
 	}
 
 	#[pallet::call]
@@ -151,7 +117,7 @@ pub mod pallet {
 	{
 		/// Set the treasury account. Root only. Zero address is rejected (funds would be locked).
 		///
-		/// **Important**: This only changes where *future* mining rewards are sent. Any balance
+		/// **Important**: This only changes where *future* treasury credits are sent. Any balance
 		/// that has already accumulated in the current treasury account is NOT automatically
 		/// migrated to the new account. If you need to move existing funds, perform a separate
 		/// balance transfer (e.g., via governance proposal) after updating the account.
@@ -169,22 +135,10 @@ pub mod pallet {
 			});
 			Ok(())
 		}
-
-		/// Set the treasury portion (Permill, 0–100%). Root only.
-		#[pallet::call_index(1)]
-		#[pallet::weight(T::WeightInfo::set_treasury_portion())]
-		pub fn set_treasury_portion(origin: OriginFor<T>, portion: Permill) -> DispatchResult {
-			ensure_root(origin)?;
-			ensure!(portion <= Permill::one(), Error::<T>::InvalidPortion);
-			TreasuryPortion::<T>::put(portion);
-			Self::deposit_event(Event::TreasuryPortionUpdated { new_portion: portion });
-			Ok(())
-		}
 	}
 
 	#[pallet::error]
 	pub enum Error<T> {
-		InvalidPortion,
 		/// Treasury account cannot be zero address (funds would be permanently locked).
 		InvalidTreasuryAccount,
 	}
@@ -196,12 +150,6 @@ pub mod pallet {
 			TreasuryAccount::<T>::get()
 				.expect("Treasury account must be set in genesis; chain is misconfigured")
 		}
-
-		/// Get the treasury portion (Permill). Panics if not configured (chain misconfigured).
-		pub fn portion() -> Permill {
-			TreasuryPortion::<T>::get()
-				.expect("Treasury portion must be set in genesis; chain is misconfigured")
-		}
 	}
 
 	/// Implements `Get<AccountId>` for use as runtime config parameter.
@@ -209,14 +157,6 @@ pub mod pallet {
 	impl<T: Config> frame_support::traits::Get<T::AccountId> for TreasuryAccountGetter<T> {
 		fn get() -> T::AccountId {
 			Pallet::<T>::account_id()
-		}
-	}
-
-	/// Implements `Get<Permill>` for use as runtime config parameter.
-	pub struct TreasuryPortionGetter<T>(core::marker::PhantomData<T>);
-	impl<T: Config> frame_support::traits::Get<Permill> for TreasuryPortionGetter<T> {
-		fn get() -> Permill {
-			Pallet::<T>::portion()
 		}
 	}
 }
@@ -236,8 +176,5 @@ impl<T: pallet::Config> TreasuryProvider for pallet::Pallet<T> {
 	type AccountId = T::AccountId;
 	fn account_id() -> Self::AccountId {
 		pallet::Pallet::<T>::account_id()
-	}
-	fn portion() -> Permill {
-		pallet::Pallet::<T>::portion()
 	}
 }

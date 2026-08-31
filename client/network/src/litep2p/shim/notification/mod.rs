@@ -206,6 +206,10 @@ impl NotificationService for NotificationProtocol {
 		}
 	}
 
+	fn sync_notification_capacity(&self, peer: &PeerId) -> Option<usize> {
+		self.handle.sync_notification_capacity(peer.into())
+	}
+
 	async fn send_async_notification(
 		&mut self,
 		peer: &PeerId,

@@ -43,19 +43,20 @@ Creates a new multisig account with deterministic address generation.
 - `nonce: u64` - User-provided nonce for address uniqueness (REQUIRED)
 
 **Validation:**
-- At least 2 unique signers required (single-signer "multisigs" are rejected - use a regular account)
+- At least 2 signers required (single-signer "multisigs" are rejected - use a regular account)
 - Threshold must be > 0
-- Signers are sorted and deduplicated before validation and address derivation
-- Threshold cannot exceed the number of unique signers after deduplication
+- Signer list must not contain duplicates
+- Signers are sorted before address derivation (order does not matter)
+- Threshold cannot exceed the number of signers
 - Signers count must be ≤ MaxSigners
 - Multisig address (derived from signers+threshold+nonce) must not already exist
 
 **Threshold=1 multisigs:** A 1-of-N multisig (threshold=1 with N≥2 signers) is valid and useful for operational accounts where any authorized signer can act independently. Proposals are immediately `Approved` upon creation and can be executed right away.
 
-**Important:** Signers are automatically sorted and deduplicated before validation, storage, and address generation. Order doesn't matter:
+**Important:** Signers are sorted before address generation, so order doesn't matter. Duplicates are rejected:
 - `[alice, bob, charlie]` + threshold=2 + nonce=0 → `address_1`
 - `[charlie, bob, alice]` + threshold=2 + nonce=0 → `address_1` (same!)
-- `[alice, bob, bob, charlie]` + threshold=2 + nonce=0 → `address_1` (duplicates ignored)
+- `[alice, bob, bob, charlie]` + threshold=2 + nonce=0 → **error** (`DuplicateSigners`)
 - To create multiple multisigs with same signers, use different nonce:
   - `signers=[alice, bob], threshold=2, nonce=0` → `address_A`
   - `signers=[alice, bob], threshold=2, nonce=1` → `address_B` (different!)
@@ -346,10 +347,11 @@ enum ProposalStatus {
 
 ## Errors
 
-- `NotEnoughSigners` - Less than 2 unique signers provided (single-signer multisigs not allowed)
+- `NotEnoughSigners` - Less than 2 signers provided (single-signer multisigs not allowed)
 - `ThresholdZero` - Threshold cannot be 0
-- `ThresholdTooHigh` - Threshold exceeds number of unique signers after deduplication
+- `ThresholdTooHigh` - Threshold exceeds number of signers
 - `TooManySigners` - Exceeds MaxSigners limit
+- `DuplicateSigners` - Signer list contains the same account more than once
 - `MultisigAlreadyExists` - Multisig with this address already exists
 - `MultisigNotFound` - Multisig does not exist
 - `NotASigner` - Caller is not authorized signer
@@ -391,12 +393,12 @@ approve(multisig, 1) // Approve proposal #1
 ```
 
 ### Signer Order Doesn't Matter
-Signers are **automatically sorted and deduplicated** before validation, address generation, and storage:
+Signers are **sorted** before address generation and storage:
 - Input order is irrelevant - signers are always sorted deterministically
-- Duplicate signer entries are ignored before threshold validation
+- Duplicate signer entries are rejected (`DuplicateSigners`)
 - Address is derived from `Hash(PalletId + sorted_signers + threshold + nonce)`
 - Same signers+threshold+nonce in any order = same multisig address
-- Threshold is checked against the deduplicated signer count
+- Threshold is checked against the signer count
 - User must provide unique nonce to create multiple multisigs with same signers
 
 **Example:**

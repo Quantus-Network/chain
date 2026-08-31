@@ -13,7 +13,8 @@ macro_rules! define_dilithium_scheme {
 		signature = $signature:ident,
 		sig_with_public = $sig_with_public:ident,
 		module = $module:ident,
-		verify_fn = $verify_fn:ident
+		verify_fn = $verify_fn:ident,
+		verify_ctx_fn = $verify_ctx_fn:ident
 		$(,)?
 	) => {
 		#[derive(
@@ -323,6 +324,31 @@ macro_rules! define_dilithium_scheme {
 			pub fn public_bytes(&self) -> &[u8] {
 				&self.public
 			}
+
+			/// Sign `message` under the given FIPS 204 context (at most 255 bytes).
+			#[cfg(feature = "full_crypto")]
+			pub fn sign_with_context(
+				&self,
+				message: &[u8],
+				ctx: &[u8],
+			) -> Result<$sig_with_public, $crate::types::Error> {
+				if ctx.len() > 255 {
+					return Err($crate::types::Error::ContextTooLong);
+				}
+				let secret = qp_rusty_crystals_dilithium::$module::SecretKey::from_bytes(
+					&self.secret,
+				)
+				.expect("Failed to parse secret key");
+
+				let signature = secret
+					.sign(message, Some(ctx), None)
+					.expect("Signing should not fail");
+				let signature_bytes: &[u8] = signature.as_ref();
+				let signature = <$signature as TryFrom<&[u8]>>::try_from(signature_bytes)
+					.expect("Wrap doesn't fail");
+
+				Ok($sig_with_public::new(signature, <Self as sp_core::Pair>::public(self)))
+			}
 		}
 
 		impl sp_core::Pair for $pair {
@@ -357,17 +383,8 @@ macro_rules! define_dilithium_scheme {
 
 			#[cfg(feature = "full_crypto")]
 			fn sign(&self, message: &[u8]) -> $sig_with_public {
-				let secret = qp_rusty_crystals_dilithium::$module::SecretKey::from_bytes(
-					&self.secret,
-				)
-				.expect("Failed to parse secret key");
-
-				let signature = secret.sign(message, None, None).expect("Signing should not fail");
-				let signature_bytes: &[u8] = signature.as_ref();
-				let signature = <$signature as TryFrom<&[u8]>>::try_from(signature_bytes)
-					.expect("Wrap doesn't fail");
-
-				$sig_with_public::new(signature, <Self as sp_core::Pair>::public(self))
+				self.sign_with_context(message, $crate::signing_context::EXTRINSIC)
+					.expect("EXTRINSIC context is well-formed")
 			}
 
 			fn verify<M: AsRef<[u8]>>(
@@ -486,13 +503,22 @@ macro_rules! define_dilithium_scheme {
 			}
 		}
 
-		/// Verifies a Dilithium signature for this parameter set.
+		/// Verifies a Dilithium signature produced under [`crate::signing_context::EXTRINSIC`].
 		///
 		/// Returns `true` if the signature is valid for `msg` under `pub_key`,
 		/// `false` otherwise (including malformed public keys).
 		pub fn $verify_fn(pub_key: &[u8], msg: &[u8], sig: &[u8]) -> bool {
+			$verify_ctx_fn(pub_key, msg, sig, $crate::signing_context::EXTRINSIC)
+		}
+
+		/// Verifies a Dilithium signature for this parameter set under `ctx`.
+		///
+		/// Returns `true` if the signature is valid for `msg` under `pub_key` and
+		/// `ctx`, `false` otherwise (including malformed public keys or a context
+		/// longer than 255 bytes).
+		pub fn $verify_ctx_fn(pub_key: &[u8], msg: &[u8], sig: &[u8], ctx: &[u8]) -> bool {
 			match qp_rusty_crystals_dilithium::$module::PublicKey::from_bytes(pub_key) {
-				Ok(pk) => pk.verify(msg, sig, None),
+				Ok(pk) => pk.verify(msg, sig, Some(ctx)),
 				Err(e) => {
 					log::warn!("public key failed to deserialize {:?}", e);
 					false

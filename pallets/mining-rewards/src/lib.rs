@@ -25,7 +25,6 @@ pub mod pallet {
 		},
 	};
 	use frame_system::pallet_prelude::*;
-	use pallet_treasury::TreasuryProvider;
 	use qp_wormhole::TransferProofRecorder;
 	use sp_runtime::traits::Saturating;
 
@@ -66,9 +65,6 @@ pub mod pallet {
 		#[pallet::constant]
 		type EmissionDivisor: Get<BalanceOf<Self>>;
 
-		/// Provides treasury account and portion (from treasury pallet).
-		type Treasury: TreasuryProvider<AccountId = Self::AccountId>;
-
 		/// The base unit for token amounts (e.g., 1e12 for 12 decimals)
 		#[pallet::constant]
 		type Unit: Get<BalanceOf<Self>>;
@@ -85,7 +81,7 @@ pub mod pallet {
 		MinerRewarded {
 			/// Miner account
 			miner: T::AccountId,
-			/// Total reward (base + fees)
+			/// Quantized reward (block reward + fees, aligned to the wormhole quantum)
 			reward: BalanceOf<T>,
 		},
 		/// Transaction fees were collected for later distribution
@@ -95,21 +91,16 @@ pub mod pallet {
 			/// Total fees waiting for distribution
 			total: BalanceOf<T>,
 		},
-		/// Rewards were sent to Treasury when no miner was specified
-		TreasuryRewarded {
-			/// Total reward (base + fees)
-			reward: BalanceOf<T>,
+		/// No miner in the digest; the credit stays in [`CollectedFees`] for the next block.
+		PayoutDeferred {
+			/// Amount held for the next miner
+			amount: BalanceOf<T>,
 		},
-		/// Miner reward was redirected to treasury due to mint failure
-		MinerRewardRedirected {
+		/// Miner mint failed; the credit stays in [`CollectedFees`] for retry.
+		MinerMintFailed {
 			/// The miner who should have received the reward
 			miner: T::AccountId,
-			/// The reward amount redirected to treasury
-			reward: BalanceOf<T>,
-		},
-		/// Treasury mint failed; amount retained in [`CollectedFees`] for retry.
-		TreasuryMintFailed {
-			/// The reward amount that failed to mint
+			/// The reward amount retained
 			reward: BalanceOf<T>,
 		},
 	}
@@ -119,6 +110,10 @@ pub mod pallet {
 		fn integrity_test() {
 			assert!(!T::EmissionDivisor::get().is_zero(), "EmissionDivisor must be non-zero");
 			assert!(!T::MaxSupply::get().is_zero(), "MaxSupply must be non-zero");
+			assert!(
+				Self::leaf_quantum() > BalanceOf::<T>::zero(),
+				"ZK-tree amount scale factor must fit in Balance and be non-zero"
+			);
 		}
 
 		fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
@@ -156,19 +151,18 @@ pub mod pallet {
 				.checked_div(&emission_divisor)
 				.unwrap_or_else(BalanceOf::<T>::zero);
 
-			// Split the reward between treasury and miner
-			let treasury_portion = T::Treasury::portion();
-			let treasury_reward = treasury_portion.mul_floor(total_reward);
-			let miner_reward = total_reward.saturating_sub(treasury_reward);
-
 			// Extract miner ID from the pre-runtime digest
 			let miner = Self::extract_miner_from_digest();
 
+			// Fees and the block reward are one miner credit. Combining before
+			// quantizing can recover a quantum that two independent floors would drop,
+			// and the miner spends one leaf / nullifier rather than two.
+			let miner_gross = tx_fees.saturating_add(total_reward);
+
 			// Log readable amounts (convert to tokens by dividing by unit)
-			if let (Ok(total), Ok(treasury), Ok(miner_amt), Ok(current), Ok(fees), Ok(unit)) = (
+			if let (Ok(total), Ok(gross), Ok(current), Ok(fees), Ok(unit)) = (
 				TryInto::<u128>::try_into(total_reward),
-				TryInto::<u128>::try_into(treasury_reward),
-				TryInto::<u128>::try_into(miner_reward),
+				TryInto::<u128>::try_into(miner_gross),
 				TryInto::<u128>::try_into(current_supply),
 				TryInto::<u128>::try_into(tx_fees),
 				TryInto::<u128>::try_into(T::Unit::get()),
@@ -179,24 +173,30 @@ pub mod pallet {
 				let unit_f64 = unit as f64;
 				log::debug!(
 					target: "mining-rewards",
-					"💰 Rewards: total={:.6}, treasury={:.6}, miner={:.6}, fees={:.6}, supply={:.2}, remaining={:.2}",
+					"💰 Rewards: block={:.6}, fees={:.6}, miner_gross={:.6}, supply={:.2}, remaining={:.2}",
 					total as f64 / unit_f64,
-					treasury as f64 / unit_f64,
-					miner_amt as f64 / unit_f64,
 					fees as f64 / unit_f64,
+					gross as f64 / unit_f64,
 					current as f64 / unit_f64,
 					remaining as f64 / unit_f64
 				);
 			}
 
-			// Send fees to miner if any
-			Self::mint_reward(miner.as_ref(), tx_fees);
+			let Some(miner) = miner else {
+				// A valid QPoW block always carries an author preimage, but extraction
+				// is fallible (malformed digest). Do not panic in a hook and do not
+				// divert miner credits to treasury: hold them for the next author.
+				Self::retain_unminted(miner_gross);
+				if !miner_gross.is_zero() {
+					Self::deposit_event(Event::PayoutDeferred { amount: miner_gross });
+				}
+				return;
+			};
 
-			// Send block rewards to miner
-			Self::mint_reward(miner.as_ref(), miner_reward);
-
-			// Send treasury portion to treasury
-			Self::mint_reward(None, treasury_reward);
+			let (quantized, dust) = Self::quantize(miner_gross);
+			Self::mint_reward(&miner, quantized);
+			// Remainder stays unminted so a later block can form a full quantum.
+			Self::retain_unminted(dust);
 		}
 	}
 
@@ -217,85 +217,51 @@ pub mod pallet {
 			});
 		}
 
-		fn mint_reward(maybe_miner: Option<&T::AccountId>, reward: BalanceOf<T>) {
+		/// The amount quantum the ZK leaf actually commits: `hash_leaf` stores
+		/// `amount / AMOUNT_SCALE_DOWN_FACTOR`. Miner credits must be multiples of this
+		/// or the remainder is unexitable.
+		fn leaf_quantum() -> BalanceOf<T> {
+			pallet_zk_tree::tree::AMOUNT_SCALE_DOWN_FACTOR
+				.try_into()
+				.unwrap_or_else(|_| BalanceOf::<T>::zero())
+		}
+
+		/// Round down to a multiple of the leaf quantum. Returns `(aligned, remainder)`.
+		fn quantize(amount: BalanceOf<T>) -> (BalanceOf<T>, BalanceOf<T>) {
+			let remainder = amount % Self::leaf_quantum();
+			(amount.saturating_sub(remainder), remainder)
+		}
+
+		fn mint_reward(miner: &T::AccountId, reward: BalanceOf<T>) {
 			if reward.is_zero() {
 				return;
 			}
 
-			let mint_account = T::MintingAccount::get();
-			let treasury = T::Treasury::account_id();
+			debug_assert!(
+				(reward % Self::leaf_quantum()).is_zero(),
+				"miner credits must be leaf-quantum aligned"
+			);
 
-			match maybe_miner {
-				Some(miner) => {
-					match T::Currency::mint_into(miner, reward) {
-						Ok(_) => {
-							T::ProofRecorder::record_transfer_proof(
-								None, // Native token
-								mint_account,
-								miner.clone(),
-								reward,
-							);
-							Self::deposit_event(Event::MinerRewarded {
-								miner: miner.clone(),
-								reward,
-							});
-						},
-						Err(e) => {
-							log::warn!(
-								target: "mining-rewards",
-								"Failed to mint {:?} to miner {:?}: {:?}, redirecting to treasury",
-								reward, miner, e
-							);
-							// Fallback: redirect to treasury
-							match T::Currency::mint_into(&treasury, reward) {
-								Ok(_) => {
-									T::ProofRecorder::record_transfer_proof(
-										None, // Native token
-										mint_account,
-										treasury,
-										reward,
-									);
-									Self::deposit_event(Event::MinerRewardRedirected {
-										miner: miner.clone(),
-										reward,
-									});
-								},
-								Err(e2) => {
-									log::error!(
-										target: "mining-rewards",
-										"Failed to redirect {:?} to treasury: {:?}, retaining for retry",
-										reward, e2
-									);
-									Self::retain_unminted(reward);
-									Self::deposit_event(Event::TreasuryMintFailed { reward });
-								},
-							}
-						},
-					}
+			match T::Currency::mint_into(miner, reward) {
+				Ok(_) => {
+					T::ProofRecorder::record_transfer_proof(
+						None, // Native token
+						T::MintingAccount::get(),
+						miner.clone(),
+						reward,
+					);
+					Self::deposit_event(Event::MinerRewarded { miner: miner.clone(), reward });
 				},
-				None => {
-					match T::Currency::mint_into(&treasury, reward) {
-						Ok(_) => {
-							T::ProofRecorder::record_transfer_proof(
-								None, // Native token
-								mint_account,
-								treasury,
-								reward,
-							);
-							Self::deposit_event(Event::TreasuryRewarded { reward });
-						},
-						Err(e) => {
-							log::error!(
-								target: "mining-rewards",
-								"Failed to mint {:?} to treasury: {:?}, retaining for retry",
-								reward, e
-							);
-							Self::retain_unminted(reward);
-							Self::deposit_event(Event::TreasuryMintFailed { reward });
-						},
-					}
+				Err(e) => {
+					log::warn!(
+						target: "mining-rewards",
+						"Failed to mint {:?} to miner {:?}: {:?}, retaining for retry",
+						reward, miner, e
+					);
+					Self::retain_unminted(reward);
+					Self::deposit_event(Event::MinerMintFailed { miner: miner.clone(), reward });
 				},
-			};
+			}
 		}
 
 		/// Roll a failed mint back into [`CollectedFees`] for the next finalize.

@@ -40,8 +40,9 @@ Pending/delayed transfers can be tracked via:
 | `HighSecurityAccounts` | Maps account to `HighSecurityAccountData { guardian, delay }`. Accounts call `set_high_security` to join. |
 | `PendingTransfers` | Maps `tx_id` to `PendingTransfer { from, to, guardian, asset_id, amount }`. |
 | `PendingTransfersBySender` | Maps sender to list of their pending `tx_id`s (bounded by `MaxPendingPerAccount`). |
-| `GuardianIndex` | Maps guardian to list of accounts they protect (bounded by `MaxGuardianAccounts`). |
 | `NextTransactionId` | Monotonic counter for unique `tx_id` generation. |
+
+There is deliberately no on-chain guardian → protected-accounts index: a bounded index could be filled by strangers to grief a popular guardian, and an unbounded one is unnecessary state. Guardianship is authoritative in `HighSecurityAccounts`, and offchain indexers (Subsquid) reconstruct "which accounts do I guard?" from `HighSecuritySet` events.
 
 ### Transaction ID
 
@@ -71,6 +72,16 @@ This is an intentional security design, not a limitation:
 | **Consistent security model** | Guardian can always rely on the delay period being enforced |
 | **Regulatory clarity** | Compliance processes can depend on the immutable security configuration |
 
+### Choosing a Guardian
+
+The guardian holds instant, total seizure power: `recover_funds` sweeps every hold plus the entire free balance to the guardian, with no delay, no second approver, and no way to change the relationship afterwards. A single-key guardian is therefore a single point of failure for the whole scheme.
+
+**Use a multisig address as the guardian.** `pallet_multisig` dispatches calls as its derived address, so a multisig can cancel pending transfers and recover funds exactly like a plain account (pinned by the `multisig_guardian_protects_high_security_account` runtime integration test).
+
+**Avoid single-key guardians that are themselves high-security.** High-security accounts are limited to 16 signed extrinsics per rolling day, and guardian `cancel` / `recover_funds` count against that shared quota. A high-security guardian that has used its 16 slots cannot intervene until a slot ages out (up to a day) — while a stolen ward key can schedule a transfer that matures sooner. This is a documented limitation, accepted because the recommended multisig deployment is immune: a multisig acts through `propose`/`approve`/`execute` signed by its individual signers, so the derived address never signs an extrinsic and is never quota-gated, even if it is itself enrolled as high-security (pinned by `high_security_multisig_guardian_is_immune_to_quota_lockout`). Note the inverse constraint: multisig *signers* must not be high-security accounts, since `Multisig::propose` is not on the high-security whitelist.
+
+Being named guardian requires no consent and carries no obligation or liability: it grants only passive powers (cancel, recover-to-guardian), so an unsolicited enrollment cannot harm the named account.
+
 ### Allowed Operations for High-Security Accounts
 
 Once an account becomes high-security, it can **only** perform these operations:
@@ -78,7 +89,6 @@ Once an account becomes high-security, it can **only** perform these operations:
 | Operation | Description |
 |-----------|-------------|
 | `schedule_transfer` | Schedule a delayed native token transfer |
-| `schedule_asset_transfer` | Schedule a delayed asset transfer |
 | `cancel` | Cancel a pending transfer (owner or guardian) |
 | `recover_funds` | Guardian-initiated emergency recovery of all funds |
 
@@ -86,7 +96,7 @@ All other blockchain operations (staking, governance, contract calls, etc.) are 
 
 ### Exiting High-Security Mode
 
-While accounts cannot disable high-security mode, users who no longer want the high-security restrictions can simply transfer their funds to a different account using `schedule_transfer` or `schedule_asset_transfer`. After the delay period, the funds will be available in a normal account without restrictions.
+While accounts cannot disable high-security mode, users who no longer want the high-security restrictions can simply transfer their funds to a different account using `schedule_transfer`. After the delay period, the funds will be available in a normal account without restrictions.
 
 This ensures that users always have a straightforward path to unrestricted funds, while attackers cannot bypass the delay period and guardian oversight.
 

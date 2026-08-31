@@ -96,8 +96,6 @@ pub struct Configuration {
 	pub offchain_worker: OffchainWorkerConfig,
 	/// Enable authoring even when offline.
 	pub force_authoring: bool,
-	/// Disable GRANDPA when running in validator mode
-	pub disable_grandpa: bool,
 	/// Development key seed.
 	///
 	/// When running in development mode, the seed will be used to generate authority keys by the
