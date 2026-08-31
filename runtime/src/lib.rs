@@ -35,6 +35,8 @@ pub mod genesis_config_presets;
 pub mod governance;
 pub mod transaction_extensions;
 
+pub use governance::origins::pallet_custom_origins;
+
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
 /// of data like extrinsics, allowing for them to continue syncing the network through upgrades
@@ -308,4 +310,9 @@ mod runtime {
 
 	#[runtime::pallet_index(22)]
 	pub type Vesting = pallet_vesting;
+
+	// Custom governance origins (no calls, no storage): dispatch origins for the
+	// non-Root tech-referenda tracks, e.g. `FastUpgrade`.
+	#[runtime::pallet_index(23)]
+	pub type Origins = pallet_custom_origins;
 }

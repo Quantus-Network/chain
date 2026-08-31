@@ -1,5 +1,7 @@
 use quantus_runtime::{
-	genesis_config_presets::{HEISENBERG_RUNTIME_PRESET, PLANCK_RUNTIME_PRESET},
+	genesis_config_presets::{
+		HEISENBERG_RUNTIME_PRESET, PLANCK_RUNTIME_PRESET, STAGING_MAINNET_RUNTIME_PRESET,
+	},
 	WASM_BINARY,
 };
 use sc_service::{ChainType, Properties};
@@ -69,6 +71,39 @@ pub fn heisenberg_chain_spec() -> Result<ChainSpec, String> {
 	.with_telemetry_endpoints(telemetry_endpoints)
 	.with_chain_type(ChainType::Live)
 	.with_genesis_config_preset_name(HEISENBERG_RUNTIME_PRESET)
+	.with_properties(properties)
+	.build())
+}
+
+/// Staging-mainnet — dress rehearsal for the mainnet launch.
+///
+/// Genesis is 1:1 with the eventual mainnet's (same 6-of-10 treasury multisig
+/// signers, same tech collective, same endowments); only the treasury multisig
+/// nonce differs, giving staging its own treasury account and genesis hash.
+/// Bootnodes are added once the staging infrastructure exists (the `bootNodes`
+/// field lives outside genesis, so editing it does not change the hash).
+pub fn staging_mainnet_chain_spec() -> Result<ChainSpec, String> {
+	let mut properties = Properties::new();
+	properties.insert("tokenDecimals".into(), json!(12));
+	properties.insert("tokenSymbol".into(), json!("QUAN"));
+	properties.insert("ss58Format".into(), json!(189));
+
+	let telemetry_endpoints = TelemetryEndpoints::new(vec![(
+		"/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(),
+		0,
+	)])
+	.expect("Telemetry endpoints config is valid; qed");
+
+	Ok(ChainSpec::builder(
+		WASM_BINARY.ok_or_else(|| "Runtime wasm not available".to_string())?,
+		None,
+	)
+	.with_name("Quantus Staging Mainnet")
+	.with_id("staging_mainnet")
+	.with_protocol_id("staging-mainnet")
+	.with_telemetry_endpoints(telemetry_endpoints)
+	.with_chain_type(ChainType::Live)
+	.with_genesis_config_preset_name(STAGING_MAINNET_RUNTIME_PRESET)
 	.with_properties(properties)
 	.build())
 }

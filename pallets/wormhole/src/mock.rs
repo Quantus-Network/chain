@@ -38,6 +38,7 @@ parameter_types! {
 impl frame_system::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type BaseCallFilter = Everything;
+	type AuthorizeUpgradeOrigin = frame_system::EnsureRoot<Self::AccountId>;
 	type BlockWeights = ();
 	type BlockLength = ();
 	type RuntimeOrigin = RuntimeOrigin;

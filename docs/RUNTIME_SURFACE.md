@@ -83,6 +83,7 @@ The runtime derives `RuntimeCall`, `RuntimeEvent`, `RuntimeError`, `RuntimeOrigi
 | 20 | `Wormhole` | `pallet-wormhole` | **Local** (`pallets/wormhole`) | yes |
 | 21 | `ZkTree` | `pallet-zk-tree` | **Local** (`pallets/zk-tree`) | no |
 | 22 | `Vesting` | `pallet-vesting` | **Local** (`pallets/vesting`) | yes |
+| 23 | `Origins` | `pallet_custom_origins` | **Local** (`runtime/src/governance/origins.rs`) | no |
 
 > Indices 4, 10, 12, 16, 17, and 18 are intentionally left vacant after pallet removals so downstream indices stay stable.
 
@@ -154,7 +155,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - **Calls:** `add_member`, `promote_member`, `demote_member`, `remove_member`, `vote`, `cleanup_poll`, `exchange_member`. Removal intentionally leaves the member's votes in ongoing tallies (upstream behavior); `support` clamps at 100% so the shrunken electorate cannot overflow the curve.
 
 ### Index 14 — `TechReferenda` (`pallet-referenda`, `Instance1`)
-- `SubmitOrigin = RootOrMemberForTechReferendaOrigin`, `Tracks = TechCollectiveTracksInfo` (single track, 61% approval / 60% support constant curves), `Tally = pallet_ranked_collective::TallyOf<Runtime>`, `MaxActive = 128` / `MaxActivePerAccount = 8` (global + per-submitter caps on `Ongoing` referenda; storage `ActiveReferendaCount` / `ActiveSubmissionCount`; errors `TooManyActive` / `TooManyActiveBySubmitter`), `MaxProposalSize = 64 KiB`.
+- `SubmitOrigin = RootOrMemberForTechReferendaOrigin`, `Tracks = TechCollectiveTracksInfo` (track 0 for Root proposals, 61% approval / 60% support constant curves; track 1 `fast_upgrade` for `FastUpgrade` proposals, 80%/80% constant curves with 10-minute prepare/confirm/enactment), `Tally = pallet_ranked_collective::TallyOf<Runtime>`, `MaxActive = 128` / `MaxActivePerAccount = 8` (global + per-submitter caps on `Ongoing` referenda; storage `ActiveReferendaCount` / `ActiveSubmissionCount`; errors `TooManyActive` / `TooManyActiveBySubmitter`), `MaxProposalSize = 64 KiB`.
 - **Calls:** same set as `Referenda` (separate instance/storage).
 
 ### Index 15 — `TreasuryPallet` (`pallet-treasury`, local)
@@ -184,6 +185,11 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - **Proof recording:** the pallet records each pot → beneficiary payout via `TransferProofRecorder` itself (`pay_out` fuses transfer + record and fails with `PayoutProofNotRecorded` if the recorder drops the credit, rolling the transfer back), so scheduler-enacted Root calls — invisible to the event-scanning extension — still create leaves; the extension skips pot-touching transfer events and charges no static weight for vesting calls.
 - **Calls:** `claim`(0) — **permissionless**; pays the largest valid claim from the pot to the schedule's stored beneficiary (never the caller); the only claim path for keyless/high-security beneficiaries. `create_schedule`(1) — admin; validates the schedule and funds the pot from the treasury in the same call. `end_schedule`(2) — admin; unpaid vested part rounded to the nearest quantum → beneficiary if it meets `MinimumPayout`, otherwise the whole remainder → treasury; schedule removed. `retarget_schedule`(3) — admin; changes the beneficiary and pays nothing out. A retarget replaces the *same* grantee's lost/stolen/abandoned wallet, so settling the old address would burn funds or pay a thief; everything vested but unclaimed stays on the schedule and reaches the new wallet at its next claim. (A permissionless claim landing before the retarget still pays the old address, so rotations should happen promptly.)
 - Genesis build validates every schedule (`start ≤ cliff ≤ end`, `start < end`, `total ≥ MinimumPayout`, `total % PayoutQuantum = 0`, beneficiary ≠ pot) and, for a non-empty table, asserts the pot holds exactly `Σ schedule totals + ED`; a misconfigured chain refuses to start. `try_state` validates stored schedules, aligned claims, dust-safe remaining obligations, and—when any schedule exists—`pot balance ≥ Σ(total − claimed) + ED`; an empty schedule table is valid with an unfunded pot.
+
+### Index 23 — `Origins` (`pallet_custom_origins`, local)
+- Storage-less, call-less, event-less origin declaration: its whole body is one `#[pallet::origin] enum Origin { FastUpgrade }`. A pallet is the only way to contribute a variant to `RuntimeOrigin`/`OriginCaller`.
+- `Origin::FastUpgrade` is the proposal origin of tech-referenda track 1 (`fast_upgrade`) and is honored **only** by `system.authorize_upgrade` (`AuthorizeUpgradeOrigin = EitherOfDiverse<EnsureRoot, FastUpgrade>` in the forked frame-system). `set_code` and `authorize_upgrade_without_checks` remain Root-only, so the track can publish an upgrade hash and nothing else.
+- **Calls:** none. See `docs/RUNTIME_UPGRADE_VIA_GOVERNANCE.md` for the authorize-then-apply flow.
 
 ---
 
@@ -233,23 +239,25 @@ The high-security whitelist (`HighSecurityConfig::is_whitelisted`, extension 8) 
 
 - `PreimageDeposit` — custom `Consideration` fee model for preimages.
 - `CommunityTracksInfo` — public referenda; single "signed" track (max_deciding 5, 500 UNIT decision deposit, 7-day decision, linear-decreasing approval 70→55% / support 25→5%).
-- `TechCollectiveTracksInfo` — tech-collective referenda; single track (1000 × `FEE_SCALE` UNIT deposit, 61% approval / 60% support constant curves, 1-day decision/confirm/enactment).
+- `TechCollectiveTracksInfo` — tech-collective referenda; track 0 for Root proposals (10 × `FEE_SCALE` UNIT deposit, 61% approval / 60% support constant curves, 1-day decision/confirm/enactment) and track 1 `fast_upgrade` for `FastUpgrade` proposals (10 × `FEE_SCALE` UNIT deposit, 80%/80% constant curves = 8-of-10 at genesis, 10-minute prepare/confirm/enactment — the runtime-upgrade lane, see `docs/RUNTIME_UPGRADE_VIA_GOVERNANCE.md`).
 - `MinRankOfClassConverter`, `GlobalMaxMembers` — rank/membership converters.
 - `RootOrMemberForTechReferendaOrigin` — custom origin for TechReferenda submission (Root or ranked-collective member).
+- `governance/origins.rs` (`pallet_custom_origins`, runtime index 23 as `Origins`) — storage-less origin declarations; `Origin::FastUpgrade` is dispatched by approved fast-track referenda and honored only by `system.authorize_upgrade` (`AuthorizeUpgradeOrigin = Root or FastUpgrade` in the forked frame-system).
 - `apply_test_timing` — compiled only under `fast-governance` (collapses all timing windows to 2 blocks for CI).
 
 ---
 
 ## 7. Genesis presets (`genesis_config_presets.rs`)
 
-- **Presets:** `dev` (`DEV_RUNTIME_PRESET`), `heisenberg`, `planck`.
+- **Presets:** `dev` (`DEV_RUNTIME_PRESET`), `heisenberg`, `planck`, `staging_mainnet` (`STAGING_MAINNET_RUNTIME_PRESET`).
 - **Network roles:**
   - `dev` — local development.
   - `heisenberg` — **internal integration testnet**, not mainnet. Tokens have no monetary value; the network may be reset.
   - `planck` — public testnet (live treasury signers + faucet).
-- **Vesting genesis:** every preset endows the vesting pot with `Σ schedule totals + ED` (ED alone when the table is empty, as on `planck`). Because the pot is part of the balances genesis endowment, standard genesis proof generation creates a block-1 Wormhole leaf for it; that leaf is unspendable because the pot is keyless. `dev`/`heisenberg` seed example schedules (one account with two schedules; `dev` also vests the keyless test wormhole address, claimable only via third-party ping). A mainnet preset (4-of-6 treasury multisig, launch-gated allocation table) is planned as a separate PR.
+  - `staging_mainnet` — mainnet dress rehearsal (see `docs/STAGING_MAINNET_LAUNCH.md`).
+- **Vesting genesis:** every preset endows the vesting pot with `Σ schedule totals + ED` (ED alone when the table is empty, as on `planck`). Because the pot is part of the balances genesis endowment, standard genesis proof generation creates a block-1 Wormhole leaf for it; that leaf is unspendable because the pot is keyless. `dev`/`heisenberg` seed example schedules (one account with two schedules; `dev` also vests the keyless test wormhole address, claimable only via third-party ping). `staging_mainnet` builds from `mainnet_config_genesis`, the exact function the eventual mainnet preset will use; its vesting table is a DUMMY scaffold gated by `MAINNET_VESTING_FINALIZED`, and until that flag is flipped with the real allocation table no mainnet preset is exposed (details in `docs/STAGING_MAINNET_LAUNCH.md`).
 - Dilithium well-known accounts: `crystal_alice`, `dilithium_bob`, `crystal_charlie` (public seeds `[0]` / `[1]` / `[2]`). Used by `dev` and **intentionally also by `heisenberg`** so integrators and CI can exercise governance, treasury, and transfer flows without distributing secrets. Those private keys are public by design; do **not** reuse this pattern on a mainnet or any value-bearing chain (Planck already uses distinct live treasury signers).
-- Treasury = 2-of-3 multisig of the three signers for `dev`/`heisenberg` (distinct nonce per preset); no dedicated treasury genesis balance (endowments are a separate list).
+- Treasury = 2-of-3 multisig of the three signers for `dev`/`heisenberg`, 6-of-10 of the mainnet signers for `staging_mainnet` (distinct nonce per preset); no dedicated treasury genesis balance (endowments are a separate list).
 - Tech-collective seeded via the chain-spec-only `tech_collective_seed_members` JSON field (`prepare_genesis_build_input` + `seed_tech_collective`).
 - Endows all genesis balances with wormhole transfer proofs (ZK-spendable). `dev` also endows `TEST_WORMHOLE_SECRET`'s address.
 

@@ -315,6 +315,11 @@ impl SubstrateCli for Cli {
 			"planck" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
 				"chain-specs/planck.json"
 			))?) as Box<dyn sc_service::ChainSpec>,
+			// "staging_mainnet" resolves to a committed chain-specs/staging-mainnet.json
+			// (generated via scripts/genesis_generate_spec.sh) once the launch signer
+			// addresses are finalized — see docs/STAGING_MAINNET_LAUNCH.md.
+			"staging_mainnet_live_spec" => Box::new(chain_spec::staging_mainnet_chain_spec()?)
+				as Box<dyn sc_service::ChainSpec>,
 			path =>
 				Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?)
 					as Box<dyn sc_service::ChainSpec>,
@@ -716,6 +721,32 @@ mod tests {
 			TEST_WORMHOLE_PREIMAGE,
 		},
 	};
+
+	#[test]
+	fn force_authoring_flag_is_parsed() {
+		use clap::Parser;
+		use sc_cli::CliConfiguration;
+
+		let with_flag =
+			crate::cli::Cli::try_parse_from(["quantus-node", "--validator", "--force-authoring"])
+				.expect("parse --force-authoring");
+		assert!(with_flag.run.force_authoring);
+		assert!(with_flag.run.force_authoring().expect("force_authoring"));
+
+		let without_flag = crate::cli::Cli::try_parse_from(["quantus-node", "--validator"])
+			.expect("parse --validator");
+		assert!(!without_flag.run.force_authoring);
+		assert!(!without_flag.run.force_authoring().expect("force_authoring"));
+	}
+
+	#[test]
+	fn dev_implies_force_authoring() {
+		use clap::Parser;
+		use sc_cli::CliConfiguration;
+
+		let cli = crate::cli::Cli::try_parse_from(["quantus-node", "--dev"]).expect("parse --dev");
+		assert!(cli.run.force_authoring().expect("force_authoring"));
+	}
 
 	#[test]
 	fn take_trimmed_secret_returns_trimmed_and_rejects_whitespace_only() {

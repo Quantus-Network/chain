@@ -368,6 +368,7 @@ pub mod pallet {
 			type BaseCallFilter = frame_support::traits::Everything;
 			type BlockHashCount = TestBlockHashCount<frame_support::traits::ConstU32<10>>;
 			type OnSetCode = ();
+			type AuthorizeUpgradeOrigin = super::EnsureRoot<Self::AccountId>;
 			type SingleBlockMigrations = ();
 			type MultiBlockMigrator = ();
 			type PreInherents = ();
@@ -470,6 +471,9 @@ pub mod pallet {
 
 			/// The set code logic, just the default since we're not a parachain.
 			type OnSetCode = ();
+
+			/// Only Root may authorize a runtime upgrade by default.
+			type AuthorizeUpgradeOrigin = super::EnsureRoot<Self::AccountId>;
 			type SingleBlockMigrations = ();
 			type MultiBlockMigrator = ();
 			type PreInherents = ();
@@ -669,6 +673,11 @@ pub mod pallet {
 		#[pallet::no_default_bounds]
 		type OnSetCode: SetCode<Self>;
 
+		/// The origin permitted to call [`Call::authorize_upgrade`]. `set_code` and
+		/// `authorize_upgrade_without_checks` remain Root-only regardless of this type.
+		#[pallet::no_default_bounds]
+		type AuthorizeUpgradeOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+
 		/// The maximum number of consumers allowed on a single account.
 		type MaxConsumers: ConsumerLimits;
 
@@ -861,11 +870,11 @@ pub mod pallet {
 		/// Authorize an upgrade to a given `code_hash` for the runtime. The runtime can be supplied
 		/// later.
 		///
-		/// This call requires Root origin.
+		/// This call requires `Config::AuthorizeUpgradeOrigin` (Root by default).
 		#[pallet::call_index(9)]
 		#[pallet::weight((T::SystemWeightInfo::authorize_upgrade(), DispatchClass::Operational))]
 		pub fn authorize_upgrade(origin: OriginFor<T>, code_hash: T::Hash) -> DispatchResult {
-			ensure_root(origin)?;
+			T::AuthorizeUpgradeOrigin::ensure_origin(origin)?;
 			Self::do_authorize_upgrade(code_hash, true);
 			Ok(())
 		}

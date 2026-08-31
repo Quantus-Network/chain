@@ -1,5 +1,6 @@
 use crate::{
-	scale_fee, AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, UNIT,
+	governance::origins::Origin as CustomOrigin, scale_fee, AccountId, Balance, Balances,
+	BlockNumber, OriginCaller, Runtime, RuntimeOrigin, DAYS, HOURS, MINUTES, UNIT,
 };
 use alloc::borrow::Cow;
 use codec::{Decode, Encode, MaxEncodedLen};
@@ -92,8 +93,12 @@ fn apply_test_timing(
 // tech-collective lane below is the sole governance lane (runtime upgrades + other Root calls).
 pub struct TechCollectiveTracksInfo;
 
+/// Track for [`CustomOrigin::FastUpgrade`] proposals.
+pub const FAST_UPGRADE_TRACK_ID: u16 = 1;
+pub const TECH_COLLECTIVE_DECISION_DEPOSIT: Balance = scale_fee(10 * UNIT);
+
 impl TechCollectiveTracksInfo {
-	fn create_tech_collective_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] {
+	fn create_tech_collective_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 2] {
 		// With 5 members: >=3 ayes required (support 60%), and 2 nays always block
 		// (3 ayes / 2 nays = 60% approval < 61%). Constant curves: thresholds don't
 		// decay over the decision period. The 24h confirm period guarantees nays can
@@ -107,7 +112,7 @@ impl TechCollectiveTracksInfo {
 		let info = pallet_referenda::TrackInfo {
 			name: str_array("tech_collective_members"),
 			max_deciding: 1,
-			decision_deposit: scale_fee(1000 * UNIT),
+			decision_deposit: TECH_COLLECTIVE_DECISION_DEPOSIT,
 			// Advance-notice window before deciding starts. Raised from 4 min to give the
 			// collective (and observers) visibility of a pending Root proposal before voting can
 			// conclude.
@@ -128,7 +133,42 @@ impl TechCollectiveTracksInfo {
 		};
 		#[cfg(feature = "fast-governance")]
 		let info = apply_test_timing(info);
-		[pallet_referenda::Track { id: 0, info }]
+
+		// Emergency runtime-upgrade lane, modeled on Polkadot's Whitelisted Caller
+		// track (10-minute confirm + 10-minute enactment vs a full day each on the
+		// normal lane). Proposals dispatch with `CustomOrigin::FastUpgrade`, which is
+		// honored only by `system.authorize_upgrade` — never arbitrary Root — so the
+		// short windows cannot be leveraged for anything but publishing an upgrade
+		// hash (the wasm itself is applied permissionlessly and version-checked).
+		// The 80%/80% constant curves require 8-of-10 ayes from the genesis
+		// collective (support counts all members, so 8 ayes are needed regardless of
+		// nays; approval at exactly 8 ayes / 2 nays is 80% and still passes).
+		let fast_upgrade = pallet_referenda::TrackInfo {
+			name: str_array("fast_upgrade"),
+			max_deciding: 1,
+			decision_deposit: TECH_COLLECTIVE_DECISION_DEPOSIT,
+			prepare_period: 10 * MINUTES,
+			decision_period: DAYS,
+			confirm_period: 10 * MINUTES,
+			min_enactment_period: 10 * MINUTES,
+			min_approval: pallet_referenda::Curve::LinearDecreasing {
+				length: Perbill::from_percent(100),
+				floor: Perbill::from_percent(80),
+				ceil: Perbill::from_percent(80),
+			},
+			min_support: pallet_referenda::Curve::LinearDecreasing {
+				length: Perbill::from_percent(100),
+				floor: Perbill::from_percent(80),
+				ceil: Perbill::from_percent(80),
+			},
+		};
+		#[cfg(feature = "fast-governance")]
+		let fast_upgrade = apply_test_timing(fast_upgrade);
+
+		[
+			pallet_referenda::Track { id: 0, info },
+			pallet_referenda::Track { id: FAST_UPGRADE_TRACK_ID, info: fast_upgrade },
+		]
 	}
 }
 
@@ -140,21 +180,24 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
 	) -> impl Iterator<Item = Cow<'static, pallet_referenda::Track<Self::Id, Balance, BlockNumber>>>
 	{
 		lazy_static! {
-			static ref TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] =
+			static ref TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 2] =
 				TechCollectiveTracksInfo::create_tech_collective_tracks();
 		}
 		TRACKS.iter().map(Cow::Borrowed)
 	}
 
 	fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
-		// #91247/#91270: only a `Root` proposal origin is accepted. A referendum's
-		// `proposal_origin` is stored and dispatched verbatim on approval, so accepting
-		// `Signed(_)` here would let a passed referendum execute calls as an arbitrary account
-		// (impersonation) and route Root- level dispatch through this single low-threshold track.
-		// The tech lane exists solely to authorize Root governance (e.g. runtime upgrades);
-		// members submit via `SubmitOrigin`.
-		match id.as_system_ref() {
-			Some(frame_system::RawOrigin::Root) => Ok(0),
+		// #91247/#91270: only the `Root` and `FastUpgrade` proposal origins are accepted. A
+		// referendum's `proposal_origin` is stored and dispatched verbatim on approval, so
+		// accepting `Signed(_)` here would let a passed referendum execute calls as an
+		// arbitrary account (impersonation) and route Root-level dispatch through a
+		// low-threshold track. The tech lane exists solely to authorize Root governance
+		// (e.g. runtime upgrades); members submit via `SubmitOrigin`.
+		if let Some(frame_system::RawOrigin::Root) = id.as_system_ref() {
+			return Ok(0);
+		}
+		match id {
+			OriginCaller::Origins(CustomOrigin::FastUpgrade) => Ok(FAST_UPGRADE_TRACK_ID),
 			_ => Err(()),
 		}
 	}
