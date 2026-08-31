@@ -51,6 +51,3 @@ std = [
 	"sp-runtime/std",
 	"thiserror",
 ]
-
-[lints]
-workspace = true

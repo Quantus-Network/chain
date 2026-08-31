@@ -74,6 +74,3 @@ tempfile = { workspace = true }
 [features]
 default = ["rocksdb"]
 rocksdb = ["sc-client-db/rocksdb"]
-
-[lints]
-workspace = true

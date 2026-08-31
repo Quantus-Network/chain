@@ -75,8 +75,10 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 ] }
 
 [workspace.lints.clippy]
-# polkadot-sdk's policy, so the vendored crates lint like upstream. Crates that must not
-# panic (runtime, sc-service, sc-transaction-pool) deny unwrap/expect/panic at crate level.
+# polkadot-sdk's policy for the crates vendored from it and from litep2p, so they lint like
+# upstream. First-party crates must NOT inherit this: they use clippy's defaults and are
+# gated with `-D warnings` in CI. Crates that must not panic (runtime, sc-service,
+# sc-transaction-pool) deny unwrap/expect/panic at crate level.
 all = { level = "allow", priority = 0 }
 bind_instead_of_map = { level = "allow", priority = 2 }
 borrowed-box = { level = "allow", priority = 2 }

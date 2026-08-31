@@ -424,7 +424,10 @@ fn high_security_tx_quota_is_a_rolling_window_of_sixteen() {
 			assert_ok!(ReversibleTransfers::record_high_security_tx(&hs));
 		}
 		assert!(!ReversibleTransfers::high_security_tx_quota_allows(&hs));
-		assert_err!(ReversibleTransfers::record_high_security_tx(&hs), ());
+		assert_err!(
+			ReversibleTransfers::record_high_security_tx(&hs),
+			crate::Error::<Test>::HighSecurityTxQuotaExceeded
+		);
 
 		// Normal accounts are not recorded and stay unlimited.
 		assert_ok!(ReversibleTransfers::record_high_security_tx(&normal));
@@ -461,6 +464,9 @@ fn zero_capacity_quota_window_rejects_instead_of_panicking() {
 	}
 	let mut ring: frame_support::pallet_prelude::BoundedVec<u64, ZeroCapacity> = Default::default();
 	assert!(!ReversibleTransfers::hs_ring_has_room(&ring, 1));
-	assert_err!(ReversibleTransfers::hs_ring_record(&mut ring, 1), ());
+	assert_err!(
+		ReversibleTransfers::hs_ring_record(&mut ring, 1),
+		crate::Error::<Test>::HighSecurityTxQuotaExceeded
+	);
 	assert!(ring.is_empty());
 }

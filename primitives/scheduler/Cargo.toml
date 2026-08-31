@@ -23,6 +23,3 @@ std = [
 	"scale-info/std",
 	"sp-runtime/std",
 ]
-
-[lints]
-workspace = true

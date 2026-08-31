@@ -53,15 +53,15 @@ impl Drop for QuantusKeyDetails {
 /// Trim a secret `String`, returning a `Zeroizing` copy and scrubbing the source
 /// (including any leading/trailing whitespace that `trim()` would otherwise leave
 /// in a discarded allocation).
-fn take_trimmed_secret(mut value: String) -> Result<Zeroizing<String>, sc_cli::Error> {
+fn take_trimmed_secret(mut value: String) -> Option<Zeroizing<String>> {
 	let trimmed = value.trim();
 	if trimmed.is_empty() {
 		value.zeroize();
-		return Err(sc_cli::Error::Input("no secret provided on stdin".into()));
+		return None;
 	}
 	let secret = Zeroizing::new(trimmed.to_string());
 	value.zeroize();
-	Ok(secret)
+	Some(secret)
 }
 
 /// Read a secret from stdin rather than argv, so it never appears in
@@ -85,6 +85,7 @@ fn read_secret_from_stdin(prompt: &str) -> Result<Zeroizing<String>, sc_cli::Err
 		line
 	};
 	take_trimmed_secret(value)
+		.ok_or_else(|| sc_cli::Error::Input("no secret provided on stdin".into()))
 }
 
 #[allow(clippy::result_large_err)]
@@ -752,7 +753,7 @@ mod tests {
 	fn take_trimmed_secret_returns_trimmed_and_rejects_whitespace_only() {
 		let secret = take_trimmed_secret(String::from("  secret-phrase\n")).expect("non-empty");
 		assert_eq!(secret.as_str(), "secret-phrase");
-		assert!(take_trimmed_secret(String::from("   \n")).is_err());
+		assert!(take_trimmed_secret(String::from("   \n")).is_none());
 	}
 
 	/// Master secrets must never travel through argv: the argument vector is

@@ -56,6 +56,3 @@ try-runtime = [
 	"frame-support/try-runtime",
 	"pallet-zk-tree/try-runtime",
 ]
-
-[lints]
-workspace = true

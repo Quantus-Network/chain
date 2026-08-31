@@ -97,7 +97,7 @@ pub enum Subcommand {
 pub enum QuantusKeySubcommand {
 	/// Standard key commands from sc_cli
 	#[command(flatten)]
-	Sc(sc_cli::KeySubcommand),
+	Sc(Box<sc_cli::KeySubcommand>),
 	/// Generate a quantus address
 	Quantus {
 		/// Type of the key

@@ -157,6 +157,3 @@ try-runtime = [
 	"quantus-runtime/try-runtime",
 	"sp-runtime/try-runtime",
 ]
-
-[lints]
-workspace = true

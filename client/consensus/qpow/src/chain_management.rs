@@ -290,7 +290,7 @@ where
 				);
 			}
 		}
-		height_to_clean = height_to_clean + One::one();
+		height_to_clean += One::one();
 	}
 
 	Ok(())
