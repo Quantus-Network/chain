@@ -221,7 +221,7 @@ pub type Moment = u64;
 
 // In memory storage
 thread_local! {
-	static MOCKED_TIME: RefCell<Moment> = RefCell::new(0);
+	static MOCKED_TIME: RefCell<Moment> = const { RefCell::new(0) };
 }
 
 /// A mock `TimeProvider` that allows setting the current time for tests.

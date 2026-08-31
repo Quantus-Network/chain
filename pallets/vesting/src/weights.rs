@@ -1,5 +1,5 @@
 //! Weights for `pallet_vesting`. Payout paths replace the benchmarked tree component
-//! with flat [`pallet_zk_tree::INSERT_LEAF_*`] pricing at
+//! with flat `pallet_zk_tree::INSERT_LEAF_*` pricing at
 //! [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`].
 
 use crate::weights_generated as generated;
@@ -30,7 +30,7 @@ const CLAIM_BENCHMARK_TREE_WRITES: u64 = 3;
 
 /// Benchmarked base with its benchmark-depth tree ops swapped for the flat
 /// circuit-depth insert cost — DB ops, Poseidon path hashing and PoV all priced by
-/// [`pallet_zk_tree::INSERT_LEAF_*`] at [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`].
+/// `pallet_zk_tree::INSERT_LEAF_*` at [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`].
 ///
 /// `INSERT_LEAF_*` is now the public batched-tree *marginal* price, cheaper than
 /// the per-insert path the vesting benchmarks were generated against. Clamp to

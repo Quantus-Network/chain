@@ -21,6 +21,7 @@
 
 #![warn(missing_docs)]
 #![recursion_limit = "1024"]
+#![deny(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
 
 pub mod chain_ops;
 pub mod client;

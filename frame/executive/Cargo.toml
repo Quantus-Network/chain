@@ -58,3 +58,6 @@ try-runtime = [
 	"sp-runtime/try-runtime",
 ]
 with-tracing = ["sp-tracing/with-tracing"]
+
+[lints]
+workspace = true

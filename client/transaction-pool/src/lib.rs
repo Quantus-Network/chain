@@ -21,6 +21,7 @@
 #![recursion_limit = "256"]
 #![warn(missing_docs)]
 #![warn(unused_extern_crates)]
+#![deny(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
 
 mod builder;
 mod common;

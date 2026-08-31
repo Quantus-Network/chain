@@ -20,3 +20,6 @@ sc-network = { workspace = true, default-features = true }
 sc-network-sync = { workspace = true, default-features = true }
 sp-blockchain = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = true }
+
+[lints]
+workspace = true

@@ -105,7 +105,7 @@ const GENESIS_VESTING_TOTAL: u128 = 10_000 * UNIT;
 /// Identifier for the heisenberg runtime preset.
 ///
 /// Heisenberg is the internal integration testnet. Its genesis deliberately
-/// reuses [`dilithium_default_accounts`] (well-known public keys) — see that
+/// reuses `dilithium_default_accounts` (well-known public keys) — see that
 /// helper for why that is acceptable here and must not be copied onto a
 /// mainnet / value-bearing chain.
 pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
@@ -116,9 +116,9 @@ pub const PLANCK_RUNTIME_PRESET: &str = "planck";
 /// Identifier for the staging-mainnet runtime preset.
 ///
 /// Staging-mainnet is the mainnet dress rehearsal: its genesis is produced by
-/// [`mainnet_config_genesis`], the same function the eventual mainnet preset
+/// `mainnet_config_genesis`, the same function the eventual mainnet preset
 /// will use, differing only in the treasury multisig nonce
-/// ([`STAGING_MAINNET_TREASURY_MULTISIG_NONCE`]) so the two chains get
+/// (`STAGING_MAINNET_TREASURY_MULTISIG_NONCE`) so the two chains get
 /// distinct treasury accounts and therefore distinct genesis hashes.
 pub const STAGING_MAINNET_RUNTIME_PRESET: &str = "staging_mainnet";
 
@@ -154,7 +154,7 @@ fn development_treasury_account() -> AccountId {
 
 /// Multisig nonce for Heisenberg treasury: same three well-known signers as
 /// `dev` (acceptable because Heisenberg is an integration testnet — see
-/// [`dilithium_default_accounts`]), different on-chain address from development
+/// `dilithium_default_accounts`), different on-chain address from development
 /// (different nonce) so presets are distinguishable.
 const HEISENBERG_TREASURY_MULTISIG_NONCE: u64 = 1;
 
@@ -186,7 +186,7 @@ struct TreasuryGenesis {
 /// Two extra well-known Dilithium accounts (public seeds `[3u8; 32]` / `[4u8; 32]`) that pad the
 /// `dev` and `heisenberg` tech collectives to the [`MIN_TECH_COLLECTIVE_MEMBERS`] size the
 /// tech-referenda curves are designed for. These public keys are acceptable only for those
-/// non-value-bearing chains — see [`dilithium_default_accounts`].
+/// non-value-bearing chains — see `dilithium_default_accounts`.
 fn dilithium_extra_collective_members() -> Vec<AccountId> {
 	[[3u8; 32], [4u8; 32]]
 		.into_iter()
@@ -471,7 +471,7 @@ fn planck_treasury_account() -> AccountId {
 	Multisig::<crate::Runtime>::derive_multisig_address(&planck_treasury_signers(), 2, 0)
 }
 
-/// Parses genesis JSON, removes [`TECH_COLLECTIVE_SEED_MEMBERS_KEY`] if present, and returns
+/// Parses genesis JSON, removes `TECH_COLLECTIVE_SEED_MEMBERS_KEY` if present, and returns
 /// serialized config for [`frame_support::genesis_builder_helper::build_state`] plus the optional
 /// member list.
 ///
@@ -529,7 +529,7 @@ fn parse_tech_collective_members_array(v: Value) -> Result<Vec<AccountId>, Strin
 }
 
 /// Seed tech collective members at genesis. Call after `build_state` when the genesis JSON
-/// included [`TECH_COLLECTIVE_SEED_MEMBERS_KEY`].
+/// included `TECH_COLLECTIVE_SEED_MEMBERS_KEY`.
 ///
 /// The member list is caller-supplied via the genesis JSON, so adding can fail (duplicate
 /// entries, accounts already members, `MaxMemberCount` exceeded). Failures are returned as
@@ -655,7 +655,7 @@ const STAGING_MAINNET_TREASURY_MULTISIG_NONCE: u64 = 1;
 const MAINNET_VESTING_START_MS: VestingMoment = utc_midnight_ms(2026, 12, 1);
 
 /// Flip to `true` only when [`mainnet_vesting_schedules`] holds the final mainnet
-/// allocation table. While `false`, [`mainnet_config_genesis`] refuses to build
+/// allocation table. While `false`, `mainnet_config_genesis` refuses to build
 /// any preset except staging-mainnet (the dress rehearsal may ship dummies).
 const MAINNET_VESTING_FINALIZED: bool = false;
 

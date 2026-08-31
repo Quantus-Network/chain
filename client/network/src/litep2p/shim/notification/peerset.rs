@@ -258,7 +258,7 @@ pub enum PeersetNotificationCommand {
 /// close a substream and then try to reopen it immediately.
 ///
 /// Irrespective of which side closed the substream (local/remote), the substream is chilled for a
-/// small amount of time ([`DEFAULT_BACKOFF`]) and during this time no inbound or outbound
+/// small amount of time (`DEFAULT_BACKOFF`) and during this time no inbound or outbound
 /// substreams are accepted/established. Any request to open an outbound substream while the peer
 /// is backed-off is ignored. If the peer is a reserved peer, an outbound substream is not opened
 /// for them immediately but after the back-off has expired, `Peerset` will attempt to open a
@@ -538,7 +538,7 @@ impl Peerset {
 	///
 	/// If the peer was not a reserved peer, the inbound/outbound slot count is adjusted to account
 	/// for the disconnected peer. After the connection is closed, the peer is chilled for a
-	/// duration of [`DEFAULT_BACKOFF`] which prevens [`Peerset`] from establishing/accepting new
+	/// duration of `DEFAULT_BACKOFF` which prevens [`Peerset`] from establishing/accepting new
 	/// connections for that time period.
 	pub fn report_substream_closed(&mut self, peer: PeerId) {
 		log::trace!(target: LOG_TARGET, "{}: substream closed to {peer:?}", self.protocol);

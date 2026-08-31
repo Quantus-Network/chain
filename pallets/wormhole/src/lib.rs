@@ -517,6 +517,11 @@ pub mod pallet {
 	/// public-batch proof parses into one segment per inner private batch (the
 	/// public-batch circuit forwards exits and nullifiers in order, preserving the
 	/// per-segment attribution this type relies on).
+	/// A proof that passed the pre-dispatch gates: the verifier it was checked against, the
+	/// parsed proof, its exit bundle and each segment's validity flag.
+	pub(crate) type PreValidatedProof =
+		(&'static crate::WormholeVerifier, ProofWithPublicInputs<F, C, D>, ExitBundle, Vec<bool>);
+
 	pub struct ExitBundle {
 		pub asset_id: u32,
 		pub volume_fee_bps: u32,
@@ -659,7 +664,7 @@ pub mod pallet {
 		/// A dummy-padded segment: the public-batch circuit zeroes all nullifiers (and
 		/// exit slots) for all-dummy inner private batches.
 		fn segment_is_inert(segment: &ExitSegment) -> bool {
-			segment.nullifiers.iter().all(|n| n.as_ref() == &[0u8; 32])
+			segment.nullifiers.iter().all(|n| n.as_ref() == [0u8; 32])
 		}
 
 		/// Compute per-segment validity for an exit bundle.
@@ -734,7 +739,7 @@ pub mod pallet {
 						*valid &&
 							segment.account_data.iter().any(|account| {
 								account.summed_output_amount > 0 &&
-									account.exit_account.as_ref() != &[0u8; 32]
+									account.exit_account.as_ref() != [0u8; 32]
 							})
 					});
 				if mintable {
@@ -1150,15 +1155,7 @@ pub mod pallet {
 		/// full verification is deferred to the block-inclusion gate (`pre_dispatch`).
 		pub(crate) fn pre_validate_private_batch_proof(
 			proof_bytes: &[u8],
-		) -> Result<
-			(
-				&'static crate::WormholeVerifier,
-				ProofWithPublicInputs<F, C, D>,
-				ExitBundle,
-				Vec<bool>,
-			),
-			Error<T>,
-		> {
+		) -> Result<PreValidatedProof, Error<T>> {
 			// Length gate FIRST: `proof_bytes` is attacker-controlled, unsigned and
 			// fee-free, and everything below copies (`to_vec`) and parses the whole
 			// blob. Without this bound the only limit is the block-length cap,
@@ -1209,15 +1206,7 @@ pub mod pallet {
 		/// [`Self::pre_validate_private_batch_proof`].
 		pub(crate) fn pre_validate_public_batch_proof(
 			proof_bytes: &[u8],
-		) -> Result<
-			(
-				&'static crate::WormholeVerifier,
-				ProofWithPublicInputs<F, C, D>,
-				ExitBundle,
-				Vec<bool>,
-			),
-			Error<T>,
-		> {
+		) -> Result<PreValidatedProof, Error<T>> {
 			// Same gates as `pre_validate_private_batch_proof`: length bound before
 			// any copy/parse, then exact canonical framing after deserialization.
 			ensure!(proof_bytes.len() <= crate::MAX_PROOF_BYTES, Error::<T>::ProofTooLarge);
@@ -1353,7 +1342,7 @@ pub mod pallet {
 		) -> Result<BalanceOf<T>, DispatchError> {
 			let amount_u128: u128 = amount.try_into().map_err(|_| TokenError::BelowMinimum)?;
 			ensure!(
-				amount_u128 > 0 && amount_u128 % crate::SCALE_DOWN_FACTOR == 0,
+				amount_u128 > 0 && amount_u128.is_multiple_of(crate::SCALE_DOWN_FACTOR),
 				TokenError::BelowMinimum
 			);
 			let credited = <T::Currency as Unbalanced<_>>::increase_balance(

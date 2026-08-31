@@ -85,6 +85,12 @@ const PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS: u64 = 900_000_000;
 /// Re-run `pre_validate_public_batch_proof` to regenerate.
 const PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS: u64 = 1_900_000_000;
 
+/// Floor so regenerated weights can't under-price the all-valid worst case.
+/// The public-batch floor tracks the cheaper post-turnstile-removal
+/// pre-validation path (measured ~1.83B ps on 2026-08-08).
+const _: () = assert!(PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS > 550_000_000);
+const _: () = assert!(PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS > 1_500_000_000);
+
 /// ZK verification time for a private-batch proof.
 const PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS: u64 = 15_162_000_000;
 
@@ -211,7 +217,7 @@ fn verify_batch_weight(
 /// Every processed exit inserts a ZK-tree leaf, plus one leaf for the miner
 /// volume-fee credit (and the aggregator rebate on public batch); that component
 /// is flat-priced at [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`] via
-/// [`pallet_zk_tree::INSERT_LEAF_*`].
+/// `pallet_zk_tree::INSERT_LEAF_*`.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `System::BlockHash` (r:1 w:0)
@@ -557,14 +563,5 @@ mod tests {
 				"every nullifier write must be charged even when exits stay constant"
 			);
 		});
-	}
-
-	/// Floor so regenerated weights can't under-price the all-valid worst case.
-	/// The public-batch floor tracks the cheaper post-turnstile-removal
-	/// pre-validation path (measured ~1.83B ps on 2026-08-08).
-	#[test]
-	fn pre_validation_compute_covers_production_path() {
-		assert!(PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS > 550_000_000);
-		assert!(PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS > 1_500_000_000);
 	}
 }

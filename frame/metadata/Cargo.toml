@@ -39,3 +39,6 @@ std = [
 	"serde_full",
 ]
 unstable = ["current"]
+
+[lints]
+workspace = true

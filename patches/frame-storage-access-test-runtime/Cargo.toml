@@ -16,3 +16,6 @@ parity-scale-codec = { version = "3.6.12", default-features = false, features = 
 sp-core = { workspace = true }
 sp-runtime = { workspace = true }
 sp-trie = { workspace = true }
+
+[lints]
+workspace = true

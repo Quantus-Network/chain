@@ -98,12 +98,11 @@ impl<Hash: Clone, Ex> Clone for ReadyTx<Hash, Ex> {
 	}
 }
 
-const HASH_READY: &str = r#"
-Every time transaction is imported its hash is placed in `ready` map and tags in `provided_tags`;
-Every time transaction is removed from the queue we remove the hash from `ready` map and from `provided_tags`;
-Hence every hash retrieved from `provided_tags` is always present in `ready`;
-qed
-"#;
+// HASH_READY:
+// Every time transaction is imported its hash is placed in `ready` map and tags in `provided_tags`;
+// Every time transaction is removed from the queue we remove the hash from `ready` map and from
+// `provided_tags`; Hence every hash retrieved from `provided_tags` is always present in `ready`;
+// qed
 
 /// Validated transactions that are block ready with all their dependencies met.
 #[derive(Clone, Debug)]

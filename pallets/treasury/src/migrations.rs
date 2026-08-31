@@ -12,7 +12,7 @@ use frame_support::{
 #[cfg(feature = "try-runtime")]
 use alloc::vec::Vec;
 
-/// v0 -> v1: previously wrote a 50% [`TreasuryPortion`]. That storage item is gone;
+/// v0 -> v1: previously wrote a 50% `TreasuryPortion`. That storage item is gone;
 /// this step is now a no-op version bump so v0 chains still advance to v1 and then
 /// run [`v2`].
 pub mod v1 {

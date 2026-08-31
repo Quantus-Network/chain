@@ -103,3 +103,6 @@ try-runtime = [
 ]
 tuples-128 = ["frame-support-procedural/tuples-128"]
 tuples-96 = ["frame-support-procedural/tuples-96"]
+
+[lints]
+workspace = true

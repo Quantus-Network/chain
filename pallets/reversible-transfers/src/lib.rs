@@ -71,7 +71,7 @@ impl<T: Config> Pallet<T> {
 	/// No-op for non-high-security accounts. Errors if the ring is full and
 	/// the oldest entry is still inside the window. O(1): one compare, at
 	/// most one head eviction and one push.
-	pub fn record_high_security_tx(who: &T::AccountId) -> Result<(), ()> {
+	pub fn record_high_security_tx(who: &T::AccountId) -> DispatchResult {
 		if !HighSecurityAccounts::<T>::contains_key(who) {
 			return Ok(());
 		}
@@ -81,7 +81,7 @@ impl<T: Config> Pallet<T> {
 	/// Record against `who`'s quota ring. Does not re-read
 	/// `HighSecurityAccounts`; the caller must already know `who` is
 	/// high-security (one `HighSecurityTxQuota` read + write).
-	pub fn record_hs_quota(who: &T::AccountId) -> Result<(), ()> {
+	pub fn record_hs_quota(who: &T::AccountId) -> DispatchResult {
 		let now = T::BlockNumberProvider::current_block_number();
 		HighSecurityTxQuota::<T>::try_mutate(who, |recent| Self::hs_ring_record(recent, now))
 	}
@@ -113,15 +113,15 @@ impl<T: Config> Pallet<T> {
 	fn hs_ring_record<S: Get<u32>>(
 		recent: &mut BoundedVec<BlockNumberFor<T>, S>,
 		now: BlockNumberFor<T>,
-	) -> Result<(), ()> {
+	) -> DispatchResult {
 		if !Self::hs_ring_has_room(recent, now) {
-			return Err(());
+			return Err(Error::<T>::HighSecurityTxQuotaExceeded.into());
 		}
 		if (recent.len() as u32) >= S::get() {
 			// At capacity with an expired head (per `hs_ring_has_room`).
 			let _ = recent.remove(0);
 		}
-		recent.try_push(now).map_err(|_| ())
+		recent.try_push(now).map_err(|_| Error::<T>::HighSecurityTxQuotaExceeded.into())
 	}
 }
 
@@ -419,6 +419,8 @@ pub mod pallet {
 		/// Zero-amount transfers cannot be scheduled: there is nothing to hold,
 		/// execute, or reverse.
 		ZeroAmount,
+		/// The high-security account already used its transaction quota for the current window.
+		HighSecurityTxQuotaExceeded,
 	}
 
 	#[pallet::call]
@@ -514,7 +516,7 @@ pub mod pallet {
 		/// This extrinsic is called automatically by the Scheduler pallet when the
 		/// delay period expires. It must be signed by this pallet's account (not a user).
 		/// The pallet account is set as the origin when scheduling via
-		/// [`do_schedule_transfer_inner`](Self::do_schedule_transfer_inner).
+		/// `do_schedule_transfer_inner`.
 		///
 		/// # Parameters
 		///

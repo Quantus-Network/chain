@@ -1560,7 +1560,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 							match Self::schedule_enactment(
 								index,
 								&track,
-								status.enactment.clone(),
+								status.enactment,
 								status.origin.clone(),
 								status.proposal.clone(),
 							) {

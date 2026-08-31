@@ -55,3 +55,6 @@ no-metadata-docs = []
 std = ["sp-crypto-hashing/std"]
 tuples-128 = []
 tuples-96 = []
+
+[lints]
+workspace = true

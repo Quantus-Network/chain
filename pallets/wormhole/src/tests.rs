@@ -1368,14 +1368,11 @@ mod fixture_gen {
 		println!("Aggregating proof into a private batch...");
 		let prover = PrivateBatchProver::new_from_binaries_dir(bins_dir)
 			.expect("Failed to create private-batch prover");
-		let aggregated_proof =
-			prover.aggregate(vec![leaf_proof]).expect("Failed to aggregate private batch");
-
 		// Cryptographic verification of the fixture happens in the pallet tests that
 		// load the hex (and in regenerate_public_batch_fixture via PublicBatchAggregator).
 		// We skip a local WormholeVerifier check here: aggregator and verifier crates
 		// currently expose distinct plonky2 ProofWithPublicInputs types in this workspace.
-		aggregated_proof
+		prover.aggregate(vec![leaf_proof]).expect("Failed to aggregate private batch")
 	}
 
 	/// Helper to compute ZK leaf hash (must match circuit computation).
@@ -2358,7 +2355,7 @@ mod public_batch_proof_tests {
 		// (dummy *leaves* inside a real private batch get dummy nullifier preimages, not
 		// zeros); the dummy private-batch segments are fully zeroed by the circuit.
 		let non_zero_nullifiers =
-			inputs.nullifiers.iter().filter(|n| n.as_ref() != &[0u8; 32]).count();
+			inputs.nullifiers.iter().filter(|n| n.as_ref() != [0u8; 32]).count();
 		assert_eq!(
 			non_zero_nullifiers,
 			crate::circuit_config::NUM_LEAF_PROOFS,
@@ -2529,7 +2526,7 @@ mod public_batch_proof_tests {
 			let real_nullifier = inputs
 				.nullifiers
 				.iter()
-				.find(|n| n.as_ref() != &[0u8; 32])
+				.find(|n| n.as_ref() != [0u8; 32])
 				.expect("Fixture has a real nullifier");
 			let bytes: [u8; 32] = real_nullifier.as_ref().try_into().unwrap();
 			UsedNullifiers::<Test>::insert(bytes, true);

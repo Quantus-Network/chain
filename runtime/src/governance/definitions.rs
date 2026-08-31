@@ -272,7 +272,9 @@ where
 pub type RootOrMemberForTechReferendaOrigin = RootOrMemberForTechReferendaOriginImpl<Runtime, ()>;
 
 /// `RemoveOrigin` for the tech collective: Root (i.e. a passed tech referendum), but only while
-/// the removal leaves at least [`MIN_TECH_COLLECTIVE_MEMBERS`] members.
+/// the removal leaves at least
+/// [`MIN_TECH_COLLECTIVE_MEMBERS`](crate::genesis_config_presets::MIN_TECH_COLLECTIVE_MEMBERS)
+/// members.
 ///
 /// The tech-referenda approval/support curves (see [`TechCollectiveTracksInfo`]) are designed
 /// for a collective of >= 5 members and `SubmitOrigin` only accepts current members. Without

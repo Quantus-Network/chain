@@ -173,7 +173,7 @@ pub fn set_miner_preimage_digest(preimage: [u8; 32]) {
 /// nonzero balance whose circuit amount is zero and cannot be withdrawn.
 pub fn assert_exitable_native_leaf(to: &AccountId, amount: Balance) {
 	assert!(
-		amount > 0 && amount % crate::SCALE_DOWN_FACTOR == 0,
+		amount > 0 && amount.is_multiple_of(crate::SCALE_DOWN_FACTOR),
 		"credited amount {amount} must be a positive whole number of quanta"
 	);
 	let matching: Vec<u64> = System::events()
