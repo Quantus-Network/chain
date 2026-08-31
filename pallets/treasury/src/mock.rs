@@ -61,12 +61,12 @@ pub fn account_id(id: u8) -> sp_core::crypto::AccountId32 {
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
-	let mut ext = new_test_ext_with_treasury(account_id(1), sp_runtime::Permill::from_percent(50));
+	let mut ext = new_test_ext_with_treasury(account_id(1));
 	ext.execute_with(|| frame_system::Pallet::<Test>::set_block_number(1));
 	ext
 }
 
-/// Build storage without treasury genesis. Used to test panic when TreasuryAccount/Portion is None.
+/// Build storage without treasury genesis. Used to test panic when TreasuryAccount is None.
 pub fn new_test_ext_without_treasury() -> sp_io::TestExternalities {
 	let t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 	let mut ext = sp_io::TestExternalities::new(t);
@@ -76,16 +76,12 @@ pub fn new_test_ext_without_treasury() -> sp_io::TestExternalities {
 
 pub fn new_test_ext_with_treasury(
 	treasury_account: sp_core::crypto::AccountId32,
-	treasury_portion: sp_runtime::Permill,
 ) -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
-	pallet_treasury::GenesisConfig::<Test> {
-		treasury_account: Some(treasury_account),
-		treasury_portion: Some(treasury_portion),
-	}
-	.assimilate_storage(&mut t)
-	.unwrap();
+	pallet_treasury::GenesisConfig::<Test> { treasury_account: Some(treasury_account) }
+		.assimilate_storage(&mut t)
+		.unwrap();
 
 	let mut ext = sp_io::TestExternalities::new(t);
 	ext.execute_with(|| frame_system::Pallet::<Test>::set_block_number(1));

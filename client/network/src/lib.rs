@@ -129,10 +129,6 @@
 //! requests for information about blocks. Each request is the encoding of a `BlockRequest` and
 //! each response is the encoding of a `BlockResponse`, as defined in the `api.v1.proto` file in
 //! this source tree.
-//! - **`/<protocol-id>/light/2`** is a request-response protocol (see below) that lets one perform
-//! light-client-related requests for information about the state. Each request is the encoding of
-//! a `light::Request` and each response is the encoding of a `light::Response`, as defined in the
-//! `light.v1.proto` file in this source tree.
 //! - **`/<protocol-id>/transactions/1`** is a notifications protocol (see below) where
 //! transactions are pushed to other nodes. The handshake is empty on both sides. The message
 //! format is a SCALE-encoded list of transactions, where each transaction is an opaque list of
@@ -172,8 +168,6 @@
 //! Communications within this substream include:
 //!
 //! - Syncing. Blocks are announced and requested from other nodes.
-//! - Light-client requests. When a light client requires information, a random node we have a
-//! substream open with is chosen, and the information is requested from it.
 //! - Gossiping. Used for example by grandpa.
 //!
 //! ## Request-response protocols
@@ -308,6 +302,18 @@ pub use types::ProtocolName;
 
 /// The maximum number of concurrent established connections that were incoming.
 pub const MAX_CONNECTIONS_ESTABLISHED_INCOMING: u32 = 10_000;
+
+/// The maximum number of incoming connections that may be in handshake at once.
+///
+/// Unauthenticated peers hold a file descriptor until negotiation times out.
+/// This must stay well below a typical process `nofile` limit (often 1024).
+pub const MAX_CONNECTIONS_PENDING_INCOMING: u32 = 128;
+
+/// Maximum number of incoming connections (pending + established) from one source IP.
+///
+/// IPv6 sources are grouped by `/64`. This prevents a single host from filling
+/// the established-incoming pool with unique peer IDs.
+pub const MAX_CONNECTIONS_INCOMING_PER_IP: u32 = 16;
 
 /// Maximum response size limit.
 pub const MAX_RESPONSE_SIZE: u64 = 16 * 1024 * 1024;

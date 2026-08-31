@@ -831,30 +831,100 @@ fn failed_reschedule_named_is_a_noop_keeping_task_and_state() {
 	});
 }
 
+/// A call large enough that `bound` must store it as a `Lookup` preimage rather than inline,
+/// together with the `Bounded` value naming it (without noting anything).
+fn lookup_sized_call(fill: u8) -> (RuntimeCall, BoundedCallOf<Test>) {
+	let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![fill; 1024] });
+	let encoded = call.encode();
+	let bounded = Bounded::Lookup {
+		hash: <Test as frame_system::Config>::Hashing::hash(&encoded),
+		len: encoded.len() as u32,
+	};
+	assert!(bounded.lookup_needed(), "the call must be large enough to need a preimage");
+	(call, bounded)
+}
+
 #[test]
 fn failed_schedule_drops_noted_preimage() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1);
 
-		// A call large enough to be stored as a `Lookup` preimage rather than inline.
-		let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![0u8; 1024] });
-		let bounded = Preimage::bound(call).unwrap();
-		assert!(bounded.lookup_needed(), "the call must be noted as a preimage");
-		// `bound` has already noted the preimage.
-		assert!(Preimage::have(&bounded));
+		// The dispatchable notes the preimage itself, so the failed task owns it.
+		let (call, bounded) = lookup_sized_call(0);
 
 		// Scheduling at a past target fails in `resolve_time`, after the preimage was noted.
 		// Note: this deliberately mutates storage (it drops the preimage), so `assert_noop!`
 		// is not applicable here.
 		assert_err!(
-			Scheduler::do_schedule(DispatchTime::At(1), 127, root(), bounded.clone()),
+			Scheduler::schedule(RuntimeOrigin::root(), 1, 127, Box::new(call)),
 			Error::<Test>::TargetBlockNumberInPast,
 		);
 
 		// The failed schedule must not leave the noted preimage behind.
 		assert!(
 			!Preimage::have(&bounded),
-			"a failed schedule must drop the preimage noted by `bound`",
+			"a failed schedule must drop the preimage it noted via `bound`",
+		);
+	});
+}
+
+#[test]
+fn failed_schedule_keeps_a_preimage_reference_it_does_not_own() {
+	// Regression: the `schedule::v3` entrypoints take a `Bounded` call the caller already owns a
+	// request on, and only add their own reference once scheduling has succeeded. A failed
+	// attempt therefore owns nothing and must release nothing — dropping here consumed the
+	// caller's reference instead, unpinning call data that the caller still relies on.
+	new_test_ext().execute_with(|| {
+		run_to_block(1);
+
+		let (call, _) = lookup_sized_call(7);
+		let bounded = Preimage::bound(call).unwrap();
+		let hash = bounded.lookup_hash().expect("call is stored as a preimage lookup");
+		// `bound` noted the hash as `Requested { count: 1 }`; that reference is the caller's.
+		assert!(Preimage::is_requested(&hash));
+
+		assert_err!(
+			Scheduler::do_schedule(DispatchTime::At(1), 127, root(), bounded.clone()),
+			Error::<Test>::TargetBlockNumberInPast,
+		);
+		assert!(
+			Preimage::is_requested(&hash),
+			"a failed schedule must not release the caller's request",
+		);
+
+		assert_err!(
+			Scheduler::do_schedule_named([1u8; 32], DispatchTime::At(1), 127, root(), bounded),
+			Error::<Test>::TargetBlockNumberInPast,
+		);
+		assert!(
+			Preimage::is_requested(&hash),
+			"a failed named schedule must not release the caller's request",
+		);
+	});
+}
+
+#[test]
+fn successful_schedule_adds_its_own_preimage_reference() {
+	// The other half of the ownership contract the regression above depends on: on success the
+	// scheduler takes a reference of its own and leaves the caller's intact.
+	new_test_ext().execute_with(|| {
+		let (call, _) = lookup_sized_call(9);
+		let bounded = Preimage::bound(call).unwrap();
+		let hash = bounded.lookup_hash().expect("call is stored as a preimage lookup");
+
+		assert_ok!(Scheduler::do_schedule_named(
+			[2u8; 32],
+			DispatchTime::At(4),
+			127,
+			root(),
+			bounded,
+		));
+		assert!(
+			matches!(
+				pallet_preimage::RequestStatusFor::<Test>::get(hash),
+				Some(pallet_preimage::RequestStatus::Requested { count: 2, .. })
+			),
+			"scheduler must add its own reference on top of the caller's",
 		);
 	});
 }

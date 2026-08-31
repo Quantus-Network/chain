@@ -622,23 +622,19 @@ impl Stream for WebSocketTransport {
 
 	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
 		if let Poll::Ready(event) = self.listener.poll_next_unpin(cx) {
-			return match event {
+			match event {
 				None => {
 					tracing::error!(
 						target: LOG_TARGET,
-						"Websocket listener terminated, ignore if the node is stopping",
+						"Websocket listener closed; existing connections will still be served"
 					);
-
-					Poll::Ready(None)
 				},
 				Some(Err(error)) => {
-					tracing::error!(
+					tracing::warn!(
 						target: LOG_TARGET,
 						?error,
-						"Websocket listener terminated with error",
+						"Websocket accept error; listener will continue",
 					);
-
-					Poll::Ready(None)
 				},
 				Some(Ok((connection, address))) => {
 					let connection_id = self.context.next_connection_id();
@@ -652,9 +648,12 @@ impl Stream for WebSocketTransport {
 					self.pending_inbound_connections
 						.insert(connection_id, PendingInboundConnection { connection, address });
 
-					Poll::Ready(Some(TransportEvent::PendingInboundConnection { connection_id }))
+					return Poll::Ready(Some(TransportEvent::PendingInboundConnection {
+						connection_id,
+						address: address.ip(),
+					}));
 				},
-			};
+			}
 		}
 
 		while let Poll::Ready(Some(result)) = self.pending_raw_connections.poll_next_unpin(cx) {
@@ -718,7 +717,7 @@ impl Stream for WebSocketTransport {
 			}
 		}
 
-		while let Poll::Ready(Some(connection)) = self.pending_connections.poll_next_unpin(cx) {
+		if let Poll::Ready(Some(connection)) = self.pending_connections.poll_next_unpin(cx) {
 			match connection {
 				Ok(connection) => {
 					let peer = connection.peer();
@@ -739,7 +738,15 @@ impl Stream for WebSocketTransport {
 							error,
 						}));
 					} else {
-						tracing::debug!(target: LOG_TARGET, ?error, ?connection_id, "Pending inbound connection failed");
+						tracing::debug!(
+							target: LOG_TARGET,
+							?error,
+							?connection_id,
+							"Pending inbound connection failed"
+						);
+						return Poll::Ready(Some(TransportEvent::InboundConnectionFailed {
+							connection_id,
+						}));
 					}
 				},
 			}

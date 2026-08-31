@@ -51,7 +51,6 @@ use core::marker::PhantomData;
 /// Weight functions needed for `pallet_treasury`.
 pub trait WeightInfo {
 	fn set_treasury_account() -> Weight;
-	fn set_treasury_portion() -> Weight;
 }
 
 /// Weights for `pallet_treasury` using the Substrate node and recommended hardware.
@@ -68,16 +67,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(1_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
-	/// Storage: `TreasuryPallet::TreasuryPortion` (r:0 w:1)
-	/// Proof: `TreasuryPallet::TreasuryPortion` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	fn set_treasury_portion() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `0`
-		//  Estimated: `0`
-		// Minimum execution time: 3_000_000 picoseconds.
-		Weight::from_parts(3_000_000, 0)
-			.saturating_add(T::DbWeight::get().writes(1_u64))
-	}
 }
 
 // For backwards compatibility and tests.
@@ -91,16 +80,6 @@ impl WeightInfo for () {
 		// Minimum execution time: 6_000_000 picoseconds.
 		Weight::from_parts(6_000_000, 1517)
 			.saturating_add(RocksDbWeight::get().reads(1_u64))
-			.saturating_add(RocksDbWeight::get().writes(1_u64))
-	}
-	/// Storage: `TreasuryPallet::TreasuryPortion` (r:0 w:1)
-	/// Proof: `TreasuryPallet::TreasuryPortion` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	fn set_treasury_portion() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `0`
-		//  Estimated: `0`
-		// Minimum execution time: 3_000_000 picoseconds.
-		Weight::from_parts(3_000_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 }

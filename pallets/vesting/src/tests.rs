@@ -5,7 +5,13 @@ use sp_runtime::{DispatchError, TokenError};
 const START: u64 = 100_000;
 const CLIFF: u64 = 200_000;
 const END: u64 = 500_000;
-const TOTAL: u128 = 4_000_000;
+/// Large enough that a half-vested claim is a multiple of
+/// `NON_FINAL_PAYOUT_QUANTA * PayoutQuantum` (2_500_000 at the default quantum).
+const TOTAL: u128 = 10_000_000;
+
+fn non_final() -> u128 {
+	PayoutQuantum::get() * crate::NON_FINAL_PAYOUT_QUANTA
+}
 
 fn default_schedule(beneficiary: sp_core::crypto::AccountId32) -> ScheduleTuple {
 	(beneficiary, START, CLIFF, END, TOTAL)
@@ -64,7 +70,7 @@ mod vested_amount {
 			let s = schedule(START, CLIFF, END, TOTAL);
 			assert_eq!(Vesting::vested_amount(&s, 300_000), TOTAL / 2);
 			assert_eq!(Vesting::vested_amount(&s, 400_000), TOTAL * 3 / 4);
-			assert_eq!(Vesting::vested_amount(&s, END - 1), 3_999_990);
+			assert_eq!(Vesting::vested_amount(&s, END - 1), 9_999_975);
 		});
 	}
 
@@ -92,7 +98,7 @@ mod vested_amount {
 		new_test_ext(vec![]).execute_with(|| {
 			let s = schedule(START, START, END, TOTAL);
 			assert_eq!(Vesting::vested_amount(&s, START), 0);
-			assert_eq!(Vesting::vested_amount(&s, START + 1), 10);
+			assert_eq!(Vesting::vested_amount(&s, START + 1), TOTAL / (END - START) as u128);
 		});
 	}
 
@@ -175,6 +181,15 @@ mod claim {
 	}
 
 	#[test]
+	fn unsigned_origin_is_rejected() {
+		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
+			set_time(300_000);
+			assert_noop!(Vesting::claim(RuntimeOrigin::none(), 0), DispatchError::BadOrigin);
+			assert_eq!(stored(0).claimed, 0);
+		});
+	}
+
+	#[test]
 	fn after_end_pays_remainder_exactly_and_schedule_stays() {
 		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
 			set_time(300_000);
@@ -200,27 +215,33 @@ mod claim {
 				Error::<Test>::NothingToClaim
 			);
 			assert_eq!(stored(0).claimed, 0);
-			set_time(START + 1_000);
+			// A minimum-sized accrual is still below the non-final fee alignment.
+			set_time(START + 400);
+			assert_noop!(
+				Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
+				Error::<Test>::NothingToClaim
+			);
+			set_time(START + 10_000);
 			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
-			assert_eq!(free(&CHARLIE), MinimumPayout::get());
-			assert_eq!(stored(0).claimed, MinimumPayout::get());
+			assert_eq!(free(&CHARLIE), non_final());
+			assert_eq!(stored(0).claimed, non_final());
 		});
 	}
 
 	#[test]
 	fn claims_are_rate_limited_per_schedule() {
 		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
-			set_time(300_000);
-			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
-			assert_eq!(stored(0).last_claim_at, Some(300_000));
 			set_time(350_000);
+			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
+			assert_eq!(stored(0).last_claim_at, Some(350_000));
+			set_time(400_000);
 			assert_noop!(
 				Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
 				Error::<Test>::ClaimTooSoon
 			);
-			set_time(400_000);
+			set_time(450_000);
 			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
-			assert_eq!(stored(0).last_claim_at, Some(400_000));
+			assert_eq!(stored(0).last_claim_at, Some(450_000));
 		});
 	}
 
@@ -228,7 +249,7 @@ mod claim {
 	fn daily_cadence_bounds_a_year_schedule_to_366_payouts() {
 		const DAY: u64 = 24 * 60 * 60 * 1000;
 		const YEAR: u64 = 365 * DAY;
-		const YEAR_TOTAL: u128 = YEAR as u128 * 10_000;
+		const YEAR_TOTAL: u128 = YEAR as u128 * 2_500_000;
 		new_test_ext(vec![(BOB, 0, 0, YEAR, YEAR_TOTAL)]).execute_with(|| {
 			MinClaimInterval::set(DAY);
 			for day in 0..365 {
@@ -254,8 +275,8 @@ mod claim {
 			MinClaimInterval::set(40_000);
 			set_time(450_000);
 			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
-			assert_eq!(stored(0).claimed, 3_000_000);
-			assert_eq!(TOTAL - stored(0).claimed, MinimumPayout::get());
+			assert_eq!(stored(0).claimed, 7_500_000);
+			assert!(TOTAL - stored(0).claimed >= MinimumPayout::get());
 			set_time(END);
 			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
 			assert_eq!(stored(0).claimed, TOTAL);
@@ -267,6 +288,13 @@ mod claim {
 		const SMALL_TOTAL: u128 = 1_500_000;
 		new_test_ext(vec![(BOB, START, START, END, SMALL_TOTAL)]).execute_with(|| {
 			MinimumPayout::set(1_000_000);
+			// Nothing claimable has accrued yet: NothingToClaim, not WouldLeaveDust,
+			// even though the remainder can never support a non-final payout.
+			set_time(START + 100_000);
+			assert_noop!(
+				Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
+				Error::<Test>::NothingToClaim
+			);
 			set_time(START + 266_667);
 			assert_noop!(
 				Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
@@ -298,15 +326,15 @@ mod claim {
 
 	#[test]
 	fn multiple_schedules_for_same_beneficiary_claim_independently() {
-		new_test_ext(vec![default_schedule(BOB), (BOB, START, START, 900_000, 8_000_000)])
+		new_test_ext(vec![default_schedule(BOB), (BOB, START, START, 900_000, 10_000_000)])
 			.execute_with(|| {
 				set_time(500_000);
 				assert_ok!(Vesting::claim(RuntimeOrigin::signed(BOB), 0));
 				assert_eq!(free(&BOB), TOTAL);
 				assert_eq!(stored(1).claimed, 0);
 				assert_ok!(Vesting::claim(RuntimeOrigin::signed(BOB), 1));
-				assert_eq!(free(&BOB), TOTAL + 4_000_000);
-				assert_eq!(stored(1).claimed, 4_000_000);
+				assert_eq!(free(&BOB), TOTAL + 5_000_000);
+				assert_eq!(stored(1).claimed, 5_000_000);
 			});
 	}
 }
@@ -518,17 +546,69 @@ mod end_schedule {
 	}
 
 	#[test]
-	fn rejects_a_non_zero_payout_below_the_minimum() {
+	fn below_minimum_vested_returns_everything_to_treasury() {
 		new_test_ext(vec![(BOB, START, START, END, TOTAL)]).execute_with(|| {
-			set_time(START + 500);
-			assert_noop!(
-				Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), 0),
-				Error::<Test>::PayoutBelowMinimum
-			);
-			assert_eq!(stored(0).claimed, 0);
-			set_time(START + 1_000);
+			let treasury_before = free(&TREASURY);
+			set_time(START + 300);
+			// 7_500 vested rounds to 8_000, below MinimumPayout: no beneficiary
+			// leaf, the whole remainder goes to the treasury.
 			assert_ok!(Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), 0));
-			assert_eq!(free(&BOB), MinimumPayout::get());
+			assert_eq!(free(&BOB), 0);
+			assert_eq!(free(&TREASURY), treasury_before + TOTAL);
+			assert!(Schedules::<Test>::get(0).is_none());
+			assert!(MockProofRecorder::recorded().is_empty());
+			System::assert_last_event(
+				Event::ScheduleEnded {
+					schedule_id: 0,
+					beneficiary: BOB,
+					vested_paid: 0,
+					unvested_returned: TOTAL,
+				}
+				.into(),
+			);
+		});
+	}
+
+	#[test]
+	fn just_below_half_a_quantum_rounds_down() {
+		new_test_ext(vec![(BOB, START, START, END, TOTAL)]).execute_with(|| {
+			let treasury_before = free(&TREASURY);
+			set_time(START + 419);
+			// 10_475 vested is 25 below the half-quantum; nearest is 10_000.
+			assert_eq!(Vesting::vested_amount(&stored(0), START + 419), 10_475);
+			assert_ok!(Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), 0));
+			assert_eq!(free(&BOB), 10_000);
+			assert_eq!(free(&TREASURY), treasury_before + TOTAL - 10_000);
+		});
+	}
+
+	#[test]
+	fn rounding_up_can_consume_the_unvested_remainder() {
+		new_test_ext(vec![(BOB, START, START, END, TOTAL)]).execute_with(|| {
+			let treasury_before = free(&TREASURY);
+			set_time(START + 399_980);
+			// 9_999_500 vested is exactly half a quantum short of TOTAL, so nearest
+			// is the whole grant and the treasury gets nothing.
+			assert_eq!(Vesting::vested_amount(&stored(0), START + 399_980), 9_999_500);
+			assert_ok!(Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), 0));
+			assert_eq!(free(&BOB), TOTAL);
+			assert_eq!(free(&TREASURY), treasury_before);
+			assert_eq!(free(&pot()), ExistentialDeposit::get());
+		});
+	}
+
+	#[test]
+	fn ending_a_fully_claimed_schedule_pays_nobody() {
+		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
+			set_time(END);
+			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
+			assert_eq!(free(&BOB), TOTAL);
+			let treasury_before = free(&TREASURY);
+			assert_ok!(Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), 0));
+			assert_eq!(free(&BOB), TOTAL);
+			assert_eq!(free(&TREASURY), treasury_before);
+			assert!(Schedules::<Test>::get(0).is_none());
+			assert_eq!(MockProofRecorder::recorded(), vec![(pot(), BOB, TOTAL)]);
 		});
 	}
 
@@ -543,6 +623,37 @@ mod end_schedule {
 			assert_ok!(Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), 0));
 			assert_eq!(free(&BOB), TOTAL / 2);
 			assert_eq!(free(&TREASURY), treasury_before + TOTAL / 2);
+			assert_eq!(free(&pot()), ExistentialDeposit::get());
+		});
+	}
+
+	/// A permissionless claim one quantum past the non-final alignment must not
+	/// block `end_schedule`. `GRANT` is one minimum past an alignment multiple so
+	/// the non-final cap is exact; `ATTACK_VESTED` is one quantum past that cap.
+	#[test]
+	fn permissionless_claim_does_not_block_ending_with_a_dust_vested_remainder() {
+		const QUANTUM: u128 = 1_000;
+		const MINIMUM: u128 = 10_000;
+		const ALIGNMENT: u128 = QUANTUM * crate::NON_FINAL_PAYOUT_QUANTA;
+		const GRANT: u128 = ALIGNMENT + MINIMUM;
+		const ATTACK_VESTED: u128 = ALIGNMENT + QUANTUM;
+		const END_AT: u64 = GRANT as u64;
+		const ATTACK_AT: u64 = ATTACK_VESTED as u64;
+
+		new_test_ext(vec![(BOB, 0, 0, END_AT, GRANT)]).execute_with(|| {
+			assert_eq!(PayoutQuantum::get(), QUANTUM);
+			assert_eq!(MinimumPayout::get(), MINIMUM);
+			assert_eq!(non_final(), ALIGNMENT);
+
+			set_time(ATTACK_AT);
+			assert_eq!(Vesting::vested_amount(&stored(0), ATTACK_AT), ATTACK_VESTED);
+
+			let treasury_before = free(&TREASURY);
+			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
+			assert_ok!(Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), 0));
+			assert!(Schedules::<Test>::get(0).is_none());
+			assert_eq!(free(&BOB), ALIGNMENT);
+			assert_eq!(free(&TREASURY), treasury_before + GRANT - ALIGNMENT);
 			assert_eq!(free(&pot()), ExistentialDeposit::get());
 		});
 	}
@@ -619,7 +730,6 @@ mod retarget_schedule {
 					schedule_id: 0,
 					old_beneficiary: BOB,
 					new_beneficiary: CHARLIE,
-					vested_paid: 0,
 				}
 				.into(),
 			);
@@ -630,28 +740,60 @@ mod retarget_schedule {
 		});
 	}
 
+	/// A retarget replaces the same grantee's lost or stolen wallet, so it must pay
+	/// the old address nothing — even when a permissionless claim could currently
+	/// force a payout to it. The accrual follows the schedule to the new wallet.
 	#[test]
-	fn settles_a_front_runnable_claim_before_retargeting() {
+	fn pays_the_outgoing_wallet_nothing_even_when_a_claim_could() {
 		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
+			// Half the grant is vested and freely claimable (`last_claim_at` is None).
 			set_time(300_000);
 			assert_ok!(Vesting::retarget_schedule(RuntimeOrigin::signed(TREASURY), 0, CHARLIE));
-			assert_eq!(free(&BOB), TOTAL / 2);
+			assert_eq!(free(&BOB), 0, "the lost/stolen wallet must not be paid");
 			assert_eq!(stored(0).beneficiary, CHARLIE);
-			assert_eq!(stored(0).claimed, TOTAL / 2);
-			assert_eq!(stored(0).last_claim_at, Some(300_000));
+			assert_eq!(stored(0).claimed, 0);
+			assert_eq!(stored(0).last_claim_at, None);
 			System::assert_last_event(
 				Event::ScheduleRetargeted {
 					schedule_id: 0,
 					old_beneficiary: BOB,
 					new_beneficiary: CHARLIE,
-					vested_paid: TOTAL / 2,
 				}
 				.into(),
 			);
+			// The entire grant reaches the grantee's new wallet.
 			set_time(END);
 			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
-			assert_eq!(free(&BOB), TOTAL / 2);
-			assert_eq!(free(&CHARLIE), TOTAL / 2);
+			assert_eq!(free(&BOB), 0);
+			assert_eq!(free(&CHARLIE), TOTAL);
+		});
+	}
+
+	/// The report-89524 shape: retargeting inside the claim rate-limit window behaves
+	/// exactly like retargeting outside it — nothing is paid to the old wallet and
+	/// nothing is silently lost; the rotation merely redirects future payouts.
+	#[test]
+	fn behaves_identically_inside_the_claim_rate_limit_window() {
+		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
+			// Pays the fee-aligned 2_500_000 of the 3_750_000 vested; stamps
+			// `last_claim_at` (any account can do this, e.g. before the wallet was
+			// reported stolen).
+			set_time(250_000);
+			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
+			assert_eq!(free(&BOB), 2_500_000);
+
+			// 50_000 into the 100_000 rate-limit window: rotate the wallet.
+			set_time(300_000);
+			assert_ok!(Vesting::retarget_schedule(RuntimeOrigin::signed(TREASURY), 0, CHARLIE));
+			assert_eq!(free(&BOB), 2_500_000, "no payout on retarget");
+			assert_eq!(stored(0).claimed, 2_500_000);
+			assert_eq!(stored(0).last_claim_at, Some(250_000), "no claim happened");
+
+			// Everything unclaimed — including the amount accrued before the swap —
+			// reaches the new wallet.
+			set_time(END);
+			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
+			assert_eq!(free(&CHARLIE), TOTAL - 2_500_000);
 		});
 	}
 
@@ -753,16 +895,21 @@ mod quantization {
 	#[test]
 	fn payouts_are_always_quantum_multiples_and_claimed_stays_aligned() {
 		// A total aligned to the coarser 3_000 quantum this test switches to.
-		const ALIGNED_TOTAL: u128 = 3_000_000;
+		const ALIGNED_TOTAL: u128 = 15_000_000;
 		const ALIGNED_END: u64 = START + 300_000;
 		new_test_ext(vec![(CHARLIE, START, START, ALIGNED_END, ALIGNED_TOTAL)]).execute_with(
 			|| {
 				PayoutQuantum::set(3_000);
 				MinimumPayout::set(12_000);
 				set_time(START + 1_250);
+				assert_noop!(
+					Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
+					Error::<Test>::NothingToClaim
+				);
+				set_time(START + 150_000);
 				assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
-				assert_eq!(free(&CHARLIE), 12_000);
-				assert_eq!(stored(0).claimed, 12_000);
+				assert_eq!(free(&CHARLIE), non_final());
+				assert_eq!(stored(0).claimed, non_final());
 				assert_noop!(
 					Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
 					Error::<Test>::NothingToClaim
@@ -782,6 +929,34 @@ mod quantization {
 	}
 
 	#[test]
+	fn non_final_claims_hold_below_alignment_until_enough_accrues() {
+		const SMALL_TOTAL: u128 = 6_000_000;
+		new_test_ext(vec![(CHARLIE, START, START, END, SMALL_TOTAL)]).execute_with(|| {
+			// A minimum-sized accrual is already leaf-aligned, but must not be paid —
+			// that is the permissionless fragmentation case.
+			set_time(START + 400);
+			assert_noop!(
+				Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
+				Error::<Test>::NothingToClaim
+			);
+			assert_eq!(stored(0).claimed, 0);
+			assert!(MockProofRecorder::recorded().is_empty());
+			set_time(START + 166_667);
+			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
+			assert_eq!(free(&CHARLIE), non_final());
+			assert_eq!(stored(0).claimed, non_final());
+			set_time(END);
+			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
+			assert_eq!(free(&CHARLIE), SMALL_TOTAL);
+			assert_eq!(stored(0).claimed, SMALL_TOTAL);
+			assert_eq!(
+				MockProofRecorder::recorded(),
+				vec![(pot(), CHARLIE, non_final()), (pot(), CHARLIE, SMALL_TOTAL - non_final())]
+			);
+		});
+	}
+
+	#[test]
 	fn end_schedule_sends_sub_quantum_dust_to_treasury_not_the_beneficiary() {
 		new_test_ext(vec![(BOB, START, START, END, TOTAL)]).execute_with(|| {
 			PayoutQuantum::set(3_000);
@@ -789,15 +964,15 @@ mod quantization {
 			let treasury_before = free(&TREASURY);
 			set_time(START + 1_250);
 			assert_ok!(Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), 0));
-			assert_eq!(free(&BOB), 12_000);
-			assert_eq!(free(&TREASURY), treasury_before + TOTAL - 12_000);
+			assert_eq!(free(&BOB), 30_000);
+			assert_eq!(free(&TREASURY), treasury_before + TOTAL - 30_000);
 			assert_eq!(free(&pot()), ExistentialDeposit::get());
 			System::assert_last_event(
 				Event::ScheduleEnded {
 					schedule_id: 0,
 					beneficiary: BOB,
-					vested_paid: 12_000,
-					unvested_returned: TOTAL - 12_000,
+					vested_paid: 30_000,
+					unvested_returned: TOTAL - 30_000,
 				}
 				.into(),
 			);
@@ -860,11 +1035,11 @@ mod proof_recording {
 	}
 
 	#[test]
-	fn retarget_with_a_settlement_records_the_old_beneficiary_payout() {
+	fn retarget_records_nothing_even_with_a_claimable_accrual() {
 		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
 			set_time(300_000);
 			assert_ok!(Vesting::retarget_schedule(RuntimeOrigin::root(), 0, CHARLIE));
-			assert_eq!(MockProofRecorder::recorded(), vec![(pot(), BOB, TOTAL / 2)]);
+			assert!(MockProofRecorder::recorded().is_empty(), "retarget never pays out");
 		});
 	}
 
@@ -893,16 +1068,6 @@ mod proof_recording {
 			assert!(
 				Schedules::<Test>::contains_key(0),
 				"the schedule must not be removed without a proof for its final payout"
-			);
-
-			assert_noop!(
-				Vesting::retarget_schedule(RuntimeOrigin::root(), 0, CHARLIE),
-				Error::<Test>::PayoutProofNotRecorded
-			);
-			assert_eq!(
-				stored(0).beneficiary,
-				BOB,
-				"retarget must not settle the old beneficiary without a proof"
 			);
 
 			// Once the recorder records again, the untouched schedule pays out normally.
@@ -951,6 +1116,114 @@ mod unfunded_pot_bootstrap {
 			));
 			assert_ok!(Vesting::do_try_state());
 		});
+	}
+}
+
+mod random_walk {
+	use super::*;
+
+	/// Deterministic xorshift64 so failures are reproducible from the seed.
+	fn next(state: &mut u64) -> u64 {
+		let mut x = *state;
+		x ^= x << 13;
+		x ^= x >> 7;
+		x ^= x << 17;
+		*state = x;
+		x
+	}
+
+	/// Several schedules of different shapes under a pseudo-random walk of time and
+	/// permissionless claims: claims may fail only for the documented reasons, the
+	/// storage invariants hold at every step, every recorded payment is
+	/// quantum-aligned and at least the minimum, and once drained every planck of
+	/// every grant has reached exactly its beneficiary.
+	#[test]
+	fn random_claim_walks_pay_exact_quantized_totals() {
+		let schedules: Vec<ScheduleTuple> = vec![
+			// Cliffed mid-size grant.
+			(BOB, 100_000, 200_000, 500_000, 10_000_000),
+			// Second grant on the same account, no cliff, longest end.
+			(BOB, 100_000, 100_000, 900_000, 8_000_000),
+			// Cliff at half of vesting.
+			(CHARLIE, 0, 300_000, 600_000, 5_000_000),
+			// Small grant below the non-final alignment: payable only as the exact
+			// final claim once fully vested.
+			(ALICE, 50_000, 50_000, 250_000, 40_000),
+		];
+		let count = schedules.len() as u64;
+		let last_end = 900_000u64;
+		for seed in [1u64, 0xDEAD_BEEF, 424_242, 987_654_321] {
+			new_test_ext(schedules.clone()).execute_with(|| {
+				let mut rng = seed;
+				let mut now = 0u64;
+				for _ in 0..300 {
+					// Mostly small steps inside the rate-limit window, some
+					// window-sized ones, an occasional jump past several ends.
+					let r = next(&mut rng);
+					now += match r % 10 {
+						0 => 0,
+						1..=6 => r % 40_000,
+						7 | 8 => r % 200_000,
+						_ => r % 700_000,
+					};
+					set_time(now);
+					let id = next(&mut rng) % count;
+					if let Err(e) = Vesting::claim(RuntimeOrigin::signed(PINGER), id) {
+						let benign = [
+							Error::<Test>::NothingToClaim.into(),
+							Error::<Test>::ClaimTooSoon.into(),
+							Error::<Test>::ClaimWouldLeaveDust.into(),
+						];
+						assert!(
+							benign.contains(&e),
+							"seed {seed}: unexpected claim error {e:?} at t={now}"
+						);
+					}
+					assert_ok!(Vesting::do_try_state());
+				}
+
+				// Drain: past every end the final claim pays the exact remainder,
+				// so each round only has to wait out the rate limit.
+				now = now.max(last_end);
+				let mut rounds = 0;
+				while (0..count).any(|id| stored(id).claimed < stored(id).total) {
+					rounds += 1;
+					assert!(rounds <= 3, "seed {seed}: drain did not converge");
+					now += MinClaimInterval::get();
+					set_time(now);
+					for id in 0..count {
+						if stored(id).claimed < stored(id).total {
+							assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), id));
+						}
+					}
+					assert_ok!(Vesting::do_try_state());
+				}
+
+				// Every grant landed with its beneficiary in full; the pot keeps
+				// exactly its ED buffer.
+				assert_eq!(free(&BOB), 18_000_000);
+				assert_eq!(free(&CHARLIE), 5_000_000);
+				assert_eq!(free(&ALICE), 40_000);
+				assert_eq!(free(&pot()), ExistentialDeposit::get());
+
+				// Every individual payment was quantized and claim-worthy, and the
+				// payment stream reconstructs each grant exactly.
+				let mut per_beneficiary = std::collections::BTreeMap::new();
+				for (from, to, amount) in MockProofRecorder::recorded() {
+					assert_eq!(from, pot());
+					assert_eq!(
+						amount % PayoutQuantum::get(),
+						0,
+						"seed {seed}: unaligned payout {amount}"
+					);
+					assert!(amount >= MinimumPayout::get(), "seed {seed}: dust payout {amount}");
+					*per_beneficiary.entry(to).or_insert(0u128) += amount;
+				}
+				assert_eq!(per_beneficiary.get(&BOB), Some(&18_000_000));
+				assert_eq!(per_beneficiary.get(&CHARLIE), Some(&5_000_000));
+				assert_eq!(per_beneficiary.get(&ALICE), Some(&40_000));
+			});
+		}
 	}
 }
 

@@ -358,8 +358,8 @@ fn test_retarget_floors_small_block_time() {
 	new_test_ext().execute_with(|| {
 		let difficulty = U512::from(1_000_000u64);
 
-		// target 600ms -> divisor 400ms, below the 500ms floor: a sub-floor delta
-		// is clamped to the floor and yields no increase.
+		// target 600ms -> divisor 500ms, equal to the 500ms floor: a sub-floor
+		// delta is clamped to the floor and yields no increase.
 		let target = 600u64;
 		let floored = QPow::calculate_difficulty(difficulty, 1, target);
 		let at_floor = QPow::calculate_difficulty(difficulty, 500, target);
@@ -483,6 +483,35 @@ fn test_adjust_difficulty_with_zero_storage_uses_initial_difficulty() {
 			"Difficulty {} not within ±1/2048 of initial {}",
 			new_difficulty.low_u64(),
 			initial_difficulty.low_u64()
+		);
+	});
+}
+
+/// A max-legal future timestamp (15s slack after a 12s wait → 27s delta) plus
+/// the honest catch-up blocks `create_inherent` is forced to produce must not
+/// leave a permanent deficit versus the same wall-clock of honest 12s blocks.
+#[test]
+fn max_timestamp_drift_does_not_bias_difficulty_down() {
+	new_test_ext().execute_with(|| {
+		const TARGET: u64 = 12_000;
+		let start = U512::from(4_000_000u64);
+		let run = |mut d: U512, deltas: &[u64]| {
+			for &t in deltas {
+				d = QPow::calculate_difficulty(d, t, TARGET);
+			}
+			d
+		};
+
+		let honest = run(start, &[12_000, 12_000, 12_000]);
+		// 12s wait + 15s future, then last+100ms, then wall clock catches up.
+		let attacked = run(start, &[27_000, 100, 8_900]);
+
+		assert_eq!(honest, start, "honest 12s blocks leave difficulty unchanged");
+		assert!(
+			attacked >= honest,
+			"max-drift cycle must not book a deficit: honest {}, attacked {}",
+			honest,
+			attacked
 		);
 	});
 }

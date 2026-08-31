@@ -165,29 +165,47 @@ impl Stream for TransportContext {
 	type Item = (SupportedTransport, TransportEvent);
 
 	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-		if self.transports.is_empty() {
-			// Terminate if we don't have any transports installed.
-			return Poll::Ready(None);
-		}
+		loop {
+			if self.transports.is_empty() {
+				return Poll::Ready(None);
+			}
 
-		let len = self.transports.len();
-		for _ in 0..len {
-			let current = self.index;
-			self.index = (current + 1) % len;
-			let (key, stream) = self.transports.get_index_mut(current).expect("transport to exist");
-			match stream.poll_next_unpin(cx) {
-				Poll::Pending => {},
-				Poll::Ready(None) => {
-					return Poll::Ready(None);
-				},
-				Poll::Ready(Some(event)) => {
-					let event = Some((*key, event));
-					return Poll::Ready(event);
-				},
+			let len = self.transports.len();
+			let mut removed_transport = false;
+			for _ in 0..len {
+				let current = self.index;
+				self.index = (current + 1) % len;
+				let (key, stream) =
+					self.transports.get_index_mut(current).expect("transport to exist");
+				let key = *key;
+				match stream.poll_next_unpin(cx) {
+					Poll::Pending => {},
+					Poll::Ready(None) => {
+						tracing::error!(
+							target: LOG_TARGET,
+							transport = ?key,
+							"transport stream ended unexpectedly; remaining transports will continue. This transport is dead until process restart"
+						);
+						self.transports.shift_remove(&key);
+						if self.transports.is_empty() {
+							tracing::error!(
+								target: LOG_TARGET,
+								"all transports have terminated; this node is unreachable until restart"
+							);
+							return Poll::Ready(None);
+						}
+						self.index = 0;
+						removed_transport = true;
+						break;
+					},
+					Poll::Ready(Some(event)) => return Poll::Ready(Some((key, event))),
+				}
+			}
+
+			if !removed_transport {
+				return Poll::Pending;
 			}
 		}
-
-		Poll::Pending
 	}
 }
 
@@ -728,8 +746,12 @@ impl TransportManager {
 		Ok(())
 	}
 
-	fn on_pending_incoming_connection(&mut self) -> crate::Result<()> {
-		self.connection_limits.on_incoming()?;
+	fn on_pending_incoming_connection(
+		&mut self,
+		connection_id: ConnectionId,
+		address: std::net::IpAddr,
+	) -> crate::Result<()> {
+		self.connection_limits.on_incoming(connection_id, address)?;
 		Ok(())
 	}
 
@@ -1111,7 +1133,7 @@ impl TransportManager {
 					let Some((transport, event)) = event else {
 						tracing::error!(
 							target: LOG_TARGET,
-							"Installed transports terminated, ignore if the node is stopping"
+							"all installed transports have terminated; this node is unreachable until restart"
 						);
 
 						return None;
@@ -1225,6 +1247,11 @@ impl TransportManager {
 										"failed to handle established connection",
 									);
 
+									if endpoint.is_listener() {
+										self.connection_limits
+											.on_pending_incoming_failed(endpoint.connection_id());
+									}
+
 									let _ = self
 										.transports
 										.get_mut(&transport)
@@ -1277,6 +1304,11 @@ impl TransportManager {
 										?endpoint,
 										"reject connection",
 									);
+
+									if endpoint.is_listener() {
+										self.connection_limits
+											.on_pending_incoming_failed(endpoint.connection_id());
+									}
 
 									let _ = self
 										.transports
@@ -1371,23 +1403,28 @@ impl TransportManager {
 								}
 							}
 						},
-						TransportEvent::PendingInboundConnection { connection_id } => {
-							if self.on_pending_incoming_connection().is_ok() {
+						TransportEvent::PendingInboundConnection { connection_id, address } => {
+							if self.on_pending_incoming_connection(connection_id, address).is_ok() {
 								tracing::trace!(
 									target: LOG_TARGET,
 									?connection_id,
 									"accept pending incoming connection",
 								);
 
-								let _ = self
+								if self
 									.transports
 									.get_mut(&transport)
 									.expect("transport to exist")
-									.accept_pending(connection_id);
+									.accept_pending(connection_id)
+									.is_err()
+								{
+									self.connection_limits.on_pending_incoming_failed(connection_id);
+								}
 							} else {
 								tracing::debug!(
 									target: LOG_TARGET,
 									?connection_id,
+									?address,
 									"reject pending incoming connection",
 								);
 
@@ -1397,6 +1434,14 @@ impl TransportManager {
 									.expect("transport to exist")
 									.reject_pending(connection_id);
 							}
+						},
+						TransportEvent::InboundConnectionFailed { connection_id } => {
+							tracing::trace!(
+								target: LOG_TARGET,
+								?connection_id,
+								"inbound connection failed before establishment",
+							);
+							self.connection_limits.on_pending_incoming_failed(connection_id);
 						},
 						event => panic!("event not supported: {event:?}"),
 					}
@@ -2977,6 +3022,83 @@ mod tests {
 			)
 			.unwrap();
 		assert_eq!(result, ConnectionEstablishedResult::Accept);
+	}
+
+	#[tokio::test]
+	async fn manager_limits_pending_incoming_connections() {
+		let mut manager = TransportManagerBuilder::new()
+			.with_connection_limits_config(
+				ConnectionLimitsConfig::default()
+					.max_incoming_connections(Some(3))
+					.max_pending_incoming_connections(Some(2)),
+			)
+			.build();
+
+		let first = ConnectionId::from(0usize);
+		let second = ConnectionId::from(1usize);
+		let third = ConnectionId::from(2usize);
+
+		let ip = std::net::IpAddr::from(std::net::Ipv4Addr::new(127, 0, 0, 1));
+		assert!(manager.on_pending_incoming_connection(first, ip).is_ok());
+		assert!(manager.on_pending_incoming_connection(second, ip).is_ok());
+		assert!(manager.on_pending_incoming_connection(third, ip).is_err());
+
+		manager.connection_limits.on_pending_incoming_failed(first);
+		assert!(manager.on_pending_incoming_connection(third, ip).is_ok());
+	}
+
+	#[tokio::test]
+	async fn manager_limits_incoming_connections_per_ip() {
+		let mut manager = TransportManagerBuilder::new()
+			.with_connection_limits_config(
+				ConnectionLimitsConfig::default().max_incoming_connections_per_ip(Some(2)),
+			)
+			.build();
+
+		let first = ConnectionId::from(0usize);
+		let second = ConnectionId::from(1usize);
+		let third = ConnectionId::from(2usize);
+		let other = ConnectionId::from(3usize);
+		let ip = std::net::IpAddr::from(std::net::Ipv4Addr::new(10, 0, 0, 1));
+		let other_ip = std::net::IpAddr::from(std::net::Ipv4Addr::new(10, 0, 0, 2));
+
+		assert!(manager.on_pending_incoming_connection(first, ip).is_ok());
+		assert!(manager.on_pending_incoming_connection(second, ip).is_ok());
+		assert!(manager.on_pending_incoming_connection(third, ip).is_err());
+		assert!(manager.on_pending_incoming_connection(other, other_ip).is_ok());
+
+		manager.connection_limits.on_pending_incoming_failed(first);
+		assert!(manager.on_pending_incoming_connection(third, ip).is_ok());
+	}
+
+	#[cfg(feature = "websocket")]
+	#[tokio::test]
+	async fn one_transport_ending_does_not_stop_the_others() {
+		let mut manager = TransportManagerBuilder::new().build();
+		let peer = PeerId::random();
+		let (dial_address, connection_id) = setup_dial_addr(peer, 0);
+
+		let mut dead = DummyTransport::new();
+		dead.terminate();
+		manager.register_transport(SupportedTransport::Tcp, Box::new(dead));
+
+		let mut live = DummyTransport::new();
+		live.inject_event(TransportEvent::ConnectionEstablished {
+			peer,
+			endpoint: Endpoint::listener(dial_address.clone(), connection_id),
+		});
+		manager.register_transport(SupportedTransport::WebSocket, Box::new(live));
+
+		match manager.next().await.unwrap() {
+			TransportEvent::ConnectionEstablished {
+				peer: event_peer,
+				endpoint: event_endpoint,
+			} => {
+				assert_eq!(peer, event_peer);
+				assert_eq!(event_endpoint, Endpoint::listener(dial_address, connection_id));
+			},
+			event => panic!("invalid event: {event:?}"),
+		}
 	}
 
 	#[tokio::test]

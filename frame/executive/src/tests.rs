@@ -387,25 +387,7 @@ impl pallet_balances::WeightInfo for BalancesWeights {
 	fn transfer_keep_alive() -> Weight {
 		Weight::zero()
 	}
-	fn force_set_balance_creating() -> Weight {
-		Weight::zero()
-	}
-	fn force_set_balance_killing() -> Weight {
-		Weight::zero()
-	}
-	fn force_transfer() -> Weight {
-		Weight::zero()
-	}
 	fn transfer_all() -> Weight {
-		Weight::zero()
-	}
-	fn force_unreserve() -> Weight {
-		Weight::zero()
-	}
-	fn upgrade_accounts(_u: u32) -> Weight {
-		Weight::zero()
-	}
-	fn force_adjust_total_issuance() -> Weight {
 		Weight::zero()
 	}
 	fn burn_allow_death() -> Weight {

@@ -136,8 +136,8 @@ pub trait HighSecurityInspector<AccountId, RuntimeCall> {
 	/// Whether `call` may be dispatched with `who` as the effective signed origin.
 	///
 	/// Non-High-Security accounts may dispatch anything; High-Security accounts are
-	/// restricted to whitelisted calls. Origin-rewriting wrappers (multisig execution,
-	/// `as_recovered`, `as_derivative`) must consult this before dispatching as `who`.
+	/// restricted to whitelisted calls. Origin-rewriting wrappers (multisig
+	/// execution) must consult this before dispatching as `who`.
 	///
 	/// NOTE: this performs one `is_high_security` classification lookup — a storage
 	/// read in the runtime implementation — so every dispatchable that calls it must

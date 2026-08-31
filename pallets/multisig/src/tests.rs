@@ -256,50 +256,29 @@ fn create_multisig_fails_with_threshold_too_high() {
 }
 
 #[test]
-fn create_multisig_deduplicates_signers() {
+fn create_multisig_rejects_duplicate_signers() {
 	new_test_ext().execute_with(|| {
-		System::set_block_number(1);
 		let creator = alice();
-		let signers = vec![bob(), bob(), charlie()]; // Bob twice
+		let signers = vec![bob(), bob(), charlie()];
 		let threshold = 2;
 
-		// Should succeed - duplicates are silently removed
-		assert_ok!(Multisig::create_multisig(
-			RuntimeOrigin::signed(creator.clone()),
-			signers,
-			threshold,
-			0
-		));
-
-		// The multisig should have only 2 unique signers (bob, charlie)
-		let normalized_signers = vec![bob(), charlie()];
-		let mut sorted = normalized_signers.clone();
-		sorted.sort();
-		let multisig_address = Multisig::derive_multisig_address(&sorted, threshold, 0);
-
-		let multisig_data = Multisigs::<Test>::get(&multisig_address).unwrap();
-		assert_eq!(multisig_data.signers.len(), 2);
+		assert_noop!(
+			Multisig::create_multisig(RuntimeOrigin::signed(creator), signers, threshold, 0),
+			Error::<Test>::DuplicateSigners
+		);
 	});
 }
 
-/// Regression test: raw signer input is bounded BEFORE deduplication to prevent DoS.
-/// An attacker could submit a huge duplicate-heavy vector that would dedup to ≤ MaxSigners,
-/// but the sort/dedup cost is O(n log n) on the raw length. We reject oversized raw inputs
-/// even if they would normalize to a valid count.
 #[test]
-fn create_multisig_rejects_oversized_raw_input_even_if_would_dedup_to_valid() {
+fn create_multisig_rejects_oversized_raw_input() {
 	new_test_ext().execute_with(|| {
-		System::set_block_number(1);
 		let creator = alice();
 
-		// MaxSigners is 10 in mock. Create 11 signers that would dedup to just 2.
-		// Old behavior: would accept (dedup first, then check).
-		// New behavior: rejects immediately (check raw length first).
+		// MaxSigners is 10 in mock. Reject before sort so a huge vector cannot inflate work.
 		let signers =
-			vec![bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), charlie()]; // 11 elements, but only 2 unique
+			vec![bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), bob(), charlie()];
 		assert_eq!(signers.len(), 11);
 
-		// Should fail with TooManySigners even though dedup would yield only 2
 		assert_noop!(
 			Multisig::create_multisig(RuntimeOrigin::signed(creator), signers, 2, 0),
 			Error::<Test>::TooManySigners
@@ -364,9 +343,7 @@ fn propose_works() {
 
 		let initial_balance = Balances::free_balance(proposer.clone());
 		let proposal_deposit = 100; // ProposalDepositParam
-							  // Fee calculation: Base(999) + floor(1% * 999 * 2 signers) = 999 + floor(19.98) = 999 + 19
-							  // = 1018
-		let proposal_fee = 1018;
+		let proposal_fee = 1018; // Base(999) + floor(1% * 999 * 2 signers) = 999 + floor(19.98)
 
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(proposer.clone()),
@@ -1047,6 +1024,69 @@ fn remove_expired_unblocks_undecodable_approved_proposal() {
 
 		// No deposit was reserved (proposal failed before that)
 		assert_eq!(Balances::reserved_balance(bob()), 0);
+	});
+}
+
+/// A canonical but deeply nested call must be rejected at `propose` by the inner
+/// decode depth limit, not accepted and later trapped during block construction.
+///
+/// Each `Utility::batch_all` wrapper is three bytes in this mock runtime
+/// (RuntimeCall::Utility = pallet index 6, batch_all = call index 2, compact
+/// vec-length 1 = 0x04). The terminal `System::remark { remark: vec![] }` is
+/// three bytes (0, 0, 0). The payload is well under `MaxCallSize` (1024) yet
+/// nests far deeper than `MAX_MULTISIG_CALL_DEPTH`, so the outer extrinsic depth
+/// limiter (which only sees opaque bytes) never rejects it.
+#[test]
+fn propose_rejects_deeply_nested_call_via_depth_limit() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// 340 wrappers => 340 * 3 + 3 = 1023 bytes <= MaxCallSize (1024), depth >> 256.
+		let mut poison = Vec::with_capacity(1023);
+		for _ in 0..340 {
+			poison.extend_from_slice(&[6u8, 2, 4]);
+		}
+		poison.extend_from_slice(&[0u8, 0, 0]);
+		assert!(poison.len() <= <Test as crate::Config>::MaxCallSize::get() as usize);
+		let poison_call: crate::BoundedCallOf<Test> = poison.try_into().unwrap();
+
+		assert_err_ignore_postinfo(
+			Multisig::propose(
+				RuntimeOrigin::signed(bob()),
+				multisig_address.clone(),
+				poison_call,
+				100,
+			),
+			Error::<Test>::InvalidCall.into(),
+		);
+
+		// Nothing was stored and no deposit was taken.
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
+		assert_eq!(Balances::reserved_balance(bob()), 0);
+
+		// A shallowly nested batch_all (depth well within the limit) still decodes
+		// and is accepted, so the depth bound does not reject legitimate nesting.
+		let mut shallow = Vec::new();
+		for _ in 0..4 {
+			shallow.extend_from_slice(&[6u8, 2, 4]);
+		}
+		shallow.extend_from_slice(&[0u8, 0, 0]);
+		let shallow_call: crate::BoundedCallOf<Test> = shallow.try_into().unwrap();
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address,
+			shallow_call,
+			100,
+		));
 	});
 }
 

@@ -4,6 +4,7 @@ extern crate alloc;
 
 pub mod pair;
 mod scheme_macro;
+pub mod signing_context;
 pub mod traits;
 pub mod types;
 
@@ -15,7 +16,8 @@ pub const SIGNATURE_BYTES: usize = ml_dsa_87::SIGNBYTES;
 
 pub use pair::{create_keypair, crystal_alice, crystal_charlie, dilithium_bob, generate};
 pub use types::{
-	verify_ml_dsa_65, verify_ml_dsa_87, Dilithium65CryptoTag, Dilithium65Pair, Dilithium65Public,
+	verify_ml_dsa_65, verify_ml_dsa_65_with_context, verify_ml_dsa_87,
+	verify_ml_dsa_87_with_context, Dilithium65CryptoTag, Dilithium65Pair, Dilithium65Public,
 	Dilithium65Signature, Dilithium65SignatureWithPublic, Dilithium87CryptoTag, Dilithium87Pair,
 	Dilithium87Public, Dilithium87Signature, Dilithium87SignatureWithPublic,
 	DilithiumSignatureScheme, DilithiumSigner, WrappedPublicBytes, WrappedSignatureBytes,

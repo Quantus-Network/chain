@@ -38,17 +38,24 @@ use std::{
 pub(crate) struct DummyTransport {
 	/// Events.
 	events: VecDeque<TransportEvent>,
+	/// When set, `poll_next` ends the stream.
+	ended: bool,
 }
 
 impl DummyTransport {
 	/// Create new [`DummyTransport`].
 	pub(crate) fn new() -> Self {
-		Self { events: VecDeque::new() }
+		Self { events: VecDeque::new(), ended: false }
 	}
 
 	/// Inject event into `DummyTransport`.
 	pub(crate) fn inject_event(&mut self, event: TransportEvent) {
 		self.events.push_back(event);
+	}
+
+	/// End the transport stream, as a real listener does when it returns `None`.
+	pub(crate) fn terminate(&mut self) {
+		self.ended = true;
 	}
 }
 
@@ -56,6 +63,10 @@ impl Stream for DummyTransport {
 	type Item = TransportEvent;
 
 	fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+		if self.ended {
+			return Poll::Ready(None);
+		}
+
 		if self.events.is_empty() {
 			return Poll::Pending;
 		}

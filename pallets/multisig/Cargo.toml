@@ -32,7 +32,6 @@ frame-support = { workspace = true, features = ["experimental"], default-feature
 frame-system = { workspace = true, default-features = true }
 pallet-balances = { workspace = true, features = ["std"] }
 pallet-preimage = { workspace = true, default-features = true }
-pallet-recovery = { workspace = true, default-features = true }
 pallet-reversible-transfers = { path = "../reversible-transfers", default-features = true }
 pallet-scheduler = { workspace = true, default-features = true }
 pallet-timestamp.workspace = true

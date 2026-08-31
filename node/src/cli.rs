@@ -36,13 +36,21 @@ pub struct Cli {
 	#[arg(long)]
 	pub enable_peer_sharing: bool,
 
-	/// Sync: maximum timeouts before dropping a peer during major sync.
+	/// Sync: maximum request failures before dropping a peer that is ahead.
 	#[arg(long, default_value_t = 20)]
 	pub sync_max_timeouts_before_drop: u32,
 
-	/// Sync: disable gating peer drops during major sync (fast-ban even in major sync).
+	/// Sync: disable request-failure tolerance for peers that are ahead.
 	#[arg(long, default_value_t = false)]
 	pub sync_disable_major_sync_gating: bool,
+
+	/// Maximum tip age in seconds before authoring pauses (default: 24 hours).
+	///
+	/// Until the node has observed its best block to be at most this old, it
+	/// refuses to mine (initial-sync guard, like Bitcoin's -maxtipage).
+	/// Bypassed entirely by --force-authoring.
+	#[arg(long, value_name = "SECONDS", default_value_t = crate::service::DEFAULT_MAX_TIP_AGE_SECS)]
+	pub max_tip_age: u64,
 
 	/// Sync: block request timeout in seconds (default: 30).
 	#[arg(long, default_value_t = 30)]

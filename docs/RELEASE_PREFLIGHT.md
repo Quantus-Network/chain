@@ -134,7 +134,7 @@ quantus exercise --fail-fast
 ```
 
 Default phases (all required): `reads`, `balances`, `utility`, `reversible`,
-`multisig`, `recovery`, `preimage`, `governance`, `vesting`, `negative`,
+`multisig`, `preimage`, `governance`, `vesting`, `negative`,
 `fuzz`, `wormhole`.
 
 Do **not** `--skip` phases for a release candidate. `wormhole` is slow; still
