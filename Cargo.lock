@@ -868,7 +868,7 @@ dependencies = [
  "bitflags 2.9.4",
  "cexpr",
  "clang-sys",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "regex",
@@ -2791,7 +2791,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.0",
 ]
 
 [[package]]
@@ -5587,7 +5587,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.0",
 ]
 
 [[package]]
@@ -7130,7 +7130,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -7150,7 +7150,7 @@ version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -7430,9 +7430,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-aggregator"
-version = "4.2.0"
+version = "4.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d36c1e817cba09384f092f6f1cda8016cc39637c878c1b80788d8c7d5bd75b40"
+checksum = "6604a9d9248e3270d330155fc27a4a84b382849b2aecb1f92a110511314fe07b"
 dependencies = [
  "anyhow",
  "hex",
@@ -7448,9 +7448,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit"
-version = "4.2.0"
+version = "4.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "418648e0835bb47c7e6fa908bce246e9e9fce042f857b15e652b2591ff869e76"
+checksum = "55167daf965a3616b74184171148b94c64b3a48771d6433a1a43377a6e46c6e8"
 dependencies = [
  "anyhow",
  "hex",
@@ -7462,9 +7462,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit-builder"
-version = "4.2.0"
+version = "4.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0716238af4fa0c0efdf06f30ccbff90534c0d9e700c3d90aa9d3be79fb10d2fe"
+checksum = "f4fe35e0d8ad019e37e447e092da348fe4c52ae691d84dfd919fc9b58e7effe5"
 dependencies = [
  "anyhow",
  "clap",
@@ -7477,18 +7477,18 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-inputs"
-version = "4.2.0"
+version = "4.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9385fee220d58083a3c833ff9ee87c2346f77c7e869f35bbe12ecd8dad3d076f"
+checksum = "9c07863a2211a17b46319289c5ef22e5670a3fb8653386bb366c418193254793"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "qp-wormhole-prover"
-version = "4.2.0"
+version = "4.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4c90421378b57eeb08f3e60f426aa861b2ad741942dcd795c43b5665171026a"
+checksum = "7203e454113812e1ca85aee7687dc5f270f7c297d113a647a3a00b6d43c5a4f6"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -7498,9 +7498,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-verifier"
-version = "4.2.0"
+version = "4.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15fce3fa8c1866b7c0d4279e2d004d1b3959eb8d5e67d656c738725b8ac039d9"
+checksum = "677a24da8f5a55f52d7dab865d8d70f3f501f26a85c1ab086684fa1f16b8a671"
 dependencies = [
  "anyhow",
  "qp-plonky2-verifier",
@@ -7510,9 +7510,9 @@ dependencies = [
 
 [[package]]
 name = "qp-zk-circuits-common"
-version = "4.2.0"
+version = "4.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78477b533829319a41b946bf8bdc1bc778f9ed1806f156eb584aa3a6ff764b3b"
+checksum = "dec45510701f160fdb730bdb622d6cdd0a62547e607c9b1ecb19558202797f81"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -7758,7 +7758,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.0",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -8217,7 +8217,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.0",
 ]
 
 [[package]]
@@ -11398,7 +11398,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.0",
 ]
 
 [[package]]
@@ -12881,7 +12881,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.0",
 ]
 
 [[package]]
