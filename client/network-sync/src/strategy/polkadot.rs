@@ -289,15 +289,6 @@ where
 			}
 	}
 
-	fn is_peer_drop_gated(&self, peer_id: &PeerId) -> bool {
-		self.warp.is_some() ||
-			self.state.is_some() ||
-			match self.chain_sync {
-				Some(ref s) => s.is_peer_drop_gated(peer_id),
-				None => unreachable!("At least one syncing strategy is active; qed"),
-			}
-	}
-
 	fn num_peers(&self) -> usize {
 		self.peer_best_blocks.len()
 	}

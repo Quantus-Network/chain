@@ -37,38 +37,6 @@ use sp_runtime::{
 
 type Block = frame_system::mocking::MockBlock<Test>;
 
-/// A root-only call with an observable balance effect, standing in for the
-/// removed `Balances::force_set_balance` in these tests.
-#[frame_support::pallet(dev_mode)]
-pub mod pallet_root_set_balance {
-	use frame_support::{pallet_prelude::*, traits::Currency};
-	use frame_system::pallet_prelude::*;
-
-	pub type BalanceOf<T> =
-		<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
-
-	#[pallet::pallet]
-	pub struct Pallet<T>(_);
-
-	#[pallet::config]
-	pub trait Config: frame_system::Config {
-		type Currency: Currency<Self::AccountId>;
-	}
-
-	#[pallet::call]
-	impl<T: Config> Pallet<T> {
-		pub fn set_balance(
-			origin: OriginFor<T>,
-			who: T::AccountId,
-			value: BalanceOf<T>,
-		) -> DispatchResult {
-			ensure_root(origin)?;
-			let _ = T::Currency::make_free_balance_be(&who, value);
-			Ok(())
-		}
-	}
-}
-
 frame_support::construct_runtime!(
 	pub enum Test
 	{
@@ -77,22 +45,14 @@ frame_support::construct_runtime!(
 		Preimage: pallet_preimage,
 		Scheduler: pallet_scheduler,
 		Referenda: pallet_referenda,
-		RootSetBalance: pallet_root_set_balance,
 	}
 );
-
-impl pallet_root_set_balance::Config for Test {
-	type Currency = Balances;
-}
 
 // Test that a fitlered call can be dispatched.
 pub struct BaseFilter;
 impl Contains<RuntimeCall> for BaseFilter {
 	fn contains(call: &RuntimeCall) -> bool {
-		!matches!(
-			call,
-			&RuntimeCall::RootSetBalance(pallet_root_set_balance::Call::set_balance { .. })
-		)
+		!matches!(call, &RuntimeCall::Balances(pallet_balances::Call::force_set_balance { .. }))
 	}
 }
 
@@ -374,13 +334,15 @@ impl<Class> VoteTally<u32, Class> for Tally {
 }
 
 pub fn set_balance_proposal(value: u64) -> Vec<u8> {
-	RuntimeCall::RootSetBalance(pallet_root_set_balance::Call::set_balance { who: 42, value })
+	RuntimeCall::Balances(pallet_balances::Call::force_set_balance { who: 42, new_free: value })
 		.encode()
 }
 
 pub fn set_balance_proposal_bounded(value: u64) -> BoundedCallOf<Test, ()> {
-	let c =
-		RuntimeCall::RootSetBalance(pallet_root_set_balance::Call::set_balance { who: 42, value });
+	let c = RuntimeCall::Balances(pallet_balances::Call::force_set_balance {
+		who: 42,
+		new_free: value,
+	});
 	<Preimage as StorePreimage>::bound(c).unwrap()
 }
 

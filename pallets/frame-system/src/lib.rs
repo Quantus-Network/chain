@@ -2120,12 +2120,10 @@ impl<T: Config> Pallet<T> {
 	/// `qp_header::Header::hash()` commits the digest through a fixed
 	/// `DIGEST_LOGS_SIZE` window that the client-injected pre-runtime item plus the
 	/// PoW seal fill **exactly**, and block import rejects any sealed header whose
-	/// encoded digest exceeds it by more than the 1-byte historical allowance
-	/// (truncating would let distinct headers share a hash). A digest item
-	/// deposited from runtime code therefore does not fail the call — it makes the
-	/// finished block **unimportable by the entire network**, silently, after
-	/// mining, or at best burns the compat allowance reserved for pre-existing
-	/// blocks. This is why the fork's `set_code` /
+	/// encoded digest exceeds it (truncating would let distinct headers share a
+	/// hash). A digest item deposited from runtime code therefore does not fail the
+	/// call — it makes the finished block **unimportable by the entire network**,
+	/// silently, after mining. This is why the fork's `set_code` /
 	/// `set_heap_pages` paths do not deposit `RuntimeEnvironmentUpdated` the way
 	/// upstream does. Do not deposit digest items from runtime logic unless the
 	/// header format and the wormhole circuit's digest field are resized in the

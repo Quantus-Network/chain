@@ -5,6 +5,7 @@ use frame_support::{
 	parameter_types,
 	traits::{ConstU32, Everything, Hooks},
 };
+use pallet_treasury::TreasuryProvider;
 use sp_consensus_qpow::POW_ENGINE_ID;
 use sp_runtime::{
 	app_crypto::sp_core,
@@ -17,6 +18,8 @@ use sp_runtime::{
 pub use qp_wormhole::{TestMiner, MINTING_ACCOUNT};
 
 // Configure a mock runtime to test the pallet.
+// Treasury is mocked via TreasuryProvider - no need for full pallet in construct_runtime,
+// which avoids genesis config complexity when test_genesis_config_builds runs.
 frame_support::construct_runtime!(
 	pub enum Test {
 		System: frame_system,
@@ -95,6 +98,19 @@ parameter_types! {
 	pub const Unit: u128 = UNIT;
 }
 
+// Mock TreasuryProvider - mining-rewards only needs account_id() and portion().
+pub struct MockTreasury;
+pub type Treasury = MockTreasury;
+impl pallet_treasury::TreasuryProvider for MockTreasury {
+	type AccountId = sp_core::crypto::AccountId32;
+	fn account_id() -> Self::AccountId {
+		sp_core::crypto::AccountId32::new([1u8; 32])
+	}
+	fn portion() -> sp_runtime::Permill {
+		sp_runtime::Permill::from_percent(50)
+	}
+}
+
 /// Recorded transfer proof for testing
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordedTransferProof {
@@ -157,6 +173,7 @@ impl pallet_mining_rewards::Config for Test {
 	type WeightInfo = ();
 	type MaxSupply = MaxSupply;
 	type EmissionDivisor = EmissionDivisor;
+	type Treasury = MockTreasury;
 	type MintingAccount = MintingAccount;
 	type Unit = Unit;
 }
@@ -173,6 +190,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		balances: vec![
 			(MINER_1.account_id(), ExistentialDeposit::get()),
 			(MINER_2.account_id(), ExistentialDeposit::get()),
+			(MockTreasury::account_id(), ExistentialDeposit::get()),
 		],
 		dev_accounts: None,
 	}

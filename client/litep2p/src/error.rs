@@ -287,9 +287,6 @@ pub enum NegotiationError {
 	/// Signing failed during handshake.
 	#[error("Signing failed: `{0}`")]
 	SigningFailed(String),
-	/// Handshake length prefix was empty or larger than the protocol maximum.
-	#[error("invalid handshake frame length: `{0}`")]
-	InvalidHandshakeFrameLength(u16),
 	/// The negotiation operation timed out.
 	#[error("Operation timed out")]
 	Timeout,
@@ -318,8 +315,6 @@ impl PartialEq for NegotiationError {
 			(Self::MultistreamSelectError(lhs), Self::MultistreamSelectError(rhs)) => lhs == rhs,
 			(Self::Clatter(lhs), Self::Clatter(rhs)) => lhs == rhs,
 			(Self::SigningFailed(lhs), Self::SigningFailed(rhs)) => lhs == rhs,
-			(Self::InvalidHandshakeFrameLength(lhs), Self::InvalidHandshakeFrameLength(rhs)) =>
-				lhs == rhs,
 			(Self::ParseError(lhs), Self::ParseError(rhs)) => lhs == rhs,
 			(Self::IoError(lhs), Self::IoError(rhs)) => lhs == rhs,
 			(Self::PeerIdMismatch(lhs, lhs_1), Self::PeerIdMismatch(rhs, rhs_1)) =>

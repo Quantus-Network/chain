@@ -157,7 +157,7 @@ use alloc::{
 	vec::Vec,
 };
 use codec::{Codec, MaxEncodedLen};
-use core::{cmp, fmt::Debug, result};
+use core::{cmp, fmt::Debug, mem, result};
 use frame_support::{
 	ensure,
 	pallet_prelude::DispatchResult,
@@ -182,10 +182,12 @@ use sp_runtime::{
 		AtLeast32BitUnsigned, CheckedAdd, CheckedSub, MaybeSerializeDeserialize, Saturating,
 		StaticLookup, Zero,
 	},
-	ArithmeticError, DispatchError, FixedPointOperand, RuntimeDebug, TokenError,
+	ArithmeticError, DispatchError, FixedPointOperand, Perbill, RuntimeDebug, TokenError,
 };
 
-pub use types::{AccountData, BalanceLock, DustCleaner, ExtraFlags, Reasons, ReserveData};
+pub use types::{
+	AccountData, AdjustmentDirection, BalanceLock, DustCleaner, ExtraFlags, Reasons, ReserveData,
+};
 pub use weights::WeightInfo;
 
 pub use pallet::*;
@@ -406,6 +408,8 @@ pub mod pallet {
 		Frozen { who: T::AccountId, amount: T::Balance },
 		/// Some balance was thawed.
 		Thawed { who: T::AccountId, amount: T::Balance },
+		/// The `TotalIssuance` was forcefully changed.
+		TotalIssuanceForced { old: T::Balance, new: T::Balance },
 		/// Some balance was placed on hold.
 		Held { reason: T::RuntimeHoldReason, who: T::AccountId, amount: T::Balance },
 		/// Held balance was burned from an account.
@@ -464,6 +468,10 @@ pub mod pallet {
 		TooManyHolds,
 		/// Number of freezes exceed `MaxFreezes`.
 		TooManyFreezes,
+		/// The issuance cannot be modified since it is already deactivated.
+		IssuanceDeactivated,
+		/// The delta cannot be zero.
+		DeltaZero,
 	}
 
 	/// The total units issued in the system.
@@ -671,6 +679,22 @@ pub mod pallet {
 			Ok(())
 		}
 
+		/// Exactly as `transfer_allow_death`, except the origin must be root and the source account
+		/// may be specified.
+		#[pallet::call_index(2)]
+		pub fn force_transfer(
+			origin: OriginFor<T>,
+			source: AccountIdLookupOf<T>,
+			dest: AccountIdLookupOf<T>,
+			#[pallet::compact] value: T::Balance,
+		) -> DispatchResult {
+			ensure_root(origin)?;
+			let source = T::Lookup::lookup(source)?;
+			let dest = T::Lookup::lookup(dest)?;
+			<Self as fungible::Mutate<_>>::transfer(&source, &dest, value, Expendable)?;
+			Ok(())
+		}
+
 		/// Same as the [`transfer_allow_death`] call, but with a check that the transfer will not
 		/// kill the origin account.
 		///
@@ -724,6 +748,124 @@ pub mod pallet {
 				reducible_balance,
 				keep_alive,
 			)?;
+			Ok(())
+		}
+
+		/// Unreserve some balance from a user by force.
+		///
+		/// Can only be called by ROOT.
+		#[pallet::call_index(5)]
+		pub fn force_unreserve(
+			origin: OriginFor<T>,
+			who: AccountIdLookupOf<T>,
+			amount: T::Balance,
+		) -> DispatchResult {
+			ensure_root(origin)?;
+			let who = T::Lookup::lookup(who)?;
+			let _leftover = <Self as ReservableCurrency<_>>::unreserve(&who, amount);
+			Ok(())
+		}
+
+		/// Upgrade a specified account.
+		///
+		/// - `origin`: Must be `Signed`.
+		/// - `who`: The account to be upgraded.
+		///
+		/// This will waive the transaction fee if at least all but 10% of the accounts needed to
+		/// be upgraded. (We let some not have to be upgraded just in order to allow for the
+		/// possibility of churn).
+		#[pallet::call_index(6)]
+		#[pallet::weight(T::WeightInfo::upgrade_accounts(who.len() as u32))]
+		pub fn upgrade_accounts(
+			origin: OriginFor<T>,
+			who: Vec<T::AccountId>,
+		) -> DispatchResultWithPostInfo {
+			ensure_signed(origin)?;
+			if who.is_empty() {
+				return Ok(Pays::Yes.into())
+			}
+			let mut upgrade_count = 0;
+			for i in &who {
+				let upgraded = Self::ensure_upgraded(i);
+				if upgraded {
+					upgrade_count.saturating_inc();
+				}
+			}
+			let proportion_upgraded = Perbill::from_rational(upgrade_count, who.len() as u32);
+			if proportion_upgraded >= Perbill::from_percent(90) {
+				Ok(Pays::No.into())
+			} else {
+				Ok(Pays::Yes.into())
+			}
+		}
+
+		/// Set the regular balance of a given account.
+		///
+		/// The dispatch origin for this call is `root`.
+		#[pallet::call_index(8)]
+		#[pallet::weight(
+			T::WeightInfo::force_set_balance_creating() // Creates a new account.
+				.max(T::WeightInfo::force_set_balance_killing()) // Kills an existing account.
+		)]
+		pub fn force_set_balance(
+			origin: OriginFor<T>,
+			who: AccountIdLookupOf<T>,
+			#[pallet::compact] new_free: T::Balance,
+		) -> DispatchResult {
+			ensure_root(origin)?;
+			let who = T::Lookup::lookup(who)?;
+			let existential_deposit = Self::ed();
+
+			let wipeout = new_free < existential_deposit;
+			let new_free = if wipeout { Zero::zero() } else { new_free };
+
+			// First we try to modify the account's balance to the forced balance.
+			let old_free = Self::mutate_account_handling_dust(&who, false, |account| {
+				let old_free = account.free;
+				account.free = new_free;
+				old_free
+			})?;
+
+			// This will adjust the total issuance, which was not done by the `mutate_account`
+			// above.
+			if new_free > old_free {
+				mem::drop(PositiveImbalance::<T, I>::new(new_free - old_free));
+			} else if new_free < old_free {
+				mem::drop(NegativeImbalance::<T, I>::new(old_free - new_free));
+			}
+
+			Self::deposit_event(Event::BalanceSet { who, free: new_free });
+			Ok(())
+		}
+
+		/// Adjust the total issuance in a saturating way.
+		///
+		/// Can only be called by root and always needs a positive `delta`.
+		///
+		/// # Example
+		#[doc = docify::embed!("./src/tests/dispatchable_tests.rs", force_adjust_total_issuance_example)]
+		#[pallet::call_index(9)]
+		#[pallet::weight(T::WeightInfo::force_adjust_total_issuance())]
+		pub fn force_adjust_total_issuance(
+			origin: OriginFor<T>,
+			direction: AdjustmentDirection,
+			#[pallet::compact] delta: T::Balance,
+		) -> DispatchResult {
+			ensure_root(origin)?;
+
+			ensure!(delta > Zero::zero(), Error::<T, I>::DeltaZero);
+
+			let old = TotalIssuance::<T, I>::get();
+			let new = match direction {
+				AdjustmentDirection::Increase => old.saturating_add(delta),
+				AdjustmentDirection::Decrease => old.saturating_sub(delta),
+			};
+
+			ensure!(InactiveIssuance::<T, I>::get() <= new, Error::<T, I>::IssuanceDeactivated);
+			TotalIssuance::<T, I>::set(new);
+
+			Self::deposit_event(Event::<T, I>::TotalIssuanceForced { old, new });
+
 			Ok(())
 		}
 

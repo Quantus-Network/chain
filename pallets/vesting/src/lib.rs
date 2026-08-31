@@ -18,18 +18,12 @@
 //! The admin origin (the treasury account, with Root as break-glass) can create schedules
 //! (funded from the treasury in the same call), end them early (vested part to the
 //! beneficiary, unvested remainder back to the treasury), and retarget a schedule's
-//! beneficiary. A retarget replaces the wallet of the *same* grantee — the old address is
-//! lost, stolen, or abandoned — so it pays the old address nothing; everything unclaimed
-//! follows the schedule to the new wallet.
+//! beneficiary after settling any payout a permissionless claim could force (lost-key
+//! remedy).
 
 extern crate alloc;
 
 pub use pallet::*;
-
-/// Smallest leaf-quantum count at which a 4 bps Wormhole volume fee is exact
-/// (`2500 * 4 / 10_000 = 1`). Non-final claims pay a multiple of
-/// `NON_FINAL_PAYOUT_QUANTA * PayoutQuantum` (25 QUAN at the runtime leaf quantum).
-pub const NON_FINAL_PAYOUT_QUANTA: u128 = 2_500;
 
 #[cfg(test)]
 mod mock;
@@ -60,7 +54,7 @@ pub mod pallet {
 	use qp_wormhole::TransferProofRecorder;
 	use sp_arithmetic::{helpers_128bit::multiply_by_rational_with_rounding, Rounding};
 	use sp_runtime::{
-		traits::{AccountIdConversion, CheckedAdd, CheckedSub, Saturating, Zero},
+		traits::{AccountIdConversion, CheckedAdd, CheckedSub, Zero},
 		ArithmeticError, SaturatedConversion,
 	};
 
@@ -200,13 +194,12 @@ pub mod pallet {
 			vested_paid: BalanceOf<T>,
 			unvested_returned: BalanceOf<T>,
 		},
-		/// A schedule's beneficiary was changed. Nothing was paid out: the retarget
-		/// replaces the same grantee's wallet, so the accrued entitlement follows the
-		/// schedule to the new address.
+		/// A schedule's beneficiary was changed after settling any currently claimable payout.
 		ScheduleRetargeted {
 			schedule_id: u64,
 			old_beneficiary: T::AccountId,
 			new_beneficiary: T::AccountId,
+			vested_paid: BalanceOf<T>,
 		},
 	}
 
@@ -226,6 +219,8 @@ pub mod pallet {
 		/// Paying now would leave a remainder below the minimum payout; wait until the
 		/// entire remainder has vested.
 		ClaimWouldLeaveDust,
+		/// Ending now would emit a non-zero beneficiary payout below the minimum.
+		PayoutBelowMinimum,
 		/// The treasury account is not configured or aliases the vesting pot.
 		TreasuryNotConfigured,
 		/// The pot does not hold its existential-deposit buffer; endow it first.
@@ -326,9 +321,7 @@ pub mod pallet {
 		/// Pay the largest valid claim on `schedule_id` to its beneficiary. Payouts are
 		/// rounded down to [`Config::PayoutQuantum`], must meet [`Config::MinimumPayout`],
 		/// and reserve at least one minimum-sized final claim unless the schedule is fully
-		/// vested. Non-final payouts are further rounded down to
-		/// [`NON_FINAL_PAYOUT_QUANTA`] leaf quanta; the leftover stays on the schedule
-		/// until a later claim or the exact final payout.
+		/// vested.
 		///
 		/// Permissionless: any signed account may call this for any schedule; the payout
 		/// always goes to the stored beneficiary. This is the only claim path for
@@ -405,27 +398,31 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// End a schedule early: the still-unpaid vested part (rounded to the nearest
-		/// [`Config::PayoutQuantum`]) goes to the beneficiary if it meets
-		/// [`Config::MinimumPayout`]; otherwise that sliver is refunded with the
-		/// unvested remainder. The treasury is signature-controlled and needs no
-		/// wormhole leaf, so the refund is not quantized and never blocks ending.
+		/// End a schedule early: the still-unpaid vested part (rounded down to a
+		/// [`Config::PayoutQuantum`] multiple) goes to the beneficiary, everything else
+		/// this schedule still holds — the unvested remainder plus any sub-quantum
+		/// vested dust — returns to the treasury, and the schedule is removed. The
+		/// treasury is signature-controlled and needs no wormhole leaf, so dust is safe
+		/// there but would be stranded on a keyless beneficiary. A non-zero beneficiary
+		/// payout below [`Config::MinimumPayout`] is rejected without ending the schedule.
 		#[pallet::call_index(2)]
 		#[pallet::weight(T::WeightInfo::end_schedule())]
 		pub fn end_schedule(origin: OriginFor<T>, schedule_id: u64) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 			let (treasury, pot) = Self::treasury_and_pot()?;
 			let schedule = Schedules::<T>::get(schedule_id).ok_or(Error::<T>::NoSchedule)?;
-			let (remaining, owed) = Self::outstanding(&schedule, T::TimeProvider::now())?;
-			let quantum = T::PayoutQuantum::get();
-			// Nearest multiple: align `owed + quantum/2`. Halves round up. Below
-			// MinimumPayout the amount cannot exit a keyless address, so it rides
-			// to the treasury with the unvested remainder.
-			let rounded =
-				Self::align(owed.saturating_add(quantum / 2u32.saturated_into()), quantum)
-					.min(remaining);
-			let vested_paid =
-				if rounded < T::MinimumPayout::get() { Zero::zero() } else { rounded };
+			let vested = Self::vested_amount(&schedule, T::TimeProvider::now());
+			let unpaid_vested =
+				vested.checked_sub(&schedule.claimed).ok_or(ArithmeticError::Underflow)?;
+			let vested_paid = Self::quantize_down(unpaid_vested);
+			ensure!(
+				vested_paid.is_zero() || vested_paid >= T::MinimumPayout::get(),
+				Error::<T>::PayoutBelowMinimum
+			);
+			let remaining = schedule
+				.total
+				.checked_sub(&schedule.claimed)
+				.ok_or(ArithmeticError::Underflow)?;
 			let unvested_returned =
 				remaining.checked_sub(&vested_paid).ok_or(ArithmeticError::Underflow)?;
 			if !vested_paid.is_zero() {
@@ -444,12 +441,8 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Change the schedule's beneficiary without paying anything out. A retarget
-		/// replaces the wallet of the *same* grantee (lost-key remedy): the old address
-		/// may be lost or stolen, so settling it would burn funds or pay the thief.
-		/// Everything vested but unclaimed stays on the schedule and goes to the new
-		/// wallet at its next claim. (A permissionless claim landing before the
-		/// retarget still pays the old address, so rotate promptly.)
+		/// Settle any payout a permissionless claim could currently force, then change the
+		/// beneficiary. This makes retargeting independent of claim transaction ordering.
 		#[pallet::call_index(3)]
 		#[pallet::weight(T::WeightInfo::retarget_schedule())]
 		pub fn retarget_schedule(
@@ -462,12 +455,22 @@ pub mod pallet {
 			Schedules::<T>::try_mutate(schedule_id, |maybe_schedule| {
 				let schedule = maybe_schedule.as_mut().ok_or(Error::<T>::NoSchedule)?;
 				ensure!(new_beneficiary != schedule.beneficiary, Error::<T>::InvalidBeneficiary);
+				let now = T::TimeProvider::now();
+				let vested_paid = match Self::claim_plan(schedule, now)? {
+					ClaimPlan::Pay(amount) => {
+						Self::settle(schedule, amount, now)?;
+						amount
+					},
+					ClaimPlan::NothingToClaim | ClaimPlan::TooSoon | ClaimPlan::WouldLeaveDust =>
+						Zero::zero(),
+				};
 				let old_beneficiary =
 					core::mem::replace(&mut schedule.beneficiary, new_beneficiary.clone());
 				Self::deposit_event(Event::ScheduleRetargeted {
 					schedule_id,
 					old_beneficiary,
 					new_beneficiary,
+					vested_paid,
 				});
 				Ok(())
 			})
@@ -522,58 +525,31 @@ pub mod pallet {
 				(total % T::PayoutQuantum::get()).is_zero()
 		}
 
-		/// Remaining obligation and vested-but-unpaid amount, before alignment.
-		fn outstanding(
-			schedule: &VestingScheduleOf<T>,
-			now: Moment,
-		) -> Result<(BalanceOf<T>, BalanceOf<T>), ArithmeticError> {
-			let remaining = schedule
-				.total
-				.checked_sub(&schedule.claimed)
-				.ok_or(ArithmeticError::Underflow)?;
-			let owed = Self::vested_amount(schedule, now)
-				.checked_sub(&schedule.claimed)
-				.ok_or(ArithmeticError::Underflow)?;
-			Ok((remaining, owed))
-		}
-
-		/// Floor `amount` to a multiple of `quantum`.
-		fn align(amount: BalanceOf<T>, quantum: BalanceOf<T>) -> BalanceOf<T> {
-			amount.saturating_sub(amount % quantum)
-		}
-
 		fn claim_plan(
 			schedule: &VestingScheduleOf<T>,
 			now: Moment,
 		) -> Result<ClaimPlan<BalanceOf<T>>, ArithmeticError> {
-			let (remaining, owed) = Self::outstanding(schedule, now)?;
-			let quantum = T::PayoutQuantum::get();
+			let remaining = schedule
+				.total
+				.checked_sub(&schedule.claimed)
+				.ok_or(ArithmeticError::Underflow)?;
+			let vested = Self::vested_amount(schedule, now);
+			let owed = vested.checked_sub(&schedule.claimed).ok_or(ArithmeticError::Underflow)?;
+			let candidate = Self::quantize_down(owed);
 			let minimum = T::MinimumPayout::get();
-			let candidate = Self::align(owed, quantum);
-			// Nothing claimable yet: NothingToClaim even if the remainder could
-			// never support a non-final payout.
 			if candidate < minimum {
 				return Ok(ClaimPlan::NothingToClaim);
 			}
-			let reserved = if candidate == remaining {
+			let payable = if candidate == remaining {
 				candidate
 			} else {
-				candidate.min(remaining.saturating_sub(minimum))
+				let max_non_final =
+					remaining.checked_sub(&minimum).ok_or(ArithmeticError::Underflow)?;
+				if max_non_final < minimum {
+					return Ok(ClaimPlan::WouldLeaveDust);
+				}
+				candidate.min(max_non_final)
 			};
-			if reserved < minimum {
-				return Ok(ClaimPlan::WouldLeaveDust);
-			}
-			let payable = if reserved == remaining {
-				reserved
-			} else {
-				Self::align(
-					reserved,
-					quantum.saturating_mul(NON_FINAL_PAYOUT_QUANTA.saturated_into()),
-				)
-			};
-			if payable < minimum {
-				return Ok(ClaimPlan::NothingToClaim);
-			}
 			if let Some(last) = schedule.last_claim_at {
 				let elapsed = now.checked_sub(last).ok_or(ArithmeticError::Underflow)?;
 				if elapsed < T::MinClaimInterval::get() {
@@ -583,9 +559,16 @@ pub mod pallet {
 			Ok(ClaimPlan::Pay(payable))
 		}
 
+		/// Round down to a multiple of the payout quantum.
+		fn quantize_down(amount: BalanceOf<T>) -> BalanceOf<T> {
+			let remainder = amount % T::PayoutQuantum::get();
+			amount.checked_sub(&remainder).expect("remainder never exceeds the dividend")
+		}
+
 		/// Pay `amount` to the schedule's beneficiary and advance the schedule to match:
-		/// the single place a claimable payout is settled, so no path can drift on what
-		/// a payout does to `claimed` and `last_claim_at`.
+		/// the single place a claimable payout is settled, shared by `claim` and
+		/// `retarget_schedule` so the two can never drift on what a payout does to
+		/// `claimed` and `last_claim_at`.
 		fn settle(
 			schedule: &mut VestingScheduleOf<T>,
 			amount: BalanceOf<T>,
@@ -642,15 +625,6 @@ pub mod pallet {
 		#[cfg(any(feature = "try-runtime", test))]
 		pub fn do_try_state() -> Result<(), sp_runtime::TryRuntimeError> {
 			let pot = Self::pot_account_id();
-			// State-dependent (the treasury is storage-backed and only known after
-			// genesis), so it cannot live in `integrity_test`. The admin calls also
-			// re-check it at use via `treasury_and_pot`.
-			if let Some(treasury) = T::TreasuryAccount::get() {
-				frame_support::ensure!(
-					treasury != pot,
-					sp_runtime::TryRuntimeError::Other("treasury aliases the vesting pot")
-				);
-			}
 			let next_id = NextScheduleId::<T>::get();
 			let mut outstanding: BalanceOf<T> = Zero::zero();
 			let mut has_schedules = false;

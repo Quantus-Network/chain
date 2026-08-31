@@ -17,9 +17,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use clap::{Args, ValueEnum};
-use sc_transaction_pool::{
-	TransactionPoolOptions, DEFAULT_READY_POOL_KBYTES, DEFAULT_READY_POOL_LIMIT,
-};
+use sc_transaction_pool::TransactionPoolOptions;
 
 /// Type of transaction pool to be used
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -46,15 +44,14 @@ impl Into<sc_transaction_pool::TransactionPoolType> for TransactionPoolType {
 pub struct TransactionPoolParams {
 	/// Maximum number of transactions in the transaction pool.
 	///
-	/// Default sized for Quantus PQ signatures (~7300 bytes/tx) within ~256 MiB.
-	/// Kept in lockstep with transaction gossip via `DEFAULT_READY_POOL_LIMIT`.
-	#[arg(long, value_name = "COUNT", default_value_t = DEFAULT_READY_POOL_LIMIT)]
+	/// Default sized for Quantus PQ signatures (~7300 bytes/tx) within ~268 MiB.
+	#[arg(long, value_name = "COUNT", default_value_t = 36772)]
 	pub pool_limit: usize,
 
 	/// Maximum number of kilobytes of all transactions stored in the pool.
 	///
 	/// Default is 262144 KiB (256 MiB), matching the previous hardcoded node sizing.
-	#[arg(long, value_name = "COUNT", default_value_t = DEFAULT_READY_POOL_KBYTES)]
+	#[arg(long, value_name = "COUNT", default_value_t = 262144)]
 	pub pool_kbytes: usize,
 
 	/// How long a transaction is banned for.
@@ -81,29 +78,5 @@ impl TransactionPoolParams {
 			self.pool_type.into(),
 			is_dev,
 		)
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-	use clap::Parser;
-
-	#[derive(Parser)]
-	struct Cli {
-		#[clap(flatten)]
-		pool: TransactionPoolParams,
-	}
-
-	#[test]
-	fn default_pool_limit_is_shared_ready_limit() {
-		let cli = Cli::try_parse_from([""]).expect("parses pool defaults");
-		assert_eq!(cli.pool.pool_limit, DEFAULT_READY_POOL_LIMIT);
-		assert_eq!(cli.pool.pool_kbytes, DEFAULT_READY_POOL_KBYTES);
-		assert_eq!(cli.pool.transaction_pool(false).ready_count(), DEFAULT_READY_POOL_LIMIT);
-		assert_eq!(
-			usize::from(cli.pool.transaction_pool(false).known_transaction_cache_limit()),
-			DEFAULT_READY_POOL_LIMIT
-		);
 	}
 }

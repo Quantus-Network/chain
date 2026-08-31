@@ -208,13 +208,11 @@ pub mod pallet {
 		/// Uses the same formula as Ethereum PoW:
 		/// diff = parent_diff + (parent_diff / 2048) * max(1 - block_time / divisor, -99)
 		///
-		/// Homestead used 10s buckets (`Δt // 10`) with Geth's 15s future slack.
-		/// Scaling 10/12 keeps those buckets at a 12s target so a max-drift inflate
-		/// is a single -1 that forced +1 catch-up blocks repay (or overshoot).
-		/// Zones at a 12s target (10s divisor):
-		/// - < 10s: difficulty increases by 1/2048 (~0.05%)
-		/// - 10s to 20s: no change
-		/// - 20s to 30s: difficulty decreases by 1/2048
+		/// The divisor is 8 seconds for a 12s target (scales proportionally).
+		/// This creates these zones:
+		/// - < divisor: difficulty increases by 1/2048 (~0.05%)
+		/// - divisor to 2*divisor: no change
+		/// - 2*divisor to 3*divisor: difficulty decreases by 1/2048
 		/// - etc, up to max decrease of 99/2048 (~4.8%)
 		pub fn calculate_difficulty(
 			parent_difficulty: U512,
@@ -227,9 +225,9 @@ pub mod pallet {
 			// delta cannot steer the retarget.
 			let block_time_ms = block_time_ms.max(MIN_RETARGET_BLOCK_TIME_MS);
 
-			// Homestead divisor was 10s on a ~12-15s target. Keep that ratio:
-			// divisor = target * 10 / 12.
-			let divisor_ms = (target_time_ms * 10 / 12).max(1);
+			// Divisor scales with target: 8s divisor for 12s target
+			// divisor = target * 8 / 12 = target * 2 / 3
+			let divisor_ms = (target_time_ms * 2 / 3).max(1);
 			let time_factor = (block_time_ms / divisor_ms) as i64;
 			let adjustment = core::cmp::max(1i64 - time_factor, -99i64);
 

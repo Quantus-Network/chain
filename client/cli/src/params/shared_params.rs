@@ -53,8 +53,8 @@ pub struct SharedParams {
 	///
 	/// Multiple `<target>=<level>` entries can be specified and separated by a comma.
 	///
-	/// *Example*: `--log error,sync=debug,runtime=warn`.
-	/// Sets Global log level to `error`, sets `sync` target to debug and runtime target to `warn`.
+	/// *Example*: `--log error,sync=debug,grandpa=warn`.
+	/// Sets Global log level to `error`, sets `sync` target to debug and grandpa target to `warn`.
 	#[arg(short = 'l', long, value_name = "LOG_PATTERN", num_args = 1..)]
 	pub log: Vec<String>,
 

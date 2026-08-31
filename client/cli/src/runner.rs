@@ -293,6 +293,7 @@ mod tests {
 				telemetry_endpoints: None,
 				offchain_worker: Default::default(),
 				force_authoring: false,
+				disable_grandpa: false,
 				dev_key_seed: None,
 				tracing_targets: None,
 				tracing_receiver: Default::default(),

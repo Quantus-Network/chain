@@ -106,6 +106,10 @@ more details.
 requests for information about blocks. Each request is the encoding of a `BlockRequest` and
 each response is the encoding of a `BlockResponse`, as defined in the `api.v1.proto` file in
 this source tree.
+- **`/<protocol-id>/light/2`** is a request-response protocol (see below) that lets one perform
+light-client-related requests for information about the state. Each request is the encoding of
+a `light::Request` and each response is the encoding of a `light::Response`, as defined in the
+`light.v1.proto` file in this source tree.
 - **`/<protocol-id>/transactions/1`** is a notifications protocol (see below) where
 transactions are pushed to other nodes. The handshake is empty on both sides. The message
 format is a SCALE-encoded list of transactions, where each transaction is an opaque list of
@@ -144,6 +148,8 @@ sides, containing information such as the chain root hash, head of chain, and so
 Communications within this substream include:
 
 - Syncing. Blocks are announced and requested from other nodes.
+- Light-client requests. When a light client requires information, a random node we have a
+substream open with is chosen, and the information is requested from it.
 - Gossiping. Used for example by grandpa.
 
 ## Request-response protocols

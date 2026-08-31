@@ -113,8 +113,6 @@ pub enum Error {
 	InvalidSecretKey,
 	#[cfg_attr(feature = "std", error("Failed to parse public key"))]
 	InvalidPublicKey,
-	#[cfg_attr(feature = "std", error("Context must be at most 255 bytes"))]
-	ContextTooLong,
 }
 
 define_dilithium_scheme! {
@@ -126,7 +124,6 @@ define_dilithium_scheme! {
 	sig_with_public = Dilithium87SignatureWithPublic,
 	module = ml_dsa_87,
 	verify_fn = verify_ml_dsa_87,
-	verify_ctx_fn = verify_ml_dsa_87_with_context,
 }
 
 define_dilithium_scheme! {
@@ -138,5 +135,4 @@ define_dilithium_scheme! {
 	sig_with_public = Dilithium65SignatureWithPublic,
 	module = ml_dsa_65,
 	verify_fn = verify_ml_dsa_65,
-	verify_ctx_fn = verify_ml_dsa_65_with_context,
 }

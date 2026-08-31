@@ -218,7 +218,9 @@ fn extract_all_transfers(
 			if let MultiAddress::Id(id) = dest {
 				results.push((id.clone(), *value, None));
 			},
-		RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) =>
+		RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
+		RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
+		RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) =>
 			for inner in calls {
 				results.extend(extract_all_transfers(inner, depth + 1));
 			},
@@ -275,8 +277,16 @@ mod tests {
 		})
 	}
 
+	fn batch(calls: Vec<RuntimeCall>) -> RuntimeCall {
+		RuntimeCall::Utility(pallet_utility::Call::batch { calls })
+	}
+
 	fn batch_all(calls: Vec<RuntimeCall>) -> RuntimeCall {
 		RuntimeCall::Utility(pallet_utility::Call::batch_all { calls })
+	}
+
+	fn force_batch(calls: Vec<RuntimeCall>) -> RuntimeCall {
+		RuntimeCall::Utility(pallet_utility::Call::force_batch { calls })
 	}
 
 	#[test]
@@ -301,8 +311,8 @@ mod tests {
 	}
 
 	#[test]
-	fn detects_transfers_inside_batch_all() {
-		let call = batch_all(vec![
+	fn detects_transfers_inside_batch() {
+		let call = batch(vec![
 			native_transfer(&merchant(), 10 * UNIT),
 			native_transfer(&other(), 20 * UNIT),
 			native_transfer(&merchant(), 300),
@@ -312,9 +322,26 @@ mod tests {
 	}
 
 	#[test]
-	fn detects_transfers_in_nested_batch_all() {
+	fn detects_transfers_inside_batch_all() {
 		let call = batch_all(vec![
-			batch_all(vec![native_transfer(&merchant(), 10 * UNIT)]),
+			native_transfer(&merchant(), 10 * UNIT),
+			native_transfer(&merchant(), 200),
+		]);
+		let result = extract_transfers_to(&call, &merchant());
+		assert_eq!(result, vec![(10 * UNIT, None), (200, None)]);
+	}
+
+	#[test]
+	fn detects_transfers_inside_force_batch() {
+		let call = force_batch(vec![native_transfer(&merchant(), 77 * UNIT)]);
+		let result = extract_transfers_to(&call, &merchant());
+		assert_eq!(result, vec![(77 * UNIT, None)]);
+	}
+
+	#[test]
+	fn detects_transfers_in_nested_batches() {
+		let call = batch(vec![
+			batch(vec![native_transfer(&merchant(), 10 * UNIT)]),
 			native_transfer_allow_death(&merchant(), 20 * UNIT),
 		]);
 		let result = extract_transfers_to(&call, &merchant());
@@ -329,8 +356,8 @@ mod tests {
 	}
 
 	#[test]
-	fn batch_all_with_no_matching_transfers_returns_empty() {
-		let call = batch_all(vec![
+	fn batch_with_no_matching_transfers_returns_empty() {
+		let call = batch(vec![
 			native_transfer(&other(), 100 * UNIT),
 			RuntimeCall::System(frame_system::Call::remark { remark: vec![] }),
 			native_transfer(&customer(), 50),
@@ -340,15 +367,15 @@ mod tests {
 	}
 
 	#[test]
-	fn empty_batch_all_returns_empty() {
-		let call = batch_all(vec![]);
+	fn empty_batch_returns_empty() {
+		let call = batch(vec![]);
 		let result = extract_transfers_to(&call, &merchant());
 		assert!(result.is_empty());
 	}
 
 	#[test]
-	fn multiple_transfers_to_same_target_in_batch_all() {
-		let call = batch_all(vec![
+	fn multiple_transfers_to_same_target_in_batch() {
+		let call = batch(vec![
 			native_transfer(&merchant(), 10 * UNIT),
 			native_transfer(&merchant(), 20 * UNIT),
 			native_transfer(&merchant(), 30 * UNIT),
@@ -383,12 +410,12 @@ mod tests {
 	}
 
 	#[test]
-	fn batch_all_depth_is_capped() {
+	fn batch_depth_is_capped() {
 		fn nest(depth: usize, inner: RuntimeCall) -> RuntimeCall {
 			if depth == 0 {
 				return inner;
 			}
-			batch_all(vec![nest(depth - 1, inner)])
+			batch(vec![nest(depth - 1, inner)])
 		}
 		let deep = nest(MAX_BATCH_DEPTH, native_transfer(&merchant(), UNIT));
 		assert_eq!(extract_transfers_to(&deep, &merchant()), vec![(UNIT, None)]);
@@ -399,7 +426,7 @@ mod tests {
 
 	#[test]
 	fn extract_all_transfers_returns_all_destinations() {
-		let call = batch_all(vec![
+		let call = batch(vec![
 			native_transfer(&merchant(), 10 * UNIT),
 			native_transfer(&other(), 20 * UNIT),
 			native_transfer(&customer(), 300),

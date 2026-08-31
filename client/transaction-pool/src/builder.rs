@@ -29,17 +29,7 @@ use prometheus_endpoint::Registry as PrometheusRegistry;
 use sc_transaction_pool_api::{LocalTransactionPool, MaintainedTransactionPool};
 use sp_core::traits::SpawnEssentialNamed;
 use sp_runtime::traits::Block as BlockT;
-use std::{marker::PhantomData, num::NonZeroUsize, sync::Arc, time::Duration};
-
-/// Default ready-pool transaction count.
-///
-/// Sized for Quantus PQ signatures (~7300 bytes/tx) within ~256 MiB. Transaction gossip uses
-/// [`TransactionPoolOptions::known_transaction_cache_limit`] so this count and the per-peer
-/// known-hash cache stay aligned.
-pub const DEFAULT_READY_POOL_LIMIT: usize = 36_772;
-
-/// Default ready-pool size in KiB (256 MiB).
-pub const DEFAULT_READY_POOL_KBYTES: usize = 262_144;
+use std::{marker::PhantomData, sync::Arc, time::Duration};
 
 /// The type of transaction pool.
 #[derive(Debug, Clone)]
@@ -92,16 +82,6 @@ impl TransactionPoolOptions {
 		};
 
 		TransactionPoolOptions { options, txpool_type }
-	}
-
-	/// Ready-queue transaction count. Gossip cache size is taken from this value.
-	pub fn ready_count(&self) -> usize {
-		self.options.ready.count
-	}
-
-	/// Per-peer known-transaction cache size, equal to the ready-pool limit.
-	pub fn known_transaction_cache_limit(&self) -> NonZeroUsize {
-		NonZeroUsize::new(self.ready_count().max(1)).unwrap_or(NonZeroUsize::MIN)
 	}
 
 	/// Creates predefined options for benchmarking
@@ -267,32 +247,5 @@ where
 				self.client,
 			)),
 		})
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn gossip_cache_tracks_ready_pool_limit() {
-		let options = TransactionPoolOptions::new_with_params(
-			DEFAULT_READY_POOL_LIMIT,
-			DEFAULT_READY_POOL_KBYTES * 1024,
-			None,
-			TransactionPoolType::SingleState,
-			false,
-		);
-		assert_eq!(options.ready_count(), DEFAULT_READY_POOL_LIMIT);
-		assert_eq!(usize::from(options.known_transaction_cache_limit()), DEFAULT_READY_POOL_LIMIT);
-
-		let custom = TransactionPoolOptions::new_with_params(
-			50_000,
-			DEFAULT_READY_POOL_KBYTES * 1024,
-			None,
-			TransactionPoolType::SingleState,
-			false,
-		);
-		assert_eq!(usize::from(custom.known_transaction_cache_limit()), 50_000);
 	}
 }

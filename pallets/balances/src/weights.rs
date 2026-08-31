@@ -52,7 +52,13 @@ use core::marker::PhantomData;
 pub trait WeightInfo {
 	fn transfer_allow_death() -> Weight;
 	fn transfer_keep_alive() -> Weight;
+	fn force_set_balance_creating() -> Weight;
+	fn force_set_balance_killing() -> Weight;
+	fn force_transfer() -> Weight;
 	fn transfer_all() -> Weight;
+	fn force_unreserve() -> Weight;
+	fn upgrade_accounts(u: u32, ) -> Weight;
+	fn force_adjust_total_issuance() -> Weight;
 	fn burn_allow_death() -> Weight;
 	fn burn_keep_alive() -> Weight;
 }
@@ -84,6 +90,39 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	}
 	/// Storage: `System::Account` (r:1 w:1)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	fn force_set_balance_creating() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `3593`
+		// Minimum execution time: 14_000_000 picoseconds.
+		Weight::from_parts(15_000_000, 3593)
+			.saturating_add(T::DbWeight::get().reads(1_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `System::Account` (r:1 w:1)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	fn force_set_balance_killing() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `103`
+		//  Estimated: `3593`
+		// Minimum execution time: 13_000_000 picoseconds.
+		Weight::from_parts(15_000_000, 3593)
+			.saturating_add(T::DbWeight::get().reads(1_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `System::Account` (r:2 w:2)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	fn force_transfer() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `103`
+		//  Estimated: `6196`
+		// Minimum execution time: 37_000_000 picoseconds.
+		Weight::from_parts(41_000_000, 6196)
+			.saturating_add(T::DbWeight::get().reads(2_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
+	/// Storage: `System::Account` (r:1 w:1)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
 	fn transfer_all() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
@@ -92,6 +131,39 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(39_000_000, 3593)
 			.saturating_add(T::DbWeight::get().reads(1_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `System::Account` (r:1 w:1)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	fn force_unreserve() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `103`
+		//  Estimated: `3593`
+		// Minimum execution time: 11_000_000 picoseconds.
+		Weight::from_parts(12_000_000, 3593)
+			.saturating_add(T::DbWeight::get().reads(1_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `System::Account` (r:999 w:999)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	/// The range of component `u` is `[1, 1000]`.
+	fn upgrade_accounts(u: u32, ) -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0 + u * (136 ±0)`
+		//  Estimated: `990 + u * (2603 ±0)`
+		// Minimum execution time: 11_000_000 picoseconds.
+		Weight::from_parts(12_000_000, 990)
+			// Standard Error: 6_156
+			.saturating_add(Weight::from_parts(10_516_530, 0).saturating_mul(u.into()))
+			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(u.into())))
+			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(u.into())))
+			.saturating_add(Weight::from_parts(0, 2603).saturating_mul(u.into()))
+	}
+	fn force_adjust_total_issuance() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_000_000 picoseconds.
+		Weight::from_parts(4_000_000, 0)
 	}
 	fn burn_allow_death() -> Weight {
 		// Proof Size summary in bytes:
@@ -135,6 +207,39 @@ impl WeightInfo for () {
 	}
 	/// Storage: `System::Account` (r:1 w:1)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	fn force_set_balance_creating() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `3593`
+		// Minimum execution time: 14_000_000 picoseconds.
+		Weight::from_parts(15_000_000, 3593)
+			.saturating_add(RocksDbWeight::get().reads(1_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `System::Account` (r:1 w:1)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	fn force_set_balance_killing() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `103`
+		//  Estimated: `3593`
+		// Minimum execution time: 13_000_000 picoseconds.
+		Weight::from_parts(15_000_000, 3593)
+			.saturating_add(RocksDbWeight::get().reads(1_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `System::Account` (r:2 w:2)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	fn force_transfer() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `103`
+		//  Estimated: `6196`
+		// Minimum execution time: 37_000_000 picoseconds.
+		Weight::from_parts(41_000_000, 6196)
+			.saturating_add(RocksDbWeight::get().reads(2_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	/// Storage: `System::Account` (r:1 w:1)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
 	fn transfer_all() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
@@ -143,6 +248,39 @@ impl WeightInfo for () {
 		Weight::from_parts(39_000_000, 3593)
 			.saturating_add(RocksDbWeight::get().reads(1_u64))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `System::Account` (r:1 w:1)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	fn force_unreserve() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `103`
+		//  Estimated: `3593`
+		// Minimum execution time: 11_000_000 picoseconds.
+		Weight::from_parts(12_000_000, 3593)
+			.saturating_add(RocksDbWeight::get().reads(1_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `System::Account` (r:999 w:999)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	/// The range of component `u` is `[1, 1000]`.
+	fn upgrade_accounts(u: u32, ) -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0 + u * (136 ±0)`
+		//  Estimated: `990 + u * (2603 ±0)`
+		// Minimum execution time: 11_000_000 picoseconds.
+		Weight::from_parts(12_000_000, 990)
+			// Standard Error: 6_156
+			.saturating_add(Weight::from_parts(10_516_530, 0).saturating_mul(u.into()))
+			.saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(u.into())))
+			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(u.into())))
+			.saturating_add(Weight::from_parts(0, 2603).saturating_mul(u.into()))
+	}
+	fn force_adjust_total_issuance() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_000_000 picoseconds.
+		Weight::from_parts(4_000_000, 0)
 	}
 	fn burn_allow_death() -> Weight {
 		// Proof Size summary in bytes:

@@ -44,28 +44,10 @@ mod tests;
 
 pub mod weights;
 
-use codec::{Decode, DecodeLimit, Encode, MaxEncodedLen};
+use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::{traits::Get, BoundedBTreeMap, BoundedVec};
 use scale_info::TypeInfo;
 use sp_runtime::RuntimeDebug;
-
-/// Maximum decode nesting depth allowed when turning a stored opaque call
-/// (`BoundedCallOf`) back into a `RuntimeCall`.
-///
-/// The outer extrinsic is decoded by FRAME's Executive with
-/// `decode_all_with_depth_limit(MAX_EXTRINSIC_DEPTH, ..)`, but that limit only
-/// applies to the signed envelope; the inner call is carried as opaque bytes and
-/// escapes it. Without a bound here, a signer can store a deeply nested call
-/// (e.g. chained `Utility::batch_all`) that passes pool validation and then
-/// exhausts the runtime stack when `propose`/`execute` decode it during block
-/// construction. We reuse the same ceiling as the outer envelope: Executive
-/// already performs a decode at this depth on every extrinsic, so it is proven
-/// safe, and no value that exceeds it could have entered as a top-level call.
-///
-/// Depth is bounded here; `propose` then requires the stored bytes to equal
-/// `decoded.encode()`, so trailing garbage cannot be stored. `execute` binds the
-/// submitted call to that canonical payload and does not decode storage again.
-pub const MAX_MULTISIG_CALL_DEPTH: u32 = frame_support::MAX_EXTRINSIC_DEPTH;
 
 /// Multisig account data
 #[derive(Encode, Decode, MaxEncodedLen, Clone, TypeInfo, RuntimeDebug, PartialEq, Eq)]
@@ -421,8 +403,6 @@ pub mod pallet {
 		CallWeightExceedsLimit,
 		/// Provided call does not match the stored proposal payload
 		CallMismatch,
-		/// Signer list contains the same account more than once
-		DuplicateSigners,
 	}
 
 	#[pallet::call]
@@ -437,8 +417,7 @@ pub mod pallet {
 		/// The multisig address is deterministically derived from:
 		/// hash(pallet_id || sorted_signers || threshold || nonce)
 		///
-		/// Signers are sorted before hashing, so order doesn't matter.
-		/// Duplicate accounts are rejected.
+		/// Signers are automatically sorted before hashing, so order doesn't matter.
 		///
 		/// Economic costs:
 		/// - MultisigFee: burned immediately (spam prevention)
@@ -452,16 +431,30 @@ pub mod pallet {
 		) -> DispatchResult {
 			let creator = ensure_signed(origin)?;
 
+			// Validate inputs
 			ensure!(threshold > 0, Error::<T>::ThresholdZero);
 			ensure!(signers.len() >= 2, Error::<T>::NotEnoughSigners);
+
+			// SECURITY: Bound raw input size BEFORE normalization to prevent DoS.
+			// An attacker could submit a huge duplicate-heavy vector; clone/sort/dedup
+			// is O(n log n) on the raw length, but benchmarks only cover MaxSigners.
+			// Reject oversized inputs before doing any expensive work.
+			//
+			// BREAKING CHANGE: This rejects inputs with len > MaxSigners even if they would
+			// deduplicate to ≤ MaxSigners. Previously such inputs were accepted. This is the
+			// correct security tradeoff: users must pre-deduplicate their signer lists.
 			ensure!(signers.len() <= T::MaxSigners::get() as usize, Error::<T>::TooManySigners);
 
-			let sorted_signers = Self::sort_signers(&signers);
-			ensure!(sorted_signers.windows(2).all(|w| w[0] != w[1]), Error::<T>::DuplicateSigners);
-			ensure!(threshold <= sorted_signers.len() as u32, Error::<T>::ThresholdTooHigh);
+			// Normalize signers: sort and deduplicate (single authoritative place)
+			let normalized_signers = Self::normalize_signers(&signers);
 
+			// Validate against normalized count (after dedup) - must have at least 2 unique signers
+			ensure!(normalized_signers.len() >= 2, Error::<T>::NotEnoughSigners);
+			ensure!(threshold <= normalized_signers.len() as u32, Error::<T>::ThresholdTooHigh);
+
+			// Generate deterministic multisig address from normalized signers
 			let multisig_address =
-				Self::derive_multisig_address_inner(&sorted_signers, threshold, nonce);
+				Self::derive_multisig_address_inner(&normalized_signers, threshold, nonce);
 
 			// Ensure multisig doesn't already exist
 			ensure!(
@@ -479,8 +472,9 @@ pub mod pallet {
 			)
 			.map_err(|_| Error::<T>::InsufficientBalance)?;
 
+			// Convert normalized signers to bounded vec
 			let bounded_signers: BoundedSignersOf<T> =
-				sorted_signers.try_into().map_err(|_| Error::<T>::TooManySigners)?;
+				normalized_signers.try_into().map_err(|_| Error::<T>::TooManySigners)?;
 
 			// Store multisig data
 			Multisigs::<T>::insert(
@@ -601,15 +595,9 @@ pub mod pallet {
 			// This catches malformed calls at propose time rather than execute time,
 			// providing consistent error behavior for both HS and non-HS multisigs.
 			// NOTE: Decode cost is O(inner_call_count) for nested calls, not O(bytes).
-			// The opaque bytes bypass Executive's outer depth limiter, so we bound the
-			// decode recursion here to keep a deeply nested call from exhausting the
-			// runtime stack. On decode failure, we burn the full reserved weight to
-			// prevent griefing.
-			let decoded_call = <T as Config>::RuntimeCall::decode_with_depth_limit(
-				MAX_MULTISIG_CALL_DEPTH,
-				&mut &call[..],
-			)
-			.map_err(|_| Self::err_burn_full_raw(Error::<T>::InvalidCall))?;
+			// On decode failure, we burn the full reserved weight to prevent griefing.
+			let decoded_call = <T as Config>::RuntimeCall::decode(&mut &call[..])
+				.map_err(|_| Self::err_burn_full_raw(Error::<T>::InvalidCall))?;
 
 			// The stored bytes must be exactly the decoded call's canonical
 			// encoding. Decode does not have to consume its whole input, so
@@ -620,6 +608,8 @@ pub mod pallet {
 			// non-canonical form). Reject such payloads before any state
 			// change, fee, or deposit.
 			if decoded_call.encode() != call.as_slice() {
+				// Same burn-full reasoning as decode failure: size-dependent
+				// work (decode + encode) has already been done.
 				return Self::err_burn_full(Error::<T>::InvalidCall);
 			}
 
@@ -646,7 +636,17 @@ pub mod pallet {
 				return Self::err_burn_full(Error::<T>::CallNotAllowedForHighSecurityMultisig);
 			}
 
-			let fee = Self::proposal_fee(signers_count);
+			// Calculate dynamic fee based on number of signers
+			// Fee = Base + floor(StepFactor * Base * SignerCount)
+			let base_fee = T::ProposalFee::get();
+			let step_factor = T::SignerStepFactor::get();
+
+			// Multiply base by signer count first, then apply step factor percentage.
+			// This avoids early floor truncation that would zero out small percentages.
+			// Example: base=99, factor=1%, signers=100 -> floor(1% * 9900) = 99
+			let multiplier = base_fee.saturating_mul(signers_count.into());
+			let total_increase = step_factor.mul_floor(multiplier);
+			let fee = base_fee.saturating_add(total_increase);
 
 			// Charge non-refundable fee (burned)
 			let _ = T::Currency::withdraw(
@@ -1221,17 +1221,6 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		/// Fee charged by `propose`: `Base + floor(StepFactor * Base * SignerCount)`.
-		///
-		/// Multiplies base by signer count before applying the step factor so the
-		/// floor cannot truncate small percentages to zero
-		/// (base=99, factor=1%, signers=100 -> floor(1% * 9900) = 99).
-		pub fn proposal_fee(signers_count: u32) -> BalanceOf<T> {
-			let base_fee = T::ProposalFee::get();
-			let multiplier = base_fee.saturating_mul(signers_count.into());
-			base_fee.saturating_add(T::SignerStepFactor::get().mul_floor(multiplier))
-		}
-
 		/// Return an error with actual weight consumed instead of charging full upfront weight.
 		/// Use for early exits where minimal work was performed (only DB reads).
 		fn err_with_weight(error: Error<T>, reads: u64) -> DispatchResultWithPostInfo {
@@ -1269,26 +1258,32 @@ pub mod pallet {
 			}
 		}
 
-		fn sort_signers(signers: &[T::AccountId]) -> Vec<T::AccountId> {
+		/// Normalize signers: sort and deduplicate.
+		///
+		/// Returns sorted, deduplicated signers. This is the single authoritative
+		/// place for signer normalization - used by both address derivation and creation.
+		fn normalize_signers(signers: &[T::AccountId]) -> Vec<T::AccountId> {
 			let mut sorted = signers.to_vec();
 			sorted.sort();
+			sorted.dedup();
 			sorted
 		}
 
-		/// Derive a deterministic multisig address from signers, threshold, and nonce.
+		/// Derive a deterministic multisig address from signers, threshold, and nonce
 		///
-		/// The address is `hash(pallet_id || sorted_signers || threshold || nonce)`.
-		/// Signers are sorted so order does not matter. Duplicates are not removed;
-		/// `create_multisig` rejects them.
+		/// The address is computed as: hash(pallet_id || normalized_signers || threshold || nonce)
+		/// Signers are automatically sorted and deduplicated internally for deterministic results.
+		/// This allows users to pre-compute the address before creating the multisig.
 		pub fn derive_multisig_address(
 			signers: &[T::AccountId],
 			threshold: u32,
 			nonce: u64,
 		) -> T::AccountId {
-			let sorted = Self::sort_signers(signers);
-			Self::derive_multisig_address_inner(&sorted, threshold, nonce)
+			let normalized = Self::normalize_signers(signers);
+			Self::derive_multisig_address_inner(&normalized, threshold, nonce)
 		}
 
+		/// Derive multisig address from pre-normalized signers (internal use).
 		fn derive_multisig_address_inner(
 			normalized_signers: &[T::AccountId],
 			threshold: u32,

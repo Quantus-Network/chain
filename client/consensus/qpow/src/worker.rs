@@ -30,7 +30,7 @@ use sc_client_api::ImportNotifications;
 use sc_consensus::{BlockImportParams, BoxBlockImport, StateAction, StorageChanges};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
-use sp_consensus::{BlockOrigin, Proposal};
+use sp_consensus::{BlockOrigin, Proposal, SyncOracle};
 use sp_consensus_qpow::{QPoWApi, Seal, POW_ENGINE_ID};
 use sp_runtime::{
 	traits::{Block as BlockT, Header as HeaderT},
@@ -39,7 +39,7 @@ use sp_runtime::{
 use std::{
 	pin::Pin,
 	sync::{
-		atomic::{AtomicBool, AtomicUsize, Ordering},
+		atomic::{AtomicUsize, Ordering},
 		Arc,
 	},
 	time::Duration,
@@ -70,29 +70,14 @@ pub struct MiningBuild<Block: BlockT, Proof> {
 #[derive(Eq, PartialEq, Clone, Copy)]
 pub struct Version(usize);
 
-#[derive(Clone, Default)]
-struct AuthoringGate {
-	enabled: Arc<AtomicBool>,
-}
-
-impl AuthoringGate {
-	fn is_enabled(&self) -> bool {
-		self.enabled.load(Ordering::SeqCst)
-	}
-
-	fn set_enabled(&self, enabled: bool) -> bool {
-		self.enabled.swap(enabled, Ordering::SeqCst) != enabled
-	}
-}
-
 /// Mining worker that exposes structs to query the current mining build and submit mined blocks.
 pub struct MiningHandle<Block: BlockT, AC, L: sc_consensus::JustificationSyncLink<Block>, Proof> {
 	version: Arc<AtomicUsize>,
-	authoring_gate: AuthoringGate,
 	client: Arc<AC>,
 	justification_sync_link: Arc<L>,
 	build: Arc<Mutex<Option<MiningBuild<Block, Proof>>>>,
 	block_import: Arc<BoxBlockImport<Block>>,
+	sync_oracle: Arc<dyn SyncOracle + Send + Sync>,
 	// Rebuild-request channel shared with the block-building task, so mining can be
 	// resumed (post-sync, or after a failed import) without an external trigger.
 	pending_build: Arc<Mutex<Option<Block::Hash>>>,
@@ -110,62 +95,46 @@ where
 		self.version.fetch_add(1, Ordering::SeqCst);
 	}
 
-	pub(crate) fn new(
+	pub(crate) fn new<SO>(
 		client: Arc<AC>,
 		block_import: BoxBlockImport<Block>,
 		justification_sync_link: L,
+		sync_oracle: SO,
 		pending_build: Arc<Mutex<Option<Block::Hash>>>,
 		rebuild_notify: futures::channel::mpsc::Sender<()>,
-	) -> Self {
+	) -> Self
+	where
+		SO: SyncOracle + Send + Sync + 'static,
+	{
 		Self {
 			version: Arc::new(AtomicUsize::new(0)),
-			authoring_gate: AuthoringGate::default(),
 			client,
 			justification_sync_link: Arc::new(justification_sync_link),
 			build: Arc::new(Mutex::new(None)),
 			block_import: Arc::new(block_import),
+			sync_oracle: Arc::new(sync_oracle),
 			pending_build,
 			rebuild_notify,
 		}
-	}
-
-	/// Enable or pause proposal building, mining, and seal submission together.
-	pub fn set_authoring_enabled(&self, enabled: bool) {
-		if !self.authoring_gate.set_enabled(enabled) {
-			return;
-		}
-
-		*self.pending_build.lock() = None;
-		if enabled {
-			self.request_rebuild();
-		} else {
-			self.build.lock().take();
-			self.increment_version();
-		}
-	}
-
-	/// Whether proposal building, mining, and seal submission are enabled.
-	pub fn is_authoring_enabled(&self) -> bool {
-		self.authoring_gate.is_enabled()
 	}
 
 	/// Request a rebuild of the mining candidate on top of the current best block.
 	/// Used to resume mining after the build was cleared (post-sync) or a submitted
 	/// block failed to import, leaving no candidate.
 	pub fn request_rebuild(&self) {
-		if !self.is_authoring_enabled() {
-			return;
-		}
 		let best_hash = self.client.info().best_hash;
 		*self.pending_build.lock() = Some(best_hash);
 		let _ = self.rebuild_notify.clone().try_send(());
 	}
 
+	pub(crate) fn on_major_syncing(&self) {
+		let mut build = self.build.lock();
+		*build = None;
+		self.increment_version();
+	}
+
 	pub(crate) fn on_build(&self, value: MiningBuild<Block, Proof>) {
 		let mut build = self.build.lock();
-		if !self.is_authoring_enabled() {
-			return;
-		}
 		*build = Some(value);
 		self.increment_version();
 	}
@@ -178,20 +147,14 @@ where
 		Version(self.version.load(Ordering::SeqCst))
 	}
 
-	/// Get the current best hash. `None` if the worker has just started or the last
-	/// build was consumed.
+	/// Get the current best hash. `None` if the worker has just started or the client is doing
+	/// major syncing.
 	pub fn best_hash(&self) -> Option<Block::Hash> {
-		if !self.is_authoring_enabled() {
-			return None;
-		}
 		self.build.lock().as_ref().map(|b| b.metadata.best_hash)
 	}
 
 	/// Get a copy of the current mining metadata, if available.
 	pub fn metadata(&self) -> Option<MiningMetadata<Block::Hash, U512>> {
-		if !self.is_authoring_enabled() {
-			return None;
-		}
 		self.build.lock().as_ref().map(|b| b.metadata.clone())
 	}
 
@@ -203,8 +166,12 @@ where
 		let build = {
 			let mut build_guard = self.build.lock();
 
-			if !self.is_authoring_enabled() {
-				debug!(target: LOG_TARGET, "Ignoring mined seal while authoring is paused");
+			// Defense-in-depth: never import a locally mined block while the node is
+			// still doing major sync. Drop the stale candidate.
+			if self.sync_oracle.is_major_syncing() {
+				debug!(target: LOG_TARGET, "Rejecting mined block submission due to sync.");
+				*build_guard = None;
+				self.increment_version();
 				return false;
 			}
 
@@ -299,11 +266,11 @@ where
 	fn clone(&self) -> Self {
 		Self {
 			version: self.version.clone(),
-			authoring_gate: self.authoring_gate.clone(),
 			client: self.client.clone(),
 			justification_sync_link: self.justification_sync_link.clone(),
 			build: self.build.clone(),
 			block_import: self.block_import.clone(),
+			sync_oracle: self.sync_oracle.clone(),
 			pending_build: self.pending_build.clone(),
 			rebuild_notify: self.rebuild_notify.clone(),
 		}
@@ -416,22 +383,5 @@ impl<Block: BlockT, TxHash> Stream for UntilImportedOrTransaction<Block, TxHash>
 		}
 
 		Poll::Pending
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::AuthoringGate;
-
-	#[test]
-	fn authoring_gate_is_shared_and_starts_disabled() {
-		let gate = AuthoringGate::default();
-		let clone = gate.clone();
-
-		assert!(!gate.is_enabled());
-		assert!(clone.set_enabled(true));
-		assert!(gate.is_enabled());
-		assert!(gate.set_enabled(false));
-		assert!(!clone.is_enabled());
 	}
 }
