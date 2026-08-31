@@ -533,6 +533,22 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		}
 	}
 
+	/// One worst-case walk of an `execute` inner call: decode/match up to
+	/// `MaxCallSize` bytes. Charged twice (`weight()` and `validate()`). The
+	/// inner call is already in the extrinsic, so this is compute only.
+	fn execute_call_walk_weight() -> Weight {
+		let max_call = u64::from(<Runtime as pallet_multisig::Config>::MaxCallSize::get());
+		Weight::from_parts(
+			Self::EVENT_SCAN_DECODE_REF_TIME_PS
+				.saturating_add(Self::EVENT_SCAN_DECODE_BYTE_REF_TIME_PS.saturating_mul(max_call)),
+			0,
+		)
+	}
+
+	fn is_multisig_execute(call: &RuntimeCall) -> bool {
+		matches!(call, RuntimeCall::Multisig(pallet_multisig::Call::execute { .. }))
+	}
+
 	/// Scan events and record transfer proofs for any transfers that occurred
 	/// since the given event count (to avoid re-processing previous events
 	/// within the same block).
@@ -656,10 +672,17 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 
 	fn weight(&self, call: &RuntimeCall) -> Weight {
 		let n = Self::count_transfers(call);
-		if n > 0 {
-			Self::per_transfer_weight().saturating_mul(n)
+		let proofs =
+			if n > 0 { Self::per_transfer_weight().saturating_mul(n) } else { Weight::zero() };
+		if Self::is_multisig_execute(call) {
+			// Always reserve two worst-case inner-call walks: `weight()` itself
+			// walks to size the proof reservation, and `validate()` walks to
+			// carry the count into `prepare`. A MaxCallSize no-transfer execute
+			// must not be free — the pallet can reject a non-signer after one
+			// `Multisigs` read, and that error path must not refund this work.
+			proofs.saturating_add(Self::execute_call_walk_weight().saturating_mul(2))
 		} else {
-			Weight::zero()
+			proofs
 		}
 	}
 
@@ -703,7 +726,9 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		// recorded, so the static per-transfer reservation is unspent. Returning it
 		// refunds both the fee (this extension precedes `ChargeTransactionPayment`
 		// in `TxExtension`, so payment sees the corrected weight) and block
-		// capacity (via the trailing `WeightReclaim`).
+		// capacity (via the trailing `WeightReclaim`). The execute inner-call-walk
+		// reservation is not returned: that work already ran in `weight()` /
+		// `validate()`, including on the non-signer reject path.
 		if result.is_err() {
 			return Ok(Self::per_transfer_weight().saturating_mul(charged_transfers));
 		}
@@ -1615,10 +1640,12 @@ mod tests {
 		assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&wrapped), 3);
 	}
 
-	/// A remark inner call records no proofs; a failed non-signer execute refunds
-	/// the (zero) transfer reservation.
+	/// A 10 KiB no-transfer inner call plus a non-signer execute used to
+	/// reserve zero extension weight, then refund that zero after the pallet
+	/// rejected on the `Multisigs` read. The two inner-call walks must stay
+	/// charged.
 	#[test]
-	fn multisig_execute_failed_non_signer_refunds_transfer_reservation() {
+	fn multisig_execute_failed_non_signer_keeps_call_walk_weight() {
 		new_test_ext().execute_with(|| {
 			System::set_block_number(1);
 
@@ -1637,6 +1664,8 @@ mod tests {
 				0,
 				"a remark inner call records no proofs"
 			);
+			let walk = WormholeProofRecorderExtension::<Runtime>::execute_call_walk_weight()
+				.saturating_mul(2);
 			let (info, post_info) = run_lifecycle_with_result(
 				&charlie(),
 				execute,
@@ -1654,11 +1683,11 @@ mod tests {
 					);
 				},
 			);
-			assert_eq!(info.extension_weight, Weight::zero());
+			assert_eq!(info.extension_weight, walk);
 			assert_eq!(
 				post_info.actual_weight,
 				Some(info.total_weight()),
-				"zero transfer reservation stays zero after a failed execute"
+				"failed execute must not refund the inner-call-walk reservation"
 			);
 		});
 	}
@@ -1697,10 +1726,14 @@ mod tests {
 			});
 
 			assert_eq!(Wormhole::transfer_count(&charlie()), 1);
+			let walk = WormholeProofRecorderExtension::<Runtime>::execute_call_walk_weight()
+				.saturating_mul(2);
 			assert_eq!(
 				info.extension_weight,
-				WormholeProofRecorderExtension::<Runtime>::per_transfer_weight(),
-				"execute reserves one transfer"
+				walk.saturating_add(
+					WormholeProofRecorderExtension::<Runtime>::per_transfer_weight()
+				),
+				"execute reserves the inner-call walks plus the one transfer"
 			);
 			assert_eq!(
 				post_info.actual_weight,
