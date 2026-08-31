@@ -133,11 +133,12 @@ If you want to see the multi-node consensus algorithm in action, see [Simulate a
 
 ### Linting
 
-We use `taplo` for formatting TOML files and `fmt` for Rust code.
+We use `taplo` for formatting TOML files and nightly `rustfmt` for Rust code. The rustfmt nightly is pinned in
+`rustfmt-toolchain`; `scripts/fmt.sh` installs it on first use and forwards its arguments to `cargo fmt`.
 
 ```sh
 taplo format --config taplo.toml
-cargo fmt --all --check
+scripts/fmt.sh --all -- --check
 ```
 
 ## Database Storage Configuration

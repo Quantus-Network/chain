@@ -115,16 +115,13 @@ jobs:
         with:
           ref: ${{ needs.prepare-miner-api-release.outputs.commit_sha }}
 
-      - name: Install required components
-        run: rustup component add rustfmt --toolchain nightly
-
       - name: Install taplo
         run: cargo install taplo-cli --locked
 
       - name: Run format checks
         run: |
           taplo format --check --config taplo.toml
-          cargo +nightly fmt --all -- --check
+          scripts/fmt.sh --all -- --check
 
   build-and-test-miner-api:
     name: 🛠️ Build & Test Miner API

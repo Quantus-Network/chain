@@ -62,16 +62,13 @@ jobs:
         with:
           ref: ${{ needs.create-dilithium-tag.outputs.version }}
 
-      - name: Install required components
-        run: rustup component add rustfmt --toolchain nightly
-
       - name: Install taplo
         run: cargo install taplo-cli --locked
 
       - name: Run format checks
         run: |
           taplo format --check --config taplo.toml
-          cargo +nightly fmt --all -- --check
+          scripts/fmt.sh --all -- --check
 
   build-and-test-dilithium:
     name: 🛠️ Build & Test Dilithium

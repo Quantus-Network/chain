@@ -32,8 +32,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/ubuntu
-      - name: Install required components
-        run: rustup component add rustfmt --toolchain nightly
       - name: Install taplo
         run: |
           curl -fsSL https://github.com/tamasfe/taplo/releases/download/0.9.3/taplo-linux-x86_64.gz | gunzip > taplo
@@ -42,7 +40,7 @@ jobs:
       - name: Run format checks
         run: |
           taplo format --check --config taplo.toml
-          cargo +nightly fmt --all -- --check
+          scripts/fmt.sh --all -- --check
 
   build-and-test-matrix:
     name: 🛠️ Check & Test Matrix
