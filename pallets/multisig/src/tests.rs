@@ -1,7 +1,7 @@
 //! Unit tests for pallet-multisig
 
 use crate::{mock::*, Error, Event, Multisigs, ProposalStatus, Proposals};
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeLimit, Encode};
 use frame_support::{
 	assert_err_ignore_postinfo, assert_noop, assert_ok,
 	dispatch::GetDispatchInfo,
@@ -1024,6 +1024,79 @@ fn remove_expired_unblocks_undecodable_approved_proposal() {
 
 		// No deposit was reserved (proposal failed before that)
 		assert_eq!(Balances::reserved_balance(bob()), 0);
+	});
+}
+
+fn nested_batch_all_call(depth: usize) -> RuntimeCall {
+	let mut call = RuntimeCall::System(frame_system::Call::remark { remark: Vec::new() });
+	for _ in 0..depth {
+		call = RuntimeCall::Utility(pallet_utility::Call::batch_all { calls: vec![call] });
+	}
+	call
+}
+
+/// `propose` must reserve the one codec-depth level consumed when the accepted
+/// call is later carried inside `Multisig::execute`'s `Box<RuntimeCall>`.
+#[test]
+fn proposal_depth_boundary_remains_executable() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		set_max_inner_call_weight(Weight::from_parts(u64::MAX, u64::MAX));
+
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0,
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		let accepted = nested_batch_all_call(crate::MAX_MULTISIG_CALL_DEPTH as usize);
+		let accepted_bytes: crate::BoundedCallOf<Test> = accepted.encode().try_into().unwrap();
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			accepted_bytes.clone(),
+			100,
+		));
+
+		let execute = RuntimeCall::Multisig(crate::Call::execute {
+			multisig_address: multisig_address.clone(),
+			proposal_id: 0,
+			call: Box::new(accepted.clone()),
+		});
+		let execute_bytes = execute.encode();
+		assert!(
+			RuntimeCall::decode_all_with_depth_limit(
+				frame_support::MAX_EXTRINSIC_DEPTH,
+				&mut &execute_bytes[..],
+			)
+			.is_ok(),
+			"an accepted proposal must fit inside a depth-limited execute call",
+		);
+
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address.clone(),
+			0,
+			accepted_bytes,
+		));
+		assert_ok!(Multisig::execute(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			Box::new(accepted),
+		));
+
+		let rejected = nested_batch_all_call(crate::MAX_MULTISIG_CALL_DEPTH as usize + 1);
+		let rejected_bytes: crate::BoundedCallOf<Test> = rejected.encode().try_into().unwrap();
+		assert_err_ignore_postinfo(
+			Multisig::propose(RuntimeOrigin::signed(bob()), multisig_address, rejected_bytes, 100),
+			Error::<Test>::InvalidCall.into(),
+		);
+
+		reset_max_inner_call_weight();
 	});
 }
 
