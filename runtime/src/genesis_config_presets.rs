@@ -686,10 +686,12 @@ const STAGING_REHEARSAL_VESTING: [(&str, u128); 20] = [
 	("qznhDdGC8aRrHLHBGt99eHaLkGYwnRZxqNJ8yi4VTPqz9wfDo", 4_000 * UNIT), // staging-19
 ];
 
-/// Staging rehearsal vest clock: **2026-08-22 00:00:00 UTC**, 5-minute cliff,
+/// Staging rehearsal vest clock: **2026-09-01 14:00:00 UTC**, 5-minute cliff,
 /// fully vested after 10 days. Independent of the dummy mainnet TGE so these
-/// keys can be exercised on the dress-rehearsal chain.
-const STAGING_REHEARSAL_VESTING_START_MS: VestingMoment = utc_midnight_ms(2026, 8, 22);
+/// keys can be exercised on the dress-rehearsal chain. Not midnight UTC — the
+/// rehearsal clock is a wall-clock offset from launch day, not a TGE epoch.
+const STAGING_REHEARSAL_VESTING_START_MS: VestingMoment =
+	utc_midnight_ms(2026, 9, 1) + minutes_ms(14 * 60);
 const STAGING_REHEARSAL_VESTING_CLIFF_MS: VestingMoment =
 	STAGING_REHEARSAL_VESTING_START_MS + minutes_ms(5);
 const STAGING_REHEARSAL_VESTING_END_MS: VestingMoment =
@@ -931,19 +933,21 @@ mod tests {
 		assert_eq!(utc_midnight_ms(2024, 2, 29), 1_709_164_800_000);
 		// Each documented vesting epoch, pinned to its independently derived value.
 		assert_eq!(GENESIS_VESTING_START_MS, 1_785_888_000_000); // 2026-08-05 UTC
-		assert_eq!(STAGING_REHEARSAL_VESTING_START_MS, 1_787_356_800_000); // 2026-08-22 UTC
+		assert_eq!(STAGING_REHEARSAL_VESTING_START_MS, 1_788_271_200_000); // 2026-09-01 14:00 UTC
 		assert_eq!(MAINNET_VESTING_START_MS, 1_796_083_200_000); // 2026-12-01 UTC
 	}
 
 	#[test]
 	fn genesis_vesting_times_are_sane() {
-		for start in
-			[GENESIS_VESTING_START_MS, MAINNET_VESTING_START_MS, STAGING_REHEARSAL_VESTING_START_MS]
-		{
+		// TGE-style epochs are midnight UTC. The rehearsal clock is a wall-clock
+		// offset from launch day and is not required to land on midnight.
+		for start in [GENESIS_VESTING_START_MS, MAINNET_VESTING_START_MS] {
 			assert_eq!(start % MILLIS_PER_DAY, 0, "start must be midnight UTC");
 			assert!(start > YEAR_2020_MS);
 			assert!(start < YEAR_2100_MS);
 		}
+		assert!(STAGING_REHEARSAL_VESTING_START_MS > YEAR_2020_MS);
+		assert!(STAGING_REHEARSAL_VESTING_START_MS < YEAR_2100_MS);
 		assert!(GENESIS_VESTING_START_MS <= GENESIS_VESTING_CLIFF_MS);
 		assert!(GENESIS_VESTING_CLIFF_MS <= GENESIS_VESTING_END_MS);
 		assert!(GENESIS_VESTING_START_MS < GENESIS_VESTING_END_MS);

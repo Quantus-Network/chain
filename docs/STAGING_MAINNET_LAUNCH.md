@@ -25,7 +25,7 @@ differs while everything else stays 1:1.
 - Vesting: `mainnet_vesting_schedules` is a DUMMY scaffold (team / early-backer /
   ecosystem entries with stand-in beneficiaries T1, T2, and the treasury, plus
   20 HD rehearsal accounts with distinct grants summing to 100_000 UNIT,
-  5-minute cliff / 10-day vest from 2026-08-22 00:00 UTC). Replace it with the
+  5-minute cliff / 10-day vest from 2026-09-01 14:00 UTC). Replace it with the
   real allocation table and flip `MAINNET_VESTING_FINALIZED` before the mainnet
   preset is added — until then only staging-mainnet builds.
 
