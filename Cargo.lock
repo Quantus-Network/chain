@@ -7560,7 +7560,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.11.0-rocket-fuel"
+version = "0.11.1"
 dependencies = [
  "array-bytes 6.2.3",
  "clap",
