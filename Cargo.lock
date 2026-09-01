@@ -7560,7 +7560,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.10.0"
+version = "0.11.0-rocket-fuel"
 dependencies = [
  "array-bytes 6.2.3",
  "clap",
@@ -7631,7 +7631,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.9.0-endless-sky"
+version = "0.11.0-rocket-fuel"
 dependencies = [
  "env_logger",
  "frame-benchmarking",
