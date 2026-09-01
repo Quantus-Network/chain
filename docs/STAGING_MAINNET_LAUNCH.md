@@ -5,6 +5,10 @@ Mainnet dress rehearsal. Genesis comes from `mainnet_config_genesis`
 except the treasury multisig nonce (staging 1, mainnet 0), so the genesis hash
 differs while everything else stays 1:1.
 
+- Genesis hash (spec generated from `v0.11.0-rocket-fuel`, runtime `spec_version` 148):
+  `0xb0e90ed9f291a9194f79bf90dce39ad7e5ea88f1bf6a9db5f268f309d305e30d`
+  (state root `0x8f3f…fc50`). Any change to genesis data re-derives this — the
+  chain spec must then be regenerated from a new runtime-upgrade tag.
 - Treasury: 6-of-10 multisig of `MAINNET_TREASURY_SIGNERS_SS58`, nonce 1 →
   `qzpjP5r4NSeWDrbHvboYcychsmCCaJrbRixvghVjnaRzjRb5i`
 - Tech collective: the same ten accounts (referenda curves are runtime constants)
