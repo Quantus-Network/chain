@@ -83,7 +83,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: alloc::borrow::Cow::Borrowed("quantus-runtime"),
 	impl_name: alloc::borrow::Cow::Borrowed("quantus-runtime"),
 	authoring_version: 1,
-	spec_version: 147,
+	spec_version: 148,
 	impl_version: 1,
 	apis: apis::RUNTIME_API_VERSIONS,
 	transaction_version: 6,
