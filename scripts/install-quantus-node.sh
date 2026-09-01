@@ -45,7 +45,8 @@ case "$(uname -m)" in
         if [ "$OS" = "linux" ]; then
             TARGET_ARCH_NAME="x86_64-unknown-linux-gnu"
         elif [ "$OS" = "macos" ]; then
-            TARGET_ARCH_NAME="x86_64-apple-darwin"
+            echo "Intel macOS (x86_64) is not a release target. Use an Apple Silicon Mac or Linux, or compile the node locally: cargo build --release --locked --package quantus-node"
+            exit 1
         fi
         ;;
     arm64|aarch64)
