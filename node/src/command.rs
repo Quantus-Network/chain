@@ -316,11 +316,11 @@ impl SubstrateCli for Cli {
 			"planck" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
 				"chain-specs/planck.json"
 			))?) as Box<dyn sc_service::ChainSpec>,
-			// "staging_mainnet" resolves to a committed chain-specs/staging-mainnet.json
-			// (generated via scripts/genesis_generate_spec.sh) once the launch signer
-			// addresses are finalized — see docs/STAGING_MAINNET_LAUNCH.md.
 			"staging_mainnet_live_spec" => Box::new(chain_spec::staging_mainnet_chain_spec()?)
 				as Box<dyn sc_service::ChainSpec>,
+			"staging_mainnet" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
+				"chain-specs/staging-mainnet.json"
+			))?) as Box<dyn sc_service::ChainSpec>,
 			path =>
 				Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?)
 					as Box<dyn sc_service::ChainSpec>,
