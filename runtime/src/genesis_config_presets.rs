@@ -19,7 +19,8 @@
 #![allow(clippy::expect_used)]
 
 use crate::{
-	AccountId, BalancesConfig, RuntimeGenesisConfig, EXISTENTIAL_DEPOSIT, MILLIS_PER_DAY, UNIT,
+	governance::definitions::ROOT_TRACK_MIN_ENACTMENT_DELAY_MS, AccountId, BalancesConfig,
+	RuntimeGenesisConfig, EXISTENTIAL_DEPOSIT, MILLIS_PER_DAY, UNIT,
 };
 use alloc::{
 	string::{String, ToString},
@@ -649,6 +650,24 @@ const STAGING_MAINNET_TECH_COLLECTIVE_MEMBERS_SS58: [&str; 10] = [
 /// Staging-mainnet vesting start: **2026-09-03 00:00:00 UTC**.
 const STAGING_MAINNET_START: VestingMoment = utc_midnight_ms(2026, 9, 3);
 
+/// Start of the three stand-in schedules: **2026-09-17 00:00:00 UTC**, two weeks
+/// after the chain's own epoch.
+///
+/// `claim` is permissionless and pays whichever beneficiary the schedule holds
+/// when it executes, while `retarget_schedule` is Root-only. A placeholder that
+/// starts vesting at launch is therefore claimable long before the collective can
+/// replace it: the Root track needs [`ROOT_TRACK_MIN_ENACTMENT_DELAY_MS`] even
+/// with an immediate unanimous vote, and the treasury multisig, preimages, and
+/// ten signatures have to be arranged on top of that. Two weeks covers the
+/// governance latency with operational margin and keeps the epoch on midnight UTC.
+const STAGING_PLACEHOLDER_VESTING_START_MS: VestingMoment = utc_midnight_ms(2026, 9, 17);
+
+const _: () = assert!(
+	STAGING_PLACEHOLDER_VESTING_START_MS >=
+		STAGING_MAINNET_START + ROOT_TRACK_MIN_ENACTMENT_DELAY_MS,
+	"staging placeholder vesting starts before a Root retarget referendum could be enacted"
+);
+
 /// HD indexes 0..=19 of the staging rehearsal wallet
 /// (`m/44'/189189'/{i}'/0'/0'`, ML-DSA-87). Dummy grants so those keys can
 /// exercise claim on staging-mainnet.
@@ -725,13 +744,14 @@ fn staging_rehearsal_vesting_schedules() -> Vec<VestingScheduleTuple> {
 }
 
 /// Staging-mainnet vesting schedules. The first three beneficiaries are
-/// tech-collective stand-ins; the remainder are staging rehearsal accounts.
+/// tech-collective stand-ins vesting from [`STAGING_PLACEHOLDER_VESTING_START_MS`];
+/// the remainder are staging rehearsal accounts on the launch-day clock.
 fn staging_mainnet_vesting_schedules(tech_collective: &[AccountId]) -> Vec<VestingScheduleTuple> {
 	assert!(
 		tech_collective.len() >= 3,
 		"staging-mainnet vesting placeholders require at least three tech-collective members"
 	);
-	let start = STAGING_MAINNET_START;
+	let start = STAGING_PLACEHOLDER_VESTING_START_MS;
 	let mut schedules = vec![
 		// DUMMY team allocation — 24-hour test cliff, 4-year linear vest.
 		(
@@ -909,13 +929,16 @@ mod tests {
 		assert_eq!(GENESIS_VESTING_START_MS, 1_785_888_000_000); // 2026-08-05 UTC
 		assert_eq!(STAGING_MAINNET_START, 1_788_393_600_000); // 2026-09-03 UTC
 		assert_eq!(STAGING_REHEARSAL_VESTING_START_MS, 1_788_444_000_000); // 2026-09-03 14:00 UTC
+		assert_eq!(STAGING_PLACEHOLDER_VESTING_START_MS, 1_789_603_200_000); // 2026-09-17 UTC
 	}
 
 	#[test]
 	fn genesis_vesting_times_are_sane() {
 		// TGE-style epochs are midnight UTC. The rehearsal clock is a wall-clock
 		// offset from launch day and is not required to land on midnight.
-		for start in [GENESIS_VESTING_START_MS, STAGING_MAINNET_START] {
+		for start in
+			[GENESIS_VESTING_START_MS, STAGING_MAINNET_START, STAGING_PLACEHOLDER_VESTING_START_MS]
+		{
 			assert_eq!(start % MILLIS_PER_DAY, 0, "start must be midnight UTC");
 			assert!(start > YEAR_2020_MS);
 			assert!(start < YEAR_2100_MS);
@@ -1045,8 +1068,9 @@ mod tests {
 		let (json, _) = prepare_genesis_build_input(raw).expect("well-formed");
 		let config: RuntimeGenesisConfig = serde_json::from_slice(&json).expect("deserializes");
 		assert!(config.vesting.schedules.iter().all(|(_, start, cliff, end, _)| {
-			*start >= STAGING_MAINNET_START &&
-				*start < STAGING_MAINNET_START + days_ms(1) &&
+			let launch_day =
+				*start >= STAGING_MAINNET_START && *start < STAGING_MAINNET_START + days_ms(1);
+			(launch_day || *start == STAGING_PLACEHOLDER_VESTING_START_MS) &&
 				*cliff >= *start &&
 				*cliff <= *start + days_ms(1) &&
 				*end > *start
@@ -1081,6 +1105,40 @@ mod tests {
 		distinct.dedup();
 		assert_eq!(distinct.len(), totals.len(), "rehearsal vesting amounts must be distinct");
 		assert_eq!(totals.iter().sum::<u128>(), 100_000 * UNIT);
+	}
+
+	/// The three stand-in beneficiaries are replaced by a Root referendum after
+	/// launch, and `claim` is permissionless, so the earliest placeholder cliff must
+	/// sit beyond the fastest possible Root enactment measured from the chain's own
+	/// vesting epoch. Regression: the table first shipped with the placeholders
+	/// starting at launch and cliffing at most 24 hours later, roughly a day before
+	/// any retarget could have been enacted.
+	#[test]
+	fn staging_placeholder_cliffs_clear_the_root_governance_latency() {
+		assert!(
+			staging_mainnet_tech_collective_configured(),
+			"staging-mainnet preset is gated on real tech-collective members"
+		);
+		let placeholders = &staging_mainnet_tech_collective_members()[..3];
+		let raw =
+			get_preset(&PresetId::from(STAGING_MAINNET_RUNTIME_PRESET)).expect("preset exists");
+		let (json, _) = prepare_genesis_build_input(raw).expect("well-formed");
+		let config: RuntimeGenesisConfig = serde_json::from_slice(&json).expect("deserializes");
+		let cliffs: Vec<VestingMoment> = config
+			.vesting
+			.schedules
+			.iter()
+			.filter(|(who, _, _, _, _)| placeholders.contains(who))
+			.map(|(_, _, cliff, _, _)| *cliff)
+			.collect();
+		assert_eq!(cliffs.len(), 3, "every placeholder must hold exactly one schedule");
+		let earliest = *cliffs.iter().min().expect("placeholder schedules exist");
+		assert_eq!(earliest, STAGING_PLACEHOLDER_VESTING_START_MS);
+		assert!(
+			earliest - STAGING_MAINNET_START >= ROOT_TRACK_MIN_ENACTMENT_DELAY_MS,
+			"placeholder cliff at {earliest} is claimable before a Root retarget can be \
+			 enacted ({ROOT_TRACK_MIN_ENACTMENT_DELAY_MS} ms after the staging epoch)"
+		);
 	}
 
 	#[test]

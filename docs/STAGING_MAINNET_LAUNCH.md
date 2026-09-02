@@ -27,11 +27,23 @@ treasury account after launch through a Root referendum.
   spec's `balances` section rather than restating them here.
 - Vesting: `staging_mainnet_vesting_schedules` contains team / early-backer /
   ecosystem entries with stand-in beneficiaries T1, T2, and T3, plus
-  20 HD rehearsal accounts with distinct grants summing to 100_000 UNIT). Every
-  schedule starts on 2026-09-03 UTC and every cliff is at most 24 hours. Team and
-  ecosystem grants retain their 4×365-day duration, the early-backer grant retains
-  its 2×365-day duration, and rehearsal grants retain their 5-minute cliff /
-  10-day duration from 14:00 UTC. These schedules belong only to staging-mainnet
+  20 HD rehearsal accounts with distinct grants summing to 100_000 UNIT). Two
+  clocks:
+  - Rehearsal accounts start on 2026-09-03 at 14:00 UTC and keep their 5-minute
+    cliff / 10-day duration. Those keys are ours, so they vest on launch day.
+  - The three stand-in schedules start on 2026-09-17 UTC, two weeks after the
+    chain, with cliffs at most 24 hours after that start. `claim` is
+    permissionless and pays whoever the schedule names when it runs, and
+    retargeting is Root-only, so a placeholder must not become claimable before
+    the collective can replace it. The Root track needs at least
+    `ROOT_TRACK_MIN_ENACTMENT_DELAY` (2h prepare + 24h confirm + 24h enactment)
+    even on an immediate unanimous vote; the rest is operational margin. A
+    compile-time assertion and
+    `staging_placeholder_cliffs_clear_the_root_governance_latency` hold the two
+    apart, so moving either date re-checks the invariant.
+
+  Team and ecosystem grants retain their 4×365-day duration and the early-backer
+  grant its 2×365-day duration. These schedules belong only to staging-mainnet
   and are not the basis of the future mainnet allocation table.
 
 ## Generate the chain spec
@@ -71,5 +83,7 @@ not move or create funds.
 
 Vesting administration is also Root-only. Replace each stand-in beneficiary
 through `vesting.retargetSchedule`, using an atomic `utility.batchAll` where
-appropriate. Complete each retarget before its cliff: `claim` is permissionless
-and pays the beneficiary stored when the claim executes.
+appropriate. Complete each retarget before 2026-09-17 UTC, the earliest
+placeholder cliff: `claim` is permissionless and pays the beneficiary stored when
+the claim executes. Start the referendum well inside that window — the Root track
+cannot enact anything in under about 50 hours.

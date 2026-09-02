@@ -1,6 +1,7 @@
 use crate::{
 	governance::origins::Origin as CustomOrigin, scale_fee, AccountId, Balance, Balances,
-	BlockNumber, OriginCaller, Runtime, RuntimeOrigin, DAYS, HOURS, MINUTES, UNIT,
+	BlockNumber, OriginCaller, Runtime, RuntimeOrigin, DAYS, HOURS, MINUTES, TARGET_BLOCK_TIME_MS,
+	UNIT,
 };
 use alloc::borrow::Cow;
 use codec::{Decode, Encode, MaxEncodedLen};
@@ -97,6 +98,26 @@ pub struct TechCollectiveTracksInfo;
 pub const FAST_UPGRADE_TRACK_ID: u16 = 1;
 pub const TECH_COLLECTIVE_DECISION_DEPOSIT: Balance = scale_fee(10 * UNIT);
 
+/// Production windows of the Root track (track 0). `fast-governance` collapses the
+/// live track to 2-block windows in test builds, so anything that has to reason
+/// about real launch timing reads these constants instead of the track itself.
+pub const ROOT_TRACK_PREPARE_PERIOD: BlockNumber = 2 * HOURS;
+pub const ROOT_TRACK_DECISION_PERIOD: BlockNumber = DAYS;
+pub const ROOT_TRACK_CONFIRM_PERIOD: BlockNumber = DAYS;
+pub const ROOT_TRACK_MIN_ENACTMENT_PERIOD: BlockNumber = DAYS;
+
+/// Fastest a Root referendum can dispatch its call: the prepare window, then a
+/// full confirmation window (confirmation runs inside the decision period), then
+/// enactment. Nothing gated on Root governance can be assumed to happen sooner,
+/// even with an immediate unanimous vote.
+pub const ROOT_TRACK_MIN_ENACTMENT_DELAY: BlockNumber =
+	ROOT_TRACK_PREPARE_PERIOD + ROOT_TRACK_CONFIRM_PERIOD + ROOT_TRACK_MIN_ENACTMENT_PERIOD;
+
+/// [`ROOT_TRACK_MIN_ENACTMENT_DELAY`] in milliseconds, for comparing against
+/// wall-clock deadlines such as vesting cliffs.
+pub const ROOT_TRACK_MIN_ENACTMENT_DELAY_MS: u64 =
+	ROOT_TRACK_MIN_ENACTMENT_DELAY as u64 * TARGET_BLOCK_TIME_MS;
+
 impl TechCollectiveTracksInfo {
 	fn create_tech_collective_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 2] {
 		// With 5 members: >=3 ayes required (support 60%), and 2 nays always block
@@ -116,10 +137,10 @@ impl TechCollectiveTracksInfo {
 			// Advance-notice window before deciding starts. Raised from 4 min to give the
 			// collective (and observers) visibility of a pending Root proposal before voting can
 			// conclude.
-			prepare_period: 2 * HOURS,
-			decision_period: DAYS,
-			confirm_period: DAYS,
-			min_enactment_period: DAYS,
+			prepare_period: ROOT_TRACK_PREPARE_PERIOD,
+			decision_period: ROOT_TRACK_DECISION_PERIOD,
+			confirm_period: ROOT_TRACK_CONFIRM_PERIOD,
+			min_enactment_period: ROOT_TRACK_MIN_ENACTMENT_PERIOD,
 			min_approval: pallet_referenda::Curve::LinearDecreasing {
 				length: Perbill::from_percent(100),
 				floor: Perbill::from_percent(61),
