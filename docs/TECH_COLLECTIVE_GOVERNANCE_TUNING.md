@@ -55,7 +55,7 @@ fn approval(&self, _) -> Perbill { Perbill::from_rational(self.ayes, 1.max(self.
 
 Both tracks use flat curves, so the required numbers never decay over the decision period (`fast_track_curves_pin_eight_of_ten` in `runtime/tests/governance/fast_upgrade.rs` pins this for track 1):
 
-| Track | `min_approval` | `min_support` | 10 members (staging-mainnet / mainnet tech collective) | 5 members (`MIN_TECH_COLLECTIVE_MEMBERS`, dev/testnet presets) |
+| Track | `min_approval` | `min_support` | 10 members (staging-mainnet tech collective) | 5 members (`MIN_TECH_COLLECTIVE_MEMBERS`, dev/testnet presets) |
 |---|---|---|---|---|
 | 0 | 61% | 60% | 6 ayes; 4 nays block | 3 ayes; 2 nays block |
 | 1 `fast_upgrade` | 80% | 80% | 8 ayes; 3 nays block | 4 ayes; 2 nays block |

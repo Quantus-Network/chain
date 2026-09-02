@@ -79,7 +79,8 @@ pub fn heisenberg_chain_spec() -> Result<ChainSpec, String> {
 ///
 /// Genesis seeds the launch tech collective but deliberately leaves the treasury
 /// unconfigured. The collective sets the treasury account later through a Root
-/// referendum, so no temporary treasury multisig is part of genesis.
+/// referendum, so no temporary treasury multisig is part of genesis. Mainnet
+/// will use a separate genesis preset and chain spec.
 /// Bootnodes are added once the staging infrastructure exists (the `bootNodes`
 /// field lives outside genesis, so editing it does not change the hash).
 pub fn staging_mainnet_chain_spec() -> Result<ChainSpec, String> {

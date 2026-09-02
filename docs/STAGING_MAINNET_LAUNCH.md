@@ -1,7 +1,8 @@
 # Staging-Mainnet Launch
 
-Mainnet dress rehearsal. Genesis comes from `mainnet_config_genesis`
-(`runtime/src/genesis_config_presets.rs`). It seeds the launch tech collective
+Mainnet dress rehearsal. Genesis comes from `staging_mainnet_config_genesis`
+(`runtime/src/genesis_config_presets.rs`). It is staging-only; mainnet will use
+a separate genesis preset and chain spec. It seeds the launch tech collective
 but deliberately leaves the treasury unconfigured; the collective sets the
 treasury account after launch through a Root referendum.
 
@@ -10,7 +11,8 @@ treasury account after launch through a Root referendum.
 - Treasury: unconfigured at genesis. `TreasuryPallet::set_treasury_account` is
   called by an approved Root referendum after the real treasury is ready.
 - Tech collective: the ten accounts in
-  `MAINNET_TECH_COLLECTIVE_MEMBERS_SS58` (referenda curves are runtime constants).
+  `STAGING_MAINNET_TECH_COLLECTIVE_MEMBERS_SS58` (referenda curves are runtime
+  constants).
 - Balances: no fixed figure is written down. Each member's liquid endowment is
   computed at genesis by `governance_member_seed()` from the live runtime
   constants — ED, the referenda submission and decision bonds, a maximum-size
@@ -23,15 +25,14 @@ treasury account after launch through a Root referendum.
   submit transactions. Everything else sits in the vesting pot. Read the
   exact per-member and total figures for a given build out of the generated
   spec's `balances` section rather than restating them here.
-- Vesting: `mainnet_vesting_schedules` is a DUMMY scaffold (team / early-backer /
+- Vesting: `staging_mainnet_vesting_schedules` contains team / early-backer /
   ecosystem entries with stand-in beneficiaries T1, T2, and T3, plus
   20 HD rehearsal accounts with distinct grants summing to 100_000 UNIT). Every
   schedule starts on 2026-09-03 UTC and every cliff is at most 24 hours. Team and
   ecosystem grants retain their 4×365-day duration, the early-backer grant retains
   its 2×365-day duration, and rehearsal grants retain their 5-minute cliff /
-  10-day duration from 14:00 UTC. Replace this with the real allocation table and
-  flip `MAINNET_VESTING_FINALIZED` before the mainnet preset is added — until then
-  only staging-mainnet builds.
+  10-day duration from 14:00 UTC. These schedules belong only to staging-mainnet
+  and are not the basis of the future mainnet allocation table.
 
 ## Generate the chain spec
 
