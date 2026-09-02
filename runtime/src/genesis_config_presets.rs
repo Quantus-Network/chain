@@ -726,9 +726,7 @@ fn staging_rehearsal_vesting_schedules() -> Vec<VestingScheduleTuple> {
 
 /// Staging-mainnet vesting schedules. The first three beneficiaries are
 /// tech-collective stand-ins; the remainder are staging rehearsal accounts.
-fn staging_mainnet_vesting_schedules(
-	tech_collective: &[AccountId],
-) -> Vec<VestingScheduleTuple> {
+fn staging_mainnet_vesting_schedules(tech_collective: &[AccountId]) -> Vec<VestingScheduleTuple> {
 	assert!(
 		tech_collective.len() >= 3,
 		"staging-mainnet vesting placeholders require at least three tech-collective members"
@@ -866,9 +864,7 @@ mod tests {
 		] {
 			assert!(seed.len() >= MIN_TECH_COLLECTIVE_MEMBERS);
 		}
-		assert!(
-			STAGING_MAINNET_TECH_COLLECTIVE_MEMBERS_SS58.len() >= MIN_TECH_COLLECTIVE_MEMBERS
-		);
+		assert!(STAGING_MAINNET_TECH_COLLECTIVE_MEMBERS_SS58.len() >= MIN_TECH_COLLECTIVE_MEMBERS);
 	}
 
 	/// While the member table still holds placeholders, staging-mainnet spec building

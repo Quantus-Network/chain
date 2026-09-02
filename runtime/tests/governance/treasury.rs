@@ -10,11 +10,14 @@ mod tests {
 	use quantus_runtime::{
 		configs::{TechReferendaInstance, TreasuryPalletId},
 		genesis_config_presets::governance_member_seed,
-		governance::definitions::TechCollectiveTracksInfo, AccountId, Balances, OriginCaller,
-		Preimage, Runtime, RuntimeCall, RuntimeOrigin, System, TechCollective, TechReferenda,
-		TreasuryPallet, UNIT,
+		governance::definitions::TechCollectiveTracksInfo,
+		AccountId, Balances, OriginCaller, Preimage, Runtime, RuntimeCall, RuntimeOrigin, System,
+		TechCollective, TechReferenda, TreasuryPallet, UNIT,
 	};
-	use sp_runtime::{traits::AccountIdConversion, traits::Hash, BuildStorage, MultiAddress};
+	use sp_runtime::{
+		traits::{AccountIdConversion, Hash},
+		BuildStorage, MultiAddress,
+	};
 
 	fn treasury_account_id() -> AccountId {
 		TreasuryPalletId::get().into_account_truncating()
@@ -102,10 +105,7 @@ mod tests {
 			assert_ok!(TechReferenda::submit(
 				RuntimeOrigin::signed(proposer.clone()),
 				Box::new(OriginCaller::system(RawOrigin::Root)),
-				frame_support::traits::Bounded::Lookup {
-					hash,
-					len: encoded.len() as u32,
-				},
+				frame_support::traits::Bounded::Lookup { hash, len: encoded.len() as u32 },
 				frame_support::traits::schedule::DispatchTime::After(0),
 			));
 			let index =
