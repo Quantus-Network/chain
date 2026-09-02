@@ -117,9 +117,8 @@ pub const PLANCK_RUNTIME_PRESET: &str = "planck";
 ///
 /// Staging-mainnet is the mainnet dress rehearsal: its genesis is produced by
 /// `mainnet_config_genesis`, the same function the eventual mainnet preset
-/// will use, differing only in the treasury multisig nonce
-/// (`STAGING_MAINNET_TREASURY_MULTISIG_NONCE`) so the two chains get
-/// distinct treasury accounts and therefore distinct genesis hashes.
+/// will use. The treasury is deliberately left unconfigured at genesis and is
+/// set later by a Root referendum of the tech collective.
 pub const STAGING_MAINNET_RUNTIME_PRESET: &str = "staging_mainnet";
 
 /// SS58 address format used by all Quantus chains.
@@ -180,7 +179,7 @@ fn heisenberg_treasury_account() -> AccountId {
 /// balance comes from the ordinary genesis endowment list, not from mining.
 #[derive(Clone)]
 struct TreasuryGenesis {
-	account: AccountId,
+	account: Option<AccountId>,
 }
 
 /// Two extra well-known Dilithium accounts (public seeds `[3u8; 32]` / `[4u8; 32]`) that pad the
@@ -269,7 +268,7 @@ fn genesis_template(
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances, dev_accounts: None },
 		treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
-			treasury_account: Some(treasury.account),
+			treasury_account: treasury.account,
 		},
 		vesting: pallet_vesting::GenesisConfig::<crate::Runtime> { schedules: vesting_schedules },
 		..Default::default()
@@ -347,7 +346,7 @@ fn log_vesting_schedules(preset: &str, schedules: &[VestingScheduleTuple]) {
 fn log_genesis_accounts(
 	preset: &str,
 	endowed: &[AccountId],
-	treasury_account: &AccountId,
+	treasury_account: Option<&AccountId>,
 	treasury_signers: &[AccountId],
 	tech_collective: &[AccountId],
 ) {
@@ -355,7 +354,14 @@ fn log_genesis_accounts(
 	for account in endowed {
 		log::info!("[{preset}] 💰 Endowed: {:?}", account.to_ss58check_with_version(ss58));
 	}
-	log::info!("[{preset}] 🏦 Treasury: {:?}", treasury_account.to_ss58check_with_version(ss58));
+	if let Some(treasury_account) = treasury_account {
+		log::info!(
+			"[{preset}] 🏦 Treasury: {:?}",
+			treasury_account.to_ss58check_with_version(ss58)
+		);
+	} else {
+		log::info!("[{preset}] 🏦 Treasury: unconfigured (set by Root referendum)");
+	}
 	for signer in treasury_signers {
 		log::info!("[{preset}] 🔑 Treasury signer: {:?}", signer.to_ss58check_with_version(ss58));
 	}
@@ -374,7 +380,7 @@ pub fn development_config_genesis() -> Value {
 	log_genesis_accounts(
 		"dev",
 		&endowed_accounts,
-		&treasury_account,
+		Some(&treasury_account),
 		&dilithium_default_accounts(),
 		&tech_collective,
 	);
@@ -402,7 +408,7 @@ pub fn development_config_genesis() -> Value {
 			initial_high_security_accounts: vec![(multisig_address, guardian, delay)],
 		};
 
-		let treasury = TreasuryGenesis { account: treasury_account };
+		let treasury = TreasuryGenesis { account: Some(treasury_account) };
 		let mut template_value = genesis_template(
 			endowed_accounts,
 			treasury,
@@ -432,7 +438,7 @@ pub fn development_config_genesis() -> Value {
 
 	#[cfg(not(feature = "runtime-benchmarks"))]
 	{
-		let treasury = TreasuryGenesis { account: treasury_account };
+		let treasury = TreasuryGenesis { account: Some(treasury_account) };
 		genesis_template(endowed_accounts, treasury, tech_collective, vec![], vesting_schedules)
 	}
 }
@@ -445,13 +451,13 @@ pub fn heisenberg_config_genesis() -> Value {
 	log_genesis_accounts(
 		"heisenberg",
 		&endowed_accounts,
-		&treasury_account,
+		Some(&treasury_account),
 		&treasury_signers,
 		&tech_collective,
 	);
 	let vesting_schedules = testnet_vesting_schedules();
 	log_vesting_schedules("heisenberg", &vesting_schedules);
-	let treasury = TreasuryGenesis { account: treasury_account };
+	let treasury = TreasuryGenesis { account: Some(treasury_account) };
 	genesis_template(endowed_accounts, treasury, tech_collective, vec![], vesting_schedules)
 }
 
@@ -586,7 +592,7 @@ pub fn treasury_signer_seed(signers_count: u32) -> crate::Balance {
 		crate::scale_fee(100 * crate::MILLI_UNIT)
 }
 
-pub fn governance_treasury_signer_seed(signers_count: u32) -> crate::Balance {
+pub fn governance_member_seed() -> crate::Balance {
 	use crate::{
 		configs::{MaxReferendaProposalSize, ReferendumSubmissionDeposit},
 		governance::definitions::{preimage_amount, TECH_COLLECTIVE_DECISION_DEPOSIT},
@@ -594,7 +600,7 @@ pub fn governance_treasury_signer_seed(signers_count: u32) -> crate::Balance {
 	use frame_support::traits::Footprint;
 	let max_preimage_deposit =
 		preimage_amount(Footprint { count: 1, size: u64::from(MaxReferendaProposalSize::get()) });
-	treasury_signer_seed(signers_count)
+	EXISTENTIAL_DEPOSIT
 		.saturating_add(ReferendumSubmissionDeposit::get())
 		.saturating_add(TECH_COLLECTIVE_DECISION_DEPOSIT)
 		.saturating_add(max_preimage_deposit)
@@ -611,24 +617,23 @@ pub fn planck_config_genesis() -> Value {
 	log_genesis_accounts(
 		"planck",
 		&endowed_accounts,
-		&treasury_account,
+		Some(&treasury_account),
 		&treasury_signers,
 		&tech_collective,
 	);
 	// No vesting allocations on Planck; the pot still receives its ED buffer so
 	// `create_schedule` works post-genesis.
 	log_vesting_schedules("planck", &[]);
-	let treasury = TreasuryGenesis { account: treasury_account };
+	let treasury = TreasuryGenesis { account: Some(treasury_account) };
 	genesis_template(endowed_accounts, treasury, tech_collective, signer_fee_seed, vec![])
 }
 
-/// The ten mainnet treasury multisig signers, also seeded as the mainnet tech
-/// collective. Staging-mainnet uses the exact same accounts.
+/// The ten mainnet tech-collective members. Staging-mainnet uses the exact same
+/// accounts. No treasury account or signer set is configured at genesis.
 ///
 /// Spec building panics while any placeholder remains, and the preset is
-/// skipped in tests until then. Signer order does not matter: multisig address
-/// derivation sorts internally.
-const MAINNET_TREASURY_SIGNERS_SS58: [&str; 10] = [
+/// skipped in tests until then.
+const MAINNET_TECH_COLLECTIVE_MEMBERS_SS58: [&str; 10] = [
 	"qznoXy8q1BgD4jka7wGHMgPtEw63Ut8gvLv9b6x1GvavmCgi1",
 	"qzq8U3GsQraM2pofq9zHbrBvByczzCHrYXphPwdPf2cq9Q55r",
 	"qzkCCKgT3r4PekyzFAP6MB9mmmCtPZj1tT56CZiECNq38L24z",
@@ -641,18 +646,9 @@ const MAINNET_TREASURY_SIGNERS_SS58: [&str; 10] = [
 	"qzob8fLUV7xUE8EjXpGsy3JHtxYdCUXhgYh9GhPCTpys1LttF",
 ];
 
-/// Approvals required on the mainnet (and staging-mainnet) treasury multisig.
-const MAINNET_TREASURY_MULTISIG_THRESHOLD: u32 = 6;
-
-/// Multisig nonce for the staging-mainnet treasury. The eventual mainnet
-/// treasury uses the same signers and threshold with nonce 0; the different
-/// nonce yields a different derived treasury account and therefore a different
-/// genesis hash — the only intended state difference between the two chains.
-const STAGING_MAINNET_TREASURY_MULTISIG_NONCE: u64 = 1;
-
-/// Placeholder TGE timestamp for the mainnet vesting table: **2026-12-01 00:00:00 UTC**.
+/// Placeholder TGE timestamp for the mainnet vesting table: **2026-09-03 00:00:00 UTC**.
 /// DUMMY — re-derive as midnight UTC of the real launch date.
-const MAINNET_VESTING_START_MS: VestingMoment = utc_midnight_ms(2026, 12, 1);
+const MAINNET_VESTING_START_MS: VestingMoment = utc_midnight_ms(2026, 9, 3);
 
 /// Flip to `true` only when [`mainnet_vesting_schedules`] holds the final mainnet
 /// allocation table. While `false`, `mainnet_config_genesis` refuses to build
@@ -686,12 +682,12 @@ const STAGING_REHEARSAL_VESTING: [(&str, u128); 20] = [
 	("qznhDdGC8aRrHLHBGt99eHaLkGYwnRZxqNJ8yi4VTPqz9wfDo", 4_000 * UNIT), // staging-19
 ];
 
-/// Staging rehearsal vest clock: **2026-09-01 14:00:00 UTC**, 5-minute cliff,
+/// Staging rehearsal vest clock: **2026-09-03 14:00:00 UTC**, 5-minute cliff,
 /// fully vested after 10 days. Independent of the dummy mainnet TGE so these
 /// keys can be exercised on the dress-rehearsal chain. Not midnight UTC — the
 /// rehearsal clock is a wall-clock offset from launch day, not a TGE epoch.
 const STAGING_REHEARSAL_VESTING_START_MS: VestingMoment =
-	utc_midnight_ms(2026, 9, 1) + minutes_ms(14 * 60);
+	MAINNET_VESTING_START_MS + minutes_ms(14 * 60);
 const STAGING_REHEARSAL_VESTING_CLIFF_MS: VestingMoment =
 	STAGING_REHEARSAL_VESTING_START_MS + minutes_ms(5);
 const STAGING_REHEARSAL_VESTING_END_MS: VestingMoment =
@@ -739,98 +735,91 @@ fn staging_rehearsal_vesting_schedules() -> Vec<VestingScheduleTuple> {
 /// Mainnet vesting allocation table, shared with staging-mainnet.
 ///
 /// DUMMY scaffold: the category shape (cliff / duration) approximates the launch
-/// plan, but the beneficiaries are stand-ins (treasury signers T1/T2 and the
-/// treasury itself) plus the staging rehearsal HD accounts, and the amounts are
+/// plan, but the beneficiaries are stand-ins (tech-collective members T1/T2/T3)
+/// plus the staging rehearsal HD accounts, and the amounts are
 /// placeholders. Replace every entry with the real allocation and flip
 /// [`MAINNET_VESTING_FINALIZED`] before adding the mainnet preset.
-fn mainnet_vesting_schedules(treasury_account: &AccountId) -> Vec<VestingScheduleTuple> {
-	let signers = mainnet_treasury_signers();
+fn mainnet_vesting_schedules(tech_collective: &[AccountId]) -> Vec<VestingScheduleTuple> {
+	assert!(
+		tech_collective.len() >= 3,
+		"mainnet vesting placeholders require at least three tech-collective members"
+	);
 	let start = MAINNET_VESTING_START_MS;
 	let mut schedules = vec![
-		// DUMMY team allocation — 12-month cliff, 4-year linear vest.
+		// DUMMY team allocation — 24-hour test cliff, 4-year linear vest.
 		(
-			signers[0].clone(),
+			tech_collective[0].clone(),
 			start,
-			start + days_ms(365),
+			start + days_ms(1),
 			start + days_ms(4 * 365),
 			1_500_000 * UNIT,
 		),
-		// DUMMY early-backer allocation — 6-month cliff, 2-year linear vest.
+		// DUMMY early-backer allocation — 24-hour test cliff, 2-year linear vest.
 		(
-			signers[1].clone(),
+			tech_collective[1].clone(),
 			start,
-			start + days_ms(180),
+			start + days_ms(1),
 			start + days_ms(2 * 365),
 			1_000_000 * UNIT,
 		),
-		// DUMMY ecosystem reserve — no cliff, 4-year linear vest into the treasury.
-		(treasury_account.clone(), start, start, start + days_ms(4 * 365), 500_000 * UNIT),
+		// DUMMY ecosystem reserve — no cliff, 4-year linear vest to a placeholder.
+		(tech_collective[2].clone(), start, start, start + days_ms(4 * 365), 500_000 * UNIT),
 	];
 	schedules.extend(staging_rehearsal_vesting_schedules());
 	schedules
 }
 
-/// True once every entry of [`MAINNET_TREASURY_SIGNERS_SS58`] has been
+/// True once every entry of [`MAINNET_TECH_COLLECTIVE_MEMBERS_SS58`] has been
 /// replaced with a real address.
-fn mainnet_signers_finalized() -> bool {
-	MAINNET_TREASURY_SIGNERS_SS58
+fn mainnet_tech_collective_finalized() -> bool {
+	MAINNET_TECH_COLLECTIVE_MEMBERS_SS58
 		.iter()
-		.all(|s| !s.starts_with("REPLACE_WITH_SIGNER"))
+		.all(|s| !s.starts_with("REPLACE_WITH_MEMBER"))
 }
 
-fn mainnet_treasury_signers() -> Vec<AccountId> {
+fn mainnet_tech_collective_members() -> Vec<AccountId> {
 	assert!(
-		mainnet_signers_finalized(),
-		"mainnet treasury signers are placeholders — fill MAINNET_TREASURY_SIGNERS_SS58 \
+		mainnet_tech_collective_finalized(),
+		"mainnet tech-collective members are placeholders — fill \
+		 MAINNET_TECH_COLLECTIVE_MEMBERS_SS58 \
 		 with the real launch addresses before building this chain spec"
 	);
-	let signers: Vec<AccountId> =
-		MAINNET_TREASURY_SIGNERS_SS58.iter().map(|s| account_from_ss58(s)).collect();
-	let mut deduped = signers.clone();
+	let members: Vec<AccountId> = MAINNET_TECH_COLLECTIVE_MEMBERS_SS58
+		.iter()
+		.map(|s| account_from_ss58(s))
+		.collect();
+	let mut deduped = members.clone();
 	deduped.sort();
 	deduped.dedup();
-	assert_eq!(deduped.len(), signers.len(), "mainnet treasury signers must be distinct");
-	signers
+	assert_eq!(deduped.len(), members.len(), "mainnet tech-collective members must be distinct");
+	members
 }
 
-/// Genesis shared 1:1 between mainnet and staging-mainnet: the 6-of-10
-/// treasury multisig, a tech collective of the same ten accounts, and the
-/// [`mainnet_vesting_schedules`] allocation table. Final mainnet allocations
-/// belong in here so staging inherits them unchanged; only `treasury_nonce`
-/// may differ between the two presets.
-fn mainnet_config_genesis(preset: &str, treasury_nonce: u64) -> Value {
+/// Genesis shared between mainnet and staging-mainnet: an unconfigured treasury,
+/// the ten-member tech collective, and the [`mainnet_vesting_schedules`]
+/// allocation table. Final mainnet allocations belong here so staging inherits
+/// them unchanged.
+fn mainnet_config_genesis(preset: &str) -> Value {
 	assert!(
 		MAINNET_VESTING_FINALIZED || preset == STAGING_MAINNET_RUNTIME_PRESET,
 		"mainnet vesting table still holds dummy entries — finalize mainnet_vesting_schedules() \
 		 and flip MAINNET_VESTING_FINALIZED before building this chain spec"
 	);
-	let treasury_signers = mainnet_treasury_signers();
-	let tech_collective = treasury_signers.clone();
-	let treasury_account = Multisig::<crate::Runtime>::derive_multisig_address(
-		&treasury_signers,
-		MAINNET_TREASURY_MULTISIG_THRESHOLD,
-		treasury_nonce,
-	);
-	let signer_seed = governance_treasury_signer_seed(treasury_signers.len() as u32);
+	let tech_collective = mainnet_tech_collective_members();
+	let member_seed = governance_member_seed();
 	let mut extra_balances: Vec<_> =
-		treasury_signers.iter().cloned().map(|a| (a, signer_seed)).collect();
+		tech_collective.iter().cloned().map(|a| (a, member_seed)).collect();
 	extra_balances.extend(staging_rehearsal_liquid_seed());
 	let rehearsal_accounts = staging_rehearsal_accounts();
-	log_genesis_accounts(
-		preset,
-		&rehearsal_accounts,
-		&treasury_account,
-		&treasury_signers,
-		&tech_collective,
-	);
-	let vesting_schedules = mainnet_vesting_schedules(&treasury_account);
+	log_genesis_accounts(preset, &rehearsal_accounts, None, &[], &tech_collective);
+	let vesting_schedules = mainnet_vesting_schedules(&tech_collective);
 	log_vesting_schedules(preset, &vesting_schedules);
-	let treasury = TreasuryGenesis { account: treasury_account };
+	let treasury = TreasuryGenesis { account: None };
 	genesis_template(vec![], treasury, tech_collective, extra_balances, vesting_schedules)
 }
 
 pub fn staging_mainnet_config_genesis() -> Value {
-	mainnet_config_genesis(STAGING_MAINNET_RUNTIME_PRESET, STAGING_MAINNET_TREASURY_MULTISIG_NONCE)
+	mainnet_config_genesis(STAGING_MAINNET_RUNTIME_PRESET)
 }
 
 /// Provides the JSON representation of predefined genesis config for given `id`.
@@ -889,25 +878,24 @@ mod tests {
 		] {
 			assert!(seed.len() >= MIN_TECH_COLLECTIVE_MEMBERS);
 		}
-		// Staging-mainnet's collective is the signer table itself.
-		assert!(MAINNET_TREASURY_SIGNERS_SS58.len() >= MIN_TECH_COLLECTIVE_MEMBERS);
+		assert!(MAINNET_TECH_COLLECTIVE_MEMBERS_SS58.len() >= MIN_TECH_COLLECTIVE_MEMBERS);
 	}
 
-	/// While the signer table still holds placeholders, staging-mainnet spec building
+	/// While the member table still holds placeholders, staging-mainnet spec building
 	/// must fail loudly; once the real launch addresses land, the preset must build and
-	/// seed all ten signers as the tech collective.
+	/// seed all ten tech-collective members.
 	#[test]
-	fn staging_mainnet_gates_on_real_signers() {
-		if mainnet_signers_finalized() {
+	fn staging_mainnet_gates_on_real_tech_collective_members() {
+		if mainnet_tech_collective_finalized() {
 			let raw =
 				get_preset(&PresetId::from(STAGING_MAINNET_RUNTIME_PRESET)).expect("preset exists");
 			let (_, members) = prepare_genesis_build_input(raw).expect("well-formed");
 			assert_eq!(
 				members.expect("tech collective must be seeded").len(),
-				MAINNET_TREASURY_SIGNERS_SS58.len()
+				MAINNET_TECH_COLLECTIVE_MEMBERS_SS58.len()
 			);
 		} else {
-			assert!(std::panic::catch_unwind(mainnet_treasury_signers).is_err());
+			assert!(std::panic::catch_unwind(mainnet_tech_collective_members).is_err());
 		}
 	}
 
@@ -933,8 +921,8 @@ mod tests {
 		assert_eq!(utc_midnight_ms(2024, 2, 29), 1_709_164_800_000);
 		// Each documented vesting epoch, pinned to its independently derived value.
 		assert_eq!(GENESIS_VESTING_START_MS, 1_785_888_000_000); // 2026-08-05 UTC
-		assert_eq!(STAGING_REHEARSAL_VESTING_START_MS, 1_788_271_200_000); // 2026-09-01 14:00 UTC
-		assert_eq!(MAINNET_VESTING_START_MS, 1_796_083_200_000); // 2026-12-01 UTC
+		assert_eq!(MAINNET_VESTING_START_MS, 1_788_393_600_000); // 2026-09-03 UTC
+		assert_eq!(STAGING_REHEARSAL_VESTING_START_MS, 1_788_444_000_000); // 2026-09-03 14:00 UTC
 	}
 
 	#[test]
@@ -969,10 +957,10 @@ mod tests {
 	#[test]
 	fn all_presets_build_genesis_storage() {
 		for id in preset_names() {
-			// Staging-mainnet intentionally panics on its placeholder signer table
+			// Staging-mainnet intentionally panics on its placeholder member table
 			// until the real launch addresses are filled in.
 			if AsRef::<str>::as_ref(&id) == STAGING_MAINNET_RUNTIME_PRESET &&
-				!mainnet_signers_finalized()
+				!mainnet_tech_collective_finalized()
 			{
 				continue;
 			}
@@ -1023,7 +1011,7 @@ mod tests {
 			(HEISENBERG_RUNTIME_PRESET, 3),
 			(PLANCK_RUNTIME_PRESET, 0),
 		];
-		if mainnet_signers_finalized() {
+		if mainnet_tech_collective_finalized() {
 			expected.push((STAGING_MAINNET_RUNTIME_PRESET, 3 + STAGING_REHEARSAL_VESTING.len()));
 		}
 		let mut total = 0usize;
@@ -1063,13 +1051,25 @@ mod tests {
 	#[test]
 	fn staging_mainnet_includes_rehearsal_vesting_accounts() {
 		assert!(
-			mainnet_signers_finalized(),
-			"staging-mainnet preset is gated on real treasury signers"
+			mainnet_tech_collective_finalized(),
+			"staging-mainnet preset is gated on real tech-collective members"
 		);
 		let raw =
 			get_preset(&PresetId::from(STAGING_MAINNET_RUNTIME_PRESET)).expect("preset exists");
 		let (json, _) = prepare_genesis_build_input(raw).expect("well-formed");
 		let config: RuntimeGenesisConfig = serde_json::from_slice(&json).expect("deserializes");
+		assert!(config.vesting.schedules.iter().all(|(_, start, cliff, end, _)| {
+			*start >= MAINNET_VESTING_START_MS &&
+				*start < MAINNET_VESTING_START_MS + days_ms(1) &&
+				*cliff >= *start &&
+				*cliff <= *start + days_ms(1) &&
+				*end > *start
+		}));
+		let mut end_times: Vec<_> =
+			config.vesting.schedules.iter().map(|(_, _, _, end, _)| *end).collect();
+		end_times.sort();
+		end_times.dedup();
+		assert_eq!(end_times.len(), 3, "staging schedules must retain varied durations");
 		let mut totals = Vec::with_capacity(STAGING_REHEARSAL_VESTING.len());
 		for (ss58, total) in STAGING_REHEARSAL_VESTING {
 			let who = account_from_ss58(ss58);
@@ -1098,21 +1098,61 @@ mod tests {
 	}
 
 	#[test]
-	fn staging_mainnet_funds_each_signer_for_governance() {
+	fn staging_mainnet_leaves_treasury_unconfigured() {
+		let raw =
+			get_preset(&PresetId::from(STAGING_MAINNET_RUNTIME_PRESET)).expect("preset exists");
+		let (json, members) = prepare_genesis_build_input(raw).expect("well-formed");
+		let config: RuntimeGenesisConfig = serde_json::from_slice(&json).expect("deserializes");
+		assert!(config.treasury_pallet.treasury_account.is_none());
+		let members = members.expect("tech collective must be seeded");
+		for (schedule, member) in config.vesting.schedules.iter().take(3).zip(members.iter()) {
+			assert_eq!(&schedule.0, member, "dummy grant must use a collective placeholder");
+		}
+	}
+
+	#[test]
+	fn staging_mainnet_root_retargets_vesting_before_treasury_setup() {
 		let raw =
 			get_preset(&PresetId::from(STAGING_MAINNET_RUNTIME_PRESET)).expect("preset exists");
 		let (json, _) = prepare_genesis_build_input(raw).expect("well-formed");
 		let config: RuntimeGenesisConfig = serde_json::from_slice(&json).expect("deserializes");
-		let signers = mainnet_treasury_signers();
-		let expected = governance_treasury_signer_seed(signers.len() as u32);
-		for signer in signers {
+		let storage = config.build_storage().expect("staging genesis must build");
+		let mut ext = sp_io::TestExternalities::new(storage);
+		ext.execute_with(|| {
+			crate::System::set_block_number(1);
+			assert!(crate::TreasuryPallet::treasury_account().is_none());
+			let new_beneficiary = AccountId::new([99u8; 32]);
+			crate::Vesting::retarget_schedule(
+				crate::RuntimeOrigin::root(),
+				0,
+				new_beneficiary.clone(),
+			)
+			.expect("Root must retarget without a configured treasury");
+			assert_eq!(
+				pallet_vesting::Schedules::<crate::Runtime>::get(0)
+					.expect("schedule must remain")
+					.beneficiary,
+				new_beneficiary
+			);
+		});
+	}
+
+	#[test]
+	fn staging_mainnet_funds_each_tech_collective_member_for_governance() {
+		let raw =
+			get_preset(&PresetId::from(STAGING_MAINNET_RUNTIME_PRESET)).expect("preset exists");
+		let (json, _) = prepare_genesis_build_input(raw).expect("well-formed");
+		let config: RuntimeGenesisConfig = serde_json::from_slice(&json).expect("deserializes");
+		let members = mainnet_tech_collective_members();
+		let expected = governance_member_seed();
+		for member in members {
 			let balance = config
 				.balances
 				.balances
 				.iter()
-				.find(|(account, _)| account == &signer)
+				.find(|(account, _)| account == &member)
 				.map(|(_, amount)| *amount)
-				.expect("mainnet signer must have a genesis balance");
+				.expect("mainnet tech-collective member must have a genesis balance");
 			assert_eq!(balance, expected);
 		}
 	}

@@ -73,5 +73,5 @@ For a profile `<profile>` (e.g. `staging_mainnet`):
 7. **Commit** the JSON plus the `load_spec` arm, and cut the node release that
    embeds them.
 
-For the staging-mainnet launch sequence around this (treasury multisig,
-first server, post-launch), see `docs/STAGING_MAINNET_LAUNCH.md`.
+For the staging-mainnet launch sequence around this (post-launch treasury setup,
+first server, vesting retargets), see `docs/STAGING_MAINNET_LAUNCH.md`.

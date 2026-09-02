@@ -37,8 +37,8 @@ use crate::{
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		ConstU128, ConstU16, ConstU32, ConstU8, EitherOfDiverse, EnsureOrigin, Get,
-		NeverEnsureOrigin, VariantCountOf,
+		ConstU128, ConstU16, ConstU32, ConstU8, EitherOfDiverse, Get, NeverEnsureOrigin,
+		VariantCountOf,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -635,7 +635,8 @@ const _: () = assert!(
 
 /// The configured treasury account as an `Option` — unlike
 /// `pallet_treasury::Pallet::account_id()`, this never panics on a chain whose
-/// genesis omitted the treasury; vesting admin calls fail with an explicit error instead.
+/// genesis omitted the treasury; vesting's fund-moving admin calls fail with an
+/// explicit error while beneficiary retargeting remains available.
 pub struct TreasuryAccountOption;
 impl Get<Option<AccountId>> for TreasuryAccountOption {
 	fn get() -> Option<AccountId> {
@@ -643,34 +644,13 @@ impl Get<Option<AccountId>> for TreasuryAccountOption {
 	}
 }
 
-/// `Signed(who)` where `who` is the configured treasury account.
-///
-/// The treasury is a multisig in real deployments; the multisig pallet dispatches
-/// approved proposals as `RawOrigin::Signed(multisig_address)`, so a plain
-/// signed-origin check covers it.
-pub struct EnsureTreasury;
-impl EnsureOrigin<RuntimeOrigin> for EnsureTreasury {
-	type Success = AccountId;
-	fn try_origin(o: RuntimeOrigin) -> Result<Self::Success, RuntimeOrigin> {
-		match (o.clone().into(), pallet_treasury::Pallet::<Runtime>::treasury_account()) {
-			(Ok(frame_system::RawOrigin::Signed(who)), Some(treasury)) if who == treasury =>
-				Ok(who),
-			_ => Err(o),
-		}
-	}
-	#[cfg(feature = "runtime-benchmarks")]
-	fn try_successful_origin() -> Result<RuntimeOrigin, ()> {
-		pallet_treasury::Pallet::<Runtime>::treasury_account()
-			.map(RuntimeOrigin::signed)
-			.ok_or(())
-	}
-}
-
 impl pallet_vesting::Config for Runtime {
 	type Currency = Balances;
 	type TimeProvider = Timestamp;
 	type PalletId = VestingPalletId;
-	type AdminOrigin = EitherOfDiverse<EnsureRoot<AccountId>, EnsureTreasury>;
+	// Vesting administration is collective governance only. The configured
+	// treasury account holds funds but has no unilateral schedule authority.
+	type AdminOrigin = EnsureRoot<AccountId>;
 	type TreasuryAccount = TreasuryAccountOption;
 	type AssetId = AssetId;
 	// The pallet records its payouts itself so Root calls enacted by the scheduler

@@ -11,7 +11,7 @@ mod tests {
 	use pallet_referenda::TracksInfo;
 	use quantus_runtime::{
 		configs::TechReferendaInstance,
-		genesis_config_presets::governance_treasury_signer_seed,
+		genesis_config_presets::governance_member_seed,
 		governance::definitions::{TechCollectiveTracksInfo, FAST_UPGRADE_TRACK_ID},
 		pallet_custom_origins, Balances, OriginCaller, Preimage, Runtime, RuntimeCall,
 		RuntimeOrigin, System, TechCollective, TechReferenda,
@@ -37,7 +37,7 @@ mod tests {
 			));
 		}
 		let proposer = TestCommons::account_id(1);
-		Balances::make_free_balance_be(&proposer, governance_treasury_signer_seed(10));
+		Balances::make_free_balance_be(&proposer, governance_member_seed());
 		proposer
 	}
 

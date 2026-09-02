@@ -15,12 +15,11 @@
 //! high-security accounts are call-whitelisted, so for both a third-party "ping" is the
 //! only claim path. The payout always goes to the stored beneficiary, never the caller.
 //!
-//! The admin origin (the treasury account, with Root as break-glass) can create schedules
-//! (funded from the treasury in the same call), end them early (vested part to the
-//! beneficiary, unvested remainder back to the treasury), and retarget a schedule's
-//! beneficiary. A retarget replaces the wallet of the *same* grantee — the old address is
-//! lost, stolen, or abandoned — so it pays the old address nothing; everything unclaimed
-//! follows the schedule to the new wallet.
+//! The configured admin origin can create schedules (funded from the treasury in the same
+//! call), end them early (vested part to the beneficiary, unvested remainder back to the
+//! treasury), and retarget a schedule's beneficiary. A retarget replaces the wallet of the
+//! *same* grantee — the old address is lost, stolen, or abandoned — so it pays the old address
+//! nothing; everything unclaimed follows the schedule to the new wallet.
 
 extern crate alloc;
 
@@ -124,13 +123,13 @@ pub mod pallet {
 		#[pallet::constant]
 		type PalletId: Get<PalletId>;
 
-		/// Origin allowed to create, end, and retarget schedules
-		/// (Root or signed-by-treasury in the runtime).
+		/// Origin allowed to create, end, and retarget schedules.
 		type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
 		/// The configured treasury account: funding source for `create_schedule` and
 		/// destination for unvested remainders. `None` if the chain was started without
-		/// a treasury, in which case admin calls fail loudly.
+		/// a treasury, in which case `create_schedule` and `end_schedule` fail loudly.
+		/// Retargeting does not read or move treasury funds.
 		type TreasuryAccount: Get<Option<Self::AccountId>>;
 
 		/// Asset id type forwarded to the proof recorder (payouts are always native:

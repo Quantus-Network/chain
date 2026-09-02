@@ -77,9 +77,9 @@ pub fn heisenberg_chain_spec() -> Result<ChainSpec, String> {
 
 /// Staging-mainnet — dress rehearsal for the mainnet launch.
 ///
-/// Genesis is 1:1 with the eventual mainnet's (same 6-of-10 treasury multisig
-/// signers, same tech collective, same endowments); only the treasury multisig
-/// nonce differs, giving staging its own treasury account and genesis hash.
+/// Genesis seeds the launch tech collective but deliberately leaves the treasury
+/// unconfigured. The collective sets the treasury account later through a Root
+/// referendum, so no temporary treasury multisig is part of genesis.
 /// Bootnodes are added once the staging infrastructure exists (the `bootNodes`
 /// field lives outside genesis, so editing it does not change the hash).
 pub fn staging_mainnet_chain_spec() -> Result<ChainSpec, String> {

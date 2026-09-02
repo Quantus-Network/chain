@@ -113,10 +113,9 @@ impl pallet_balances::Config for Test {
 	type DoneSlashHandler = ();
 }
 
-/// Same shape as the runtime's `EnsureTreasury`: `Signed(who)` where `who` is the
-/// configured treasury account.
-pub struct EnsureTreasury;
-impl EnsureOrigin<RuntimeOrigin> for EnsureTreasury {
+/// Test-only signed treasury origin used to exercise configurable admin-origin behavior.
+pub struct EnsureTestTreasury;
+impl EnsureOrigin<RuntimeOrigin> for EnsureTestTreasury {
 	type Success = AccountId32;
 	fn try_origin(o: RuntimeOrigin) -> Result<Self::Success, RuntimeOrigin> {
 		match (o.clone().into(), TreasuryAccount::get()) {
@@ -179,7 +178,7 @@ impl pallet_vesting::Config for Test {
 	type Currency = Balances;
 	type TimeProvider = Timestamp;
 	type PalletId = VestingPalletId;
-	type AdminOrigin = EitherOfDiverse<EnsureRoot<AccountId32>, EnsureTreasury>;
+	type AdminOrigin = EitherOfDiverse<EnsureRoot<AccountId32>, EnsureTestTreasury>;
 	type TreasuryAccount = TreasuryAccount;
 	type AssetId = u32;
 	type ProofRecorder = MockProofRecorder;
