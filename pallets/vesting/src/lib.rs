@@ -8,8 +8,10 @@
 //! so any address — including a keyless wormhole address — can be a beneficiary.
 //!
 //! Each schedule has a globally unique `u64` id; an account may hold any number of schedules.
-//! Vesting is linear between `start` and `end` with nothing claimable before `cliff`
-//! (all timestamps are milliseconds since the unix epoch, read from `pallet_timestamp`).
+//! Vesting is linear between `start` and `end` with nothing claimable before `cliff`.
+//! Times are milliseconds since the unix epoch, read from `pallet_timestamp`. Genesis
+//! schedules may instead store offsets from the first non-zero timestamp (the block-1
+//! inherent); the genesis block's `Now` is 0 and is never used as TGE.
 //!
 //! `claim` is deliberately permissionless: wormhole addresses can never sign and
 //! high-security accounts are call-whitelisted, so for both a third-party "ping" is the
@@ -28,8 +30,12 @@ pub use pallet::*;
 
 /// Smallest leaf-quantum count at which a 4 bps Wormhole volume fee is exact
 /// (`2500 * 4 / 10_000 = 1`). Non-final claims pay a multiple of
-/// `NON_FINAL_PAYOUT_QUANTA * PayoutQuantum` (25 QUAN at the runtime leaf quantum).
+/// `NON_FINAL_PAYOUT_QUANTA * PayoutQuantum` (25 QTC at the runtime leaf quantum).
 pub const NON_FINAL_PAYOUT_QUANTA: u128 = 2_500;
+
+/// Capacity of the genesis schedule table. Offset genesis schedules are rebased in the
+/// block-1 timestamp inherent, so this fixed capacity is what keeps that hook constant-time.
+pub const MAX_GENESIS_SCHEDULES: u32 = 64;
 
 #[cfg(test)]
 mod mock;
@@ -46,13 +52,12 @@ pub use weights::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use alloc::vec::Vec;
 	use frame_support::{
 		pallet_prelude::*,
 		traits::{
 			fungible::{Inspect, Mutate},
 			tokens::Preservation,
-			Time,
+			OnTimestampSet, Time,
 		},
 		PalletId,
 	};
@@ -178,6 +183,22 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type Schedules<T: Config> = StorageMap<_, Twox64Concat, u64, VestingScheduleOf<T>>;
 
+	/// Whether genesis schedules are anchored to the first non-zero timestamp, and — once
+	/// that timestamp arrives — what it was. Absent when genesis used absolute times.
+	#[derive(Encode, Decode, MaxEncodedLen, Clone, Copy, TypeInfo, Debug, PartialEq, Eq)]
+	pub enum LaunchAnchor {
+		/// Genesis schedules hold offsets awaiting the first non-zero timestamp.
+		/// Only ids `0..NextScheduleId` can exist in this state — at most
+		/// [`MAX_GENESIS_SCHEDULES`] — because the rebase runs in the block-1 timestamp
+		/// inherent, before any extrinsic can create a schedule.
+		Pending,
+		/// Genesis offsets were rebased onto this unix-ms moment.
+		Anchored(Moment),
+	}
+
+	#[pallet::storage]
+	pub type Launch<T: Config> = StorageValue<_, LaunchAnchor>;
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
@@ -208,6 +229,9 @@ pub mod pallet {
 			old_beneficiary: T::AccountId,
 			new_beneficiary: T::AccountId,
 		},
+		/// Offset genesis schedules were rebased onto this unix-ms timestamp. The
+		/// genesis block's `Now` is 0 and is never used.
+		LaunchMomentSet { at: Moment },
 	}
 
 	#[pallet::error]
@@ -242,14 +266,27 @@ pub mod pallet {
 	#[derive(frame_support::DefaultNoBound)]
 	pub struct GenesisConfig<T: Config> {
 		/// `(beneficiary, start_ms, cliff_ms, end_ms, total)`; ids are assigned
-		/// sequentially from 0 in list order. The pot must be endowed (via the balances
-		/// genesis) with exactly the sum of totals plus the existential deposit.
-		pub schedules: Vec<(T::AccountId, Moment, Moment, Moment, u128)>,
+		/// sequentially from 0 in list order. Times are unix-ms unless
+		/// [`Self::anchor_to_first_timestamp`] is set, in which case they are offsets
+		/// from the first non-zero timestamp. The pot must be endowed (via the balances
+		/// genesis) with exactly the sum of totals plus the existential deposit. Fixed
+		/// capacity of [`MAX_GENESIS_SCHEDULES`]: the block-1 rebase iterates this table.
+		pub schedules: BoundedVec<
+			(T::AccountId, Moment, Moment, Moment, u128),
+			ConstU32<MAX_GENESIS_SCHEDULES>,
+		>,
+		/// When true, genesis `start`/`cliff`/`end` are offsets from the first non-zero
+		/// timestamp (block 1 inherent). Genesis-block `Now` is 0 and is not used.
+		#[serde(default)]
+		pub anchor_to_first_timestamp: bool,
 	}
 
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
+			if self.anchor_to_first_timestamp {
+				Launch::<T>::put(LaunchAnchor::Pending);
+			}
 			if self.schedules.is_empty() {
 				return;
 			}
@@ -480,6 +517,16 @@ pub mod pallet {
 			T::PalletId::get().into_account_truncating()
 		}
 
+		/// Unix-ms TGE origin, once the first non-zero timestamp has rebased offset
+		/// genesis schedules. `None` when genesis used absolute times, or before that
+		/// inherent.
+		pub fn launch_moment() -> Option<Moment> {
+			match Launch::<T>::get() {
+				Some(LaunchAnchor::Anchored(at)) => Some(at),
+				_ => None,
+			}
+		}
+
 		fn treasury_and_pot() -> Result<(T::AccountId, T::AccountId), Error<T>> {
 			let treasury = T::TreasuryAccount::get().ok_or(Error::<T>::TreasuryNotConfigured)?;
 			let pot = Self::pot_account_id();
@@ -707,6 +754,32 @@ pub mod pallet {
 				sp_runtime::TryRuntimeError::Other("pot does not cover outstanding obligations")
 			);
 			Ok(())
+		}
+	}
+
+	impl<T: Config> OnTimestampSet<Moment> for Pallet<T> {
+		/// Constant-bounded, as the timestamp pallet requires: the loop covers the genesis
+		/// table only (no extrinsic runs before the block-1 inherent), which holds at most
+		/// [`MAX_GENESIS_SCHEDULES`] entries, and it runs exactly once, in block 1 of a chain
+		/// launched with offset schedules. Its reads and writes are deliberately not itemised
+		/// in the timestamp inherent's weight: nothing after genesis can grow the table or
+		/// reach this path again, so there is no repeatable cost to charge for — the whole
+		/// price is one bounded burst in the launch block.
+		fn on_timestamp_set(now: Moment) {
+			if now.is_zero() || Launch::<T>::get() != Some(LaunchAnchor::Pending) {
+				return;
+			}
+			for id in 0..NextScheduleId::<T>::get() {
+				Schedules::<T>::mutate(id, |maybe| {
+					if let Some(schedule) = maybe {
+						schedule.start = schedule.start.saturating_add(now);
+						schedule.cliff = schedule.cliff.saturating_add(now);
+						schedule.end = schedule.end.saturating_add(now);
+					}
+				});
+			}
+			Launch::<T>::put(LaunchAnchor::Anchored(now));
+			Self::deposit_event(Event::LaunchMomentSet { at: now });
 		}
 	}
 }

@@ -517,9 +517,9 @@ impl pallet_multisig::Config for Runtime {
     type MaxInnerCallWeight = MaxInnerCallWeight;        // Per-proposal inner-call weight limit
     
     // Economic parameters (example values - adjust per runtime)
-    type MultisigFee = ConstU128<{ 600 * MILLI_UNIT }>;      // Creation barrier (burned)
-    type ProposalFee = ConstU128<{ 1000 * MILLI_UNIT }>;     // Base proposal cost (burned)
-    type ProposalDeposit = ConstU128<{ 1000 * MILLI_UNIT }>; // Storage rent (refundable)
+    type MultisigFee = ConstU128<{ 30 * MILLI_UNIT }>;       // Creation barrier (burned)
+    type ProposalFee = ConstU128<{ 50 * MILLI_UNIT }>;       // Base proposal cost (burned)
+    type ProposalDeposit = ConstU128<{ 10 * MILLI_UNIT }>;   // Storage rent (refundable)
     type SignerStepFactor = Permill::from_percent(1);        // Dynamic pricing (1% per signer)
     
     type PalletId = ConstPalletId(*b"py/mltsg");

@@ -4,10 +4,10 @@ Scope: the two tech-referenda tracks (`TechReferenda` = `pallet_referenda::Palle
 
 | Track | Proposal origin | May dispatch | Used for |
 |---|---|---|---|
-| 0 `tech_collective_members` | `Root` | any call whose preimage fits `MaxReferendaProposalSize` (64 KiB) | membership and parameter changes, cancel/kill, slow fallback for `authorize_upgrade` |
+| 0 `tech_collective_members` | `Root` | any call whose preimage fits `MaxReferendaProposalSize` (4 KiB) | membership and parameter changes, cancel/kill, slow fallback for `authorize_upgrade` |
 | 1 `fast_upgrade` (`FAST_UPGRADE_TRACK_ID`) | `Origins::FastUpgrade` (`pallet_custom_origins`, runtime index 23) | `system.authorize_upgrade(code_hash)` only | **runtime upgrades** |
 
-Runtime upgrades never go through `set_code`: a runtime WASM is hundreds of KiB, far over the 64 KiB proposal cap and over hardware-wallet signing limits. The supported route is to vote on the code *hash* on track 1, then have anyone submit the permissionless, version-checked `system.apply_authorized_upgrade(wasm)` with the exact bytes. `frame_system::Config::AuthorizeUpgradeOrigin` is `EitherOfDiverse<EnsureRoot, FastUpgrade>`, so a track-0 Root referendum can also authorize a hash (about two days slower); `set_code` and `authorize_upgrade_without_checks` stay Root-only. `TracksInfo::track_for` accepts only the `Root` and `FastUpgrade` proposal origins — `Signed(_)` is rejected (#91247/#91270), so neither track can dispatch as an arbitrary account. Operator flow: [`RUNTIME_UPGRADE_VIA_GOVERNANCE.md`](./RUNTIME_UPGRADE_VIA_GOVERNANCE.md).
+Runtime upgrades never go through `set_code`: a runtime WASM is hundreds of KiB, far over the 4 KiB proposal cap and over hardware-wallet signing limits. The supported route is to vote on the code *hash* on track 1, then have anyone submit the permissionless, version-checked `system.apply_authorized_upgrade(wasm)` with the exact bytes. `frame_system::Config::AuthorizeUpgradeOrigin` is `EitherOfDiverse<EnsureRoot, FastUpgrade>`, so a track-0 Root referendum can also authorize a hash (about two days slower); `set_code` and `authorize_upgrade_without_checks` stay Root-only. `TracksInfo::track_for` accepts only the `Root` and `FastUpgrade` proposal origins — `Signed(_)` is rejected (#91247/#91270), so neither track can dispatch as an arbitrary account. Operator flow: [`RUNTIME_UPGRADE_VIA_GOVERNANCE.md`](./RUNTIME_UPGRADE_VIA_GOVERNANCE.md).
 
 ## 1. Timing
 
@@ -20,7 +20,7 @@ All periods are in blocks. `runtime/src/lib.rs`: `TARGET_BLOCK_TIME_MS = 12_000`
 | `confirm_period` | `DAYS` | `10 * MINUTES` | Must remain continuously passing this long to be approved |
 | `min_enactment_period` | `DAYS` | `10 * MINUTES` | Min delay between approval and dispatch |
 | `max_deciding` | 1 | 1 | Per track: one deciding referendum at a time on each lane |
-| `decision_deposit` | `TECH_COLLECTIVE_DECISION_DEPOSIT` = `scale_fee(10 * UNIT)` | same | Bond required to enter deciding |
+| `decision_deposit` | `TECH_COLLECTIVE_DECISION_DEPOSIT` = `scale_fee(UNIT)` | same | Bond required to enter deciding |
 
 Fastest end to end on track 1: 10 min prepare + 10 min confirm + 10 min enactment ≈ **30 minutes** after submission (plus the time to place the decision deposit and collect 8 ayes); the WASM can be applied in the block after `authorize_upgrade` executes. Track 0: 2 h + 24 h + 24 h ≈ 50 h.
 
@@ -30,7 +30,7 @@ Test override: with the `fast-governance` cargo feature, `apply_test_timing` for
 
 The `TechReferendaInstance` `Config` (`runtime/src/configs/mod.rs`) also sets:
 
-- `ReferendumSubmissionDeposit = scale_fee(10 * UNIT)`: submission bond, sized to stay above the maximum preimage deposit of a 64 KiB proposal so noted bytes remain collateralized after `unnote`.
+- `ReferendumSubmissionDeposit = scale_fee(UNIT)`: submission bond, sized to stay above the maximum preimage deposit of a 4 KiB proposal (`MaxReferendaProposalSize`, ≈ 0.51 UNIT) so noted bytes remain collateralized after `unnote`. Submission + decision deposit + max preimage deposit ≈ 2.51 UNIT, inside the 3 UNIT mainnet genesis seed each tech collective member receives (`mainnet_vesting::SEED`; pinned by `tech_referendum_cost()`).
 - `UndecidingTimeout = 45 * DAYS`: if a referendum never enters deciding within this window (no decision deposit, or no free `max_deciding` slot on its track), it is rejected as `TimedOut` (`pallet-referenda-45.0.0/src/lib.rs:1164-1177`).
 - `AlarmInterval = 1`: granularity of scheduler wake-ups that re-service referenda state. 1 = state transitions (begin/abort confirmation, approve, reject) can happen on any block.
 
@@ -55,7 +55,7 @@ fn approval(&self, _) -> Perbill { Perbill::from_rational(self.ayes, 1.max(self.
 
 Both tracks use flat curves, so the required numbers never decay over the decision period (`fast_track_curves_pin_eight_of_ten` in `runtime/tests/governance/fast_upgrade.rs` pins this for track 1):
 
-| Track | `min_approval` | `min_support` | 10 members (staging-mainnet / mainnet: the treasury signers) | 5 members (`MIN_TECH_COLLECTIVE_MEMBERS`, dev/testnet presets) |
+| Track | `min_approval` | `min_support` | 10 members (mainnet: `TECH_COLLECTIVE`) | 5 members (`MIN_TECH_COLLECTIVE_MEMBERS`, dev/testnet presets) |
 |---|---|---|---|---|
 | 0 | 61% | 60% | 6 ayes; 4 nays block | 3 ayes; 2 nays block |
 | 1 `fast_upgrade` | 80% | 80% | 8 ayes; 3 nays block | 4 ayes; 2 nays block |
@@ -129,7 +129,7 @@ Both are Root-only, and Root is only reachable via a passed track-0 referendum (
 
 Once `authorize_upgrade` has executed, the remaining safeguards are in the apply step: `apply_authorized_upgrade` accepts only the exact bytes whose hash was authorized and checks the runtime version, and it is permissionless, so it can land in the very next block. `AuthorizedUpgrade` is a single storage slot — a later `authorize_upgrade` (either track) overwrites a pending one, and a successful apply clears it — but an attacker who got a hash authorized will apply immediately, so authorization must be treated as final.
 
-Member removal mid-flight: `remove_member` requires `RemoveOrigin`, which this runtime sets to `EnsureRootRemoveKeepsMemberFloor` (`governance/definitions.rs`) — **Root only**, and only while the removal leaves at least `MIN_TECH_COLLECTIVE_MEMBERS` (5, `genesis_config_presets.rs`) members. That floor is load-bearing: shrinking below it would collapse the tech-referenda curves or (at zero members) deadlock the only governance lane. `AddOrigin` remains `EnsureRootWithSuccess<AccountId, ConstU16<0>>` (#91267). Membership changes therefore require a passed track-0 referendum: a single member can no longer unilaterally remove the others or stuff the collective up to `MaxMemberCount = 13`. (Genesis seeding bypasses the origin via `do_add_member_to_rank`, as before.)
+Member removal mid-flight: `remove_member` requires `RemoveOrigin`, which this runtime sets to `EnsureRootRemoveKeepsMemberFloor` (`governance/definitions.rs`) — **Root only**, and only while the removal leaves at least `MIN_TECH_COLLECTIVE_MEMBERS` (5, `genesis_config_presets/`) members. That floor is load-bearing: shrinking below it would collapse the tech-referenda curves or (at zero members) deadlock the only governance lane. `AddOrigin` remains `EnsureRootWithSuccess<AccountId, ConstU16<0>>` (#91267). Membership changes therefore require a passed track-0 referendum: a single member can no longer unilaterally remove the others or stuff the collective up to `MaxMemberCount = 13`. (Genesis seeding bypasses the origin via `do_add_member_to_rank`, as before.)
 
 Removal intentionally does not reconcile ongoing tallies — this matches upstream `pallet-ranked-collective` (eager reconciliation would be an unbounded `Voting` scan inside a scheduler-enacted dispatch). A removed member's already-cast votes keep counting until each poll ends, while the support denominator `MemberCount[0]` shrinks immediately; the tally's `support` clamps at 100%, so the distortion is bounded and expires with the poll (at most `decision_period` + `confirm_period`). Completed-poll vote records are swept permissionlessly via `cleanup_poll`.
 

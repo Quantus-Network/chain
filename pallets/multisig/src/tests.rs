@@ -5,7 +5,7 @@ use codec::{Decode, DecodeLimit, Encode};
 use frame_support::{
 	assert_err_ignore_postinfo, assert_noop, assert_ok,
 	dispatch::GetDispatchInfo,
-	traits::{fungible::Mutate, Currency, Get},
+	traits::{fungible::Mutate, Currency, ExistenceRequirement, Get},
 };
 use qp_high_security::HighSecurityInspector;
 use sp_core::crypto::AccountId32;
@@ -175,6 +175,59 @@ fn create_multisig_works() {
 			Event::MultisigCreated { creator, multisig_address, signers, threshold, nonce: 0 }
 				.into(),
 		);
+	});
+}
+
+#[test]
+fn prefunded_derived_address_is_spendable_after_create() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let signers = vec![alice(), bob()];
+		let threshold = 1;
+		let nonce = 0;
+		let fund = 50_000u128;
+		let send = 1_000u128;
+		let dest = dave();
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, threshold, nonce);
+		assert!(!Multisigs::<Test>::contains_key(&multisig_address));
+
+		assert_ok!(<Balances as Currency<_>>::transfer(
+			&alice(),
+			&multisig_address,
+			fund,
+			ExistenceRequirement::KeepAlive,
+		));
+		assert_eq!(Balances::free_balance(&multisig_address), fund);
+
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers,
+			threshold,
+			nonce
+		));
+		assert_eq!(Balances::free_balance(&multisig_address), fund);
+
+		let transfer_call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+			dest: dest.clone(),
+			value: send,
+		});
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			transfer_call.encode().try_into().unwrap(),
+			100
+		));
+		let dest_before = Balances::free_balance(&dest);
+		assert_ok!(Multisig::execute(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			stored_runtime_call(&multisig_address, 0)
+		));
+		assert_eq!(Balances::free_balance(&dest), dest_before + send);
+		assert_eq!(Balances::free_balance(&multisig_address), fund - send);
 	});
 }
 

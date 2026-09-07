@@ -1,4 +1,6 @@
-use crate::{mock::*, Error, Event, NextScheduleId, Schedules, VestingSchedule};
+use crate::{
+	mock::*, Error, Event, Launch, LaunchAnchor, NextScheduleId, Schedules, VestingSchedule,
+};
 use frame_support::{assert_noop, assert_ok};
 use sp_runtime::{DispatchError, TokenError};
 
@@ -1255,5 +1257,103 @@ mod try_state {
 				assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 2));
 				assert_ok!(Vesting::do_try_state());
 			});
+	}
+}
+
+mod anchor_to_first_timestamp {
+	use super::*;
+
+	const ORIGIN: u64 = 1_700_000_000_000;
+	const LOCKUP: u64 = 100_000;
+	const VEST: u64 = 400_000;
+
+	fn offset_schedule(who: sp_core::crypto::AccountId32) -> ScheduleTuple {
+		(who, LOCKUP, LOCKUP, LOCKUP + VEST, TOTAL)
+	}
+
+	#[test]
+	fn genesis_block_timestamp_is_ignored() {
+		new_test_ext_anchored(vec![offset_schedule(BOB)]).execute_with(|| {
+			assert_eq!(Launch::<Test>::get(), Some(LaunchAnchor::Pending));
+			set_time(0);
+			assert_eq!(Launch::<Test>::get(), Some(LaunchAnchor::Pending));
+			assert_eq!(stored(0).start, LOCKUP);
+			assert_eq!(Vesting::launch_moment(), None);
+		});
+	}
+
+	#[test]
+	fn first_nonzero_timestamp_rebases_genesis_offsets() {
+		new_test_ext_anchored(vec![offset_schedule(BOB)]).execute_with(|| {
+			System::reset_events();
+			set_time(ORIGIN);
+			assert_eq!(Launch::<Test>::get(), Some(LaunchAnchor::Anchored(ORIGIN)));
+			assert_eq!(Vesting::launch_moment(), Some(ORIGIN));
+			let s = stored(0);
+			assert_eq!(s.start, ORIGIN + LOCKUP);
+			assert_eq!(s.cliff, ORIGIN + LOCKUP);
+			assert_eq!(s.end, ORIGIN + LOCKUP + VEST);
+			System::assert_last_event(Event::LaunchMomentSet { at: ORIGIN }.into());
+		});
+	}
+
+	#[test]
+	fn later_timestamps_do_not_rebase_again() {
+		new_test_ext_anchored(vec![offset_schedule(BOB)]).execute_with(|| {
+			set_time(ORIGIN);
+			set_time(ORIGIN + 1_000);
+			let s = stored(0);
+			assert_eq!(s.start, ORIGIN + LOCKUP);
+			assert_eq!(s.end, ORIGIN + LOCKUP + VEST);
+			assert_eq!(Vesting::launch_moment(), Some(ORIGIN));
+		});
+	}
+
+	#[test]
+	fn claim_uses_unix_time_after_rebase() {
+		new_test_ext_anchored(vec![offset_schedule(BOB)]).execute_with(|| {
+			set_time(ORIGIN);
+			assert_noop!(
+				Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
+				Error::<Test>::NothingToClaim
+			);
+			set_time(ORIGIN + LOCKUP + VEST / 2);
+			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
+			assert_eq!(stored(0).claimed, TOTAL / 2);
+		});
+	}
+
+	#[test]
+	fn create_schedule_after_rebase_keeps_absolute_times() {
+		new_test_ext_anchored(vec![offset_schedule(BOB)]).execute_with(|| {
+			set_time(ORIGIN);
+			assert_ok!(Vesting::create_schedule(
+				RuntimeOrigin::signed(TREASURY),
+				CHARLIE,
+				ORIGIN + START,
+				ORIGIN + CLIFF,
+				ORIGIN + END,
+				TOTAL
+			));
+			set_time(ORIGIN + 5_000);
+			let created = stored(1);
+			assert_eq!(created.start, ORIGIN + START);
+			assert_eq!(created.cliff, ORIGIN + CLIFF);
+			assert_eq!(created.end, ORIGIN + END);
+			assert_eq!(NextScheduleId::<Test>::get(), 2);
+		});
+	}
+
+	#[test]
+	fn unanchored_genesis_is_not_shifted_by_timestamp() {
+		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
+			set_time(ORIGIN);
+			assert_eq!(Launch::<Test>::get(), None);
+			assert_eq!(Vesting::launch_moment(), None);
+			let s = stored(0);
+			assert_eq!(s.start, START);
+			assert_eq!(s.cliff, CLIFF);
+			assert_eq!(s.end, END);
+		});
 	}
 }

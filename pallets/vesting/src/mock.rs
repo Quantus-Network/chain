@@ -91,7 +91,7 @@ impl frame_system::Config for Test {
 
 impl pallet_timestamp::Config for Test {
 	type Moment = u64;
-	type OnTimestampSet = ();
+	type OnTimestampSet = Vesting;
 	type MinimumPeriod = ConstU64<1>;
 	type WeightInfo = ();
 }
@@ -194,7 +194,7 @@ pub fn pot() -> AccountId32 {
 }
 
 pub fn set_time(now_ms: u64) {
-	pallet_timestamp::Now::<Test>::put(now_ms);
+	pallet_timestamp::Pallet::<Test>::set_timestamp(now_ms);
 }
 
 pub type ScheduleTuple = (AccountId32, u64, u64, u64, u128);
@@ -205,6 +205,12 @@ pub type ScheduleTuple = (AccountId32, u64, u64, u64, u128);
 pub fn new_test_ext(schedules: Vec<ScheduleTuple>) -> sp_io::TestExternalities {
 	let sum: u128 = schedules.iter().map(|(_, _, _, _, total)| total).sum();
 	new_test_ext_with_pot_balance(schedules, sum + DEFAULT_EXISTENTIAL_DEPOSIT)
+}
+
+/// Like [`new_test_ext`], but genesis times are offsets from the first non-zero timestamp.
+pub fn new_test_ext_anchored(schedules: Vec<ScheduleTuple>) -> sp_io::TestExternalities {
+	let sum: u128 = schedules.iter().map(|(_, _, _, _, total)| total).sum();
+	new_test_ext_inner(schedules, sum + DEFAULT_EXISTENTIAL_DEPOSIT, true)
 }
 
 /// The `pub static` config values, `RECORDED_PROOFS`, and the drop-credits switch live
@@ -227,6 +233,14 @@ pub fn new_test_ext_with_pot_balance(
 	schedules: Vec<ScheduleTuple>,
 	pot_balance: Balance,
 ) -> sp_io::TestExternalities {
+	new_test_ext_inner(schedules, pot_balance, false)
+}
+
+fn new_test_ext_inner(
+	schedules: Vec<ScheduleTuple>,
+	pot_balance: Balance,
+	anchor_to_first_timestamp: bool,
+) -> sp_io::TestExternalities {
 	reset_thread_local_state();
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
@@ -238,9 +252,12 @@ pub fn new_test_ext_with_pot_balance(
 		.assimilate_storage(&mut t)
 		.unwrap();
 
-	pallet_vesting::GenesisConfig::<Test> { schedules }
-		.assimilate_storage(&mut t)
-		.unwrap();
+	pallet_vesting::GenesisConfig::<Test> {
+		schedules: schedules.try_into().expect("test genesis fits MAX_GENESIS_SCHEDULES"),
+		anchor_to_first_timestamp,
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
 
 	let mut ext = sp_io::TestExternalities::new(t);
 	ext.execute_with(|| {

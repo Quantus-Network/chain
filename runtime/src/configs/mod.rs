@@ -65,8 +65,8 @@ use sp_version::RuntimeVersion;
 use super::{
 	scale_fee, AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash, Nonce,
 	OriginCaller, PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Wormhole, ZkTree,
-	DAYS, EXISTENTIAL_DEPOSIT, FEE_SCALE_DEN, FEE_SCALE_NUM, MAX_SUPPLY, MICRO_UNIT,
+	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, Wormhole,
+	ZkTree, DAYS, EXISTENTIAL_DEPOSIT, FEE_SCALE_DEN, FEE_SCALE_NUM, MAX_SUPPLY, MICRO_UNIT,
 	MILLIS_PER_DAY, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
 use sp_core::U512;
@@ -185,7 +185,7 @@ parameter_types! {
 impl pallet_timestamp::Config for Runtime {
 	/// A timestamp: milliseconds since the unix epoch.
 	type Moment = Moment;
-	type OnTimestampSet = ();
+	type OnTimestampSet = Vesting;
 	type MinimumPeriod = MinimumPeriod;
 	type WeightInfo = ();
 }
@@ -251,12 +251,14 @@ parameter_types! {
 	// cannot delete it before enactment — which also lets the noter reclaim the preimage
 	// deposit while the bytes stay pinned. Cap the blob so that (a) `MaxActive` × size
 	// cannot approach hundreds of MiB of deposit-free state, and (b) the preimage deposit
-	// for a max-sized blob (0.1 UNIT + 0.0001 UNIT/byte ≈ 6.6 UNIT) stays well under the
-	// 10 UNIT submission deposit, so the held bytes remain collateralized even after
-	// `unnote`. 64 KiB is ample for any tech-collective call.
-	pub const MaxReferendaProposalSize: u32 = 64 * 1024;
+	// for a max-sized blob (0.1 UNIT + 0.0001 UNIT/byte ≈ 0.51 UNIT) stays under the
+	// 1 UNIT submission deposit, so the held bytes remain collateralized even after
+	// `unnote`. 4 KiB is ample for any tech-collective call (a runtime-upgrade
+	// authorization is a few dozen bytes); together with the decision deposit it keeps a
+	// tech referendum affordable from the 3 UNIT mainnet genesis seed.
+	pub const MaxReferendaProposalSize: u32 = 4 * 1024;
 	// Submission deposit for referenda
-	pub const ReferendumSubmissionDeposit: Balance = scale_fee(10 * UNIT);
+	pub const ReferendumSubmissionDeposit: Balance = scale_fee(UNIT);
 	// Undeciding timeout (45 days): a submitted referendum that is NOT in the track queue —
 	// e.g. one that never received a decision deposit — is rejected as TimedOut after this
 	// long. Referenda that ARE queued for deciding are exempt: the timeout check
@@ -608,7 +610,7 @@ parameter_types! {
 	/// (`SCALE_DOWN_FACTOR`): a sub-quantum transfer would be committed as a
 	/// zero-value leaf, stranding funds paid to keyless beneficiaries.
 	pub const VestingPayoutQuantum: Balance = pallet_wormhole::SCALE_DOWN_FACTOR;
-	/// One QUAN keeps every payout above the existential deposit and the Wormhole
+	/// One QTC keeps every payout above the existential deposit and the Wormhole
 	/// circuit's fee-consuming minimum.
 	pub const VestingMinimumPayout: Balance = UNIT;
 	pub const VestingMinClaimInterval: u64 = MILLIS_PER_DAY;
@@ -689,9 +691,9 @@ parameter_types! {
 	pub const MaxSigners: u32 = 100;
 	pub const MaxTotalProposalsInStorage: u32 = 200; // Max Active + Approved proposals per multisig
 	pub const MaxCallSize: u32 = 10240; // 10KB
-	pub const MultisigFee: Balance = scale_fee(600 * MILLI_UNIT); // 0.6 UNIT (non-refundable, burned)
-	pub const ProposalDeposit: Balance = scale_fee(1000 * MILLI_UNIT); // 1 UNIT (locked until cleanup)
-	pub const ProposalFee: Balance = scale_fee(1000 * MILLI_UNIT); // 1 UNIT (non-refundable)
+	pub const MultisigFee: Balance = scale_fee(30 * MILLI_UNIT); // 0.03 UNIT (non-refundable, burned)
+	pub const ProposalDeposit: Balance = scale_fee(10 * MILLI_UNIT); // 0.01 UNIT (locked until cleanup)
+	pub const ProposalFee: Balance = scale_fee(50 * MILLI_UNIT); // 0.05 UNIT (non-refundable)
 	pub const SignerStepFactorParam: Permill = Permill::from_percent(1);
 	pub const MaxExpiryDuration: BlockNumber = 100_800; // ~2 weeks at 12s blocks (14 days * 24h * 60m * 60s / 12s)
 	// Maximum weight for inner calls executed via multisig.
@@ -814,7 +816,7 @@ parameter_types! {
 	/// Volume fee rate in basis points (4 bps = 0.04%).
 	/// Settlement ceil-rounds once per accepted private segment, then sums those
 	/// fees across a public batch. Small segments therefore pay at least one
-	/// quantum (0.01 QUAN); larger segments pay the headline rate. There is no
+	/// quantum (0.01 QTC); larger segments pay the headline rate. There is no
 	/// separate on-chain minimum exit amount.
 	pub const VolumeFeeRateBps: u32 = 4;
 	/// Proportion of volume fees to burn (50% burned, 50% to miner)

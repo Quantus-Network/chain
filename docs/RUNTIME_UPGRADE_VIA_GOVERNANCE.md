@@ -4,7 +4,7 @@ Polkadot JS Apps and the standard `@polkadot/api` **do not support** this chain'
 
 ## How upgrades work
 
-Tech-referenda proposals are `Lookup` preimages capped at 64 KiB
+Tech-referenda proposals are `Lookup` preimages capped at 4 KiB
 (`MaxReferendaProposalSize`), so a runtime WASM (hundreds of KiB) can never
 itself be a proposal. Upgrades instead go through the hash-then-apply flow,
 modeled on Polkadot's Whitelisted Caller track:
@@ -27,7 +27,7 @@ modeled on Polkadot's Whitelisted Caller track:
    is live.
 
 Track 0 (Root origin, 61%/60% curves, 1-day windows) remains for other
-governance calls that fit in 64 KiB; it is not used for runtime upgrades.
+governance calls that fit in 4 KiB; it is not used for runtime upgrades.
 
 ## Prerequisites
 

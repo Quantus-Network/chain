@@ -143,7 +143,7 @@ pub struct RunCmd {
 	/// Enable authoring even when offline (no connected peers).
 	///
 	/// Required to start mining on a new chain from a single validator,
-	/// for example at mainnet or staging-mainnet genesis. Without this flag,
+	/// for example at mainnet genesis. Without this flag,
 	/// mining pauses until at least one peer is connected.
 	#[arg(long)]
 	pub force_authoring: bool,

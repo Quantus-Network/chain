@@ -1525,7 +1525,7 @@ mod exit_bundle_tests {
 	use qp_wormhole_verifier::{BlockData, BytesDigest, PublicInputsByAccount};
 	use sp_core::crypto::AccountId32;
 
-	/// Quantized circuit amounts (2 decimals). 2000 => 20 QUAN on-chain.
+	/// Quantized circuit amounts (2 decimals). 2000 => 20 QTC on-chain.
 	const AMOUNT_A: u32 = 2000;
 	const AMOUNT_B: u32 = 3000;
 	/// Settles a 3-quantum fee (`ceil(5000 · 4 / 9996) = 3`); the miner share
@@ -1963,8 +1963,8 @@ mod exit_bundle_tests {
 			System::set_block_number(1);
 
 			// Raise the ED so a small exit to a fresh account cannot be minted, while a
-			// larger co-bundled exit clears it. AMOUNT_A (20 QUAN) stays below the ED;
-			// AMOUNT_B (30 QUAN) is above it.
+			// larger co-bundled exit clears it. AMOUNT_A (20 QTC) stays below the ED;
+			// AMOUNT_B (30 QTC) is above it.
 			ExistentialDeposit::set(scaled(2500));
 
 			let dust_exit = AccountId32::new([10u8; 32]);
@@ -2049,7 +2049,7 @@ mod exit_bundle_tests {
 			assert_ok!(Balances::mint_into(&account_id(999), 1_000 * UNIT));
 			let issuance_before = <Balances as Inspect<AccountId>>::total_issuance();
 
-			// Smallest valid exit: one quantum (0.01 QUAN). The circuit's integer fee
+			// Smallest valid exit: one quantum (0.01 QTC). The circuit's integer fee
 			// relation `out · 10000 ≤ input · (10000 − bps)` forces `input ≥ 2` quanta
 			// here, i.e. the proof locked a full one-quantum fee. Settlement must
 			// collect that quantum, not the ~0.04% of it (10^10 · 4 / 9996 = 4_001_600
@@ -2219,7 +2219,7 @@ mod exit_bundle_tests {
 			let aggregator = AccountId32::new([7u8; 32]);
 			let exit = AccountId32::new([10u8; 32]);
 			// Exits must clear the raised ED so the user mints themselves succeed.
-			let amount = 200_000u32; // 2000 QUAN scaled
+			let amount = 200_000u32; // 2000 QTC scaled
 			let b = bundle(vec![segment(&[1], &[(10, amount)])], Some(digest(7)));
 			assert_ok!(Wormhole::process_exit_bundle(b));
 

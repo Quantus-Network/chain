@@ -1,13 +1,13 @@
 # Creating a Chain Spec (JSON)
 
 How to produce a committed, raw JSON chain spec for a network profile
-(`heisenberg`, `planck`, `staging_mainnet`). The genesis runtime in the JSON is
+(`heisenberg`, `planck`, `mainnet`). The genesis runtime in the JSON is
 the **published release artifact**, not a local build — anyone can reproduce
 and verify it.
 
 ## Naming convention
 
-For a profile `<profile>` (e.g. `staging_mainnet`):
+For a profile `<profile>` (e.g. `mainnet`):
 
 | Name | Meaning |
 | --- | --- |
@@ -17,7 +17,7 @@ For a profile `<profile>` (e.g. `staging_mainnet`):
 
 ## Prerequisites
 
-- The runtime preset exists in `runtime/src/genesis_config_presets.rs` and is
+- The runtime preset exists in `runtime/src/genesis_config_presets/` and is
   wired up in `node/src/chain_spec.rs` (`<profile>_chain_spec()`) and in
   `load_spec` (`node/src/command.rs`) under `"<profile>_live_spec"`.
 - Clean git working tree (the script refuses otherwise).
@@ -51,8 +51,8 @@ For a profile `<profile>` (e.g. `staging_mainnet`):
    `node/src/command.rs`:
 
    ```rust
-   "staging_mainnet" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
-       "chain-specs/staging-mainnet.json"
+   "mainnet" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
+       "chain-specs/mainnet.json"
    ))?) as Box<dyn sc_service::ChainSpec>,
    ```
 
@@ -72,6 +72,3 @@ For a profile `<profile>` (e.g. `staging_mainnet`):
 
 7. **Commit** the JSON plus the `load_spec` arm, and cut the node release that
    embeds them.
-
-For the staging-mainnet launch sequence around this (treasury multisig,
-first server, post-launch), see `docs/STAGING_MAINNET_LAUNCH.md`.

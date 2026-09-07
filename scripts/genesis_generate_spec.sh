@@ -12,12 +12,12 @@ if [ -z "$1" ] || [ -z "$2" ]; then
   echo "Usage: $0 <release_tag> <profile>"
   echo "Example: $0 v0.1.1-nibbler-snack heisenberg"
   echo "Example: $0 v0.1.1-nibbler-snack planck"
-  echo "Example: $0 v0.1.1-nibbler-snack staging_mainnet"
+  echo "Example: $0 v0.1.1-nibbler-snack mainnet"
   echo ""
   echo "Available profiles:"
   echo "  - heisenberg: Heisenberg testnet"
   echo "  - planck: Planck network"
-  echo "  - staging_mainnet: Mainnet dress rehearsal (see docs/STAGING_MAINNET_LAUNCH.md)"
+  echo "  - mainnet: Production genesis (requires mainnet_vesting::FINALIZED)"
   echo ""
   echo "Naming convention:"
   echo "  profile -> profile_live_spec (for execution)"
@@ -86,7 +86,7 @@ fi
 
 echo "🔧 Generating initial chain spec from '$CHAIN_ID'..."
 # --disable-default-bootnode: without it, a spec with no declared bootnodes gets a
-# throwaway /ip4/127.0.0.1 bootnode injected (matters for staging_mainnet, whose
+# throwaway /ip4/127.0.0.1 bootnode injected (matters for mainnet, whose
 # bootnodes are added post-launch).
 $QUANTUS_NODE_BIN build-spec --chain "$PROFILE_SPEC" --raw --disable-default-bootnode > "$OUTPUT_FILE"
 

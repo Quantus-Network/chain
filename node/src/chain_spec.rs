@@ -1,6 +1,6 @@
 use quantus_runtime::{
 	genesis_config_presets::{
-		HEISENBERG_RUNTIME_PRESET, PLANCK_RUNTIME_PRESET, STAGING_MAINNET_RUNTIME_PRESET,
+		HEISENBERG_RUNTIME_PRESET, MAINNET_RUNTIME_PRESET, PLANCK_RUNTIME_PRESET,
 	},
 	WASM_BINARY,
 };
@@ -75,17 +75,14 @@ pub fn heisenberg_chain_spec() -> Result<ChainSpec, String> {
 	.build())
 }
 
-/// Staging-mainnet — dress rehearsal for the mainnet launch.
-///
-/// Genesis is 1:1 with the eventual mainnet's (same 6-of-10 treasury multisig
-/// signers, same tech collective, same endowments); only the treasury multisig
-/// nonce differs, giving staging its own treasury account and genesis hash.
-/// Bootnodes are added once the staging infrastructure exists (the `bootNodes`
-/// field lives outside genesis, so editing it does not change the hash).
-pub fn staging_mainnet_chain_spec() -> Result<ChainSpec, String> {
+/// Mainnet. Genesis comes from the `mainnet` runtime preset; the allocation
+/// table is `runtime/src/genesis_config_presets/mainnet_vesting.rs`. Spec
+/// building panics until that table is finalized. Bootnodes are added once
+/// infrastructure exists (`bootNodes` is outside genesis).
+pub fn mainnet_chain_spec() -> Result<ChainSpec, String> {
 	let mut properties = Properties::new();
 	properties.insert("tokenDecimals".into(), json!(12));
-	properties.insert("tokenSymbol".into(), json!("QUAN"));
+	properties.insert("tokenSymbol".into(), json!("QTC"));
 	properties.insert("ss58Format".into(), json!(189));
 
 	let telemetry_endpoints = TelemetryEndpoints::new(vec![(
@@ -98,12 +95,12 @@ pub fn staging_mainnet_chain_spec() -> Result<ChainSpec, String> {
 		WASM_BINARY.ok_or_else(|| "Runtime wasm not available".to_string())?,
 		None,
 	)
-	.with_name("Quantus Staging Mainnet")
-	.with_id("staging_mainnet")
-	.with_protocol_id("staging-mainnet")
+	.with_name("Quantus")
+	.with_id("mainnet")
+	.with_protocol_id("quantus")
 	.with_telemetry_endpoints(telemetry_endpoints)
 	.with_chain_type(ChainType::Live)
-	.with_genesis_config_preset_name(STAGING_MAINNET_RUNTIME_PRESET)
+	.with_genesis_config_preset_name(MAINNET_RUNTIME_PRESET)
 	.with_properties(properties)
 	.build())
 }

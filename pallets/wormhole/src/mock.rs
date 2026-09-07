@@ -23,7 +23,7 @@ construct_runtime!(
 );
 
 pub type Balance = u128;
-/// 1 QUAN = 10^12 (12 decimal places)
+/// 1 QTC = 10^12 (12 decimal places)
 pub const UNIT: Balance = 1_000_000_000_000;
 pub type AccountId = sp_core::crypto::AccountId32;
 pub type Block<T> = sp_runtime::generic::Block<
