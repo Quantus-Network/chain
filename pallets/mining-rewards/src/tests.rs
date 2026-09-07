@@ -486,12 +486,14 @@ fn test_emission_simulation_120m_blocks() {
 		const REPORT_INTERVAL: u64 = 1_000_000;
 		const UNIT: u128 = 1_000_000_000_000;
 		const FOUR_YEARS_BLOCKS: u64 = 10_519_200;
+		const HALF_LIFE_BLOCKS: u64 = 34_657_359;
 
 		let initial_supply = Balances::total_issuance();
 		let mut current_supply = initial_supply;
 		let mut total_miner_rewards = 0u128;
 		let mut block = 0u64;
 		let mut four_year_stats: Option<(u128, u128)> = None;
+		let mut half_life_stats: Option<(u128, u128)> = None;
 
 		println!("Block       Supply        %MaxSupply  BlockReward   Remaining");
 		println!("{}", "-".repeat(70));
@@ -522,6 +524,9 @@ fn test_emission_simulation_120m_blocks() {
 
 			if block == FOUR_YEARS_BLOCKS {
 				four_year_stats = Some((current_supply, total_miner_rewards));
+			}
+			if block == HALF_LIFE_BLOCKS {
+				half_life_stats = Some((current_supply, total_miner_rewards));
 			}
 
 			if block.is_multiple_of(REPORT_INTERVAL) {
@@ -594,14 +599,37 @@ fn test_emission_simulation_120m_blocks() {
 		);
 
 		assert!(
-			(49.0..=51.0).contains(&emitted_pct_4y),
-			"~50% of mineable supply should be emitted after 4 years, got {:.2}%",
+			(18.5..=19.5).contains(&emitted_pct_4y),
+			"~19% of mineable supply should be emitted after 4 years, got {:.2}%",
 			emitted_pct_4y
 		);
 		assert!(
-			(49.0..=51.0).contains(&miner_pct_4y),
-			"~50% of mineable supply should have gone to miners after 4 years, got {:.2}%",
+			(18.5..=19.5).contains(&miner_pct_4y),
+			"~19% of mineable supply should have gone to miners after 4 years, got {:.2}%",
 			miner_pct_4y
+		);
+
+		let (supply_half, miner_half) =
+			half_life_stats.expect("simulation must run past the half-life mark");
+		let emitted_half = supply_half - initial_supply;
+		let emitted_pct_half = (emitted_half as f64 / mineable_supply as f64) * 100.0;
+		let miner_pct_half = (miner_half as f64 / mineable_supply as f64) * 100.0;
+		println!();
+		println!("=== Half-life Checkpoint (block {}) ===", HALF_LIFE_BLOCKS);
+		println!(
+			"Emitted: {:.6} tokens ({:.2}% of mineable supply)",
+			emitted_half as f64 / UNIT as f64,
+			emitted_pct_half
+		);
+		assert!(
+			(49.0..=51.0).contains(&emitted_pct_half),
+			"~50% of mineable supply should be emitted at the ~13.2-year half-life, got {:.2}%",
+			emitted_pct_half
+		);
+		assert!(
+			(49.0..=51.0).contains(&miner_pct_half),
+			"~50% of mineable supply should have gone to miners at half-life, got {:.2}%",
+			miner_pct_half
 		);
 
 		assert!(current_supply >= initial_supply, "Supply should have increased");
@@ -611,8 +639,8 @@ fn test_emission_simulation_120m_blocks() {
 		let emission_percentage =
 			(emitted_tokens as f64 / (MaxSupply::get() - initial_supply) as f64) * 100.0;
 		assert!(
-			emission_percentage > 99.0,
-			"Should have emitted >99% of available supply, got {:.2}%",
+			emission_percentage > 90.0,
+			"Should have emitted >90% of available supply, got {:.2}%",
 			emission_percentage
 		);
 
@@ -625,8 +653,8 @@ fn test_emission_simulation_120m_blocks() {
 		let remaining_percentage =
 			((MaxSupply::get() - current_supply) as f64 / MaxSupply::get() as f64) * 100.0;
 		assert!(
-			remaining_percentage < 1.0,
-			"Should have <1% supply remaining, got {:.2}%",
+			remaining_percentage < 10.0,
+			"Should have <10% supply remaining, got {:.2}%",
 			remaining_percentage
 		);
 		assert!(

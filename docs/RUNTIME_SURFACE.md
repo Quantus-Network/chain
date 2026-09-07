@@ -119,7 +119,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - No dispatchable calls. Implements `Hooks` (`on_initialize`/`on_finalize`) to track block timing and recompute difficulty. Powers the `QPoWApi` runtime API.
 
 ### Index 6 — `MiningRewards` (`pallet-mining-rewards`, local)
-- `Currency = Balances`, `ProofRecorder = Wormhole`, `MaxSupply = 21_000_000 * UNIT`, `EmissionDivisor = 15_163_560`, `MintingAccount`, `Unit = UNIT`. Miner credits are aligned to the ZK-tree leaf quantum (`AMOUNT_SCALE_DOWN_FACTOR` = 10^10).
+- `Currency = Balances`, `ProofRecorder = Wormhole`, `MaxSupply = 21_000_000 * UNIT`, `EmissionDivisor = 50_000_000`, `MintingAccount`, `Unit = UNIT`. Miner credits are aligned to the ZK-tree leaf quantum (`AMOUNT_SCALE_DOWN_FACTOR` = 10^10).
 - No dispatchable calls. Exposes `TransactionFeesCollector` + `collect_transaction_fees`. `on_finalize` requires a miner in the digest, combines transaction fees and the block reward into one miner credit, and rounds it down to the wormhole leaf quantum. A missing miner or a sub-quantum remainder stays in `CollectedFees` for the next miner — nothing is minted to treasury.
 
 ### Index 7 — `Preimage` (`pallet-preimage`)
