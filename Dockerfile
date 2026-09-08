@@ -23,7 +23,7 @@ RUN set -eux; \
         *) echo "Unsupported architecture: $DPKG_ARCH" && exit 1 ;; \
     esac; \
     echo "Downloading version: ${VERSION_ARG} for architecture: ${ARCH}"; \
-    curl -fsSL "https://github.com/Quantus-Network/chain/releases/download/${VERSION_ARG}/quantus-node-${VERSION_ARG}-${ARCH}.tar.gz" \
+    curl -fsSL "https://github.com/Quantus-Network/chain-private/releases/download/${VERSION_ARG}/quantus-node-${VERSION_ARG}-${ARCH}.tar.gz" \
         | tar -xzC /usr/local/bin/; \
     chmod +x /usr/local/bin/quantus-node
 
