@@ -100,6 +100,20 @@ jobs:
           ref: ${{ env.TARGET_VERSION_WITH_V }}
           path: source_code_for_build
 
+      - name: Download release binaries into the build context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eux
+          for pair in amd64:x86_64-unknown-linux-gnu arm64:aarch64-unknown-linux-gnu; do
+            arch="${pair%%:*}"; triple="${pair##*:}"
+            mkdir -p "source_code_for_build/dist/${arch}"
+            gh release download "${TARGET_VERSION_WITH_V}" -R "${GITHUB_REPOSITORY}" \
+              -p "quantus-node-${TARGET_VERSION_WITH_V}-${triple}.tar.gz" -O - \
+              | tar -xzC "source_code_for_build/dist/${arch}"
+            test -x "source_code_for_build/dist/${arch}/quantus-node" || chmod +x "source_code_for_build/dist/${arch}/quantus-node"
+          done
+
       - name: Build and push Docker image from Dockerfile
         uses: docker/build-push-action@v6
         with:
@@ -107,10 +121,6 @@ jobs:
           file: ./Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
-          build-args: |
-            VERSION_ARG=${{ env.TARGET_VERSION_WITH_V }}
-          secrets: |
-            github_token=${{ secrets.GITHUB_TOKEN }}
           tags: |
             ${{ env.GHCR_IMAGE_PATH }}:${{ env.TARGET_VERSION_WITH_V }}
             ${{ env.GHCR_IMAGE_PATH }}:latest

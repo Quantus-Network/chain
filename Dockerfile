@@ -13,29 +13,11 @@ RUN apt-get update \
     libterm-readline-perl-perl \
  && rm -rf /var/lib/apt/lists/*
 
-# Download the specified pre-built binary from GitHub releases.
-# Token is a BuildKit secret (not an ARG) so it never lands in image layers.
-ARG VERSION_ARG # Expecting format like vX.Y.Z
-RUN --mount=type=secret,id=github_token,required=true \
-    set -eu; \
-    DPKG_ARCH="$(dpkg --print-architecture)"; \
-    case "$DPKG_ARCH" in \
-        amd64)   ARCH="x86_64-unknown-linux-gnu" ;; \
-        arm64)   ARCH="aarch64-unknown-linux-gnu" ;; \
-        *) echo "Unsupported architecture: $DPKG_ARCH" && exit 1 ;; \
-    esac; \
-    echo "Downloading version: ${VERSION_ARG} for architecture: ${ARCH}"; \
-    TOKEN="$(cat /run/secrets/github_token)"; \
-    if [ -z "$TOKEN" ]; then \
-        echo "github_token secret is empty" >&2; \
-        exit 1; \
-    fi; \
-    curl -fsSL \
-        -H "Authorization: Bearer ${TOKEN}" \
-        -H "Accept: application/octet-stream" \
-        "https://github.com/Quantus-Network/chain-private/releases/download/${VERSION_ARG}/quantus-node-${VERSION_ARG}-${ARCH}.tar.gz" \
-        | tar -xzC /usr/local/bin/; \
-    chmod +x /usr/local/bin/quantus-node
+# The workflow downloads the release tarball for each platform into dist/<arch>/;
+# the repository is private, so the image build itself cannot fetch it.
+ARG TARGETARCH
+COPY dist/${TARGETARCH}/ /usr/local/bin/
+RUN chmod +x /usr/local/bin/quantus-node
 
 # Expose P2P and public WS/RPC ports
 EXPOSE 30333 9944
