@@ -91,10 +91,8 @@ jobs:
             echo "Image $IMAGE_TO_CHECK does not exist. Proceeding with build."
           fi
 
-      - name: Checkout default branch (for Dockerfile)
+      - name: Checkout workflow revision (for Dockerfile)
         uses: actions/checkout@v4
-        with:
-          ref: main # Assuming 'main' is your default branch
 
       - name: Checkout target version source code into subdir
         uses: actions/checkout@v4
@@ -111,6 +109,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION_ARG=${{ env.TARGET_VERSION_WITH_V }}
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
           tags: |
             ${{ env.GHCR_IMAGE_PATH }}:${{ env.TARGET_VERSION_WITH_V }}
             ${{ env.GHCR_IMAGE_PATH }}:latest

@@ -13,9 +13,11 @@ RUN apt-get update \
     libterm-readline-perl-perl \
  && rm -rf /var/lib/apt/lists/*
 
-# Download the specified pre-built binary from GitHub releases
+# Download the specified pre-built binary from GitHub releases.
+# Token is a BuildKit secret (not an ARG) so it never lands in image layers.
 ARG VERSION_ARG # Expecting format like vX.Y.Z
-RUN set -eux; \
+RUN --mount=type=secret,id=github_token,required=true \
+    set -eu; \
     DPKG_ARCH="$(dpkg --print-architecture)"; \
     case "$DPKG_ARCH" in \
         amd64)   ARCH="x86_64-unknown-linux-gnu" ;; \
@@ -23,7 +25,15 @@ RUN set -eux; \
         *) echo "Unsupported architecture: $DPKG_ARCH" && exit 1 ;; \
     esac; \
     echo "Downloading version: ${VERSION_ARG} for architecture: ${ARCH}"; \
-    curl -fsSL "https://github.com/Quantus-Network/chain-private/releases/download/${VERSION_ARG}/quantus-node-${VERSION_ARG}-${ARCH}.tar.gz" \
+    TOKEN="$(cat /run/secrets/github_token)"; \
+    if [ -z "$TOKEN" ]; then \
+        echo "github_token secret is empty" >&2; \
+        exit 1; \
+    fi; \
+    curl -fsSL \
+        -H "Authorization: Bearer ${TOKEN}" \
+        -H "Accept: application/octet-stream" \
+        "https://github.com/Quantus-Network/chain-private/releases/download/${VERSION_ARG}/quantus-node-${VERSION_ARG}-${ARCH}.tar.gz" \
         | tar -xzC /usr/local/bin/; \
     chmod +x /usr/local/bin/quantus-node
 
