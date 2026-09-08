@@ -166,7 +166,7 @@ impl pallet_qpow::Config for Runtime {
 	type InitialDifficulty = QPoWInitialDifficulty;
 	type TargetBlockTime = TargetBlockTime;
 	type MaxReorgDepth = ConstU32<100>;
-	type WeightInfo = ();
+	type WeightInfo = pallet_qpow::weights::SubstrateWeight<Runtime>;
 }
 
 parameter_types! {
@@ -187,7 +187,7 @@ impl pallet_timestamp::Config for Runtime {
 	type Moment = Moment;
 	type OnTimestampSet = Vesting;
 	type MinimumPeriod = MinimumPeriod;
-	type WeightInfo = ();
+	type WeightInfo = pallet_timestamp::weights::SubstrateWeight<Runtime>;
 }
 
 parameter_types! {
@@ -683,9 +683,11 @@ parameter_types! {
 	pub const ProposalFee: Balance = scale_fee(50 * MILLI_UNIT); // 0.05 UNIT (non-refundable)
 	pub const SignerStepFactorParam: Permill = Permill::from_percent(1);
 	pub const MaxExpiryDuration: BlockNumber = 100_800; // ~2 weeks at 12s blocks (14 days * 24h * 60m * 60s / 12s)
-	// Maximum weight for inner calls executed via multisig.
-	// Set to ~50% of max block weight to allow for multisig bookkeeping overhead.
-	// ref_time: 1 second (half of 2s max), proof_size: 2.5 MB (half of 5 MB max)
+	// Maximum weight for inner calls executed via multisig: 1s of ref_time (a sixth
+	// of the 6s block budget, leaving room for multisig bookkeeping and other
+	// extrinsics) and 2.5 MiB of proof_size (uncharged today — the block's
+	// proof_size limit is uncapped — but bounded here so a future switch to metered
+	// proof_size cannot be saturated through multisig dispatch).
 	pub MaxInnerCallWeight: Weight = Weight::from_parts(1_000_000_000_000, 2_621_440);
 }
 

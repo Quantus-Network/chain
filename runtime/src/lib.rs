@@ -98,8 +98,6 @@ pub const MINUTES: BlockNumber = (60_000u64 / TARGET_BLOCK_TIME_MS) as BlockNumb
 pub const HOURS: BlockNumber = MINUTES * 60;
 pub const DAYS: BlockNumber = HOURS * 24;
 
-pub const BLOCK_HASH_COUNT: BlockNumber = 2400;
-
 // Unit = the base number of indivisible units for balances
 pub const UNIT: Balance = 1_000_000_000_000;
 pub const MILLI_UNIT: Balance = 1_000_000_000;

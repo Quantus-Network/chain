@@ -34,7 +34,7 @@ use qp_dilithium_crypto::{
 	Dilithium87Pair,
 };
 use serde_json::Value;
-use sp_core::{crypto::Ss58Codec, Pair};
+use sp_core::{crypto::Ss58Codec, Pair, U512};
 use sp_genesis_builder::{self, PresetId};
 use sp_runtime::traits::IdentifyAccount;
 
@@ -235,6 +235,7 @@ fn genesis_template(
 	extra_balances: Vec<(AccountId, u128)>,
 	vesting_schedules: Vec<VestingScheduleTuple>,
 	anchor_vesting_to_first_timestamp: bool,
+	initial_difficulty: Option<U512>,
 ) -> Value {
 	const ENDOWED_BALANCE_UNITS: u128 = 100_000;
 	let mut balances = endowed_accounts
@@ -265,6 +266,11 @@ fn genesis_template(
 
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances, dev_accounts: None },
+		q_po_w: match initial_difficulty {
+			Some(difficulty) =>
+				pallet_qpow::GenesisConfig { initial_difficulty: difficulty, ..Default::default() },
+			None => Default::default(),
+		},
 		treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
 			treasury_account: Some(treasury.account),
 		},
@@ -366,6 +372,14 @@ fn log_genesis_accounts(
 	}
 }
 
+/// Initial difficulty for the `dev` preset: the qpow pallet's operational floor, so
+/// a single dev machine finds blocks immediately instead of grinding against the
+/// mainnet-scale `QPoWInitialDifficulty`. The retarget raises it if the machine
+/// sustains faster-than-target blocks.
+fn dev_initial_difficulty() -> U512 {
+	pallet_qpow::Pallet::<crate::Runtime>::get_min_difficulty()
+}
+
 /// Return the development genesis config.
 pub fn development_config_genesis() -> Value {
 	let mut endowed_accounts = dilithium_default_accounts();
@@ -412,6 +426,7 @@ pub fn development_config_genesis() -> Value {
 			vec![],
 			vesting_schedules,
 			false,
+			Some(dev_initial_difficulty()),
 		);
 		// `genesis_template` adds a chain-spec-only field that `RuntimeGenesisConfig` cannot
 		// deserialize; strip it before deserializing, then restore it on the returned JSON so
@@ -443,6 +458,7 @@ pub fn development_config_genesis() -> Value {
 			vec![],
 			vesting_schedules,
 			false,
+			Some(dev_initial_difficulty()),
 		)
 	}
 }
@@ -462,7 +478,15 @@ pub fn heisenberg_config_genesis() -> Value {
 	let vesting_schedules = testnet_vesting_schedules();
 	log_vesting_schedules("heisenberg", &vesting_schedules);
 	let treasury = TreasuryGenesis { account: treasury_account };
-	genesis_template(endowed_accounts, treasury, tech_collective, vec![], vesting_schedules, false)
+	genesis_template(
+		endowed_accounts,
+		treasury,
+		tech_collective,
+		vec![],
+		vesting_schedules,
+		false,
+		None,
+	)
 }
 
 fn planck_faucet_account() -> AccountId {
@@ -631,7 +655,15 @@ pub fn planck_config_genesis() -> Value {
 	// `create_schedule` works post-genesis.
 	log_vesting_schedules("planck", &[]);
 	let treasury = TreasuryGenesis { account: treasury_account };
-	genesis_template(endowed_accounts, treasury, tech_collective, signer_fee_seed, vec![], false)
+	genesis_template(
+		endowed_accounts,
+		treasury,
+		tech_collective,
+		signer_fee_seed,
+		vec![],
+		false,
+		None,
+	)
 }
 
 /// Mainnet genesis: the 27% TGE mint from `mainnet_vesting` — its vesting table, the
@@ -653,7 +685,15 @@ pub fn mainnet_config_genesis() -> Value {
 	let vesting_schedules = mainnet_vesting::schedules();
 	log_vesting_schedules(MAINNET_RUNTIME_PRESET, &vesting_schedules);
 	let treasury = TreasuryGenesis { account: treasury_account };
-	genesis_template(vec![], treasury, tech_collective, extra_balances, vesting_schedules, true)
+	genesis_template(
+		vec![],
+		treasury,
+		tech_collective,
+		extra_balances,
+		vesting_schedules,
+		true,
+		None,
+	)
 }
 
 /// Provides the JSON representation of predefined genesis config for given `id`.
@@ -761,6 +801,22 @@ mod tests {
 			config
 				.build_storage()
 				.unwrap_or_else(|e| panic!("preset {:?} must build genesis storage: {e:?}", id));
+		}
+	}
+
+	/// `dev` starts at the qpow difficulty floor so a single machine mines
+	/// immediately; every other preset keeps the mainnet-scale runtime constant.
+	#[test]
+	fn only_the_dev_preset_lowers_initial_difficulty() {
+		let difficulty_of = |name: &str| {
+			let raw = get_preset(&PresetId::from(name)).expect("listed preset must resolve");
+			let (json, _) = prepare_genesis_build_input(raw).expect("well-formed");
+			let config: RuntimeGenesisConfig = serde_json::from_slice(&json).expect("deserializes");
+			config.q_po_w.initial_difficulty
+		};
+		assert_eq!(difficulty_of(sp_genesis_builder::DEV_RUNTIME_PRESET), dev_initial_difficulty());
+		for preset in [HEISENBERG_RUNTIME_PRESET, PLANCK_RUNTIME_PRESET] {
+			assert_eq!(difficulty_of(preset), crate::configs::QPoWInitialDifficulty::get());
 		}
 	}
 
