@@ -1,5 +1,6 @@
-//! Weights for `pallet_vesting`. Payout paths replace the benchmarked tree component
-//! with flat `pallet_zk_tree::INSERT_LEAF_*` pricing at
+//! Weights for `pallet_vesting`. Calls that record wormhole leaves replace the
+//! benchmarked insert-phase tree ops with the flat marginal
+//! `pallet_zk_tree::INSERT_LEAF_*` price per leaf, at
 //! [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`].
 
 use crate::weights_generated as generated;
@@ -16,75 +17,67 @@ pub trait WeightInfo {
 	fn retarget_schedule() -> Weight;
 }
 
-/// ZK-tree storage ops the benchmark itself performed, per the storage tables in
-/// [`crate::weights_generated`]: `LeafCount` + `Depth` + 3×`Leaves` reads (= 5), and
-/// `LeafCount` + `Leaves` + `Root` writes (= 3); `Depth` is written too once the insert
-/// grows the tree, which the shallow benchmark tree does for `end_schedule` (= 4) but
-/// not for `claim` (= 3). They are subtracted back out so the flat circuit-depth insert
-/// cost can replace them;
-/// [`tests::payout_weight_never_undercharges_the_benchmarked_base`] pins that the
+/// Insert-phase ZK-tree ops the benchmark itself performed, per the storage tables in
+/// [`crate::weights_generated`]: `LeafCount` + `UnprocessedLeaves` read and written
+/// once per call (= 2 reads, 2 writes), plus one `Leaves` write per recorded leaf.
+/// They are subtracted back out so the flat marginal insert price can replace them;
+/// [`tests::recorded_weight_never_undercharges_the_benchmarked_base`] pins that the
 /// replacement never under-charges the measured base.
-const BENCHMARK_TREE_READS: u64 = 5;
-const BENCHMARK_TREE_WRITES: u64 = 4;
-const CLAIM_BENCHMARK_TREE_WRITES: u64 = 3;
+const BENCHMARK_TREE_READS: u64 = 2;
+const BENCHMARK_TREE_WRITES: u64 = 2;
 
-/// Benchmarked base with its benchmark-depth tree ops swapped for the flat
-/// circuit-depth insert cost — DB ops, Poseidon path hashing and PoV all priced by
-/// `pallet_zk_tree::INSERT_LEAF_*` at [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`].
-///
-/// `INSERT_LEAF_*` is now the public batched-tree *marginal* price, cheaper than
-/// the per-insert path the vesting benchmarks were generated against. Clamp to
-/// the measured base so the swap cannot undercharge until those benchmarks are
-/// regenerated.
-fn payout_weight(
-	base: Weight,
-	db: RuntimeDbWeight,
-	benchmark_tree_writes: u64,
-	(tree_reads, tree_writes): (u64, u64),
-	tree_hash_time: u64,
-) -> Weight {
+/// Leaves each call records: `claim` pays the beneficiary, `create_schedule` funds
+/// the pot from the treasury, `end_schedule` pays the beneficiary and refunds the
+/// treasury. `retarget_schedule` moves no funds and records nothing.
+const CLAIM_LEAVES: u64 = 1;
+const CREATE_SCHEDULE_LEAVES: u64 = 1;
+const END_SCHEDULE_LEAVES: u64 = 2;
+
+/// Benchmarked base with its insert-phase tree ops swapped for `leaves` flat
+/// marginal inserts — DB ops, Poseidon hashing and PoV all priced by
+/// `pallet_zk_tree::INSERT_LEAF_*`. The recorder's `TransferCount` work is in the
+/// base already: the benchmarks exercise every leg.
+fn recorded_weight(base: Weight, db: RuntimeDbWeight, leaves: u64) -> Weight {
+	let (tree_reads, tree_writes) = pallet_zk_tree::INSERT_LEAF_DB_OPS;
+	let reads = leaves.saturating_mul(tree_reads);
+	let writes = leaves.saturating_mul(tree_writes);
 	base.saturating_sub(db.reads(BENCHMARK_TREE_READS))
-		.saturating_sub(db.writes(benchmark_tree_writes))
+		.saturating_sub(db.writes(BENCHMARK_TREE_WRITES.saturating_add(leaves)))
 		.saturating_add(Weight::from_parts(
-			tree_hash_time,
-			tree_reads
-				.saturating_add(tree_writes)
-				.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
+			leaves.saturating_mul(pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS),
+			reads.saturating_add(writes).saturating_mul(pallet_zk_tree::TREE_KEY_POV),
 		))
-		.saturating_add(db.reads(tree_reads))
-		.saturating_add(db.writes(tree_writes))
-		.max(base)
+		.saturating_add(db.reads(reads))
+		.saturating_add(db.writes(writes))
 }
 
 pub struct SubstrateWeight<T>(PhantomData<T>);
 
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	fn claim() -> Weight {
-		payout_weight(
+		recorded_weight(
 			<generated::SubstrateWeight<T> as generated::WeightInfo>::claim(),
 			T::DbWeight::get(),
-			CLAIM_BENCHMARK_TREE_WRITES,
-			pallet_zk_tree::INSERT_LEAF_DB_OPS,
-			pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
+			CLAIM_LEAVES,
 		)
 	}
 
 	fn create_schedule() -> Weight {
-		<generated::SubstrateWeight<T> as generated::WeightInfo>::create_schedule()
-	}
-
-	fn end_schedule() -> Weight {
-		payout_weight(
-			<generated::SubstrateWeight<T> as generated::WeightInfo>::end_schedule(),
+		recorded_weight(
+			<generated::SubstrateWeight<T> as generated::WeightInfo>::create_schedule(),
 			T::DbWeight::get(),
-			BENCHMARK_TREE_WRITES,
-			pallet_zk_tree::INSERT_LEAF_DB_OPS,
-			pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
+			CREATE_SCHEDULE_LEAVES,
 		)
 	}
 
-	// No payout augmentation: retargeting only swaps the stored beneficiary and
-	// never records a wormhole leaf.
+	fn end_schedule() -> Weight {
+		recorded_weight(
+			<generated::SubstrateWeight<T> as generated::WeightInfo>::end_schedule(),
+			T::DbWeight::get(),
+			END_SCHEDULE_LEAVES,
+		)
+	}
+
 	fn retarget_schedule() -> Weight {
 		<generated::SubstrateWeight<T> as generated::WeightInfo>::retarget_schedule()
 	}
@@ -92,26 +85,22 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 impl WeightInfo for () {
 	fn claim() -> Weight {
-		payout_weight(
-			<() as generated::WeightInfo>::claim(),
-			RocksDbWeight::get(),
-			CLAIM_BENCHMARK_TREE_WRITES,
-			pallet_zk_tree::INSERT_LEAF_DB_OPS,
-			pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
-		)
+		recorded_weight(<() as generated::WeightInfo>::claim(), RocksDbWeight::get(), CLAIM_LEAVES)
 	}
 
 	fn create_schedule() -> Weight {
-		<() as generated::WeightInfo>::create_schedule()
+		recorded_weight(
+			<() as generated::WeightInfo>::create_schedule(),
+			RocksDbWeight::get(),
+			CREATE_SCHEDULE_LEAVES,
+		)
 	}
 
 	fn end_schedule() -> Weight {
-		payout_weight(
+		recorded_weight(
 			<() as generated::WeightInfo>::end_schedule(),
 			RocksDbWeight::get(),
-			BENCHMARK_TREE_WRITES,
-			pallet_zk_tree::INSERT_LEAF_DB_OPS,
-			pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
+			END_SCHEDULE_LEAVES,
 		)
 	}
 
@@ -124,32 +113,26 @@ impl WeightInfo for () {
 mod tests {
 	use super::*;
 
-	/// Every payout call, paired with the benchmark tree writes `payout_weight`
-	/// subtracts back out for it.
-	fn payout_bases() -> [(Weight, u64); 2] {
+	/// Every recording call, paired with the leaves it records.
+	fn recorded_bases() -> [(Weight, u64); 3] {
 		[
-			(<() as generated::WeightInfo>::claim(), CLAIM_BENCHMARK_TREE_WRITES),
-			(<() as generated::WeightInfo>::end_schedule(), BENCHMARK_TREE_WRITES),
+			(<() as generated::WeightInfo>::claim(), CLAIM_LEAVES),
+			(<() as generated::WeightInfo>::create_schedule(), CREATE_SCHEDULE_LEAVES),
+			(<() as generated::WeightInfo>::end_schedule(), END_SCHEDULE_LEAVES),
 		]
 	}
 
 	/// The augmentation subtracts hand-maintained `BENCHMARK_TREE_*` counts from the
-	/// generated base and adds the flat circuit-depth insert back. If a zk-tree
-	/// cost-model change ever made that insert cheaper (in DB ops) than the
-	/// benchmark-time ops it replaces, the subtraction would silently under-charge —
-	/// no compile error, no failing benchmark. Pin it: the augmented weight must still
-	/// cover the measured base.
+	/// generated base and adds the flat marginal insert back. If a zk-tree cost-model
+	/// change ever made that insert cheaper (in DB ops) than the benchmark-time ops it
+	/// replaces, the subtraction would silently under-charge — no compile error, no
+	/// failing benchmark. Pin it: the augmented weight must still cover the measured
+	/// base.
 	#[test]
-	fn payout_weight_never_undercharges_the_benchmarked_base() {
+	fn recorded_weight_never_undercharges_the_benchmarked_base() {
 		let db = RocksDbWeight::get();
-		for (base, benchmark_tree_writes) in payout_bases() {
-			let augmented = payout_weight(
-				base,
-				db,
-				benchmark_tree_writes,
-				pallet_zk_tree::INSERT_LEAF_DB_OPS,
-				pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
-			);
+		for (base, leaves) in recorded_bases() {
+			let augmented = recorded_weight(base, db, leaves);
 			assert!(
 				augmented.all_gte(base),
 				"augmented {augmented:?} falls below benchmarked {base:?}"

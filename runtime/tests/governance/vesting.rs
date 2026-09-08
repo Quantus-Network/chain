@@ -9,9 +9,7 @@ mod tests {
 	use frame_support::{assert_noop, assert_ok, traits::Currency};
 	use pallet_multisig::BoundedCallOf;
 	use quantus_runtime::{
-		configs::{
-			VestingMinClaimInterval, VestingMinimumPayout, VestingPayoutQuantum, VolumeFeeRateBps,
-		},
+		configs::{VestingMinClaimInterval, VestingPayoutQuantum, VolumeFeeRateBps},
 		AccountId, Balance, Balances, Multisig, Runtime, RuntimeCall, RuntimeEvent, RuntimeOrigin,
 		System, Vesting, Wormhole, EXISTENTIAL_DEPOSIT, UNIT,
 	};
@@ -96,16 +94,7 @@ mod tests {
 	#[test]
 	fn payout_policy_covers_account_and_wormhole_minimums() {
 		let quantum = VestingPayoutQuantum::get();
-		let minimum = VestingMinimumPayout::get();
-		let quantized_minimum = minimum / quantum;
-		let max_quantized_output =
-			quantized_minimum * (10_000 - VolumeFeeRateBps::get() as u128) / 10_000;
-
-		assert!(minimum > EXISTENTIAL_DEPOSIT);
-		assert!(minimum >= 2 * quantum);
-		assert_eq!(minimum % quantum, 0);
-		assert!(max_quantized_output > 0);
-		assert!(max_quantized_output < quantized_minimum);
+		assert!(quantum > EXISTENTIAL_DEPOSIT);
 		assert_eq!(VestingMinClaimInterval::get(), 24 * 60 * 60 * 1000);
 		assert_eq!(quantum * pallet_vesting::NON_FINAL_PAYOUT_QUANTA, 25 * UNIT);
 		assert_eq!(
@@ -115,7 +104,7 @@ mod tests {
 	}
 
 	#[test]
-	fn end_schedule_does_not_record_a_one_quantum_leaf() {
+	fn end_schedule_records_a_one_quantum_leaf() {
 		new_test_ext(Some(account(4))).execute_with(|| {
 			let treasury = account(4);
 			let beneficiary = account(9);
@@ -130,14 +119,14 @@ mod tests {
 				END_MS,
 				total,
 			));
-			// One quantum vested — nearest is one quantum, below MinimumPayout.
+			// One quantum vested — nearest is one quantum, paid to the beneficiary.
 			set_time((END_MS as u128 * quantum / total) as u64);
 			let leaves_before = Wormhole::transfer_count(&beneficiary);
 			assert_ok!(Vesting::end_schedule(RuntimeOrigin::root(), 0));
-			assert_eq!(Balances::total_balance(&beneficiary), 0);
-			assert_eq!(Wormhole::transfer_count(&beneficiary), leaves_before);
-			assert_eq!(Balances::total_balance(&treasury), 1000 * UNIT);
-			assert_eq!(max_exitable_from_recorded_leaves(&beneficiary), (0, 0));
+			assert_eq!(Balances::total_balance(&beneficiary), quantum);
+			assert_eq!(Wormhole::transfer_count(&beneficiary), leaves_before + 1);
+			assert_eq!(Balances::total_balance(&treasury), 1000 * UNIT - quantum);
+			assert_eq!(max_exitable_from_recorded_leaves(&beneficiary), (1, 0));
 		});
 	}
 
@@ -245,11 +234,10 @@ mod tests {
 	}
 
 	#[test]
-	fn one_quan_schedule_claims_exactly_once_and_records_one_wormhole_leaf() {
+	fn one_quantum_schedule_claims_exactly_once_and_records_one_wormhole_leaf() {
 		new_test_ext(Some(account(4))).execute_with(|| {
 			Balances::make_free_balance_be(&account(4), 1000 * UNIT);
-			let minimum = VestingMinimumPayout::get();
-			assert_eq!(minimum, UNIT);
+			let quantum = VestingPayoutQuantum::get();
 			// The beneficiary never signs anything — exactly like a wormhole address.
 			let beneficiary = account(9);
 			let pot = Vesting::pot_account_id();
@@ -260,7 +248,7 @@ mod tests {
 					0,
 					0,
 					END_MS,
-					minimum - VestingPayoutQuantum::get(),
+					quantum - 1,
 				),
 				pallet_vesting::Error::<Runtime>::InvalidSchedule
 			);
@@ -270,7 +258,7 @@ mod tests {
 				0,
 				0,
 				END_MS,
-				minimum,
+				quantum,
 			));
 			set_time(END_MS - 1);
 			assert_noop!(
@@ -301,12 +289,12 @@ mod tests {
 					_ => None,
 				})
 				.expect("claim must emit a plain Transfer event from the pot");
-			assert_eq!(payout, UNIT);
-			assert_eq!(Balances::total_balance(&beneficiary), UNIT);
+			assert_eq!(payout, quantum);
+			assert_eq!(Balances::total_balance(&beneficiary), quantum);
 			assert_eq!(Balances::total_balance(&pot), EXISTENTIAL_DEPOSIT);
 			let schedule = pallet_vesting::Schedules::<Runtime>::get(0).unwrap();
-			assert_eq!(schedule.total, UNIT);
-			assert_eq!(schedule.claimed, UNIT);
+			assert_eq!(schedule.total, quantum);
+			assert_eq!(schedule.claimed, quantum);
 			assert_noop!(
 				Vesting::claim(RuntimeOrigin::signed(account(1)), 0),
 				pallet_vesting::Error::<Runtime>::NothingToClaim

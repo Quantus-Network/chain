@@ -38,7 +38,6 @@ pub const TREASURY_FUNDS: Balance = 1_000_000 * UNIT;
 /// [`reset_thread_local_state`] restores exactly what a fresh thread would start with.
 const DEFAULT_EXISTENTIAL_DEPOSIT: Balance = 1_000;
 const DEFAULT_PAYOUT_QUANTUM: Balance = 1_000;
-const DEFAULT_MINIMUM_PAYOUT: Balance = 10_000;
 const DEFAULT_MIN_CLAIM_INTERVAL: u64 = 100_000;
 
 parameter_types! {
@@ -51,7 +50,6 @@ parameter_types! {
 	/// `static` so tests can vary the wormhole leaf quantum (e.g. make it coarser than
 	/// the ED to exercise sub-quantum rounding, or finer to exercise below-ED payouts).
 	pub static PayoutQuantum: Balance = DEFAULT_PAYOUT_QUANTUM;
-	pub static MinimumPayout: Balance = DEFAULT_MINIMUM_PAYOUT;
 	pub static MinClaimInterval: u64 = DEFAULT_MIN_CLAIM_INTERVAL;
 }
 
@@ -131,7 +129,7 @@ impl EnsureOrigin<RuntimeOrigin> for EnsureTreasury {
 	}
 }
 
-/// One recorded payout proof: `(from, to, amount)`.
+/// One recorded transfer proof: `(from, to, amount)`.
 pub type RecordedProof = (AccountId32, AccountId32, Balance);
 
 thread_local! {
@@ -139,7 +137,7 @@ thread_local! {
 	static DROP_CREDITS: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Captures every payout the pallet records, for test assertions.
+/// Captures every transfer the pallet records, for test assertions.
 pub struct MockProofRecorder;
 
 impl MockProofRecorder {
@@ -166,7 +164,7 @@ impl qp_wormhole::TransferProofRecorder<AccountId32, u32, Balance> for MockProof
 		to: AccountId32,
 		amount: Balance,
 	) -> bool {
-		assert!(asset_id.is_none(), "vesting payouts are always native");
+		assert!(asset_id.is_none(), "vesting transfers are always native");
 		if DROP_CREDITS.with(|flag| flag.get()) {
 			return false;
 		}
@@ -184,7 +182,6 @@ impl pallet_vesting::Config for Test {
 	type AssetId = u32;
 	type ProofRecorder = MockProofRecorder;
 	type PayoutQuantum = PayoutQuantum;
-	type MinimumPayout = MinimumPayout;
 	type MinClaimInterval = MinClaimInterval;
 	type WeightInfo = ();
 }
@@ -224,7 +221,6 @@ fn reset_thread_local_state() {
 	ExistentialDeposit::set(DEFAULT_EXISTENTIAL_DEPOSIT);
 	TreasuryAccount::set(Some(TREASURY));
 	PayoutQuantum::set(DEFAULT_PAYOUT_QUANTUM);
-	MinimumPayout::set(DEFAULT_MINIMUM_PAYOUT);
 	MinClaimInterval::set(DEFAULT_MIN_CLAIM_INTERVAL);
 	MockProofRecorder::clear();
 }

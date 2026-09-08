@@ -515,10 +515,10 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 				Self::count_transfers(call),
 
 			// Vesting calls fall through to 0 deliberately: the pallet records its
-			// payouts itself (so Root calls enacted by the scheduler are captured too)
-			// and carries the recording cost in its own benchmarked weights, while the
-			// event scan below skips every pot-touching transfer. Counting them here
-			// would charge twice for work this extension never performs.
+			// transfers itself (so Root calls enacted by the scheduler are captured
+			// too) and carries the recording cost in its own benchmarked weights, while
+			// the event scan below skips every pot-touching transfer. Counting them
+			// here would charge twice for work this extension never performs.
 			//
 			// The converse — a plain `Balances` transfer whose *destination* is the
 			// vesting pot (endowing it with its existential-deposit buffer) — is
@@ -570,12 +570,10 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		// depositing events while iterating cannot corrupt the stream; we still collect
 		// all transfers before recording (which deposits new events) for clarity.
 
-		// The vesting pot's flows are excluded: the vesting pallet records its own
-		// pot -> beneficiary payouts (also for scheduler-enacted Root calls this
-		// extension never sees), so scanning them here would double-record; and pot
-		// inbound/refund legs (treasury <-> pot) need no leaves — the pot is a keyless
-		// pallet account and the treasury spends by signature, so neither can ever
-		// exit through the wormhole.
+		// The vesting pot's flows are excluded: the vesting pallet records every one
+		// of its own transfers — pot -> beneficiary payouts, treasury -> pot funding,
+		// and pot -> treasury refunds (also for scheduler-enacted Root calls this
+		// extension never sees) — so scanning them here would double-record.
 		//
 		// Derived lazily: it costs a Blake2b hash and the overwhelming majority of
 		// extrinsics emit no `Transfer` event at all.

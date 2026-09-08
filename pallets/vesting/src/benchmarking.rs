@@ -8,7 +8,10 @@ use frame_support::traits::{
 	EnsureOrigin, Get,
 };
 use frame_system::RawOrigin;
-use sp_runtime::traits::{Saturating, Zero};
+use sp_runtime::{
+	traits::{Saturating, Zero},
+	SaturatedConversion,
+};
 
 fn set_time<T: pallet_timestamp::Config<Moment = u64>>(now_ms: u64) {
 	pallet_timestamp::Now::<T>::put(now_ms);
@@ -23,7 +26,7 @@ fn fund<T: Config>(who: &T::AccountId, amount: BalanceOf<T>) {
 }
 
 fn benchmark_total<T: Config>() -> BalanceOf<T> {
-	T::MinimumPayout::get().saturating_mul(1000u32.into())
+	T::PayoutQuantum::get().saturating_mul((NON_FINAL_PAYOUT_QUANTA * 8).saturated_into())
 }
 
 fn admin_origin<T: Config>() -> Result<T::RuntimeOrigin, BenchmarkError> {

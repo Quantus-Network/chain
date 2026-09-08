@@ -27,6 +27,14 @@ fn stored(id: u64) -> VestingSchedule<sp_core::crypto::AccountId32, u128> {
 	Schedules::<Test>::get(id).expect("schedule must exist")
 }
 
+/// `try_state` can only require `pot >= obligations + ED` (anyone may send the pot
+/// funds), so the pallet's own operations are pinned to the exact equality here.
+fn assert_invariants() {
+	assert_ok!(Vesting::do_try_state());
+	let outstanding: u128 = Schedules::<Test>::iter_values().map(|s| s.total - s.claimed).sum();
+	assert_eq!(free(&pot()), outstanding + ExistentialDeposit::get());
+}
+
 mod vested_amount {
 	use super::*;
 
@@ -208,7 +216,7 @@ mod claim {
 	}
 
 	#[test]
-	fn minimum_payout_prevents_below_ed_transfers() {
+	fn early_accrual_below_non_final_alignment_is_not_paid() {
 		new_test_ext(vec![(CHARLIE, START, START, END, TOTAL)]).execute_with(|| {
 			PayoutQuantum::set(100);
 			set_time(START + 50);
@@ -271,14 +279,13 @@ mod claim {
 	}
 
 	#[test]
-	fn reserves_a_minimum_sized_final_payout() {
+	fn reserves_a_quantum_sized_final_payout() {
 		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
-			MinimumPayout::set(1_000_000);
 			MinClaimInterval::set(40_000);
 			set_time(450_000);
 			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
 			assert_eq!(stored(0).claimed, 7_500_000);
-			assert!(TOTAL - stored(0).claimed >= MinimumPayout::get());
+			assert!(TOTAL - stored(0).claimed >= PayoutQuantum::get());
 			set_time(END);
 			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
 			assert_eq!(stored(0).claimed, TOTAL);
@@ -289,9 +296,8 @@ mod claim {
 	fn waits_for_full_vesting_when_no_valid_non_final_payout_exists() {
 		const SMALL_TOTAL: u128 = 1_500_000;
 		new_test_ext(vec![(BOB, START, START, END, SMALL_TOTAL)]).execute_with(|| {
-			MinimumPayout::set(1_000_000);
-			// Nothing claimable has accrued yet: NothingToClaim, not WouldLeaveDust,
-			// even though the remainder can never support a non-final payout.
+			// Accrued but below the non-final alignment: NothingToClaim, not a
+			// payout, even though the remainder can never support a 25-quantum step.
 			set_time(START + 100_000);
 			assert_noop!(
 				Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
@@ -300,7 +306,7 @@ mod claim {
 			set_time(START + 266_667);
 			assert_noop!(
 				Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
-				Error::<Test>::ClaimWouldLeaveDust
+				Error::<Test>::NothingToClaim
 			);
 			assert_eq!(stored(0).claimed, 0);
 			set_time(END);
@@ -322,7 +328,7 @@ mod claim {
 				assert_eq!(free(&BOB), TOTAL);
 				assert_eq!(free(&CHARLIE), TOTAL);
 				assert_eq!(free(&pot()), ExistentialDeposit::get());
-				assert_ok!(Vesting::do_try_state());
+				assert_invariants();
 			});
 	}
 
@@ -415,7 +421,7 @@ mod create_schedule {
 				(CLIFF, START, END, TOTAL),       // start > cliff
 				(START, END + 1, END, TOTAL),     // cliff > end
 				(START, START, START, TOTAL),     // start == end
-				(START, CLIFF, END, 999),         // total < ED
+				(START, CLIFF, END, 999),         // total below one quantum
 				(START, CLIFF, END, 0),           // total == 0
 				(START, CLIFF, END, TOTAL + 500), // total not quantum-aligned
 			];
@@ -548,23 +554,25 @@ mod end_schedule {
 	}
 
 	#[test]
-	fn below_minimum_vested_returns_everything_to_treasury() {
+	fn small_vested_amount_pays_nearest_quantum() {
 		new_test_ext(vec![(BOB, START, START, END, TOTAL)]).execute_with(|| {
 			let treasury_before = free(&TREASURY);
 			set_time(START + 300);
-			// 7_500 vested rounds to 8_000, below MinimumPayout: no beneficiary
-			// leaf, the whole remainder goes to the treasury.
+			// 7_500 vested rounds to 8_000, one quantum-aligned payout.
 			assert_ok!(Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), 0));
-			assert_eq!(free(&BOB), 0);
-			assert_eq!(free(&TREASURY), treasury_before + TOTAL);
+			assert_eq!(free(&BOB), 8_000);
+			assert_eq!(free(&TREASURY), treasury_before + TOTAL - 8_000);
 			assert!(Schedules::<Test>::get(0).is_none());
-			assert!(MockProofRecorder::recorded().is_empty());
+			assert_eq!(
+				MockProofRecorder::recorded(),
+				vec![(pot(), BOB, 8_000), (pot(), TREASURY, TOTAL - 8_000)]
+			);
 			System::assert_last_event(
 				Event::ScheduleEnded {
 					schedule_id: 0,
 					beneficiary: BOB,
-					vested_paid: 0,
-					unvested_returned: TOTAL,
+					vested_paid: 8_000,
+					unvested_returned: TOTAL - 8_000,
 				}
 				.into(),
 			);
@@ -630,21 +638,19 @@ mod end_schedule {
 	}
 
 	/// A permissionless claim one quantum past the non-final alignment must not
-	/// block `end_schedule`. `GRANT` is one minimum past an alignment multiple so
-	/// the non-final cap is exact; `ATTACK_VESTED` is one quantum past that cap.
+	/// block `end_schedule`. `GRANT` is several quanta past an alignment multiple
+	/// so the non-final cap is exact; `ATTACK_VESTED` is one quantum past that cap.
 	#[test]
 	fn permissionless_claim_does_not_block_ending_with_a_dust_vested_remainder() {
 		const QUANTUM: u128 = 1_000;
-		const MINIMUM: u128 = 10_000;
 		const ALIGNMENT: u128 = QUANTUM * crate::NON_FINAL_PAYOUT_QUANTA;
-		const GRANT: u128 = ALIGNMENT + MINIMUM;
+		const GRANT: u128 = ALIGNMENT + 10 * QUANTUM;
 		const ATTACK_VESTED: u128 = ALIGNMENT + QUANTUM;
 		const END_AT: u64 = GRANT as u64;
 		const ATTACK_AT: u64 = ATTACK_VESTED as u64;
 
 		new_test_ext(vec![(BOB, 0, 0, END_AT, GRANT)]).execute_with(|| {
 			assert_eq!(PayoutQuantum::get(), QUANTUM);
-			assert_eq!(MinimumPayout::get(), MINIMUM);
 			assert_eq!(non_final(), ALIGNMENT);
 
 			set_time(ATTACK_AT);
@@ -654,8 +660,8 @@ mod end_schedule {
 			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
 			assert_ok!(Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), 0));
 			assert!(Schedules::<Test>::get(0).is_none());
-			assert_eq!(free(&BOB), ALIGNMENT);
-			assert_eq!(free(&TREASURY), treasury_before + GRANT - ALIGNMENT);
+			assert_eq!(free(&BOB), ATTACK_VESTED);
+			assert_eq!(free(&TREASURY), treasury_before + GRANT - ATTACK_VESTED);
 			assert_eq!(free(&pot()), ExistentialDeposit::get());
 		});
 	}
@@ -838,7 +844,7 @@ mod genesis {
 			assert_eq!(stored(1).beneficiary, BOB);
 			assert_eq!(stored(2).beneficiary, CHARLIE);
 			assert_eq!(free(&pot()), 3 * TOTAL + ExistentialDeposit::get());
-			assert_ok!(Vesting::do_try_state());
+			assert_invariants();
 		});
 	}
 
@@ -902,7 +908,6 @@ mod quantization {
 		new_test_ext(vec![(CHARLIE, START, START, ALIGNED_END, ALIGNED_TOTAL)]).execute_with(
 			|| {
 				PayoutQuantum::set(3_000);
-				MinimumPayout::set(12_000);
 				set_time(START + 1_250);
 				assert_noop!(
 					Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
@@ -962,7 +967,6 @@ mod quantization {
 	fn end_schedule_sends_sub_quantum_dust_to_treasury_not_the_beneficiary() {
 		new_test_ext(vec![(BOB, START, START, END, TOTAL)]).execute_with(|| {
 			PayoutQuantum::set(3_000);
-			MinimumPayout::set(12_000);
 			let treasury_before = free(&TREASURY);
 			set_time(START + 1_250);
 			assert_ok!(Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), 0));
@@ -995,14 +999,16 @@ mod proof_recording {
 	}
 
 	#[test]
-	fn end_schedule_records_only_the_beneficiary_payout() {
+	fn end_schedule_records_beneficiary_and_treasury_legs() {
 		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
 			// Root origin — the scheduler-enacted governance path the event-scanning
-			// extension never sees; the pallet must record the payout itself. The
-			// treasury refund is signature-controlled and gets no leaf.
+			// extension never sees; the pallet must record both transfers itself.
 			set_time(300_000);
 			assert_ok!(Vesting::end_schedule(RuntimeOrigin::root(), 0));
-			assert_eq!(MockProofRecorder::recorded(), vec![(pot(), BOB, TOTAL / 2)]);
+			assert_eq!(
+				MockProofRecorder::recorded(),
+				vec![(pot(), BOB, TOTAL / 2), (pot(), TREASURY, TOTAL / 2)]
+			);
 		});
 	}
 
@@ -1014,14 +1020,15 @@ mod proof_recording {
 				Vesting::claim(RuntimeOrigin::signed(BOB), 0),
 				Error::<Test>::NothingToClaim
 			);
-			// Ending before the cliff pays the beneficiary nothing: no payout, no leaf.
+			// Ending before the cliff pays the beneficiary nothing; the refund to
+			// treasury still gets a leaf.
 			assert_ok!(Vesting::end_schedule(RuntimeOrigin::root(), 0));
-			assert!(MockProofRecorder::recorded().is_empty());
+			assert_eq!(MockProofRecorder::recorded(), vec![(pot(), TREASURY, TOTAL)]);
 		});
 	}
 
 	#[test]
-	fn create_and_retarget_without_a_payout_record_nothing() {
+	fn create_records_the_treasury_funding_transfer() {
 		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
 			assert_ok!(Vesting::create_schedule(
 				RuntimeOrigin::signed(TREASURY),
@@ -1031,8 +1038,9 @@ mod proof_recording {
 				END,
 				TOTAL
 			));
+			assert_eq!(MockProofRecorder::recorded(), vec![(TREASURY, pot(), TOTAL)]);
 			assert_ok!(Vesting::retarget_schedule(RuntimeOrigin::root(), 0, ALICE));
-			assert!(MockProofRecorder::recorded().is_empty());
+			assert_eq!(MockProofRecorder::recorded(), vec![(TREASURY, pot(), TOTAL)]);
 		});
 	}
 
@@ -1058,14 +1066,14 @@ mod proof_recording {
 
 			assert_noop!(
 				Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
-				Error::<Test>::PayoutProofNotRecorded
+				Error::<Test>::TransferProofNotRecorded
 			);
 			assert_eq!(stored(0).claimed, 0, "claim must not advance without a proof");
 			assert_eq!(free(&BOB), 0, "the payout transfer must be rolled back");
 
 			assert_noop!(
 				Vesting::end_schedule(RuntimeOrigin::root(), 0),
-				Error::<Test>::PayoutProofNotRecorded
+				Error::<Test>::TransferProofNotRecorded
 			);
 			assert!(
 				Schedules::<Test>::contains_key(0),
@@ -1116,7 +1124,7 @@ mod unfunded_pot_bootstrap {
 				END,
 				TOTAL
 			));
-			assert_ok!(Vesting::do_try_state());
+			assert_invariants();
 		});
 	}
 }
@@ -1137,7 +1145,7 @@ mod random_walk {
 	/// Several schedules of different shapes under a pseudo-random walk of time and
 	/// permissionless claims: claims may fail only for the documented reasons, the
 	/// storage invariants hold at every step, every recorded payment is
-	/// quantum-aligned and at least the minimum, and once drained every planck of
+	/// quantum-aligned and at least one quantum, and once drained every planck of
 	/// every grant has reached exactly its beneficiary.
 	#[test]
 	fn random_claim_walks_pay_exact_quantized_totals() {
@@ -1174,14 +1182,13 @@ mod random_walk {
 						let benign = [
 							Error::<Test>::NothingToClaim.into(),
 							Error::<Test>::ClaimTooSoon.into(),
-							Error::<Test>::ClaimWouldLeaveDust.into(),
 						];
 						assert!(
 							benign.contains(&e),
 							"seed {seed}: unexpected claim error {e:?} at t={now}"
 						);
 					}
-					assert_ok!(Vesting::do_try_state());
+					assert_invariants();
 				}
 
 				// Drain: past every end the final claim pays the exact remainder,
@@ -1198,7 +1205,7 @@ mod random_walk {
 							assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), id));
 						}
 					}
-					assert_ok!(Vesting::do_try_state());
+					assert_invariants();
 				}
 
 				// Every grant landed with its beneficiary in full; the pot keeps
@@ -1218,12 +1225,124 @@ mod random_walk {
 						0,
 						"seed {seed}: unaligned payout {amount}"
 					);
-					assert!(amount >= MinimumPayout::get(), "seed {seed}: dust payout {amount}");
+					assert!(amount >= PayoutQuantum::get(), "seed {seed}: dust payout {amount}");
 					*per_beneficiary.entry(to).or_insert(0u128) += amount;
 				}
 				assert_eq!(per_beneficiary.get(&BOB), Some(&18_000_000));
 				assert_eq!(per_beneficiary.get(&CHARLIE), Some(&5_000_000));
 				assert_eq!(per_beneficiary.get(&ALICE), Some(&40_000));
+			});
+		}
+	}
+
+	/// Randomly generated schedules under a walk that interleaves permissionless
+	/// claims with the admin surface (mid-walk creates, early ends, retargets):
+	/// `try_state` holds after every operation, claims fail only for documented
+	/// reasons, every recorded transfer is a positive quantum multiple, and once
+	/// everything is drained the pot holds exactly its ED buffer while the proof
+	/// stream's pot outflows equal every grant ever funded.
+	#[test]
+	fn random_schedules_and_admin_ops_conserve_funds() {
+		for seed in [7u64, 0xC0FF_EE00, 31_337, 555_555_555] {
+			let mut rng = seed;
+			let quantum = 1_000u128; // DEFAULT_PAYOUT_QUANTUM; the builder resets statics
+			let count = 2 + (next(&mut rng) % 5) as usize;
+			let mut schedules: Vec<ScheduleTuple> = Vec::new();
+			for i in 0..count {
+				let who = sp_core::crypto::AccountId32::new([10 + i as u8; 32]);
+				let start = next(&mut rng) % 400_000;
+				let cliff = start + next(&mut rng) % 200_000;
+				let end = cliff + 1 + next(&mut rng) % 600_000;
+				let total = (1 + next(&mut rng) as u128 % 20_000) * quantum;
+				schedules.push((who, start, cliff, end, total));
+			}
+			let genesis_sum: u128 = schedules.iter().map(|(.., total)| total).sum();
+			let mut max_end = schedules.iter().map(|(_, _, _, end, _)| *end).max().unwrap();
+
+			new_test_ext(schedules).execute_with(|| {
+				let mut live: Vec<u64> = (0..count as u64).collect();
+				let mut created_sum = 0u128;
+				let mut fresh_account = 100u8;
+				let mut now = 0u64;
+				for _ in 0..300 {
+					now += next(&mut rng) % 60_000;
+					set_time(now);
+					let op = next(&mut rng) % 100;
+					if op < 80 {
+						if let Some(&id) = live.get(next(&mut rng) as usize % live.len().max(1)) {
+							if let Err(e) = Vesting::claim(RuntimeOrigin::signed(PINGER), id) {
+								let benign = [
+									Error::<Test>::NothingToClaim.into(),
+									Error::<Test>::ClaimTooSoon.into(),
+								];
+								assert!(
+									benign.contains(&e),
+									"seed {seed}: unexpected claim error {e:?} at t={now}"
+								);
+							}
+						}
+					} else if op < 88 {
+						if let Some(&id) = live.get(next(&mut rng) as usize % live.len().max(1)) {
+							fresh_account += 1;
+							assert_ok!(Vesting::retarget_schedule(
+								RuntimeOrigin::root(),
+								id,
+								sp_core::crypto::AccountId32::new([fresh_account; 32]),
+							));
+						}
+					} else if op < 94 {
+						if !live.is_empty() {
+							let id = live.remove(next(&mut rng) as usize % live.len());
+							assert_ok!(Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), id));
+						}
+					} else {
+						let id = NextScheduleId::<Test>::get();
+						fresh_account += 1;
+						let start = next(&mut rng) % 2_000_000;
+						let cliff = start + next(&mut rng) % 300_000;
+						let end = cliff + 1 + next(&mut rng) % 700_000;
+						let total = (1 + next(&mut rng) as u128 % 20_000) * quantum;
+						assert_ok!(Vesting::create_schedule(
+							RuntimeOrigin::signed(TREASURY),
+							sp_core::crypto::AccountId32::new([fresh_account; 32]),
+							start,
+							cliff,
+							end,
+							total,
+						));
+						live.push(id);
+						created_sum += total;
+						max_end = max_end.max(end);
+					}
+					assert_invariants();
+				}
+
+				// Past every end each schedule is fully vested: ending pays the
+				// exact unclaimed remainder, so the pot drains to its ED buffer.
+				now = now.max(max_end) + 1;
+				set_time(now);
+				for id in live {
+					assert_ok!(Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), id));
+					assert_invariants();
+				}
+				assert_eq!(free(&pot()), ExistentialDeposit::get());
+
+				// Every recorded transfer is a positive quantum multiple, and the
+				// pot's recorded outflows account for every grant ever funded.
+				let mut outflow = 0u128;
+				let mut inflow = 0u128;
+				for (from, to, amount) in MockProofRecorder::recorded() {
+					assert_eq!(amount % quantum, 0, "seed {seed}: unaligned {amount}");
+					assert!(amount > 0, "seed {seed}: zero-value leaf");
+					if from == pot() {
+						outflow += amount;
+					} else {
+						assert_eq!((from, to.clone()), (TREASURY, pot()));
+						inflow += amount;
+					}
+				}
+				assert_eq!(inflow, created_sum, "seed {seed}");
+				assert_eq!(outflow, genesis_sum + created_sum, "seed {seed}");
 			});
 		}
 	}
@@ -1236,14 +1355,14 @@ mod try_state {
 	fn holds_through_a_full_lifecycle() {
 		new_test_ext(vec![default_schedule(BOB), (BOB, START, START, 900_000, 8_000_000)])
 			.execute_with(|| {
-				assert_ok!(Vesting::do_try_state());
+				assert_invariants();
 				set_time(300_000);
 				assert_ok!(Vesting::claim(RuntimeOrigin::signed(BOB), 0));
-				assert_ok!(Vesting::do_try_state());
+				assert_invariants();
 				assert_ok!(Vesting::retarget_schedule(RuntimeOrigin::root(), 1, CHARLIE));
-				assert_ok!(Vesting::do_try_state());
+				assert_invariants();
 				assert_ok!(Vesting::end_schedule(RuntimeOrigin::signed(TREASURY), 0));
-				assert_ok!(Vesting::do_try_state());
+				assert_invariants();
 				assert_ok!(Vesting::create_schedule(
 					RuntimeOrigin::signed(TREASURY),
 					ALICE,
@@ -1252,10 +1371,10 @@ mod try_state {
 					END,
 					TOTAL
 				));
-				assert_ok!(Vesting::do_try_state());
+				assert_invariants();
 				set_time(END);
 				assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 2));
-				assert_ok!(Vesting::do_try_state());
+				assert_invariants();
 			});
 	}
 }

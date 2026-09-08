@@ -101,7 +101,6 @@ pub mod pallet {
 		Pay(Balance),
 		NothingToClaim,
 		TooSoon,
-		WouldLeaveDust,
 	}
 
 	/// The in-code storage version.
@@ -142,13 +141,12 @@ pub mod pallet {
 		/// `None`).
 		type AssetId;
 
-		/// Records beneficiary payouts as wormhole transfer proofs (ZK-tree leaves).
-		///
-		/// The pallet records its payouts itself so that they are captured on **every**
-		/// dispatch origin — including Root calls enacted by the scheduler, which run
-		/// outside the signed-extrinsic lifecycle and are invisible to the event-scanning
-		/// `WormholeProofRecorderExtension`. The extension in turn skips pot-sourced
-		/// transfer events, so signed paths are not double-recorded.
+		/// Records every pallet transfer as a wormhole transfer proof (ZK-tree leaf),
+		/// including treasury ↔ pot bookkeeping. The pallet records itself so every
+		/// dispatch origin is captured — including Root calls enacted by the scheduler,
+		/// which run outside the signed-extrinsic lifecycle and are invisible to the
+		/// event-scanning `WormholeProofRecorderExtension`. The extension in turn skips
+		/// pot-touching transfer events, so signed paths are not double-recorded.
 		type ProofRecorder: qp_wormhole::TransferProofRecorder<
 			Self::AccountId,
 			Self::AssetId,
@@ -158,14 +156,11 @@ pub mod pallet {
 		/// Wormhole leaf amount quantum. ZK-tree leaves commit `amount / quantum`, so a
 		/// payout below one quantum would create a zero-value leaf: funds moved to a
 		/// keyless beneficiary would be irrecoverable. Every schedule total must be a
-		/// multiple of this, and every payout is rounded down to a multiple.
+		/// positive multiple of this. Intermediate claims round down further to
+		/// [`NON_FINAL_PAYOUT_QUANTA`] leaf quanta; the final claim may be a single
+		/// quantum.
 		#[pallet::constant]
 		type PayoutQuantum: Get<BalanceOf<Self>>;
-
-		/// Smallest beneficiary payout. Must be quantum-aligned, at least two quanta,
-		/// and larger than the existential deposit.
-		#[pallet::constant]
-		type MinimumPayout: Get<BalanceOf<Self>>;
 
 		/// Minimum elapsed milliseconds between successful claims on one schedule.
 		#[pallet::constant]
@@ -238,28 +233,25 @@ pub mod pallet {
 	pub enum Error<T> {
 		/// No schedule exists under this id.
 		NoSchedule,
-		/// Schedule parameters violate `start <= cliff <= end`, `start < end`,
-		/// `total >= MinimumPayout`, or `total` is not a multiple of the payout
-		/// quantum.
+		/// Schedule parameters violate `start <= cliff <= end`, `start < end`, or
+		/// `total` is not a positive multiple of the payout quantum.
 		InvalidSchedule,
 		/// Nothing is claimable right now (before the cliff, already fully claimed, or
-		/// less than the minimum payout accrued).
+		/// the accrual rounds down to zero — below one quantum for a final claim,
+		/// below the non-final alignment otherwise).
 		NothingToClaim,
 		/// This schedule has already paid out within the minimum claim interval.
 		ClaimTooSoon,
-		/// Paying now would leave a remainder below the minimum payout; wait until the
-		/// entire remainder has vested.
-		ClaimWouldLeaveDust,
 		/// The treasury account is not configured or aliases the vesting pot.
 		TreasuryNotConfigured,
 		/// The pot does not hold its existential-deposit buffer; endow it first.
 		PotUnderfunded,
 		/// The beneficiary must not be the pot, and retargeting must change the account.
 		InvalidBeneficiary,
-		/// The proof recorder reported the payout credit as dropped: no wormhole leaf
-		/// was created, so the payout is rolled back rather than finalized without the
-		/// proof material a keyless beneficiary needs to exit.
-		PayoutProofNotRecorded,
+		/// The proof recorder reported the transfer credit as dropped: no wormhole leaf
+		/// was created, so the transfer is rolled back rather than finalized without a
+		/// leaf.
+		TransferProofNotRecorded,
 	}
 
 	#[pallet::genesis_config]
@@ -337,18 +329,10 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn integrity_test() {
-			let quantum = T::PayoutQuantum::get();
-			let minimum = T::MinimumPayout::get();
-			assert!(!quantum.is_zero(), "PayoutQuantum must be non-zero (it is a divisor)");
 			assert!(
-				minimum > T::Currency::minimum_balance(),
-				"MinimumPayout must exceed the existential deposit"
+				!T::PayoutQuantum::get().is_zero(),
+				"PayoutQuantum must be non-zero (it is a divisor)"
 			);
-			assert!((minimum % quantum).is_zero(), "MinimumPayout must be quantum-aligned");
-			let two_quanta = quantum
-				.checked_add(&quantum)
-				.expect("two payout quanta must fit the balance type");
-			assert!(minimum >= two_quanta, "MinimumPayout must contain at least two quanta");
 			assert!(!T::MinClaimInterval::get().is_zero(), "MinClaimInterval must be non-zero");
 		}
 
@@ -360,12 +344,10 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Pay the largest valid claim on `schedule_id` to its beneficiary. Payouts are
-		/// rounded down to [`Config::PayoutQuantum`], must meet [`Config::MinimumPayout`],
-		/// and reserve at least one minimum-sized final claim unless the schedule is fully
-		/// vested. Non-final payouts are further rounded down to
-		/// [`NON_FINAL_PAYOUT_QUANTA`] leaf quanta; the leftover stays on the schedule
-		/// until a later claim or the exact final payout.
+		/// Pay the largest valid claim on `schedule_id` to its beneficiary. Non-final
+		/// payouts are rounded down to [`NON_FINAL_PAYOUT_QUANTA`] leaf quanta; the
+		/// leftover stays on the schedule until a later claim or the exact final
+		/// payout (at least one [`Config::PayoutQuantum`]).
 		///
 		/// Permissionless: any signed account may call this for any schedule; the payout
 		/// always goes to the stored beneficiary. This is the only claim path for
@@ -381,7 +363,6 @@ pub mod pallet {
 					ClaimPlan::Pay(amount) => amount,
 					ClaimPlan::NothingToClaim => return Err(Error::<T>::NothingToClaim.into()),
 					ClaimPlan::TooSoon => return Err(Error::<T>::ClaimTooSoon.into()),
-					ClaimPlan::WouldLeaveDust => return Err(Error::<T>::ClaimWouldLeaveDust.into()),
 				};
 				Self::settle(schedule, payable, now)?;
 				Self::deposit_event(Event::Claimed {
@@ -394,7 +375,7 @@ pub mod pallet {
 		}
 
 		/// Create a new schedule under the next free id, moving `total` from the
-		/// treasury account into the pot in the same call.
+		/// treasury account into the pot in the same call (recorded as a leaf).
 		#[pallet::call_index(1)]
 		#[pallet::weight(T::WeightInfo::create_schedule())]
 		pub fn create_schedule(
@@ -417,7 +398,7 @@ pub mod pallet {
 			);
 			let schedule_id = NextScheduleId::<T>::get();
 			let next_id = schedule_id.checked_add(1).ok_or(ArithmeticError::Overflow)?;
-			T::Currency::transfer(&treasury, &pot, total, Preservation::Preserve)?;
+			Self::transfer_and_record(&treasury, &pot, total)?;
 			NextScheduleId::<T>::put(next_id);
 			Schedules::<T>::insert(
 				schedule_id,
@@ -443,10 +424,9 @@ pub mod pallet {
 		}
 
 		/// End a schedule early: the still-unpaid vested part (rounded to the nearest
-		/// [`Config::PayoutQuantum`]) goes to the beneficiary if it meets
-		/// [`Config::MinimumPayout`]; otherwise that sliver is refunded with the
-		/// unvested remainder. The treasury is signature-controlled and needs no
-		/// wormhole leaf, so the refund is not quantized and never blocks ending.
+		/// [`Config::PayoutQuantum`]) goes to the beneficiary if it is at least one
+		/// quantum; otherwise that sliver is refunded with the unvested remainder.
+		/// Both legs are recorded as wormhole leaves.
 		#[pallet::call_index(2)]
 		#[pallet::weight(T::WeightInfo::end_schedule())]
 		pub fn end_schedule(origin: OriginFor<T>, schedule_id: u64) -> DispatchResult {
@@ -455,28 +435,26 @@ pub mod pallet {
 			let schedule = Schedules::<T>::get(schedule_id).ok_or(Error::<T>::NoSchedule)?;
 			let (remaining, owed) = Self::outstanding(&schedule, T::TimeProvider::now())?;
 			let quantum = T::PayoutQuantum::get();
-			// Nearest multiple: align `owed + quantum/2`. Halves round up. Below
-			// MinimumPayout the amount cannot exit a keyless address, so it rides
-			// to the treasury with the unvested remainder.
-			let rounded =
+			// Nearest multiple: align `owed + quantum/2`. Halves round up. A
+			// sub-quantum sliver cannot become a leaf, so it rides to the treasury
+			// with the unvested remainder.
+			let vested_payout =
 				Self::align(owed.saturating_add(quantum / 2u32.saturated_into()), quantum)
 					.min(remaining);
-			let vested_paid =
-				if rounded < T::MinimumPayout::get() { Zero::zero() } else { rounded };
-			let unvested_returned =
-				remaining.checked_sub(&vested_paid).ok_or(ArithmeticError::Underflow)?;
-			if !vested_paid.is_zero() {
-				Self::pay_out(&pot, &schedule.beneficiary, vested_paid)?;
+			let unvested_refund =
+				remaining.checked_sub(&vested_payout).ok_or(ArithmeticError::Underflow)?;
+			if !vested_payout.is_zero() {
+				Self::transfer_and_record(&pot, &schedule.beneficiary, vested_payout)?;
 			}
-			if !unvested_returned.is_zero() {
-				T::Currency::transfer(&pot, &treasury, unvested_returned, Preservation::Preserve)?;
+			if !unvested_refund.is_zero() {
+				Self::transfer_and_record(&pot, &treasury, unvested_refund)?;
 			}
 			Schedules::<T>::remove(schedule_id);
 			Self::deposit_event(Event::ScheduleEnded {
 				schedule_id,
 				beneficiary: schedule.beneficiary,
-				vested_paid,
-				unvested_returned,
+				vested_paid: vested_payout,
+				unvested_returned: unvested_refund,
 			});
 			Ok(())
 		}
@@ -565,7 +543,7 @@ pub mod pallet {
 		) -> bool {
 			start <= cliff &&
 				cliff <= end && start < end &&
-				total >= T::MinimumPayout::get() &&
+				!total.is_zero() &&
 				(total % T::PayoutQuantum::get()).is_zero()
 		}
 
@@ -594,31 +572,21 @@ pub mod pallet {
 			now: Moment,
 		) -> Result<ClaimPlan<BalanceOf<T>>, ArithmeticError> {
 			let (remaining, owed) = Self::outstanding(schedule, now)?;
-			let quantum = T::PayoutQuantum::get();
-			let minimum = T::MinimumPayout::get();
-			let candidate = Self::align(owed, quantum);
-			// Nothing claimable yet: NothingToClaim even if the remainder could
-			// never support a non-final payout.
-			if candidate < minimum {
-				return Ok(ClaimPlan::NothingToClaim);
-			}
-			let reserved = if candidate == remaining {
-				candidate
-			} else {
-				candidate.min(remaining.saturating_sub(minimum))
-			};
-			if reserved < minimum {
-				return Ok(ClaimPlan::WouldLeaveDust);
-			}
-			let payable = if reserved == remaining {
-				reserved
+			// `owed == remaining` only when fully vested (`vested == total`), so the
+			// final claim pays the exact remainder — quantum-aligned because `total`
+			// and `claimed` are. Non-final claims round down to the fee-exact
+			// alignment and leave at least one quantum behind by construction. A
+			// fully claimed schedule lands in the final branch with zero.
+			let payable = if owed == remaining {
+				owed
 			} else {
 				Self::align(
-					reserved,
-					quantum.saturating_mul(NON_FINAL_PAYOUT_QUANTA.saturated_into()),
+					owed,
+					T::PayoutQuantum::get()
+						.saturating_mul(NON_FINAL_PAYOUT_QUANTA.saturated_into()),
 				)
 			};
-			if payable < minimum {
+			if payable.is_zero() {
 				return Ok(ClaimPlan::NothingToClaim);
 			}
 			if let Some(last) = schedule.last_claim_at {
@@ -638,48 +606,42 @@ pub mod pallet {
 			amount: BalanceOf<T>,
 			now: Moment,
 		) -> DispatchResult {
-			Self::pay_out(&Self::pot_account_id(), &schedule.beneficiary, amount)?;
+			Self::transfer_and_record(&Self::pot_account_id(), &schedule.beneficiary, amount)?;
 			schedule.claimed =
 				schedule.claimed.checked_add(&amount).ok_or(ArithmeticError::Overflow)?;
 			schedule.last_claim_at = Some(now);
 			Ok(())
 		}
 
-		/// Move a payout out of the pot AND record it as a wormhole transfer proof —
-		/// fused into one function so no payout path can move funds without creating
-		/// the ZK proof material a wormhole beneficiary needs to exit.
+		/// Move `amount` from `from` to `to` AND record it as a wormhole transfer
+		/// proof — fused so no pallet transfer can move funds without a ZK leaf.
 		///
 		/// The recorder is the same canonical entry point every recorded transfer on
-		/// this chain funnels through. It must be invoked here, with the payout, rather
-		/// than left to the event-scanning transaction extension: Root calls enacted by
-		/// the scheduler run outside the signed-extrinsic lifecycle and the extension
-		/// never sees them. The extension in turn skips pot-sourced transfer events, so
-		/// signed paths are not double-recorded.
+		/// this chain funnels through. It must be invoked here rather than left to the
+		/// event-scanning transaction extension: Root calls enacted by the scheduler
+		/// run outside the signed-extrinsic lifecycle and the extension never sees
+		/// them. The extension in turn skips pot-touching transfer events, so signed
+		/// paths are not double-recorded.
 		///
 		/// The recorder contract permits `false` for a deliberately dropped credit.
-		/// That must be treated as failure here: were the payout finalized anyway, the
-		/// caller would advance `claimed` (or remove the schedule), making the missing
-		/// proof unrecoverable — the payout could never be retried. The storage layer
-		/// rolls the transfer back, so the schedule stays intact and retryable. (The
-		/// runtime's Wormhole recorder always records nonzero native credits, so this
-		/// guards the generic recorder boundary rather than a reachable runtime path.)
+		/// That must be treated as failure here: were the transfer finalized anyway,
+		/// the caller would advance `claimed` (or remove the schedule), making the
+		/// missing proof unrecoverable. The storage layer rolls the transfer back, so
+		/// the call stays retryable. (The runtime's Wormhole recorder always records
+		/// nonzero native credits, so this guards the generic recorder boundary
+		/// rather than a reachable runtime path.)
 		///
 		/// No nested `#[transactional]`: every caller is a dispatchable whose storage
 		/// layer already rolls back on `Err`, so a failed record undoes the transfer.
-		fn pay_out(
-			pot: &T::AccountId,
-			beneficiary: &T::AccountId,
+		fn transfer_and_record(
+			from: &T::AccountId,
+			to: &T::AccountId,
 			amount: BalanceOf<T>,
 		) -> DispatchResult {
-			T::Currency::transfer(pot, beneficiary, amount, Preservation::Preserve)?;
+			T::Currency::transfer(from, to, amount, Preservation::Preserve)?;
 			ensure!(
-				T::ProofRecorder::record_transfer_proof(
-					None,
-					pot.clone(),
-					beneficiary.clone(),
-					amount
-				),
-				Error::<T>::PayoutProofNotRecorded
+				T::ProofRecorder::record_transfer_proof(None, from.clone(), to.clone(), amount),
+				Error::<T>::TransferProofNotRecorded
 			);
 			Ok(())
 		}
@@ -729,9 +691,9 @@ pub mod pallet {
 					.checked_sub(&schedule.claimed)
 					.ok_or(sp_runtime::TryRuntimeError::Other("claimed exceeds total"))?;
 				frame_support::ensure!(
-					remaining.is_zero() || remaining >= T::MinimumPayout::get(),
+					remaining.is_zero() || remaining >= T::PayoutQuantum::get(),
 					sp_runtime::TryRuntimeError::Other(
-						"remaining obligation is below MinimumPayout"
+						"remaining obligation is below one payout quantum"
 					)
 				);
 				frame_support::ensure!(

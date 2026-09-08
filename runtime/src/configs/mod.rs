@@ -66,8 +66,8 @@ use super::{
 	scale_fee, AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash, Nonce,
 	OriginCaller, PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
 	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, Wormhole,
-	ZkTree, DAYS, EXISTENTIAL_DEPOSIT, FEE_SCALE_DEN, FEE_SCALE_NUM, MAX_SUPPLY, MICRO_UNIT,
-	MILLIS_PER_DAY, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
+	ZkTree, DAYS, EXISTENTIAL_DEPOSIT, FEE_SCALE_DEN, FEE_SCALE_NUM, MAX_SUPPLY, MILLIS_PER_DAY,
+	TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
 use sp_core::U512;
 
@@ -212,11 +212,6 @@ impl pallet_balances::Config for Runtime {
 	type DoneSlashHandler = ();
 }
 
-parameter_types! {
-	pub const PreimageBaseDeposit: Balance = UNIT;
-	pub const PreimageByteDeposit: Balance = MICRO_UNIT;
-}
-
 impl pallet_preimage::Config for Runtime {
 	type WeightInfo = pallet_preimage::weights::SubstrateWeight<Runtime>;
 	type RuntimeEvent = RuntimeEvent;
@@ -226,10 +221,6 @@ impl pallet_preimage::Config for Runtime {
 }
 
 parameter_types! {
-	// Default voting period (28 days)
-	pub const ReferendumDefaultVotingPeriod: BlockNumber = 28 * DAYS;
-	// Minimum time before a successful referendum can be enacted (4 days)
-	pub const ReferendumMinEnactmentPeriod: BlockNumber = 4 * DAYS;
 	// Maximum number of referenda queued for deciding on a single track (`MaxQueued`).
 	pub const ReferendumMaxProposals: u32 = 100;
 	// Global cap on `Ongoing` referenda, enforced at submission. `MaxQueued` only bounds the
@@ -610,9 +601,6 @@ parameter_types! {
 	/// (`SCALE_DOWN_FACTOR`): a sub-quantum transfer would be committed as a
 	/// zero-value leaf, stranding funds paid to keyless beneficiaries.
 	pub const VestingPayoutQuantum: Balance = pallet_wormhole::SCALE_DOWN_FACTOR;
-	/// One QTC keeps every payout above the existential deposit and the Wormhole
-	/// circuit's fee-consuming minimum.
-	pub const VestingMinimumPayout: Balance = UNIT;
 	pub const VestingMinClaimInterval: u64 = MILLIS_PER_DAY;
 }
 
@@ -675,12 +663,11 @@ impl pallet_vesting::Config for Runtime {
 	type AdminOrigin = EitherOfDiverse<EnsureRoot<AccountId>, EnsureTreasury>;
 	type TreasuryAccount = TreasuryAccountOption;
 	type AssetId = AssetId;
-	// The pallet records its payouts itself so Root calls enacted by the scheduler
+	// The pallet records every transfer itself so Root calls enacted by the scheduler
 	// (invisible to the event-scanning extension) still create ZK-tree leaves; the
-	// extension skips pot-sourced events to avoid double-recording signed paths.
+	// extension skips pot-touching events to avoid double-recording signed paths.
 	type ProofRecorder = Wormhole;
 	type PayoutQuantum = VestingPayoutQuantum;
-	type MinimumPayout = VestingMinimumPayout;
 	type MinClaimInterval = VestingMinClaimInterval;
 	type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
 }

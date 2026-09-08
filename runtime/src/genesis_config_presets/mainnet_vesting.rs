@@ -243,7 +243,7 @@ pub fn schedules() -> Vec<VestingScheduleTuple> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::configs::{VestingMinimumPayout, VestingPayoutQuantum};
+	use crate::configs::VestingPayoutQuantum;
 
 	fn grant_rows() -> Vec<&'static Row> {
 		VESTING.iter().filter(|(who, ..)| *who != TREASURY).collect()
@@ -302,7 +302,7 @@ mod tests {
 	fn rows_are_valid_distinct_schedules() {
 		for (who, amount, start, end) in VESTING {
 			assert!(start < end, "{who}");
-			assert!(*amount >= VestingMinimumPayout::get(), "{who}");
+			assert!(*amount >= VestingPayoutQuantum::get(), "{who}");
 			assert_eq!(amount % VestingPayoutQuantum::get(), 0, "{who}");
 		}
 		let mut accounts: Vec<&str> = grant_rows().iter().map(|(who, ..)| *who).collect();
