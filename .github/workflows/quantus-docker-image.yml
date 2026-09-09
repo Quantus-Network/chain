@@ -60,7 +60,7 @@ jobs:
       contents: read
       packages: write
     env:
-      GHCR_IMAGE_PATH: ghcr.io/quantus-network/quantus-node-private
+      GHCR_IMAGE_PATH: ${{ github.repository == 'Quantus-Network/chain-private' && 'ghcr.io/quantus-network/quantus-node-private' || 'ghcr.io/quantus-network/quantus-node' }}
       TARGET_VERSION_WITH_V: ${{ needs.determine_version.outputs.version_with_v }}
 
     steps:

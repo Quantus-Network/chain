@@ -6,7 +6,7 @@
 set -e
 
 # --- Configuration ---
-GITHUB_REPO="Quantus-Network/chain" # Change if the repository owner/name is different.
+GITHUB_REPO="${GITHUB_REPO:-Quantus-Network/chain}"
 
 # --- Helper Functions ---
 print_usage() {
@@ -20,7 +20,8 @@ print_usage() {
   echo "                     ending in '.compact.compressed.wasm' in the release assets."
   echo "  --help             Display this help message."
   echo ""
-  echo "This script requires 'curl', 'jq', and 'xxd' to be installed."
+  echo "This script requires 'gh', 'curl', 'jq', and 'xxd' to be installed."
+  echo "Set GITHUB_REPO to verify against a release in another repository (default: $GITHUB_REPO)."
   echo "Note: This script compares the GENESIS runtime (block 0x0) with the release artifact."
   echo "The node must be an archive node or have access to genesis state for this to work."
 }
@@ -49,53 +50,40 @@ fi
 
 # --- Main Logic ---
 
-ARTIFACT_URL=""
-
 if [ -n "$ARTIFACT_NAME" ]; then
-  # If artifact name is provided, construct the URL directly
   echo "ℹ️ Using user-provided artifact name: $ARTIFACT_NAME"
-  ARTIFACT_URL="https://github.com/$GITHUB_REPO/releases/download/$RELEASE_TAG/$ARTIFACT_NAME"
 else
-  # Otherwise, query GitHub API to find the artifact
-  echo "ℹ️ Artifact name not provided. Querying GitHub API for Wasm artifact..."
-  API_URL="https://api.github.com/repos/$GITHUB_REPO/releases/tags/$RELEASE_TAG"
+  # gh (not the REST API) so private repositories work through the caller's gh auth
+  echo "ℹ️ Artifact name not provided. Querying release '$RELEASE_TAG' of $GITHUB_REPO for Wasm artifact..."
+  CANDIDATES=$(gh release view "$RELEASE_TAG" -R "$GITHUB_REPO" --json assets --jq '.assets[].name | select(endswith(".compact.compressed.wasm"))')
 
-  # Use jq to find assets ending with the specific wasm suffix
-  CANDIDATE_URLS=$(curl -s -L "$API_URL" | jq -r '.assets[] | select(.name | endswith(".compact.compressed.wasm")) | .browser_download_url')
-
-  if [ -z "$CANDIDATE_URLS" ]; then
-    echo "❌ Error: Could not find any Wasm artifact (*.compact.compressed.wasm) in release '$RELEASE_TAG'."
-    echo "   API URL queried: $API_URL"
+  if [ -z "$CANDIDATES" ]; then
+    echo "❌ Error: Could not find any Wasm artifact (*.compact.compressed.wasm) in release '$RELEASE_TAG' of $GITHUB_REPO."
     echo "   Please check the release page or provide the correct name using --artifact-name."
     exit 1
   fi
 
-  # Count number of found artifacts
   # Note: wc -l on a single line string returns 1, which is what we want.
-  NUM_CANDIDATES=$(echo "$CANDIDATE_URLS" | wc -l)
+  NUM_CANDIDATES=$(echo "$CANDIDATES" | wc -l)
 
   if [ "$NUM_CANDIDATES" -gt 1 ]; then
     echo "❌ Error: Found multiple possible Wasm artifacts. Please specify one using --artifact-name:"
-    echo "$CANDIDATE_URLS"
+    echo "$CANDIDATES"
     exit 1
   fi
 
-  ARTIFACT_URL="$CANDIDATE_URLS"
-  DETECTED_ARTIFACT_NAME=$(basename "$ARTIFACT_URL")
-  echo "✅ Found unique artifact: $DETECTED_ARTIFACT_NAME"
+  ARTIFACT_NAME="$CANDIDATES"
+  echo "✅ Found unique artifact: $ARTIFACT_NAME"
 fi
 
 
 # 1. Download the release artifact
 TEMP_WASM_FILE=$(mktemp)
 
-echo "⬇️  Downloading Wasm artifact from release '$RELEASE_TAG'..."
-echo "    URL: $ARTIFACT_URL"
+echo "⬇️  Downloading '$ARTIFACT_NAME' from release '$RELEASE_TAG' of $GITHUB_REPO..."
 
-http_status=$(curl -s -L -w "%{http_code}" -o "$TEMP_WASM_FILE" "$ARTIFACT_URL")
-
-if [ "$http_status" -ne 200 ]; then
-  echo "❌ Error: Failed to download artifact (HTTP status: $http_status)."
+if ! gh release download "$RELEASE_TAG" -R "$GITHUB_REPO" -p "$ARTIFACT_NAME" -O "$TEMP_WASM_FILE" --clobber; then
+  echo "❌ Error: Failed to download artifact."
   echo "   Please check if the release tag and artifact name are correct."
   rm "$TEMP_WASM_FILE"
   exit 1
@@ -113,7 +101,15 @@ echo ""
 
 # 3. Query the genesis runtime from the node (block 0x0)
 echo "🔎 Querying genesis runtime from node at '$NODE_URL' (block 0x0)..."
-GENESIS_WASM=$(curl -s -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"state_getStorage","params":["0x3a636f6465"],"id":1}' "$NODE_URL" | jq -r .result)
+GENESIS_HASH=$(curl -s -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"chain_getBlockHash","params":[0],"id":1}' "$NODE_URL" | jq -r .result)
+
+if [ -z "$GENESIS_HASH" ] || [ "$GENESIS_HASH" == "null" ]; then
+    echo "❌ Error: Failed to query the genesis block hash from '$NODE_URL'."
+    exit 1
+fi
+echo "    Genesis hash: $GENESIS_HASH"
+
+GENESIS_WASM=$(curl -s -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"state_getStorage\",\"params\":[\"0x3a636f6465\",\"$GENESIS_HASH\"],\"id\":1}" "$NODE_URL" | jq -r .result)
 
 if [ -z "$GENESIS_WASM" ] || [ "$GENESIS_WASM" == "null" ]; then
     echo "❌ Error: Failed to query genesis runtime. Received empty or null response."

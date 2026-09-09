@@ -21,7 +21,9 @@ For a profile `<profile>` (e.g. `mainnet`):
   wired up in `node/src/chain_spec.rs` (`<profile>_chain_spec()`) and in
   `load_spec` (`node/src/command.rs`) under `"<profile>_live_spec"`.
 - Clean git working tree (the script refuses otherwise).
-- `jq`, `curl`, `xxd`, and a Rust toolchain that builds the node.
+- `gh` (authenticated), `jq`, `xxd`, and a Rust toolchain that builds the node.
+- Both scripts read release assets from `Quantus-Network/chain`; set
+  `GITHUB_REPO=<owner>/<repo>` to use a release in another repository.
 
 ## Steps
 

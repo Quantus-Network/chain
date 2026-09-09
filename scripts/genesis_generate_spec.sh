@@ -42,7 +42,7 @@ echo "⚙️  Execution profile: $PROFILE_SPEC"
 echo ""
 
 QUANTUS_NODE_BIN="./target/release/quantus-node"
-GITHUB_REPO="Quantus-Network/chain"
+GITHUB_REPO="${GITHUB_REPO:-Quantus-Network/chain}"
 
 echo "🔄 Checking current git status..."
 if ! git diff-index --quiet HEAD --; then
@@ -57,12 +57,11 @@ BRANCH_NAME="genesis/$PROFILE/$RELEASE_TAG"
 echo "✨ Creating and switching to new branch '$BRANCH_NAME'..."
 git checkout -b "$BRANCH_NAME" "tags/$RELEASE_TAG"
 
-echo "🌐 Fetching runtime spec_version from GitHub release..."
-# First, get the list of release assets to find the spec_version
-RELEASE_API_URL="https://api.github.com/repos/$GITHUB_REPO/releases/tags/$RELEASE_TAG"
-ASSETS_JSON=$(curl -fsSL "$RELEASE_API_URL" | jq -r '.assets[] | select(.name | contains("quantus-runtime-v")) | .name' | head -1)
+echo "🌐 Fetching runtime spec_version from GitHub release ($GITHUB_REPO)..."
+# gh (not curl) so private repositories work through the caller's gh auth
+ASSETS_JSON=$(gh release view "$RELEASE_TAG" -R "$GITHUB_REPO" --json assets --jq '[.assets[].name | select(contains("quantus-runtime-v"))] | first // empty')
 if [ -z "$ASSETS_JSON" ]; then
-    echo "❌ Error: Could not find runtime assets in release $RELEASE_TAG."
+    echo "❌ Error: Could not find runtime assets in release $RELEASE_TAG of $GITHUB_REPO."
     exit 1
 fi
 
@@ -99,9 +98,9 @@ echo "⬇️ Downloading runtime WASM from GitHub release..."
 
 # Download the compressed WASM (this is what should be in the runtime code storage)
 TEMP_WASM=$(mktemp)
-COMPACT_WASM_URL="https://github.com/$GITHUB_REPO/releases/download/$RELEASE_TAG/quantus-runtime-v${SPEC_VERSION}.compact.compressed.wasm"
-echo "Downloading: $COMPACT_WASM_URL"
-if ! curl -fsSL "$COMPACT_WASM_URL" -o "$TEMP_WASM"; then
+COMPACT_WASM_NAME="quantus-runtime-v${SPEC_VERSION}.compact.compressed.wasm"
+echo "Downloading: $GITHUB_REPO $RELEASE_TAG $COMPACT_WASM_NAME"
+if ! gh release download "$RELEASE_TAG" -R "$GITHUB_REPO" -p "$COMPACT_WASM_NAME" -O "$TEMP_WASM" --clobber; then
     echo "❌ Error: Failed to download compressed WASM runtime."
     exit 1
 fi
