@@ -318,6 +318,9 @@ impl SubstrateCli for Cli {
 			))?) as Box<dyn sc_service::ChainSpec>,
 			"mainnet_live_spec" =>
 				Box::new(chain_spec::mainnet_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
+			"mainnet" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
+				"chain-specs/mainnet.json"
+			))?) as Box<dyn sc_service::ChainSpec>,
 			path =>
 				Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?)
 					as Box<dyn sc_service::ChainSpec>,
