@@ -189,12 +189,6 @@ impl MinerServer {
 		self.result_rx.lock().await.recv().await
 	}
 
-	/// Wait for a mining result with a timeout.
-	pub async fn recv_result_timeout(&self, timeout: Duration) -> Option<MiningResult> {
-		let mut rx = self.result_rx.lock().await;
-		tokio::time::timeout(timeout, rx.recv()).await.ok().flatten()
-	}
-
 	/// Add a new miner connection.
 	async fn add_miner(&self, job_tx: mpsc::Sender<MiningRequest>) -> u64 {
 		let id = self.next_miner_id.fetch_add(1, Ordering::Relaxed);
