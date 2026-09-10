@@ -126,7 +126,7 @@ where
 			return None;
 		}
 
-		match server.recv_result_timeout(Duration::from_millis(500)).await {
+		match server.recv_result().await {
 			Some(result) => {
 				let miner_id = result.miner_id.unwrap_or(0);
 				if let Some(seal) = parse_mining_result(&result, job_id) {
@@ -140,9 +140,7 @@ where
 				}
 				// Keep waiting for other miners (stale, failed, or invalid parse)
 			},
-			None => {
-				// Timeout, continue waiting
-			},
+			None => return None,
 		}
 	}
 }
@@ -232,7 +230,14 @@ async fn handle_external_mining(
 
 	// Wait for results from miners, retrying on invalid seals
 	loop {
-		let (miner_id, seal) = match wait_for_mining_result(server, &job_id, superseded).await {
+		// Prefer invalidation over a simultaneously ready result from the old job.
+		let result = tokio::select! {
+			biased;
+			_ = cancellation_token.cancelled() => None,
+			_ = worker_handle.wait_for_version_change(job_version) => None,
+			result = wait_for_mining_result(server, &job_id, superseded) => result,
+		};
+		let (miner_id, seal) = match result {
 			Some(result) => result,
 			None => {
 				log_if_rebuilt();
@@ -510,10 +515,14 @@ async fn mining_loop(
 		// (e.g. it was cleared during an import burst, or a submitted block
 		// failed to import) request a rebuild so mining resumes without
 		// waiting for an external block/tx trigger.
+		// Snapshot before reading metadata so a concurrent build cannot be missed.
+		let version = worker_handle.version();
 		if worker_handle.metadata().is_none() {
 			log::debug!(target: "pow", "No mining metadata available, requesting rebuild");
 			worker_handle.request_rebuild();
 			tokio::select! {
+				_ = worker_handle.wait_for_version_change(version) => {}
+				// Keep retrying if proposal construction fails without publishing a build.
 				_ = tokio::time::sleep(Duration::from_millis(250)) => {}
 				_ = cancellation_token.cancelled() => continue
 			}

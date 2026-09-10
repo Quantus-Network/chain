@@ -8671,6 +8671,7 @@ dependencies = [
  "sp-runtime",
  "substrate-prometheus-endpoint",
  "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]
