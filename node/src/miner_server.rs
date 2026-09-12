@@ -184,10 +184,9 @@ impl MinerServer {
 		}
 	}
 
-	/// Wait for a mining result with a timeout.
-	pub async fn recv_result_timeout(&self, timeout: Duration) -> Option<MiningResult> {
-		let mut rx = self.result_rx.lock().await;
-		tokio::time::timeout(timeout, rx.recv()).await.ok().flatten()
+	/// Wait for a mining result. Cancelling this future does not consume a result.
+	pub async fn recv_result(&self) -> Option<MiningResult> {
+		self.result_rx.lock().await.recv().await
 	}
 
 	/// Add a new miner connection.
@@ -874,6 +873,27 @@ mod tests {
 			elapsed_time: 0.0,
 			miner_id: Some(1),
 		}
+	}
+
+	#[tokio::test]
+	async fn cancelling_result_wait_releases_receiver_without_losing_next_result() {
+		use futures::FutureExt;
+		let (result_tx, result_rx) = mpsc::channel(1);
+		let server = MinerServer {
+			miners: Arc::new(RwLock::new(HashMap::new())),
+			result_rx: tokio::sync::Mutex::new(result_rx),
+			result_tx,
+			current_job: Arc::new(RwLock::new(None)),
+			next_miner_id: AtomicU64::new(1),
+			auth_token: String::new(),
+			unauth_slots: Arc::new(Semaphore::new(1)),
+		};
+		// Poll until recv holds the mutex, then cancel the pending future.
+		assert!(server.recv_result().now_or_never().is_none());
+		assert!(server.result_rx.try_lock().is_ok());
+		server.result_tx.try_send(dummy_result("next-job")).unwrap();
+		let result = server.recv_result().now_or_never().flatten().unwrap();
+		assert_eq!(result.job_id, "next-job");
 	}
 
 	/// The result channel is shared by every miner connection and is drained only while

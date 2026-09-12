@@ -70,6 +70,42 @@ pub struct MiningBuild<Block: BlockT, Proof> {
 #[derive(Eq, PartialEq, Clone, Copy)]
 pub struct Version(usize);
 
+/// Retains the latest version so changes cannot be lost before a waiter subscribes.
+#[derive(Clone)]
+struct VersionSignal {
+	value: Arc<AtomicUsize>,
+	changed: tokio::sync::watch::Sender<()>,
+}
+
+impl VersionSignal {
+	fn new() -> Self {
+		Self { value: Arc::new(AtomicUsize::new(0)), changed: tokio::sync::watch::channel(()).0 }
+	}
+
+	fn current(&self) -> Version {
+		Version(self.value.load(Ordering::SeqCst))
+	}
+
+	fn increment(&self) {
+		self.value.fetch_add(1, Ordering::SeqCst);
+		self.changed.send_replace(());
+	}
+
+	async fn changed_since(&self, version: Version) {
+		let mut receiver = self.changed.subscribe();
+		loop {
+			receiver.borrow_and_update();
+			if self.current() != version {
+				return;
+			}
+			// The sender in self remains alive for the duration of this wait.
+			if receiver.changed().await.is_err() {
+				return;
+			}
+		}
+	}
+}
+
 #[derive(Clone, Default)]
 struct AuthoringGate {
 	enabled: Arc<AtomicBool>,
@@ -87,7 +123,7 @@ impl AuthoringGate {
 
 /// Mining worker that exposes structs to query the current mining build and submit mined blocks.
 pub struct MiningHandle<Block: BlockT, AC, L: sc_consensus::JustificationSyncLink<Block>, Proof> {
-	version: Arc<AtomicUsize>,
+	version: VersionSignal,
 	authoring_gate: AuthoringGate,
 	client: Arc<AC>,
 	justification_sync_link: Arc<L>,
@@ -107,7 +143,7 @@ where
 	L: sc_consensus::JustificationSyncLink<Block>,
 {
 	fn increment_version(&self) {
-		self.version.fetch_add(1, Ordering::SeqCst);
+		self.version.increment();
 	}
 
 	pub(crate) fn new(
@@ -118,7 +154,7 @@ where
 		rebuild_notify: futures::channel::mpsc::Sender<()>,
 	) -> Self {
 		Self {
-			version: Arc::new(AtomicUsize::new(0)),
+			version: VersionSignal::new(),
 			authoring_gate: AuthoringGate::default(),
 			client,
 			justification_sync_link: Arc::new(justification_sync_link),
@@ -170,12 +206,18 @@ where
 		self.increment_version();
 	}
 
+	/// Wait until a build is replaced, cleared, or consumed.
+	/// Changes since the supplied version are observed even before this future is polled.
+	pub async fn wait_for_version_change(&self, version: Version) {
+		self.version.changed_since(version).await;
+	}
+
 	/// Get the version of the mining worker.
 	///
 	/// This returns type `Version` which can only compare equality. If `Version` is unchanged, then
 	/// it can be certain that `best_hash` and `metadata` were not changed.
 	pub fn version(&self) -> Version {
-		Version(self.version.load(Ordering::SeqCst))
+		self.version.current()
 	}
 
 	/// Get the current best hash. `None` if the worker has just started or the last
@@ -433,5 +475,58 @@ mod tests {
 		assert!(gate.is_enabled());
 		assert!(gate.set_enabled(false));
 		assert!(!clone.is_enabled());
+	}
+}
+
+#[cfg(test)]
+mod version_signal_tests {
+	use super::VersionSignal;
+	use futures::{executor::block_on, task::ArcWake, Future, FutureExt};
+	use std::sync::{
+		atomic::{AtomicUsize, Ordering},
+		Arc,
+	};
+
+	#[derive(Default)]
+	struct WakeCounter(AtomicUsize);
+	impl ArcWake for WakeCounter {
+		fn wake_by_ref(this: &Arc<Self>) {
+			this.0.fetch_add(1, Ordering::SeqCst);
+		}
+	}
+
+	#[test]
+	fn change_before_subscription_is_retained() {
+		let signal = VersionSignal::new();
+		let version = signal.current();
+		signal.increment();
+		assert!(signal.changed_since(version).now_or_never().is_some());
+	}
+
+	#[test]
+	fn change_wakes_all_waiters_without_a_timer() {
+		let signal = VersionSignal::new();
+		let version = signal.current();
+		let mut first = Box::pin(signal.changed_since(version));
+		let mut second = Box::pin(signal.changed_since(version));
+		let counter = Arc::new(WakeCounter::default());
+		let waker = futures::task::waker(counter.clone());
+		let mut context = std::task::Context::from_waker(&waker);
+		assert!(first.as_mut().poll(&mut context).is_pending());
+		assert!(second.as_mut().poll(&mut context).is_pending());
+		signal.clone().increment();
+		assert_eq!(counter.0.load(Ordering::SeqCst), 2);
+		assert!(first.as_mut().poll(&mut context).is_ready());
+		assert!(second.as_mut().poll(&mut context).is_ready());
+	}
+
+	#[test]
+	fn cancelled_wait_does_not_consume_next_change() {
+		let signal = VersionSignal::new();
+		let version = signal.current();
+		assert!(signal.changed_since(version).now_or_never().is_none());
+		signal.increment();
+		block_on(signal.changed_since(version));
+		assert!(signal.changed_since(signal.current()).now_or_never().is_none());
 	}
 }
