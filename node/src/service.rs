@@ -175,10 +175,10 @@ async fn handle_external_mining(
 	job_counter: &mut u64,
 	mining_start_time: &mut std::time::Instant,
 ) -> ExternalMiningOutcome {
-	// Read the version BEFORE snapshotting metadata (same pattern as
+	// Read the template version BEFORE snapshotting metadata (same pattern as
 	// handle_local_mining) so a concurrent rebuild between the two reads is
 	// caught by the version comparisons below.
-	let job_version = worker_handle.version();
+	let job_version = worker_handle.template_version();
 	let metadata = match worker_handle.metadata() {
 		Some(m) => m,
 		None => return ExternalMiningOutcome::Interrupted,
@@ -208,11 +208,12 @@ async fn handle_external_mining(
 
 	server.broadcast_job(job).await;
 
-	// Any rebuild, sync-clear, or consumed build bumps the worker version,
+	// Any rebuild, sync-clear, or consumed template bumps the template version,
 	// superseding this job. Note submit() re-verifies the seal against the
-	// current build under its own lock, so a stale seal can never be imported;
+	// current template under its own lock, so a stale seal can never be imported;
 	// these checks only avoid wasted verification and misleading logs.
-	let superseded = || cancellation_token.is_cancelled() || worker_handle.version() != job_version;
+	let superseded =
+		|| cancellation_token.is_cancelled() || worker_handle.template_version() != job_version;
 	let best_hash = metadata.best_hash;
 	let original_pre_hash = metadata.pre_hash;
 	let log_if_rebuilt = || {
@@ -234,7 +235,7 @@ async fn handle_external_mining(
 		let result = tokio::select! {
 			biased;
 			_ = cancellation_token.cancelled() => None,
-			_ = worker_handle.wait_for_version_change(job_version) => None,
+			_ = worker_handle.wait_for_template_change(job_version) => None,
 			result = wait_for_mining_result(server, &job_id, superseded) => result,
 		};
 		let (miner_id, seal) = match result {
@@ -286,9 +287,9 @@ async fn handle_local_mining(
 		(),
 	>,
 ) -> Option<Vec<u8>> {
-	// Read the version BEFORE snapshotting metadata so any concurrent rebuild
-	// between the two reads is caught by the post-search version check below.
-	let version = worker_handle.version();
+	// Read the template version BEFORE snapshotting metadata so any concurrent
+	// rebuild between the two reads is caught by the post-search check below.
+	let version = worker_handle.template_version();
 	let metadata = worker_handle.metadata()?;
 	let block_hash = metadata.pre_hash.0;
 	let difficulty = client.runtime_api().get_difficulty(metadata.best_hash).unwrap_or_else(|e| {
@@ -318,7 +319,9 @@ async fn handle_local_mining(
 	.ok()
 	.flatten();
 
-	found.filter(|_| worker_handle.version() == version).map(|nonce| nonce.encode())
+	found
+		.filter(|_| worker_handle.template_version() == version)
+		.map(|nonce| nonce.encode())
 }
 
 /// Submit a mined seal to the worker handle.
@@ -511,18 +514,18 @@ async fn mining_loop(
 
 		worker_handle.set_authoring_enabled(true);
 
-		// Wait for mining metadata to be available. If there is no candidate
+		// Wait for mining metadata to be available. If there is no template
 		// (e.g. it was cleared during an import burst, or a submitted block
 		// failed to import) request a rebuild so mining resumes without
 		// waiting for an external block/tx trigger.
-		// Snapshot before reading metadata so a concurrent build cannot be missed.
-		let version = worker_handle.version();
+		// Snapshot before reading metadata so a concurrent rebuild cannot be missed.
+		let version = worker_handle.template_version();
 		if worker_handle.metadata().is_none() {
 			log::debug!(target: "pow", "No mining metadata available, requesting rebuild");
 			worker_handle.request_rebuild();
 			tokio::select! {
-				_ = worker_handle.wait_for_version_change(version) => {}
-				// Keep retrying if proposal construction fails without publishing a build.
+				_ = worker_handle.wait_for_template_change(version) => {}
+				// Keep retrying if template construction fails without publishing one.
 				_ = tokio::time::sleep(Duration::from_millis(250)) => {}
 				_ = cancellation_token.cancelled() => continue
 			}
