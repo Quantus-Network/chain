@@ -16,7 +16,7 @@ use std::{marker::PhantomData, sync::Arc, time::Duration};
 use qp_header::{check_digest_commitment_window, DIGEST_LOGS_SIZE};
 
 use crate::worker::UntilImportedOrTransaction;
-pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata, RebuildTrigger};
+pub use crate::worker::{BlockTemplate, MiningHandle, MiningMetadata, RebuildTrigger};
 use futures::{Future, Stream, StreamExt};
 use log::*;
 use prometheus_endpoint::Registry;
@@ -581,9 +581,9 @@ where
 		tx_notifications,
 		MIN_INTERVAL_BETWEEN_TX_REBUILDS,
 	);
-	// Latest build request - overwrites previous if builder is slow.
+	// Latest rebuild request - overwrites previous if the builder is slow.
 	// Uses a Mutex<Option> for the value + a channel for wake notification.
-	let pending_build: Arc<parking_lot::Mutex<Option<Block::Hash>>> =
+	let pending_rebuild: Arc<parking_lot::Mutex<Option<Block::Hash>>> =
 		Arc::new(parking_lot::Mutex::new(None));
 	let (notify_tx, mut notify_rx) = futures::channel::mpsc::channel::<()>(1);
 
@@ -591,16 +591,16 @@ where
 		client.clone(),
 		block_import,
 		justification_sync_link,
-		pending_build.clone(),
+		pending_rebuild.clone(),
 		notify_tx.clone(),
 	);
 	let worker_ret = worker.clone();
 
-	// Task 1: Convert triggers into build requests
+	// Task 1: Convert triggers into rebuild requests
 	let trigger_task = {
 		let client = client.clone();
 		let worker = worker.clone();
-		let pending_build = pending_build.clone();
+		let pending_rebuild = pending_rebuild.clone();
 		let mut notify_tx = notify_tx;
 		async move {
 			while let Some(trigger) = trigger_stream.next().await {
@@ -615,26 +615,26 @@ where
 					continue;
 				}
 
-				// Set the latest build request (overwrites any previous)
-				*pending_build.lock() = Some(best_hash);
+				// Set the latest rebuild request (overwrites any previous)
+				*pending_rebuild.lock() = Some(best_hash);
 				let _ = notify_tx.try_send(()); // Err is ok: Full (wake queued) or Disconnected (will exit)
 			}
 		}
 	};
 
-	// Task 2: Process build requests and update worker
+	// Task 2: Process rebuild requests and update worker
 	let build_task = async move {
 		while notify_rx.next().await.is_some() {
 			// Take the latest request (may have been overwritten multiple times)
-			let Some(target_hash) = pending_build.lock().take() else {
+			let Some(target_hash) = pending_rebuild.lock().take() else {
 				continue;
 			};
 			if !worker.is_authoring_enabled() {
 				continue;
 			}
 
-			// Build the block
-			if let Some(build) = create_proposal(
+			// Build the block template
+			if let Some(template) = create_block_template(
 				&client,
 				&mut env,
 				&create_inherent_data_providers,
@@ -644,7 +644,7 @@ where
 			)
 			.await
 			{
-				worker.on_build(build);
+				worker.on_new_template(template);
 			}
 		}
 	};
@@ -656,15 +656,15 @@ where
 	(worker_ret, task)
 }
 
-/// Create a block proposal. Returns None if any step fails (errors are logged).
-async fn create_proposal<Block, C, E, CIDP>(
+/// Create a block template. Returns None if any step fails (errors are logged).
+async fn create_block_template<Block, C, E, CIDP>(
 	client: &Arc<C>,
 	env: &mut E,
 	create_inherent_data_providers: &CIDP,
 	best_hash: Block::Hash,
 	rewards_preimage: [u8; 32],
 	build_time: Duration,
-) -> Option<MiningBuild<Block, <E::Proposer as Proposer<Block>>::Proof>>
+) -> Option<BlockTemplate<Block, <E::Proposer as Proposer<Block>>::Proof>>
 where
 	Block: BlockT<Hash = H256>,
 	C: HeaderBackend<Block> + ProvideRuntimeApi<Block> + Send + Sync + 'static,
@@ -738,7 +738,7 @@ where
 		return None;
 	}
 
-	Some(MiningBuild {
+	Some(BlockTemplate {
 		metadata: MiningMetadata {
 			best_hash,
 			pre_hash: proposal.block.header().hash(),

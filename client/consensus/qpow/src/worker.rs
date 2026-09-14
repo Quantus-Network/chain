@@ -58,32 +58,34 @@ pub struct MiningMetadata<H, D> {
 	pub difficulty: D,
 }
 
-/// A build of mining, containing the metadata and the block proposal.
-pub struct MiningBuild<Block: BlockT, Proof> {
+/// A block template: a fully built block proposal awaiting a seal, together with
+/// the metadata miners need to search for that seal.
+pub struct BlockTemplate<Block: BlockT, Proof> {
 	/// Mining metadata.
 	pub metadata: MiningMetadata<Block::Hash, U512>,
 	/// Mining proposal.
 	pub proposal: Proposal<Block, Proof>,
 }
 
-/// Version of the mining worker.
+/// Identifies a generation of the block template. Bumped whenever the template is
+/// replaced, cleared, or consumed, so holders can detect that a snapshot went stale.
 #[derive(Eq, PartialEq, Clone, Copy)]
-pub struct Version(usize);
+pub struct TemplateVersion(usize);
 
 /// Retains the latest version so changes cannot be lost before a waiter subscribes.
 #[derive(Clone)]
-struct VersionSignal {
+struct TemplateVersionSignal {
 	value: Arc<AtomicUsize>,
 	changed: tokio::sync::watch::Sender<()>,
 }
 
-impl VersionSignal {
+impl TemplateVersionSignal {
 	fn new() -> Self {
 		Self { value: Arc::new(AtomicUsize::new(0)), changed: tokio::sync::watch::channel(()).0 }
 	}
 
-	fn current(&self) -> Version {
-		Version(self.value.load(Ordering::SeqCst))
+	fn current(&self) -> TemplateVersion {
+		TemplateVersion(self.value.load(Ordering::SeqCst))
 	}
 
 	fn increment(&self) {
@@ -91,7 +93,7 @@ impl VersionSignal {
 		self.changed.send_replace(());
 	}
 
-	async fn changed_since(&self, version: Version) {
+	async fn changed_since(&self, version: TemplateVersion) {
 		let mut receiver = self.changed.subscribe();
 		loop {
 			receiver.borrow_and_update();
@@ -121,17 +123,17 @@ impl AuthoringGate {
 	}
 }
 
-/// Mining worker that exposes structs to query the current mining build and submit mined blocks.
+/// Mining worker that exposes structs to query the current block template and submit mined blocks.
 pub struct MiningHandle<Block: BlockT, AC, L: sc_consensus::JustificationSyncLink<Block>, Proof> {
-	version: VersionSignal,
+	version: TemplateVersionSignal,
 	authoring_gate: AuthoringGate,
 	client: Arc<AC>,
 	justification_sync_link: Arc<L>,
-	build: Arc<Mutex<Option<MiningBuild<Block, Proof>>>>,
+	template: Arc<Mutex<Option<BlockTemplate<Block, Proof>>>>,
 	block_import: Arc<BoxBlockImport<Block>>,
-	// Rebuild-request channel shared with the block-building task, so mining can be
+	// Rebuild-request channel shared with the template-building task, so mining can be
 	// resumed (post-sync, or after a failed import) without an external trigger.
-	pending_build: Arc<Mutex<Option<Block::Hash>>>,
+	pending_rebuild: Arc<Mutex<Option<Block::Hash>>>,
 	rebuild_notify: futures::channel::mpsc::Sender<()>,
 }
 
@@ -150,17 +152,17 @@ where
 		client: Arc<AC>,
 		block_import: BoxBlockImport<Block>,
 		justification_sync_link: L,
-		pending_build: Arc<Mutex<Option<Block::Hash>>>,
+		pending_rebuild: Arc<Mutex<Option<Block::Hash>>>,
 		rebuild_notify: futures::channel::mpsc::Sender<()>,
 	) -> Self {
 		Self {
-			version: VersionSignal::new(),
+			version: TemplateVersionSignal::new(),
 			authoring_gate: AuthoringGate::default(),
 			client,
 			justification_sync_link: Arc::new(justification_sync_link),
-			build: Arc::new(Mutex::new(None)),
+			template: Arc::new(Mutex::new(None)),
 			block_import: Arc::new(block_import),
-			pending_build,
+			pending_rebuild,
 			rebuild_notify,
 		}
 	}
@@ -171,11 +173,11 @@ where
 			return;
 		}
 
-		*self.pending_build.lock() = None;
+		*self.pending_rebuild.lock() = None;
 		if enabled {
 			self.request_rebuild();
 		} else {
-			self.build.lock().take();
+			self.template.lock().take();
 			self.increment_version();
 		}
 	}
@@ -185,48 +187,48 @@ where
 		self.authoring_gate.is_enabled()
 	}
 
-	/// Request a rebuild of the mining candidate on top of the current best block.
-	/// Used to resume mining after the build was cleared (post-sync) or a submitted
-	/// block failed to import, leaving no candidate.
+	/// Request a rebuild of the block template on top of the current best block.
+	/// Used to resume mining after the template was cleared (post-sync) or a submitted
+	/// block failed to import, leaving no template.
 	pub fn request_rebuild(&self) {
 		if !self.is_authoring_enabled() {
 			return;
 		}
 		let best_hash = self.client.info().best_hash;
-		*self.pending_build.lock() = Some(best_hash);
+		*self.pending_rebuild.lock() = Some(best_hash);
 		let _ = self.rebuild_notify.clone().try_send(());
 	}
 
-	pub(crate) fn on_build(&self, value: MiningBuild<Block, Proof>) {
-		let mut build = self.build.lock();
+	pub(crate) fn on_new_template(&self, value: BlockTemplate<Block, Proof>) {
+		let mut template = self.template.lock();
 		if !self.is_authoring_enabled() {
 			return;
 		}
-		*build = Some(value);
+		*template = Some(value);
 		self.increment_version();
 	}
 
-	/// Wait until a build is replaced, cleared, or consumed.
+	/// Wait until the template is replaced, cleared, or consumed.
 	/// Changes since the supplied version are observed even before this future is polled.
-	pub async fn wait_for_version_change(&self, version: Version) {
+	pub async fn wait_for_template_change(&self, version: TemplateVersion) {
 		self.version.changed_since(version).await;
 	}
 
-	/// Get the version of the mining worker.
+	/// Get the version of the current block template.
 	///
-	/// This returns type `Version` which can only compare equality. If `Version` is unchanged, then
-	/// it can be certain that `best_hash` and `metadata` were not changed.
-	pub fn version(&self) -> Version {
+	/// This returns type `TemplateVersion` which can only compare equality. If it is unchanged,
+	/// then it can be certain that `best_hash` and `metadata` were not changed.
+	pub fn template_version(&self) -> TemplateVersion {
 		self.version.current()
 	}
 
 	/// Get the current best hash. `None` if the worker has just started or the last
-	/// build was consumed.
+	/// template was consumed.
 	pub fn best_hash(&self) -> Option<Block::Hash> {
 		if !self.is_authoring_enabled() {
 			return None;
 		}
-		self.build.lock().as_ref().map(|b| b.metadata.best_hash)
+		self.template.lock().as_ref().map(|t| t.metadata.best_hash)
 	}
 
 	/// Get a copy of the current mining metadata, if available.
@@ -234,32 +236,32 @@ where
 		if !self.is_authoring_enabled() {
 			return None;
 		}
-		self.build.lock().as_ref().map(|b| b.metadata.clone())
+		self.template.lock().as_ref().map(|t| t.metadata.clone())
 	}
 
-	/// Submit a mined seal. The seal will be validated before consuming the build.
+	/// Submit a mined seal. The seal will be validated before consuming the template.
 	/// Returns true if the submission is successful.
 	pub async fn submit(&self, seal: Seal) -> bool {
-		// Atomically verify and take the build in a single lock acquisition.
+		// Atomically verify and take the template in a single lock acquisition.
 		// This prevents TOCTOU issues where a rebuild could land between verify and consume.
-		let build = {
-			let mut build_guard = self.build.lock();
+		let template = {
+			let mut template_guard = self.template.lock();
 
 			if !self.is_authoring_enabled() {
 				debug!(target: LOG_TARGET, "Ignoring mined seal while authoring is paused");
 				return false;
 			}
 
-			// Extract metadata for verification while keeping the build in place
-			let (pre_hash, best_hash) = match build_guard.as_ref() {
-				Some(b) => (b.metadata.pre_hash.0, b.metadata.best_hash),
+			// Extract metadata for verification while keeping the template in place
+			let (pre_hash, best_hash) = match template_guard.as_ref() {
+				Some(t) => (t.metadata.pre_hash.0, t.metadata.best_hash),
 				None => {
-					warn!(target: LOG_TARGET, "Unable to import mined block: build does not exist");
+					warn!(target: LOG_TARGET, "Unable to import mined block: no block template exists");
 					return false;
 				},
 			};
 
-			// Verify seal before consuming the build
+			// Verify seal before consuming the template
 			let nonce: [u8; 64] = match seal.as_slice().try_into() {
 				Ok(arr) => arr,
 				Err(_) => {
@@ -270,18 +272,18 @@ where
 
 			match self.client.runtime_api().verify_nonce_local_mining(best_hash, pre_hash, nonce) {
 				Ok(true) => {
-					// Seal is valid, take the build. This cannot be None because:
+					// Seal is valid, take the template. This cannot be None because:
 					// - We hold the lock continuously since checking as_ref() above
-					// - No other code path modifies build_guard between check and take
-					let build = build_guard.take();
+					// - No other code path modifies template_guard between check and take
+					let template = template_guard.take();
 					self.increment_version();
-					match build {
-						Some(b) => b,
+					match template {
+						Some(t) => t,
 						None => {
 							// This branch is unreachable given the lock invariants, but we handle
 							// it explicitly rather than using unwrap() to satisfy safety
 							// guidelines.
-							warn!(target: LOG_TARGET, "Build disappeared while holding lock (should be unreachable)");
+							warn!(target: LOG_TARGET, "Template disappeared while holding lock (should be unreachable)");
 							return false;
 						},
 					}
@@ -302,14 +304,14 @@ where
 		};
 
 		let seal = DigestItem::Seal(POW_ENGINE_ID, seal);
-		let (header, body) = build.proposal.block.deconstruct();
+		let (header, body) = template.proposal.block.deconstruct();
 
 		let mut import_block: BlockImportParams<Block> =
 			BlockImportParams::new(BlockOrigin::Own, header);
 		import_block.post_digests.push(seal);
 		import_block.body = Some(body);
 		import_block.state_action =
-			StateAction::ApplyChanges(StorageChanges::Changes(build.proposal.storage_changes));
+			StateAction::ApplyChanges(StorageChanges::Changes(template.proposal.storage_changes));
 
 		let block_number = *import_block.header.number();
 		let post_hash = import_block.post_header().hash();
@@ -323,7 +325,7 @@ where
 			},
 			Err(err) => {
 				warn!(target: LOG_TARGET, "Unable to import mined block: {}", err,);
-				// The build was consumed above; request a fresh candidate so mining
+				// The template was consumed above; request a fresh one so mining
 				// resumes without waiting for an external trigger.
 				self.request_rebuild();
 				false
@@ -344,9 +346,9 @@ where
 			authoring_gate: self.authoring_gate.clone(),
 			client: self.client.clone(),
 			justification_sync_link: self.justification_sync_link.clone(),
-			build: self.build.clone(),
+			template: self.template.clone(),
 			block_import: self.block_import.clone(),
-			pending_build: self.pending_build.clone(),
+			pending_rebuild: self.pending_rebuild.clone(),
 			rebuild_notify: self.rebuild_notify.clone(),
 		}
 	}
@@ -479,8 +481,8 @@ mod tests {
 }
 
 #[cfg(test)]
-mod version_signal_tests {
-	use super::VersionSignal;
+mod template_version_signal_tests {
+	use super::TemplateVersionSignal;
 	use futures::{executor::block_on, task::ArcWake, Future, FutureExt};
 	use std::sync::{
 		atomic::{AtomicUsize, Ordering},
@@ -497,7 +499,7 @@ mod version_signal_tests {
 
 	#[test]
 	fn change_before_subscription_is_retained() {
-		let signal = VersionSignal::new();
+		let signal = TemplateVersionSignal::new();
 		let version = signal.current();
 		signal.increment();
 		assert!(signal.changed_since(version).now_or_never().is_some());
@@ -505,7 +507,7 @@ mod version_signal_tests {
 
 	#[test]
 	fn change_wakes_all_waiters_without_a_timer() {
-		let signal = VersionSignal::new();
+		let signal = TemplateVersionSignal::new();
 		let version = signal.current();
 		let mut first = Box::pin(signal.changed_since(version));
 		let mut second = Box::pin(signal.changed_since(version));
@@ -522,7 +524,7 @@ mod version_signal_tests {
 
 	#[test]
 	fn cancelled_wait_does_not_consume_next_change() {
-		let signal = VersionSignal::new();
+		let signal = TemplateVersionSignal::new();
 		let version = signal.current();
 		assert!(signal.changed_since(version).now_or_never().is_none());
 		signal.increment();
