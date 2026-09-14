@@ -7,11 +7,10 @@ use crate::{
 };
 #[cfg(feature = "runtime-benchmarks")]
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
-use qp_dilithium_crypto::{traits::WormholeAddress, Dilithium87Pair};
+use qp_dilithium_crypto::{traits::WormholeAddress, Dilithium65Pair, Dilithium87Pair};
 use qp_rusty_crystals_hdwallet::{
-	derive_key_from_mnemonic, derive_wormhole_from_mnemonic, generate_mnemonic, mnemonic_to_seed,
-	wormhole::WormholePair, SensitiveBytes32, SensitiveBytes64, QUANTUS_DILITHIUM_CHAIN_ID,
-	QUANTUS_WORMHOLE_CHAIN_ID,
+	derive_wormhole_from_mnemonic, generate_mnemonic, mnemonic_to_seed, wormhole::WormholePair,
+	SensitiveBytes32, SensitiveBytes64, QUANTUS_DILITHIUM_CHAIN_ID, QUANTUS_WORMHOLE_CHAIN_ID,
 };
 use quantus_runtime::Block;
 #[cfg(feature = "runtime-benchmarks")]
@@ -88,58 +87,156 @@ fn read_secret_from_stdin(prompt: &str) -> Result<Zeroizing<String>, sc_cli::Err
 		.ok_or_else(|| sc_cli::Error::Input("no secret provided on stdin".into()))
 }
 
+fn default_hd_path(scheme: QuantusAddressType, index: u32) -> String {
+	let chain_id = match scheme {
+		QuantusAddressType::Wormhole => QUANTUS_WORMHOLE_CHAIN_ID,
+		QuantusAddressType::MlDsa87 | QuantusAddressType::MlDsa65 => QUANTUS_DILITHIUM_CHAIN_ID,
+	};
+	format!("m/44'/{chain_id}/{index}'/0'/0'")
+}
+
+fn dilithium_account_details(
+	public: impl AsRef<[u8]> + Into<AccountId32>,
+	secret: &[u8],
+	seed_hex: String,
+	secret_phrase: Option<String>,
+) -> QuantusKeyDetails {
+	let public_key_hex = format!("0x{}", hex::encode(public.as_ref()));
+	let account_id: AccountId32 = public.into();
+	QuantusKeyDetails {
+		address: account_id.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
+		raw_address: format!("0x{}", hex::encode(account_id)),
+		public_key_hex,
+		secret_key_hex: format!("0x{}", hex::encode(secret)),
+		seed_hex,
+		secret_phrase,
+		inner_hash: None,
+	}
+}
+
+#[allow(clippy::result_large_err)]
+fn derive_dilithium_from_mnemonic(
+	scheme: QuantusAddressType,
+	mnemonic: &str,
+	path: &str,
+	secret_phrase: Option<String>,
+) -> Result<QuantusKeyDetails, sc_cli::Error> {
+	println!("Deriving HD path: {}", path);
+	let derived = "N/A (derived from mnemonic)".to_string();
+	match scheme {
+		QuantusAddressType::MlDsa87 => {
+			let keypair = qp_rusty_crystals_hdwallet::ml_dsa_87::derive_key_from_mnemonic(
+				mnemonic, None, path,
+			)
+			.map_err(|e| {
+				eprintln!("Error deriving from mnemonic: {:?}", e);
+				sc_cli::Error::Input("Failed to derive from mnemonic".into())
+			})?;
+			let pair = Dilithium87Pair::from_keypair(keypair);
+			Ok(dilithium_account_details(
+				pair.public(),
+				pair.secret_bytes(),
+				derived,
+				secret_phrase,
+			))
+		},
+		QuantusAddressType::MlDsa65 => {
+			let keypair = qp_rusty_crystals_hdwallet::ml_dsa_65::derive_key_from_mnemonic(
+				mnemonic, None, path,
+			)
+			.map_err(|e| {
+				eprintln!("Error deriving from mnemonic: {:?}", e);
+				sc_cli::Error::Input("Failed to derive from mnemonic".into())
+			})?;
+			let pair = Dilithium65Pair::from_keypair(keypair);
+			Ok(dilithium_account_details(
+				pair.public(),
+				pair.secret_bytes(),
+				derived,
+				secret_phrase,
+			))
+		},
+		QuantusAddressType::Wormhole => unreachable!("wormhole is not a dilithium scheme"),
+	}
+}
+
+#[allow(clippy::result_large_err)]
+fn dilithium_from_seed(
+	scheme: QuantusAddressType,
+	seed_for_pair: Zeroizing<Vec<u8>>,
+	secret_phrase: Option<String>,
+) -> Result<QuantusKeyDetails, sc_cli::Error> {
+	let seed_hex = format!("0x{}", hex::encode(&seed_for_pair));
+	let details = match scheme {
+		QuantusAddressType::MlDsa87 => {
+			let pair = Dilithium87Pair::from_seed(&seed_for_pair).map_err(|e| {
+				eprintln!("Error creating Dilithium87Pair: {:?}", e);
+				sc_cli::Error::Input("Failed to create keypair".into())
+			})?;
+			dilithium_account_details(pair.public(), pair.secret_bytes(), seed_hex, secret_phrase)
+		},
+		QuantusAddressType::MlDsa65 => {
+			let pair = Dilithium65Pair::from_seed(&seed_for_pair).map_err(|e| {
+				eprintln!("Error creating Dilithium65Pair: {:?}", e);
+				sc_cli::Error::Input("Failed to create keypair".into())
+			})?;
+			dilithium_account_details(pair.public(), pair.secret_bytes(), seed_hex, secret_phrase)
+		},
+		QuantusAddressType::Wormhole => unreachable!("wormhole is not a dilithium scheme"),
+	};
+	drop(seed_for_pair);
+	Ok(details)
+}
+
+#[allow(clippy::result_large_err)]
+fn mnemonic_to_pair_seed(mnemonic: String) -> Result<Zeroizing<Vec<u8>>, sc_cli::Error> {
+	let mut seed64 = SensitiveBytes64::zeroed();
+	mnemonic_to_seed(mnemonic, None, &mut seed64).map_err(|e| {
+		eprintln!("Error processing provided words: {:?}", e);
+		sc_cli::Error::Input("Failed to process provided words".into())
+	})?;
+	Ok(Zeroizing::new(seed64.as_bytes().to_vec()))
+}
+
+#[allow(clippy::result_large_err)]
+fn generate_new_mnemonic() -> Result<Zeroizing<String>, sc_cli::Error> {
+	let mut entropy = [0u8; 32];
+	rand::thread_rng().fill(&mut entropy);
+	let sensitive_entropy = SensitiveBytes32::from(&mut entropy);
+	generate_mnemonic(sensitive_entropy).map_err(|e| {
+		eprintln!("Error generating new words: {:?}", e);
+		sc_cli::Error::Input("Failed to generate new words".into())
+	})
+}
+
 #[allow(clippy::result_large_err)]
 pub fn generate_quantus_key(
 	scheme: QuantusAddressType,
 	seed: Option<String>,
 	words: Option<String>,
-	wallet_index: u32,
-	no_derivation: bool,
+	derivation_path: Option<&str>,
 ) -> Result<QuantusKeyDetails, sc_cli::Error> {
 	// Scrub caller-supplied secrets on every exit path (including early returns).
 	let seed = seed.map(Zeroizing::new);
 	let mut words = words.map(Zeroizing::new);
 
 	match scheme {
-		QuantusAddressType::Standard => {
+		QuantusAddressType::MlDsa87 | QuantusAddressType::MlDsa65 => {
 			let mut words_to_print: Option<String> = None;
 			let seed_for_pair: Zeroizing<Vec<u8>>;
-
-			// Build the derivation path (all components must be hardened for lattice-based crypto)
-			let path =
-				format!("m/44'/{QUANTUS_DILITHIUM_CHAIN_ID}/{index}'/0'/0'", index = wallet_index);
 
 			if let Some(ref words_phrase) = words {
 				// Use provided mnemonic. The caller already knows it, so it is
 				// deliberately NOT placed in `secret_phrase` for echoing back.
-				if no_derivation {
-					// Get raw seed from mnemonic (writes into `seed64`, which zeroizes on drop).
-					let mut seed64 = SensitiveBytes64::zeroed();
-					mnemonic_to_seed(words_phrase.to_string(), None, &mut seed64).map_err(|e| {
-						eprintln!("Error processing provided words: {:?}", e);
-						sc_cli::Error::Input("Failed to process provided words".into())
-					})?;
-					seed_for_pair = Zeroizing::new(seed64.as_bytes().to_vec());
-				} else {
-					println!("Deriving HD path: {}", path);
-					let keypair =
-						derive_key_from_mnemonic(words_phrase, None, &path).map_err(|e| {
-							eprintln!("Error deriving from mnemonic: {:?}", e);
-							sc_cli::Error::Input("Failed to derive from mnemonic".into())
-						})?;
-					let dilithium_pair = Dilithium87Pair::from_keypair(keypair);
-					let account_id = AccountId32::from(dilithium_pair.public());
-					return Ok(QuantusKeyDetails {
-						address: account_id
-							.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
-						raw_address: format!("0x{}", hex::encode(account_id)),
-						public_key_hex: format!("0x{}", hex::encode(dilithium_pair.public())),
-						secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret_bytes())),
-						seed_hex: "N/A (derived from mnemonic)".to_string(),
-						secret_phrase: words_to_print,
-						inner_hash: None,
-					});
+				if let Some(path) = derivation_path {
+					return derive_dilithium_from_mnemonic(
+						scheme,
+						words_phrase,
+						path,
+						words_to_print,
+					);
 				}
+				seed_for_pair = mnemonic_to_pair_seed(words_phrase.to_string())?;
 			} else if let Some(ref hex_seed_str) = seed {
 				// Slice off an optional 0x prefix without reallocating a second secret String.
 				let hex = hex_seed_str.strip_prefix("0x").unwrap_or(hex_seed_str.as_str());
@@ -161,88 +258,39 @@ pub fn generate_quantus_key(
 				}
 				seed_for_pair = Zeroizing::new(std::mem::take(&mut decoded_seed_bytes));
 			} else {
-				// Generate new mnemonic from random entropy
-				let mut entropy = [0u8; 32];
-				rand::thread_rng().fill(&mut entropy);
-				let sensitive_entropy = SensitiveBytes32::from(&mut entropy);
-				let new_words = generate_mnemonic(sensitive_entropy).map_err(|e| {
-					eprintln!("Error generating new words: {:?}", e);
-					sc_cli::Error::Input("Failed to generate new words".into())
-				})?;
+				let new_words = generate_new_mnemonic()?;
 				words_to_print = Some(new_words.to_string());
 
-				if no_derivation {
-					// Get raw seed from mnemonic (writes into `seed64`, which zeroizes on drop).
-					let mut seed64 = SensitiveBytes64::zeroed();
-					mnemonic_to_seed(new_words.to_string(), None, &mut seed64).map_err(|e| {
-						eprintln!("Error converting mnemonic to seed: {:?}", e);
-						sc_cli::Error::Input("Failed to convert mnemonic to seed".into())
-					})?;
-					seed_for_pair = Zeroizing::new(seed64.as_bytes().to_vec());
-				} else {
-					println!("Deriving HD path: {}", path);
-					let keypair =
-						derive_key_from_mnemonic(&new_words, None, &path).map_err(|e| {
-							eprintln!("Error deriving from mnemonic: {:?}", e);
-							sc_cli::Error::Input("Failed to derive from mnemonic".into())
-						})?;
+				if let Some(path) = derivation_path {
+					let details =
+						derive_dilithium_from_mnemonic(scheme, &new_words, path, words_to_print)?;
 					drop(new_words);
-					let dilithium_pair = Dilithium87Pair::from_keypair(keypair);
-					let account_id = AccountId32::from(dilithium_pair.public());
-					return Ok(QuantusKeyDetails {
-						address: account_id
-							.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
-						raw_address: format!("0x{}", hex::encode(account_id)),
-						public_key_hex: format!("0x{}", hex::encode(dilithium_pair.public())),
-						secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret_bytes())),
-						seed_hex: "N/A (derived from mnemonic)".to_string(),
-						secret_phrase: words_to_print,
-						inner_hash: None,
-					});
+					return Ok(details);
 				}
+				seed_for_pair = mnemonic_to_pair_seed(new_words.to_string())?;
 			};
 
-			let dilithium_pair = Dilithium87Pair::from_seed(&seed_for_pair).map_err(|e| {
-				eprintln!("Error creating Dilithium87Pair: {:?}", e);
-				sc_cli::Error::Input("Failed to create keypair".into())
-			})?;
-
-			let account_id = AccountId32::from(dilithium_pair.public());
-			let seed_hex = format!("0x{}", hex::encode(&seed_for_pair));
-			// `seed_for_pair` zeroizes here when dropped.
-			drop(seed_for_pair);
-
-			Ok(QuantusKeyDetails {
-				address: account_id.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
-				raw_address: format!("0x{}", hex::encode(account_id)),
-				public_key_hex: format!("0x{}", hex::encode(dilithium_pair.public())),
-				secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret_bytes())),
-				seed_hex,
-				secret_phrase: words_to_print,
-				inner_hash: None,
-			})
+			dilithium_from_seed(scheme, seed_for_pair, words_to_print)
 		},
 		QuantusAddressType::Wormhole => {
-			let path =
-				format!("m/44'/{QUANTUS_WORMHOLE_CHAIN_ID}/{index}'/0'/0'", index = wallet_index);
 			let words_to_print;
 			let words_phrase: Zeroizing<String> = if let Some(w) = words.take() {
 				// Caller-supplied mnemonic: not echoed back.
 				words_to_print = None;
 				w
 			} else {
-				let mut entropy = [0u8; 32];
-				rand::thread_rng().fill(&mut entropy);
-				let sensitive_entropy = SensitiveBytes32::from(&mut entropy);
-				let new_words = generate_mnemonic(sensitive_entropy).map_err(|e| {
-					eprintln!("Error generating new words: {:?}", e);
-					sc_cli::Error::Input("Failed to generate new words".into())
-				})?;
+				let new_words = generate_new_mnemonic()?;
 				words_to_print = Some(new_words.to_string());
 				new_words
 			};
 
-			let wormhole_pair = if no_derivation {
+			let wormhole_pair = if let Some(path) = derivation_path {
+				println!("Deriving wormhole HD path: {}", path);
+				derive_wormhole_from_mnemonic(&words_phrase, None, path).map_err(|e| {
+					eprintln!("Error deriving wormhole from mnemonic: {:?}", e);
+					sc_cli::Error::Input("Failed to derive wormhole from mnemonic".into())
+				})?
+			} else {
 				let mut seed64 = SensitiveBytes64::zeroed();
 				mnemonic_to_seed(words_phrase.to_string(), None, &mut seed64).map_err(|e| {
 					eprintln!("Error processing provided words: {:?}", e);
@@ -252,12 +300,6 @@ pub fn generate_quantus_key(
 				seed32.copy_from_slice(&seed64.as_bytes()[..32]);
 				let mut sensitive_seed = SensitiveBytes32::from(&mut seed32);
 				WormholePair::generate_new(&mut sensitive_seed)
-			} else {
-				println!("Deriving wormhole HD path: {}", path);
-				derive_wormhole_from_mnemonic(&words_phrase, None, &path).map_err(|e| {
-					eprintln!("Error deriving wormhole from mnemonic: {:?}", e);
-					sc_cli::Error::Input("Failed to derive wormhole from mnemonic".into())
-				})?
 			};
 			// `words_phrase` zeroizes on drop here.
 
@@ -342,6 +384,7 @@ pub fn run() -> sc_cli::Result<()> {
 					scheme,
 					seed,
 					words,
+					derivation_path,
 					wallet_index,
 					no_derivation,
 					verbose,
@@ -361,17 +404,34 @@ pub fn run() -> sc_cli::Result<()> {
 					} else {
 						None
 					};
+					if *seed && derivation_path.is_some() {
+						return Err(sc_cli::Error::Input(
+							"--derivation-path cannot be used with --seed".into(),
+						));
+					}
+					let resolved_index = if derivation_path.is_some() || *no_derivation || *seed {
+						None
+					} else {
+						Some(wallet_index.unwrap_or(0))
+					};
+					let resolved_path: Option<String> =
+						if let Some(path) = derivation_path.as_deref() {
+							Some(path.to_string())
+						} else if let Some(index) = resolved_index {
+							Some(default_hd_path(*scheme, index))
+						} else {
+							None
+						};
 					match generate_quantus_key(
-						scheme.clone(),
+						*scheme,
 						seed_value,
 						words_value,
-						*wallet_index,
-						*no_derivation,
+						resolved_path.as_deref(),
 					) {
 						Ok(details) => {
 							match scheme {
-								QuantusAddressType::Standard => {
-									println!("Generating Quantus Standard address...");
+								QuantusAddressType::MlDsa87 | QuantusAddressType::MlDsa65 => {
+									println!("Generating Quantus {scheme} address...");
 									if *seed {
 										println!("Using provided hex seed...");
 									} else if *words {
@@ -384,11 +444,6 @@ pub fn run() -> sc_cli::Result<()> {
 
 									if *no_derivation {
 										println!("Derivation disabled (--no-derivation). Using master seed.");
-									} else {
-										println!(
-											"Deriving child with index {} (path m/44'/{}/{}'/0'/0')",
-											wallet_index, QUANTUS_DILITHIUM_CHAIN_ID, wallet_index
-										);
 									}
 
 									println!(
@@ -397,15 +452,14 @@ pub fn run() -> sc_cli::Result<()> {
 									if let Some(phrase) = &details.secret_phrase {
 										println!("Secret phrase: {}", phrase);
 									}
-									// Include account index and derivation path in the output
-									println!("Account index: {}", wallet_index);
-									if *no_derivation {
-										println!("Derivation path: master (no derivation)");
+									println!("Scheme: {scheme}");
+									if let Some(index) = resolved_index {
+										println!("Account index: {index}");
+									}
+									if let Some(path) = &resolved_path {
+										println!("Derivation path: {path}");
 									} else {
-										println!(
-											"Derivation path: m/44'/{}/{}'/0'/0'",
-											QUANTUS_DILITHIUM_CHAIN_ID, wallet_index
-										);
+										println!("Derivation path: master (no derivation)");
 									}
 									println!("Address: {}", details.address);
 									if *verbose {
@@ -423,14 +477,14 @@ pub fn run() -> sc_cli::Result<()> {
 									if let Some(phrase) = &details.secret_phrase {
 										println!("Secret phrase: {}", phrase);
 									}
-									println!("Account index: {}", wallet_index);
-									if *no_derivation {
-										println!("Derivation path: master (no derivation)");
+									println!("Scheme: {scheme}");
+									if let Some(index) = resolved_index {
+										println!("Account index: {index}");
+									}
+									if let Some(path) = &resolved_path {
+										println!("Derivation path: {path}");
 									} else {
-										println!(
-											"Derivation path: m/44'/{}/{}'/0'/0'",
-											QUANTUS_WORMHOLE_CHAIN_ID, wallet_index
-										);
+										println!("Derivation path: master (no derivation)");
 									}
 									println!("Address: {}", details.address);
 									println!(
@@ -723,6 +777,9 @@ mod tests {
 		},
 	};
 
+	const DILITHIUM_HD_0: &str = "m/44'/189189'/0'/0'/0'";
+	const DILITHIUM_HD_1: &str = "m/44'/189189'/1'/0'/0'";
+
 	#[test]
 	fn force_authoring_flag_is_parsed() {
 		use clap::Parser;
@@ -792,22 +849,22 @@ mod tests {
 	#[test]
 	fn provided_mnemonic_is_not_echoed_back() {
 		let mnemonic = TEST_MNEMONIC.to_string();
-		let standard = generate_quantus_key(
-			QuantusAddressType::Standard,
-			None,
-			Some(mnemonic.clone()),
-			0,
-			true,
-		)
-		.unwrap();
+		let standard =
+			generate_quantus_key(QuantusAddressType::MlDsa87, None, Some(mnemonic.clone()), None)
+				.unwrap();
 		assert!(
 			standard.secret_phrase.is_none(),
 			"caller-supplied mnemonic must not be echoed back (standard)"
 		);
 
-		let wormhole =
-			generate_quantus_key(QuantusAddressType::Wormhole, None, Some(mnemonic), 0, false)
-				.unwrap();
+		let wormhole_path = default_hd_path(QuantusAddressType::Wormhole, 0);
+		let wormhole = generate_quantus_key(
+			QuantusAddressType::Wormhole,
+			None,
+			Some(mnemonic),
+			Some(&wormhole_path),
+		)
+		.unwrap();
 		assert!(
 			wormhole.secret_phrase.is_none(),
 			"caller-supplied mnemonic must not be echoed back (wormhole)"
@@ -817,7 +874,8 @@ mod tests {
 	#[test]
 	fn test_generate_quantus_key_standard_new_mnemonic() {
 		// Test generating a standard address with a new mnemonic
-		let result = generate_quantus_key(QuantusAddressType::Standard, None, None, 0, false);
+		let result =
+			generate_quantus_key(QuantusAddressType::MlDsa87, None, None, Some(DILITHIUM_HD_0));
 		assert!(result.is_ok());
 		assert!(result.unwrap().secret_phrase.is_some());
 	}
@@ -828,13 +886,8 @@ mod tests {
 		let mnemonic =
             "legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title"
                 .to_string();
-		let result = generate_quantus_key(
-			QuantusAddressType::Standard,
-			None,
-			Some(mnemonic.clone()),
-			0,
-			true,
-		);
+		let result =
+			generate_quantus_key(QuantusAddressType::MlDsa87, None, Some(mnemonic.clone()), None);
 		assert!(result.is_ok());
 		let details = result.unwrap();
 		// Caller-supplied mnemonics are never echoed back.
@@ -848,11 +901,10 @@ mod tests {
 		let seed_hex_with_prefix = format!("0x{}", seed_hex_no_prefix);
 
 		let result_no_prefix = generate_quantus_key(
-			QuantusAddressType::Standard,
+			QuantusAddressType::MlDsa87,
 			Some(seed_hex_no_prefix.clone()),
 			None,
-			0,
-			true,
+			None,
 		);
 		assert!(result_no_prefix.is_ok());
 		let details_no_prefix = result_no_prefix.unwrap();
@@ -860,11 +912,10 @@ mod tests {
 		assert!(details_no_prefix.secret_phrase.is_none());
 
 		let result_with_prefix = generate_quantus_key(
-			QuantusAddressType::Standard,
+			QuantusAddressType::MlDsa87,
 			Some(seed_hex_with_prefix.clone()),
 			None,
-			0,
-			true,
+			None,
 		);
 		assert!(result_with_prefix.is_ok());
 		let details_with_prefix = result_with_prefix.unwrap();
@@ -875,7 +926,9 @@ mod tests {
 	#[test]
 	fn test_generate_quantus_key_wormhole() {
 		// Test generating a wormhole address
-		let result = generate_quantus_key(QuantusAddressType::Wormhole, None, None, 0, false);
+		let wormhole_path = default_hd_path(QuantusAddressType::Wormhole, 0);
+		let result =
+			generate_quantus_key(QuantusAddressType::Wormhole, None, None, Some(&wormhole_path));
 		assert!(result.is_ok());
 		let details = result.unwrap();
 		assert!(details.public_key_hex.starts_with("0x"));
@@ -893,7 +946,7 @@ mod tests {
 	fn test_generate_quantus_key_invalid_seed_length() {
 		// Test error handling for invalid seed length
 		let seed = Some("0123456789abcdef".to_string()); // Too short (16 chars, expected 128)
-		let result = generate_quantus_key(QuantusAddressType::Standard, seed, None, 0, true);
+		let result = generate_quantus_key(QuantusAddressType::MlDsa87, seed, None, None);
 		assert!(result.is_err());
 		if let Err(e) = result {
 			assert_eq!(format!("{:?}", e), "Input(\"Invalid hex seed length\")");
@@ -905,7 +958,7 @@ mod tests {
 		// Test error handling for invalid seed format (non-hex characters)
 		// Ensure the string is 128 chars long but contains an invalid hex char.
 		let seed = Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg0123456789abcdef".to_string()); // Contains 'g', now 128 chars
-		let result = generate_quantus_key(QuantusAddressType::Standard, seed, None, 0, true);
+		let result = generate_quantus_key(QuantusAddressType::MlDsa87, seed, None, None);
 		assert!(result.is_err());
 		if let Err(e) = result {
 			assert_eq!(format!("{:?}", e), "Input(\"Invalid hex seed format\")");
@@ -920,13 +973,8 @@ mod tests {
 		let expected_public_key_hex = EXPECTED_PUBLIC_KEY_HEX.to_string();
 		let expected_secret_key_hex = EXPECTED_SECRET_KEY_HEX.to_string();
 
-		let result = generate_quantus_key(
-			QuantusAddressType::Standard,
-			None,
-			Some(mnemonic.clone()),
-			0,
-			true,
-		);
+		let result =
+			generate_quantus_key(QuantusAddressType::MlDsa87, None, Some(mnemonic.clone()), None);
 		assert!(result.is_ok());
 		let details = result.unwrap();
 
@@ -937,11 +985,10 @@ mod tests {
 		assert_eq!(details.secret_key_hex, expected_secret_key_hex.clone());
 
 		let result = generate_quantus_key(
-			QuantusAddressType::Standard,
+			QuantusAddressType::MlDsa87,
 			Some(expected_seed_hex.clone()),
 			None,
-			0,
-			true,
+			None,
 		);
 		assert!(result.is_ok());
 		let details = result.unwrap();
@@ -956,38 +1003,114 @@ mod tests {
 	fn test_generate_quantus_key_standard_hd_derivation_changes_seed_and_key() {
 		let mnemonic = TEST_MNEMONIC.to_string();
 		// Master (no derivation)
-		let master = generate_quantus_key(
-			QuantusAddressType::Standard,
-			None,
-			Some(mnemonic.clone()),
-			0,
-			true,
-		)
-		.unwrap();
+		let master =
+			generate_quantus_key(QuantusAddressType::MlDsa87, None, Some(mnemonic.clone()), None)
+				.unwrap();
 
 		// Derived index 0
 		let child0 = generate_quantus_key(
-			QuantusAddressType::Standard,
+			QuantusAddressType::MlDsa87,
 			None,
 			Some(mnemonic.clone()),
-			0,
-			false,
+			Some(DILITHIUM_HD_0),
 		)
 		.unwrap();
 
 		// Derived index 1
 		let child1 = generate_quantus_key(
-			QuantusAddressType::Standard,
+			QuantusAddressType::MlDsa87,
 			None,
 			Some(mnemonic.clone()),
-			1,
-			false,
+			Some(DILITHIUM_HD_1),
 		)
 		.unwrap();
 
 		assert_eq!(master.address, TEST_ADDRESS);
 		assert_eq!(child0.address, TEST_ADDRESS_HD_0);
 		assert_eq!(child1.address, TEST_ADDRESS_HD_1);
+	}
+
+	#[test]
+	fn test_generate_quantus_key_ml_dsa_65_differs_from_87_at_same_path() {
+		let mnemonic = TEST_MNEMONIC.to_string();
+		let pair87 = generate_quantus_key(
+			QuantusAddressType::MlDsa87,
+			None,
+			Some(mnemonic.clone()),
+			Some(DILITHIUM_HD_0),
+		)
+		.unwrap();
+		let pair65 = generate_quantus_key(
+			QuantusAddressType::MlDsa65,
+			None,
+			Some(mnemonic),
+			Some(DILITHIUM_HD_0),
+		)
+		.unwrap();
+		assert_eq!(pair87.address, TEST_ADDRESS_HD_0);
+		assert_ne!(pair65.address, pair87.address);
+		assert!(
+			AccountId32::from_ss58check_with_version(&pair65.address).is_ok(),
+			"ML-DSA-65 address should be valid SS58: {}",
+			pair65.address
+		);
+	}
+
+	#[test]
+	fn key_quantus_parses_scheme_and_derivation_path() {
+		use clap::Parser;
+		let cli = crate::cli::Cli::try_parse_from([
+			"quantus-node",
+			"key",
+			"quantus",
+			"--scheme",
+			"ml-dsa-65",
+			"--derivation-path",
+			DILITHIUM_HD_1,
+		])
+		.expect("parse ml-dsa-65 with derivation path");
+		match cli.subcommand {
+			Some(Subcommand::Key(QuantusKeySubcommand::Quantus {
+				scheme,
+				derivation_path,
+				wallet_index,
+				..
+			})) => {
+				assert_eq!(scheme, QuantusAddressType::MlDsa65);
+				assert_eq!(derivation_path.as_deref(), Some(DILITHIUM_HD_1));
+				assert_eq!(wallet_index, None);
+			},
+			other => panic!("unexpected subcommand: {other:?}"),
+		}
+
+		let cli = crate::cli::Cli::try_parse_from([
+			"quantus-node",
+			"key",
+			"quantus",
+			"--scheme",
+			"standard",
+		])
+		.expect("parse --scheme standard alias");
+		match cli.subcommand {
+			Some(Subcommand::Key(QuantusKeySubcommand::Quantus { scheme, .. })) => {
+				assert_eq!(scheme, QuantusAddressType::MlDsa87);
+			},
+			other => panic!("unexpected subcommand: {other:?}"),
+		}
+
+		assert!(
+			crate::cli::Cli::try_parse_from([
+				"quantus-node",
+				"key",
+				"quantus",
+				"--derivation-path",
+				DILITHIUM_HD_0,
+				"--wallet-index",
+				"1",
+			])
+			.is_err(),
+			"--derivation-path and --wallet-index must conflict"
+		);
 	}
 
 	#[test]

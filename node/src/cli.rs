@@ -100,8 +100,8 @@ pub enum QuantusKeySubcommand {
 	Sc(Box<sc_cli::KeySubcommand>),
 	/// Generate a quantus address
 	Quantus {
-		/// Type of the key
-		#[arg(long, value_name = "SCHEME", value_enum, default_value_t = QuantusAddressType::Standard, ignore_case = true)]
+		/// Key scheme: ml-dsa-87 (default), ml-dsa-65, or wormhole.
+		#[arg(long, value_name = "SCHEME", value_enum, default_value_t = QuantusAddressType::MlDsa87, ignore_case = true)]
 		scheme: QuantusAddressType,
 
 		/// Optional: Read a 128-character hex master seed (64 bytes) from stdin.
@@ -120,12 +120,19 @@ pub enum QuantusKeySubcommand {
 		#[arg(long, conflicts_with = "seed")]
 		words: bool,
 
-		/// Optional: HD wallet derivation index (default 0). Ignored if --no-derivation is set.
-		#[arg(long, value_name = "INDEX", default_value_t = 0u32)]
-		wallet_index: u32,
+		/// HD derivation path (e.g. m/44'/189189'/0'/0'/0'). All components must
+		/// be hardened. Mutually exclusive with --wallet-index and --no-derivation.
+		#[arg(long, value_name = "PATH", conflicts_with_all = ["wallet_index", "no_derivation"])]
+		derivation_path: Option<String>,
 
-		/// Disable HD derivation. Generates the same result as current behavior.
-		#[arg(long, default_value_t = false)]
+		/// HD wallet derivation index (default 0). Builds m/44'/<coin>/{index}'/0'/0'.
+		/// Mutually exclusive with --derivation-path and --no-derivation.
+		#[arg(long, value_name = "INDEX", conflicts_with_all = ["derivation_path", "no_derivation"])]
+		wallet_index: Option<u32>,
+
+		/// Disable HD derivation. Uses the master seed. Mutually exclusive with
+		/// --derivation-path and --wallet-index.
+		#[arg(long, default_value_t = false, conflicts_with_all = ["derivation_path", "wallet_index"])]
 		no_derivation: bool,
 
 		/// Additionally print the public key / address hex. Secret material (seed,
@@ -135,8 +142,21 @@ pub enum QuantusKeySubcommand {
 	},
 }
 
-#[derive(Clone, Debug, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, clap::ValueEnum)]
 pub enum QuantusAddressType {
 	Wormhole,
-	Standard,
+	#[value(name = "ml-dsa-87", alias = "standard", alias = "mldsa87")]
+	MlDsa87,
+	#[value(name = "ml-dsa-65", alias = "mldsa65")]
+	MlDsa65,
+}
+
+impl std::fmt::Display for QuantusAddressType {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Wormhole => write!(f, "wormhole"),
+			Self::MlDsa87 => write!(f, "ml-dsa-87"),
+			Self::MlDsa65 => write!(f, "ml-dsa-65"),
+		}
+	}
 }
