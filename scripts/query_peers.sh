@@ -264,7 +264,7 @@ main() {
     # Query each host
     for host in "${HOSTS[@]}"; do
         if query_node "$host"; then
-            ((success_count++))
+            success_count=$((success_count + 1))
             if [ "$JSON_OUTPUT" = false ]; then
                 # Extract peer count for summary
                 local temp_response
@@ -279,7 +279,7 @@ main() {
                     local peer_count
                     peer_count=$(echo "$temp_response" | jq -r '.result.peer_count' 2>/dev/null)
                     if [[ "$peer_count" =~ ^[0-9]+$ ]]; then
-                        ((total_peers += peer_count))
+                        total_peers=$((total_peers + peer_count))
                     fi
                 fi
             fi
