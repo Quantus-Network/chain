@@ -17,8 +17,8 @@ use qp_dilithium_crypto::Dilithium65Pair;
 use qp_scheduler::BlockNumberOrTimestamp;
 use qp_wormhole::{derive_wormhole_address, POW_ENGINE_ID};
 use quantus_runtime::{
-	transaction_extensions::HIGH_SECURITY_TIP_FORBIDDEN, Balances, Executive, MiningRewards,
-	ReversibleTransfers, Runtime, RuntimeCall, RuntimeEvent, RuntimeOrigin, System,
+	scale_fee, transaction_extensions::HIGH_SECURITY_TIP_FORBIDDEN, Balances, Executive,
+	MiningRewards, ReversibleTransfers, Runtime, RuntimeCall, RuntimeEvent, RuntimeOrigin, System,
 	UncheckedExtrinsic, EXISTENTIAL_DEPOSIT, MILLI_UNIT, UNIT,
 };
 use sp_core::Pair;
@@ -259,7 +259,7 @@ fn high_security_padded_dest_is_rejected_before_fees() {
 		let id_xt = signed_call(&pair, account.clone(), schedule_small_transfer(), 0, 0);
 		let raw_xt = signed_call(&pair, account.clone(), padded_schedule_transfer(PAD), 0, 0);
 		assert!(
-			inclusion_fee(&raw_xt) > inclusion_fee(&id_xt) + 50 * MILLI_UNIT,
+			inclusion_fee(&raw_xt) > inclusion_fee(&id_xt) + scale_fee(50 * MILLI_UNIT),
 			"padded dest must inflate the chain-decided inclusion fee, got id={} raw={}",
 			inclusion_fee(&id_xt),
 			inclusion_fee(&raw_xt)
