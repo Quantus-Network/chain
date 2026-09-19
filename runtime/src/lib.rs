@@ -116,7 +116,7 @@ pub const MAX_SUPPLY: Balance = 21_000_000 * UNIT;
 /// Percentage rates (wormhole bps, reversal/step factors), the existential
 /// deposit, and the 0.01-QTC circuit quanta are deliberately not scaled.
 pub const FEE_SCALE_NUM: Balance = 1;
-pub const FEE_SCALE_DEN: Balance = 1;
+pub const FEE_SCALE_DEN: Balance = 10;
 
 pub const fn scale_fee(base: Balance) -> Balance {
 	base * FEE_SCALE_NUM / FEE_SCALE_DEN
