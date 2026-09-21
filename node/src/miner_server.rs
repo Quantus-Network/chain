@@ -45,7 +45,10 @@ use quantus_miner_api::{
 };
 use rand::RngCore;
 use sp_io::hashing::sha2_256;
-use tokio::sync::{mpsc, RwLock, Semaphore};
+use tokio::{
+	io::{AsyncRead, AsyncWrite},
+	sync::{mpsc, RwLock, Semaphore},
+};
 
 /// Default filename for the miner auth token under the chain config directory.
 pub const DEFAULT_MINER_AUTH_TOKEN_FILENAME: &str = "miner-auth-token";
@@ -782,17 +785,88 @@ async fn forward_result(
 	}
 }
 
-/// Handle communication with a single miner.
-async fn connection_handler(
+/// Drain a miner's results until the connection ends.
+///
+/// `read_message` is awaited to completion here and deliberately never appears as a
+/// `tokio::select!` branch: it is built from two `read_exact` calls, which are
+/// documented as cancel-unsafe. Dropping one part-way through discards the bytes it
+/// has already taken off the stream, and those bytes cannot be put back.
+async fn read_loop<R>(
 	miner_id: u64,
-	mut send: quinn::SendStream,
-	mut recv: quinn::RecvStream,
+	recv: &mut R,
+	result_tx: &mpsc::Sender<MiningResult>,
+) -> Result<(), String>
+where
+	R: AsyncRead + Unpin,
+{
+	let mut consecutive_drops = 0u32;
+
+	loop {
+		match read_message(recv).await {
+			Ok(MinerMessage::JobResult(mut result)) => {
+				log::info!(
+					"⛏️ Received result from miner {}: job_id={}, status={:?}",
+					miner_id,
+					result.job_id,
+					result.status
+				);
+				// Tag the result with the miner ID
+				result.miner_id = Some(miner_id);
+				forward_result(miner_id, result_tx, result, &mut consecutive_drops).await?;
+			},
+			Ok(MinerMessage::Ready { .. }) => {
+				log::debug!("Ignoring duplicate Ready from miner {}", miner_id);
+			},
+			Ok(MinerMessage::NewJob(_)) => {
+				log::warn!("Received unexpected NewJob from miner {}", miner_id);
+			},
+			Err(e) => {
+				if e.kind() == std::io::ErrorKind::UnexpectedEof {
+					return Err("Miner disconnected".to_string());
+				}
+				return Err(format!("Read error: {}", e));
+			},
+		}
+	}
+}
+
+/// Forward job broadcasts to a miner until its job channel closes.
+async fn write_loop<S>(
+	miner_id: u64,
+	send: &mut S,
+	job_rx: &mut mpsc::Receiver<MiningRequest>,
+) -> Result<(), String>
+where
+	S: AsyncWrite + Unpin,
+{
+	while let Some(job) = job_rx.recv().await {
+		log::debug!("Sending job {} to miner {}", job.job_id, miner_id);
+		let msg = MinerMessage::NewJob(job);
+		write_message(send, &msg)
+			.await
+			.map_err(|e| format!("Failed to send job: {}", e))?;
+	}
+
+	// Channel closed, shut down
+	Ok(())
+}
+
+/// Handle communication with a single miner.
+///
+/// Generic over the stream types so the loop can be driven by an in-memory duplex in
+/// tests; production instantiates it with quinn's `SendStream`/`RecvStream`.
+async fn connection_handler<S, R>(
+	miner_id: u64,
+	mut send: S,
+	mut recv: R,
 	mut job_rx: mpsc::Receiver<MiningRequest>,
 	result_tx: mpsc::Sender<MiningResult>,
 	initial_job: Option<MiningRequest>,
-) -> Result<(), String> {
-	let mut consecutive_drops = 0u32;
-
+) -> Result<(), String>
+where
+	S: AsyncWrite + Unpin,
+	R: AsyncRead + Unpin,
+{
 	// Send initial job if there is one (Ready/auth already handled by the caller)
 	if let Some(job) = initial_job {
 		log::debug!("Sending initial job {} to miner {}", job.job_id, miner_id);
@@ -802,58 +876,26 @@ async fn connection_handler(
 			.map_err(|e| format!("Failed to send initial job: {}", e))?;
 	}
 
-	loop {
-		tokio::select! {
-			// Prioritize reading to detect disconnection faster
-			biased;
+	// The two directions run as independent long-lived futures rather than as branches
+	// of a per-iteration `select!`. With the read in the `select!`, a job broadcast
+	// winning the race dropped a half-read frame together with the bytes it had already
+	// consumed, leaving the next `read_message` to start mid-frame: it read body bytes
+	// as a length prefix and failed with `InvalidData` (or handed `serde_json` garbage),
+	// which tore the connection down and lost the in-flight seal. `biased` did not help
+	// — it only orders polling, and the read is still dropped once it returns `Pending`.
+	// Broadcasts happen on every block-template rebuild, so this fired most often at
+	// exactly the moment miners are submitting.
+	//
+	// A broadcast is now handled inside `write_loop` without completing it, so an
+	// in-progress read is only ever dropped when the connection itself is going away.
+	// Running the directions concurrently also stops a miner that has stopped reading
+	// from parking the handler inside `write_message` and starving its own reads.
+	tokio::select! {
+		// Prioritize reading to detect disconnection faster
+		biased;
 
-			// Receive results from miner
-			msg_result = read_message(&mut recv) => {
-				match msg_result {
-					Ok(MinerMessage::JobResult(mut result)) => {
-						log::info!(
-							"⛏️ Received result from miner {}: job_id={}, status={:?}",
-							miner_id,
-							result.job_id,
-							result.status
-						);
-					// Tag the result with the miner ID
-					result.miner_id = Some(miner_id);
-					forward_result(miner_id, &result_tx, result, &mut consecutive_drops)
-						.await?;
-					}
-					Ok(MinerMessage::Ready { .. }) => {
-						log::debug!("Ignoring duplicate Ready from miner {}", miner_id);
-					}
-					Ok(MinerMessage::NewJob(_)) => {
-						log::warn!("Received unexpected NewJob from miner {}", miner_id);
-					}
-					Err(e) => {
-						if e.kind() == std::io::ErrorKind::UnexpectedEof {
-							return Err("Miner disconnected".to_string());
-						}
-						return Err(format!("Read error: {}", e));
-					}
-				}
-			}
-
-			// Send jobs to miner
-			job = job_rx.recv() => {
-				match job {
-					Some(job) => {
-						log::debug!("Sending job {} to miner {}", job.job_id, miner_id);
-						let msg = MinerMessage::NewJob(job);
-						if let Err(e) = write_message(&mut send, &msg).await {
-							return Err(format!("Failed to send job: {}", e));
-						}
-					}
-					None => {
-						// Channel closed, shut down
-						return Ok(());
-					}
-				}
-			}
-		}
+		res = read_loop(miner_id, &mut recv, &result_tx) => res,
+		res = write_loop(miner_id, &mut send, &mut job_rx) => res,
 	}
 }
 
@@ -862,6 +904,7 @@ mod tests {
 	use super::*;
 	use quantus_miner_api::ApiResponseStatus;
 	use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+	use tokio::io::AsyncWriteExt;
 
 	fn dummy_result(job_id: &str) -> MiningResult {
 		MiningResult {
@@ -1001,6 +1044,74 @@ mod tests {
 		server.clear_current_job().await;
 		server.broadcast_job(dummy_job("2")).await;
 		assert_eq!(server.get_current_job().await.unwrap().job_id, "2");
+	}
+
+	/// `read_message` is not cancel-safe: it is two `read_exact` calls, and dropping it
+	/// part-way through throws away the bytes it has already consumed. It must therefore
+	/// never be a `select!` branch racing the job broadcast — a broadcast happens on every
+	/// block-template rebuild, so it lands exactly when miners are submitting seals.
+	///
+	/// Drives a real `connection_handler` over an in-memory duplex: a `JobResult` frame is
+	/// delivered in two halves with a burst of job broadcasts in between. The result must
+	/// still arrive intact. With the read as a `select!` branch the broadcasts discarded
+	/// the consumed prefix, so the next read started mid-frame and the handler died with
+	/// an `InvalidData`/parse error instead of forwarding the seal.
+	#[tokio::test]
+	async fn job_broadcast_does_not_corrupt_a_partially_read_result() {
+		// Miner -> node direction, and node -> miner direction.
+		let (mut miner_send, node_recv) = tokio::io::duplex(64 * 1024);
+		let (node_send, mut miner_recv) = tokio::io::duplex(64 * 1024);
+
+		let (job_tx, job_rx) = mpsc::channel::<MiningRequest>(16);
+		let (result_tx, mut result_rx) = mpsc::channel::<MiningResult>(16);
+
+		let handler =
+			tokio::spawn(connection_handler(7, node_send, node_recv, job_rx, result_tx, None));
+
+		// Frame the result exactly as `write_message` does, then hand it over in halves.
+		let payload = serde_json::to_vec(&MinerMessage::JobResult(dummy_result("seal"))).unwrap();
+		let mut frame = (payload.len() as u32).to_be_bytes().to_vec();
+		frame.extend_from_slice(&payload);
+		let split = frame.len() / 2;
+		assert!(split > 4, "the split must land inside the JSON body, past the length prefix");
+
+		miner_send.write_all(&frame[..split]).await.unwrap();
+		miner_send.flush().await.unwrap();
+
+		// Let the handler consume the prefix and park mid-frame.
+		for _ in 0..16 {
+			tokio::task::yield_now().await;
+		}
+
+		// Broadcast jobs while the read is in flight, draining them so the write side
+		// never backs up and the only thing under test is the read's cancel-safety.
+		for i in 0..8 {
+			job_tx.send(dummy_job(&format!("job-{i}"))).await.unwrap();
+			let msg = tokio::time::timeout(Duration::from_secs(5), read_message(&mut miner_recv))
+				.await
+				.expect("broadcast must reach the miner")
+				.expect("broadcast frame must be well formed");
+			assert!(matches!(msg, MinerMessage::NewJob(_)));
+		}
+
+		// Deliver the rest of the frame.
+		miner_send.write_all(&frame[split..]).await.unwrap();
+		miner_send.flush().await.unwrap();
+
+		let result = tokio::time::timeout(Duration::from_secs(5), result_rx.recv())
+			.await
+			.expect("the seal must be forwarded, not lost to a dropped partial read")
+			.expect("result channel must stay open");
+		assert_eq!(result.job_id, "seal");
+		assert_eq!(result.miner_id, Some(7), "results must be tagged with the miner id");
+
+		// Closing the job channel ends the handler cleanly.
+		drop(job_tx);
+		let outcome = tokio::time::timeout(Duration::from_secs(5), handler)
+			.await
+			.expect("handler must exit once its job channel closes")
+			.expect("handler task must not panic");
+		assert!(outcome.is_ok(), "clean shutdown, got {outcome:?}");
 	}
 
 	fn temp_token_path(name: &str) -> PathBuf {
