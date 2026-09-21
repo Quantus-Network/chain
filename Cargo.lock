@@ -7560,7 +7560,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "1.0.1"
+version = "1.0.2-Qm"
 dependencies = [
  "array-bytes 6.2.3",
  "clap",
@@ -7631,7 +7631,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "1.0.0-gm"
+version = "1.0.2-Qm"
 dependencies = [
  "env_logger",
  "frame-benchmarking",
