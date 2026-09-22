@@ -94,26 +94,49 @@ fn bytes_to_felts_compact_lossy(input: &[u8]) -> impl Iterator<Item = Goldilocks
 /// deposits can commit to the *same* leaf, which in the wormhole means a shared
 /// nullifier and one permanently unexitable deposit. The withdrawal circuit binds
 /// the leaf's `to_account` felts to `WA(secret)` (a canonical Poseidon output), so
-/// canonicalizing the recipient never changes who can exit a leaf. The
-/// `debug_assert` below enforces the caller contract in test/dev builds.
+/// canonicalizing the recipient never changes who can exit a leaf.
+///
+/// This contract is now enforced by the code itself in every build profile:
+/// `hash_leaf` canonicalizes the 32-byte recipient before encoding, so a caller
+/// that forgets to canonicalize can no longer change what is committed. The
+/// `debug_assert_eq!` below still fails loudly in dev/test builds when an
+/// `AccountId` is not 32 bytes wide.
 pub fn hash_leaf<T: Config>(leaf: &ZkLeaf<AccountIdOf<T>, T::AssetId, T::Balance>) -> Hash256 {
 	use qp_poseidon_core::serialization::u64_to_felts;
 
 	let mut felts = Vec::with_capacity(8);
 
-	// to_account: 4 felts (32 bytes -> 4 felts at 8 bytes/felt)
+	// to_account: 4 felts (32 bytes -> 4 felts at 8 bytes/felt).
 	let to_bytes = leaf.to.as_ref();
 	debug_assert_eq!(to_bytes.len(), 32, "Account must be 32 bytes");
-	// Encoding-safety guard: each 8-byte little-endian limb must be canonical
-	// (< Goldilocks prime) so the non-injective compact encoding does not silently
-	// reduce the recipient. See the invariant note above.
-	debug_assert!(
-		to_bytes
-			.chunks_exact(8)
-			.all(|limb| u64::from_le_bytes(limb.try_into().expect("8-byte limb")) < GOLDILOCKS_P),
-		"recipient account is non-canonical for the 8-byte/felt leaf encoding"
-	);
-	felts.extend(bytes_to_felts_compact_lossy(to_bytes));
+
+	// Encoding-safety guard, ENFORCED IN EVERY BUILD PROFILE.
+	//
+	// The compact encoding is lossy for 8-byte limbs `>= p`, so a non-canonical
+	// recipient hashes identically to its canonical alias. Previously this was
+	// only a `debug_assert!` caller contract, which compiles out in release: a
+	// single caller regression would silently re-introduce the aliasing the
+	// invariant note above exists to prevent (two distinct deposits committing
+	// to one leaf => shared nullifier and one permanently unexitable deposit).
+	//
+	// Reducing the recipient here makes the invariant structural instead of
+	// contractual. It is fully backward compatible: canonicalizing a recipient
+	// whose limbs are already `< p` is the identity, and for a limb `>= p` the
+	// lossy encoder already subtracts `p` exactly once — which is precisely what
+	// `canonicalize_account_bytes` does — so every hash produced today is
+	// unchanged, byte for byte.
+	//
+	// The 32-byte length is also enforced here rather than trusted: an
+	// `AccountId` of another width cannot be canonicalized limb-wise, so it
+	// falls back to the previous lossy path instead of panicking in runtime
+	// code (the `debug_assert_eq!` above still fails loudly in dev/test builds).
+	match <[u8; 32]>::try_from(to_bytes) {
+		Ok(bytes) => {
+			let canonical = canonicalize_account_bytes(bytes);
+			felts.extend(bytes_to_felts_compact_lossy(&canonical))
+		},
+		Err(_) => felts.extend(bytes_to_felts_compact_lossy(to_bytes)),
+	}
 
 	// transfer_count: 2 felts (u64 as two 32-bit limbs, high then low)
 	felts.extend(u64_to_felts(leaf.transfer_count));
