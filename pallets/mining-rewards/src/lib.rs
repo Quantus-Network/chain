@@ -227,8 +227,18 @@ pub mod pallet {
 		}
 
 		/// Round down to a multiple of the leaf quantum. Returns `(aligned, remainder)`.
+		///
+		/// A degenerate zero quantum (only reachable if `AMOUNT_SCALE_DOWN_FACTOR`
+		/// cannot be represented in `BalanceOf<T>`, which `integrity_test` already
+		/// rejects at startup) must never divide by zero: `%` would panic inside an
+		/// `on_finalize` hook and halt the chain. Treat the whole amount as dust
+		/// instead, which keeps it in `CollectedFees` for a later block.
 		fn quantize(amount: BalanceOf<T>) -> (BalanceOf<T>, BalanceOf<T>) {
-			let remainder = amount % Self::leaf_quantum();
+			let quantum = Self::leaf_quantum();
+			if quantum.is_zero() {
+				return (BalanceOf::<T>::zero(), amount);
+			}
+			let remainder = amount % quantum;
 			(amount.saturating_sub(remainder), remainder)
 		}
 
@@ -237,29 +247,48 @@ pub mod pallet {
 				return;
 			}
 
-			debug_assert!(
-				(reward % Self::leaf_quantum()).is_zero(),
-				"miner credits must be leaf-quantum aligned"
-			);
+			// Leaf-quantum alignment is enforced in EVERY build profile, not just
+			// debug. Only whole multiples of `AMOUNT_SCALE_DOWN_FACTOR` can be
+			// committed to a ZK-tree leaf, so minting an unaligned credit would
+			// create supply that no nullifier can ever exit — silently locked
+			// value. The previous `debug_assert!` compiled out in release, leaving
+			// that invariant enforced by the caller's earlier `quantize` call
+			// alone. Re-deriving it here closes the gap without changing the
+			// amount minted on any honest path: an already-aligned reward
+			// re-quantizes to itself with zero dust, which `retain_unminted`
+			// adds nothing for.
+			let (aligned, dust) = Self::quantize(reward);
+			if !dust.is_zero() {
+				Self::retain_unminted(dust);
+			}
+			if aligned.is_zero() {
+				return;
+			}
 
-			match T::Currency::mint_into(miner, reward) {
+			match T::Currency::mint_into(miner, aligned) {
 				Ok(_) => {
 					T::ProofRecorder::record_transfer_proof(
 						None, // Native token
 						T::MintingAccount::get(),
 						miner.clone(),
-						reward,
+						aligned,
 					);
-					Self::deposit_event(Event::MinerRewarded { miner: miner.clone(), reward });
+					Self::deposit_event(Event::MinerRewarded {
+						miner: miner.clone(),
+						reward: aligned,
+					});
 				},
 				Err(e) => {
 					log::warn!(
 						target: "mining-rewards",
 						"Failed to mint {:?} to miner {:?}: {:?}, retaining for retry",
-						reward, miner, e
+						aligned, miner, e
 					);
-					Self::retain_unminted(reward);
-					Self::deposit_event(Event::MinerMintFailed { miner: miner.clone(), reward });
+					Self::retain_unminted(aligned);
+					Self::deposit_event(Event::MinerMintFailed {
+						miner: miner.clone(),
+						reward: aligned,
+					});
 				},
 			}
 		}
