@@ -1036,18 +1036,20 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			// Pool admission runs on every gossiped transaction, so it deliberately performs
-			// only the cheap pre-validation (deserialize, parse, bundle checks) and NOT the
-			// expensive ZK verification. The full verify is the block-inclusion gate in
-			// `pre_dispatch`; deferring it here prevents unsigned, fee-free traffic from
-			// forcing unbounded verification work per gossiped byte-variant of a proof.
+			// only the cheap structural pre-validation (deserialize, canonical framing,
+			// parse, stateless bundle checks) and NOT the expensive ZK verification, nor
+			// the per-nullifier `UsedNullifiers` reads. The full verify and the stateful
+			// nullifier check are the block-inclusion gate's job in `pre_dispatch` (and are
+			// recomputed at settlement). Deferring both prevents unsigned, fee-free traffic
+			// from forcing unbounded verification and per-nullifier storage-read work per
+			// gossiped byte-variant of a proof — a junk flood of structurally valid proofs
+			// with fresh nullifiers would otherwise cost every node up to
+			// `NUM_PRIVATE_BATCH_PROOFS * NUM_LEAF_PROOFS` DB reads per blob, on each
+			// revalidation, while filtering nothing (fresh nullifiers are never used yet).
 			match call {
 				Call::verify_private_batch { proof_bytes } => {
-					// `validity` is computed for its side-effect of rejecting
-					// wholly-unspendable / all-dummy bundles via the cheap checks;
-					// priority must not read amounts from it (see UNSIGNED_EXIT_PRIORITY).
-					let (_, _, bundle, _validity) =
-						Self::pre_validate_private_batch_proof(proof_bytes)
-							.map_err(|_| InvalidTransaction::Call)?;
+					let (_, _, bundle) = Self::pre_validate_private_batch_structural(proof_bytes)
+						.map_err(|_| InvalidTransaction::Call)?;
 
 					ValidTransaction::with_tag_prefix("WormholePrivateBatch")
 						.and_provides(Self::exit_bundle_provides_tag(&bundle))
@@ -1057,10 +1059,9 @@ pub mod pallet {
 						.build()
 				},
 				Call::verify_public_batch { proof_bytes } => {
-					// Same as the private-batch path: cheap checks only, fixed priority.
-					let (_, _, bundle, _validity) =
-						Self::pre_validate_public_batch_proof(proof_bytes)
-							.map_err(|_| InvalidTransaction::Call)?;
+					// Same as the private-batch path: structural checks only, fixed priority.
+					let (_, _, bundle) = Self::pre_validate_public_batch_structural(proof_bytes)
+						.map_err(|_| InvalidTransaction::Call)?;
 
 					ValidTransaction::with_tag_prefix("WormholePublicBatch")
 						.and_provides(Self::exit_bundle_provides_tag(&bundle))
@@ -1122,10 +1123,15 @@ pub mod pallet {
 				.saturating_mul(crate::SCALE_DOWN_FACTOR)
 		}
 
-		/// Shared cheap checks for any exit bundle (asset, fee, block, segment validity).
-		pub(crate) fn validate_exit_bundle_common(
-			bundle: &ExitBundle,
-		) -> Result<Vec<bool>, Error<T>> {
+		/// Stateless cheap checks for an exit bundle: asset, fee, and block binding.
+		///
+		/// Reads no per-nullifier state. The only storage touched is a single
+		/// `block_hash` lookup to bind the proof to a real block, whose cost is
+		/// independent of the batch size. Split out from
+		/// [`Self::validate_exit_bundle_common`] so the pool-admission path
+		/// (`validate_unsigned`) can run it without the per-nullifier
+		/// `UsedNullifiers` reads (see [`Self::pre_validate_private_batch_structural`]).
+		pub(crate) fn validate_exit_bundle_stateless(bundle: &ExitBundle) -> Result<(), Error<T>> {
 			ensure!(bundle.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
 			ensure!(
 				bundle.volume_fee_bps == T::VolumeFeeRateBps::get(),
@@ -1138,24 +1144,46 @@ pub mod pallet {
 				block_hash.as_ref() == bundle.block_data.block_hash.as_ref(),
 				Error::<T>::InvalidPublicInputs
 			);
+			Ok(())
+		}
 
+		/// Shared cheap checks for any exit bundle (asset, fee, block, segment validity).
+		///
+		/// The segment-validity pass reads `UsedNullifiers` once per nullifier (up to
+		/// `NUM_PRIVATE_BATCH_PROOFS * NUM_LEAF_PROOFS` reads for a public batch), so it
+		/// is reserved for the block-inclusion gate (`pre_dispatch`) and settlement, not
+		/// the pool-admission path — see [`Self::validate_exit_bundle_stateless`].
+		pub(crate) fn validate_exit_bundle_common(
+			bundle: &ExitBundle,
+		) -> Result<Vec<bool>, Error<T>> {
+			Self::validate_exit_bundle_stateless(bundle)?;
 			let validity = Self::segment_validity(bundle)?;
 			Self::ensure_any_segment_valid(bundle, &validity)?;
 			Ok(validity)
 		}
 
-		/// Cheap pre-validation of a private-batch proof: deserialize, parse public
-		/// inputs, and run the cheap bundle checks — but **not** the expensive ZK
-		/// verification. Returns the verifier and deserialized proof (so a caller can
-		/// optionally run the ZK verify), plus the parsed bundle and per-segment validity.
+		/// Structural subset of [`Self::pre_validate_private_batch_proof`] that does
+		/// **not** read per-nullifier state: length gate, deserialization, canonical
+		/// re-encoding check, public-input parse, and the stateless bundle checks
+		/// (asset, fee, block binding).
 		///
-		/// This is the work performed on the transaction-pool admission path
-		/// (`validate_unsigned`), where running the full ZK verify would let unsigned,
-		/// fee-free traffic force unbounded verification work per gossiped proof. The
-		/// full verification is deferred to the block-inclusion gate (`pre_dispatch`).
-		pub(crate) fn pre_validate_private_batch_proof(
+		/// This is the work the pool-admission path (`validate_unsigned`) runs for
+		/// every gossiped proof. The stateful segment-validity pass — one
+		/// `UsedNullifiers` read per nullifier — is deliberately excluded here: it
+		/// scales with batch size and, on the unsigned fee-free admission path, would
+		/// let a junk flood of structurally valid proofs with fresh nullifiers force
+		/// that many storage reads on every node, repeated on each revalidation, while
+		/// filtering nothing (fresh nullifiers are never in `UsedNullifiers`). The
+		/// nullifier check is instead the block-inclusion gate's responsibility
+		/// (`pre_dispatch` -> `validate_private_batch_proof`) and is recomputed again
+		/// at settlement, so deferring it off the admission path costs no soundness:
+		/// a replayed or unspendable proof is still rejected before it enters a block.
+		fn pre_validate_private_batch_structural(
 			proof_bytes: &[u8],
-		) -> Result<PreValidatedProof, Error<T>> {
+		) -> Result<
+			(&'static crate::WormholeVerifier, ProofWithPublicInputs<F, C, D>, ExitBundle),
+			Error<T>,
+		> {
 			// Length gate FIRST: `proof_bytes` is attacker-controlled, unsigned and
 			// fee-free, and everything below copies (`to_vec`) and parses the whole
 			// blob. Without this bound the only limit is the block-length cap,
@@ -1182,7 +1210,29 @@ pub mod pallet {
 				.map_err(|_| Error::<T>::InvalidProofPublicInputs)?;
 			let bundle: ExitBundle = inputs.into();
 
-			let validity = Self::validate_exit_bundle_common(&bundle)?;
+			Self::validate_exit_bundle_stateless(&bundle)?;
+
+			Ok((verifier, proof, bundle))
+		}
+
+		/// Full cheap pre-validation of a private-batch proof (everything except the ZK
+		/// verify): the structural checks of [`Self::pre_validate_private_batch_structural`]
+		/// plus the stateful segment-validity pass (per-nullifier `UsedNullifiers` reads).
+		/// Returns the verifier and deserialized proof (so a caller can optionally run the
+		/// ZK verify), plus the parsed bundle and per-segment validity.
+		///
+		/// Used by the block-inclusion gate (`pre_dispatch` ->
+		/// [`Self::validate_private_batch_proof`]) and to recover the bundle in the
+		/// dispatch body; the pool-admission path uses the cheaper structural variant
+		/// instead.
+		pub(crate) fn pre_validate_private_batch_proof(
+			proof_bytes: &[u8],
+		) -> Result<PreValidatedProof, Error<T>> {
+			let (verifier, proof, bundle) =
+				Self::pre_validate_private_batch_structural(proof_bytes)?;
+
+			let validity = Self::segment_validity(&bundle)?;
+			Self::ensure_any_segment_valid(&bundle, &validity)?;
 
 			Ok((verifier, proof, bundle, validity))
 		}
@@ -1202,12 +1252,18 @@ pub mod pallet {
 			Ok((bundle, validity))
 		}
 
-		/// Cheap pre-validation of a public-batch proof (no ZK verify). See
-		/// [`Self::pre_validate_private_batch_proof`].
-		pub(crate) fn pre_validate_public_batch_proof(
+		/// Structural subset of [`Self::pre_validate_public_batch_proof`] that does not
+		/// read per-nullifier state. See [`Self::pre_validate_private_batch_structural`]
+		/// for why the segment-validity pass is excluded from the pool-admission path;
+		/// a public batch carries up to `NUM_PRIVATE_BATCH_PROOFS * NUM_LEAF_PROOFS`
+		/// nullifiers, so it is the larger of the two admission-read costs.
+		fn pre_validate_public_batch_structural(
 			proof_bytes: &[u8],
-		) -> Result<PreValidatedProof, Error<T>> {
-			// Same gates as `pre_validate_private_batch_proof`: length bound before
+		) -> Result<
+			(&'static crate::WormholeVerifier, ProofWithPublicInputs<F, C, D>, ExitBundle),
+			Error<T>,
+		> {
+			// Same gates as `pre_validate_private_batch_structural`: length bound before
 			// any copy/parse, then exact canonical framing after deserialization.
 			ensure!(proof_bytes.len() <= crate::MAX_PROOF_BYTES, Error::<T>::ProofTooLarge);
 			let verifier =
@@ -1233,7 +1289,21 @@ pub mod pallet {
 				crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
 			);
 
-			let validity = Self::validate_exit_bundle_common(&bundle)?;
+			Self::validate_exit_bundle_stateless(&bundle)?;
+
+			Ok((verifier, proof, bundle))
+		}
+
+		/// Cheap pre-validation of a public-batch proof (no ZK verify). See
+		/// [`Self::pre_validate_private_batch_proof`].
+		pub(crate) fn pre_validate_public_batch_proof(
+			proof_bytes: &[u8],
+		) -> Result<PreValidatedProof, Error<T>> {
+			let (verifier, proof, bundle) =
+				Self::pre_validate_public_batch_structural(proof_bytes)?;
+
+			let validity = Self::segment_validity(&bundle)?;
+			Self::ensure_any_segment_valid(&bundle, &validity)?;
 
 			Ok((verifier, proof, bundle, validity))
 		}

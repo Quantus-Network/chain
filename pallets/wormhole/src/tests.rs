@@ -1122,6 +1122,55 @@ mod private_batch_proof_tests {
 		});
 	}
 
+	/// Pool admission must not read `UsedNullifiers`. That per-nullifier storage pass
+	/// scales with batch size and, on the unsigned fee-free gossip path, would let a
+	/// junk flood force up to `NUM_PRIVATE_BATCH_PROOFS * NUM_LEAF_PROOFS` DB reads per
+	/// blob on every node, repeated on each revalidation — while filtering nothing (a
+	/// flood uses fresh nullifiers that are never already used). The nullifier check is
+	/// the block-inclusion gate's job instead.
+	///
+	/// This pins that behavior: with *every* nullifier of the fixture pre-marked used —
+	/// the state under which the old admission path returned `NullifierAlreadyUsed` —
+	/// `validate_unsigned` still admits the proof, while the full pre-validation that
+	/// `pre_dispatch` runs rejects it. If admission ever reads nullifier state again,
+	/// the first assertion fails.
+	#[test]
+	fn validate_unsigned_does_not_read_used_nullifiers() {
+		use sp_runtime::{traits::ValidateUnsigned, transaction_validity::TransactionSource};
+
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+
+			// Mark every real nullifier of the fixture as already used.
+			let proof = deserialize_test_proof();
+			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
+			let mut marked = 0u32;
+			for nullifier in &inputs.nullifiers {
+				let bytes: [u8; 32] = nullifier.as_ref().try_into().unwrap();
+				if bytes != [0u8; 32] {
+					UsedNullifiers::<Test>::insert(bytes, true);
+					marked += 1;
+				}
+			}
+			assert!(marked > 0, "fixture must carry at least one real nullifier");
+
+			let call =
+				crate::Call::<Test>::verify_private_batch { proof_bytes: get_test_proof_bytes() };
+
+			// Admission ignores nullifier state and still admits the proof ...
+			assert_ok!(<Wormhole as ValidateUnsigned>::validate_unsigned(
+				TransactionSource::External,
+				&call,
+			));
+
+			// ... while the stateful pre-validation the inclusion gate runs rejects it.
+			assert!(matches!(
+				Wormhole::pre_validate_private_batch_proof(&get_test_proof_bytes()),
+				Err(Error::<Test>::NullifierAlreadyUsed)
+			));
+		});
+	}
+
 	#[test]
 	fn test_verify_private_batch_burns_sub_quantum_miner_fee() {
 		new_test_ext().execute_with(|| {
