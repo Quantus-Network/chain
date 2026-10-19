@@ -239,49 +239,25 @@ mod claim {
 	}
 
 	#[test]
-	fn claims_are_rate_limited_per_schedule() {
+	fn second_claim_succeeds_once_another_minimum_payout_has_vested() {
 		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
+			// 6_250_000 vested; the non-final alignment pays 5_000_000.
 			set_time(350_000);
 			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
+			assert_eq!(stored(0).claimed, 5_000_000);
 			assert_eq!(stored(0).last_claim_at, Some(350_000));
+			// 50s later, well inside a day: another 2_500_000 chunk has vested.
 			set_time(400_000);
-			assert_noop!(
-				Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
-				Error::<Test>::ClaimTooSoon
-			);
-			set_time(450_000);
 			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
-			assert_eq!(stored(0).last_claim_at, Some(450_000));
-		});
-	}
-
-	#[test]
-	fn daily_cadence_bounds_a_year_schedule_to_366_payouts() {
-		const DAY: u64 = 24 * 60 * 60 * 1000;
-		const YEAR: u64 = 365 * DAY;
-		const YEAR_TOTAL: u128 = YEAR as u128 * 2_500_000;
-		new_test_ext(vec![(BOB, 0, 0, YEAR, YEAR_TOTAL)]).execute_with(|| {
-			MinClaimInterval::set(DAY);
-			for day in 0..365 {
-				set_time(1 + day * DAY);
-				assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
-			}
-			set_time(YEAR);
-			assert_noop!(
-				Vesting::claim(RuntimeOrigin::signed(PINGER), 0),
-				Error::<Test>::ClaimTooSoon
-			);
-			set_time(YEAR + 1);
-			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
-			assert_eq!(MockProofRecorder::recorded().len(), 366);
-			assert_eq!(stored(0).claimed, YEAR_TOTAL);
+			assert_eq!(stored(0).claimed, 7_500_000);
+			assert_eq!(stored(0).last_claim_at, Some(400_000));
+			assert_eq!(free(&BOB), 7_500_000);
 		});
 	}
 
 	#[test]
 	fn reserves_a_quantum_sized_final_payout() {
 		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
-			MinClaimInterval::set(40_000);
 			set_time(450_000);
 			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
 			assert_eq!(stored(0).claimed, 7_500_000);
@@ -754,7 +730,7 @@ mod retarget_schedule {
 	#[test]
 	fn pays_the_outgoing_wallet_nothing_even_when_a_claim_could() {
 		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
-			// Half the grant is vested and freely claimable (`last_claim_at` is None).
+			// Half the grant is vested and freely claimable.
 			set_time(300_000);
 			assert_ok!(Vesting::retarget_schedule(RuntimeOrigin::signed(TREASURY), 0, CHARLIE));
 			assert_eq!(free(&BOB), 0, "the lost/stolen wallet must not be paid");
@@ -777,25 +753,22 @@ mod retarget_schedule {
 		});
 	}
 
-	/// The report-89524 shape: retargeting inside the claim rate-limit window behaves
-	/// exactly like retargeting outside it — nothing is paid to the old wallet and
-	/// nothing is silently lost; the rotation merely redirects future payouts.
+	/// Retargeting after a partial claim pays the old wallet nothing and loses
+	/// nothing: the rotation only redirects future payouts.
 	#[test]
-	fn behaves_identically_inside_the_claim_rate_limit_window() {
+	fn retarget_after_a_partial_claim_pays_the_old_wallet_nothing() {
 		new_test_ext(vec![default_schedule(BOB)]).execute_with(|| {
-			// Pays the fee-aligned 2_500_000 of the 3_750_000 vested; stamps
-			// `last_claim_at` (any account can do this, e.g. before the wallet was
-			// reported stolen).
+			// Pays the fee-aligned 2_500_000 of the 3_750_000 vested (any account can
+			// do this, e.g. before the wallet was reported stolen).
 			set_time(250_000);
 			assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), 0));
 			assert_eq!(free(&BOB), 2_500_000);
 
-			// 50_000 into the 100_000 rate-limit window: rotate the wallet.
 			set_time(300_000);
 			assert_ok!(Vesting::retarget_schedule(RuntimeOrigin::signed(TREASURY), 0, CHARLIE));
 			assert_eq!(free(&BOB), 2_500_000, "no payout on retarget");
 			assert_eq!(stored(0).claimed, 2_500_000);
-			assert_eq!(stored(0).last_claim_at, Some(250_000), "no claim happened");
+			assert_eq!(stored(0).last_claim_at, Some(250_000), "retarget does not claim");
 
 			// Everything unclaimed — including the amount accrued before the swap —
 			// reaches the new wallet.
@@ -1167,8 +1140,7 @@ mod random_walk {
 				let mut rng = seed;
 				let mut now = 0u64;
 				for _ in 0..300 {
-					// Mostly small steps inside the rate-limit window, some
-					// window-sized ones, an occasional jump past several ends.
+					// Mostly small steps, some larger ones, an occasional jump past several ends.
 					let r = next(&mut rng);
 					now += match r % 10 {
 						0 => 0,
@@ -1179,34 +1151,24 @@ mod random_walk {
 					set_time(now);
 					let id = next(&mut rng) % count;
 					if let Err(e) = Vesting::claim(RuntimeOrigin::signed(PINGER), id) {
-						let benign = [
+						assert_eq!(
+							e,
 							Error::<Test>::NothingToClaim.into(),
-							Error::<Test>::ClaimTooSoon.into(),
-						];
-						assert!(
-							benign.contains(&e),
 							"seed {seed}: unexpected claim error {e:?} at t={now}"
 						);
 					}
 					assert_invariants();
 				}
 
-				// Drain: past every end the final claim pays the exact remainder,
-				// so each round only has to wait out the rate limit.
+				// Past every end the final claim pays the exact remainder.
 				now = now.max(last_end);
-				let mut rounds = 0;
-				while (0..count).any(|id| stored(id).claimed < stored(id).total) {
-					rounds += 1;
-					assert!(rounds <= 3, "seed {seed}: drain did not converge");
-					now += MinClaimInterval::get();
-					set_time(now);
-					for id in 0..count {
-						if stored(id).claimed < stored(id).total {
-							assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), id));
-						}
+				set_time(now);
+				for id in 0..count {
+					if stored(id).claimed < stored(id).total {
+						assert_ok!(Vesting::claim(RuntimeOrigin::signed(PINGER), id));
 					}
-					assert_invariants();
 				}
+				assert_invariants();
 
 				// Every grant landed with its beneficiary in full; the pot keeps
 				// exactly its ED buffer.
@@ -1271,12 +1233,9 @@ mod random_walk {
 					if op < 80 {
 						if let Some(&id) = live.get(next(&mut rng) as usize % live.len().max(1)) {
 							if let Err(e) = Vesting::claim(RuntimeOrigin::signed(PINGER), id) {
-								let benign = [
+								assert_eq!(
+									e,
 									Error::<Test>::NothingToClaim.into(),
-									Error::<Test>::ClaimTooSoon.into(),
-								];
-								assert!(
-									benign.contains(&e),
 									"seed {seed}: unexpected claim error {e:?} at t={now}"
 								);
 							}

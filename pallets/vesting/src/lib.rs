@@ -93,14 +93,14 @@ pub mod pallet {
 		pub total: Balance,
 		/// Already paid out.
 		pub claimed: Balance,
-		/// Timestamp of the last successful beneficiary payout.
+		/// Timestamp of the last successful beneficiary payout. Recorded for
+		/// observers; claims are not gated on it.
 		pub last_claim_at: Option<Moment>,
 	}
 
 	enum ClaimPlan<Balance> {
 		Pay(Balance),
 		NothingToClaim,
-		TooSoon,
 	}
 
 	/// The in-code storage version.
@@ -158,13 +158,10 @@ pub mod pallet {
 		/// keyless beneficiary would be irrecoverable. Every schedule total must be a
 		/// positive multiple of this. Intermediate claims round down further to
 		/// [`NON_FINAL_PAYOUT_QUANTA`] leaf quanta; the final claim may be a single
-		/// quantum.
+		/// quantum. That minimum is also what bounds how often a schedule can pay out:
+		/// there is no time cooldown between claims.
 		#[pallet::constant]
 		type PayoutQuantum: Get<BalanceOf<Self>>;
-
-		/// Minimum elapsed milliseconds between successful claims on one schedule.
-		#[pallet::constant]
-		type MinClaimInterval: Get<Moment>;
 
 		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
@@ -240,8 +237,6 @@ pub mod pallet {
 		/// the accrual rounds down to zero — below one quantum for a final claim,
 		/// below the non-final alignment otherwise).
 		NothingToClaim,
-		/// This schedule has already paid out within the minimum claim interval.
-		ClaimTooSoon,
 		/// The treasury account is not configured or aliases the vesting pot.
 		TreasuryNotConfigured,
 		/// The pot does not hold its existential-deposit buffer; endow it first.
@@ -333,7 +328,6 @@ pub mod pallet {
 				!T::PayoutQuantum::get().is_zero(),
 				"PayoutQuantum must be non-zero (it is a divisor)"
 			);
-			assert!(!T::MinClaimInterval::get().is_zero(), "MinClaimInterval must be non-zero");
 		}
 
 		#[cfg(feature = "try-runtime")]
@@ -347,7 +341,8 @@ pub mod pallet {
 		/// Pay the largest valid claim on `schedule_id` to its beneficiary. Non-final
 		/// payouts are rounded down to [`NON_FINAL_PAYOUT_QUANTA`] leaf quanta; the
 		/// leftover stays on the schedule until a later claim or the exact final
-		/// payout (at least one [`Config::PayoutQuantum`]).
+		/// payout (at least one [`Config::PayoutQuantum`]). Another claim succeeds as
+		/// soon as a further valid payout has accrued; there is no time cooldown.
 		///
 		/// Permissionless: any signed account may call this for any schedule; the payout
 		/// always goes to the stored beneficiary. This is the only claim path for
@@ -362,7 +357,6 @@ pub mod pallet {
 				let payable = match Self::claim_plan(schedule, now)? {
 					ClaimPlan::Pay(amount) => amount,
 					ClaimPlan::NothingToClaim => return Err(Error::<T>::NothingToClaim.into()),
-					ClaimPlan::TooSoon => return Err(Error::<T>::ClaimTooSoon.into()),
 				};
 				Self::settle(schedule, payable, now)?;
 				Self::deposit_event(Event::Claimed {
@@ -589,18 +583,12 @@ pub mod pallet {
 			if payable.is_zero() {
 				return Ok(ClaimPlan::NothingToClaim);
 			}
-			if let Some(last) = schedule.last_claim_at {
-				let elapsed = now.checked_sub(last).ok_or(ArithmeticError::Underflow)?;
-				if elapsed < T::MinClaimInterval::get() {
-					return Ok(ClaimPlan::TooSoon);
-				}
-			}
 			Ok(ClaimPlan::Pay(payable))
 		}
 
-		/// Pay `amount` to the schedule's beneficiary and advance the schedule to match:
-		/// the single place a claimable payout is settled, so no path can drift on what
-		/// a payout does to `claimed` and `last_claim_at`.
+		/// Pay `amount` to the schedule's beneficiary and advance `claimed` to match:
+		/// the single place a claimable payout is settled. `last_claim_at` is stamped
+		/// for observers and is not consulted by [`Self::claim_plan`].
 		fn settle(
 			schedule: &mut VestingScheduleOf<T>,
 			amount: BalanceOf<T>,
