@@ -72,19 +72,14 @@ mod benchmarks {
 		let beneficiary: T::AccountId = account("beneficiary", 0, 0);
 		let total = benchmark_total::<T>();
 		let caller: T::AccountId = whitelisted_caller();
-		let interval = T::MinClaimInterval::get();
-		let now = interval
-			.checked_mul(2)
-			.ok_or(BenchmarkError::Stop("claim benchmark time overflow"))?;
-		let end = interval
-			.checked_mul(4)
-			.ok_or(BenchmarkError::Stop("claim benchmark end overflow"))?;
-		let schedule_id = seed_schedule::<T>(beneficiary.clone(), total, end);
-		set_time::<T>(interval);
+		// Quarter-vested setup claim, then a mid-schedule claim: two non-final
+		// chunks have vested since the first, and the grant is not yet final.
+		let schedule_id = seed_schedule::<T>(beneficiary.clone(), total, END);
+		set_time::<T>(END / 4);
 		Vesting::<T>::claim(RawOrigin::Signed(caller.clone()).into(), schedule_id)
 			.map_err(|_| BenchmarkError::Stop("claim benchmark setup failed"))?;
 		let claimed_before = Schedules::<T>::get(schedule_id).expect("schedule exists").claimed;
-		set_time::<T>(now);
+		set_time::<T>(END / 2);
 
 		#[extrinsic_call]
 		_(RawOrigin::Signed(caller), schedule_id);
@@ -92,7 +87,7 @@ mod benchmarks {
 		let schedule = Schedules::<T>::get(schedule_id).expect("schedule persists");
 		assert!(schedule.claimed > claimed_before);
 		assert!(schedule.claimed < total);
-		assert_eq!(schedule.last_claim_at, Some(now));
+		assert_eq!(schedule.last_claim_at, Some(END / 2));
 		Ok(())
 	}
 

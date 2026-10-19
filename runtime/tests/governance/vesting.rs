@@ -9,7 +9,7 @@ mod tests {
 	use frame_support::{assert_noop, assert_ok, traits::Currency};
 	use pallet_multisig::BoundedCallOf;
 	use quantus_runtime::{
-		configs::{VestingMinClaimInterval, VestingPayoutQuantum, VolumeFeeRateBps},
+		configs::{VestingPayoutQuantum, VolumeFeeRateBps},
 		AccountId, Balance, Balances, Multisig, Runtime, RuntimeCall, RuntimeEvent, RuntimeOrigin,
 		System, Vesting, Wormhole, EXISTENTIAL_DEPOSIT, UNIT,
 	};
@@ -95,7 +95,6 @@ mod tests {
 	fn payout_policy_covers_account_and_wormhole_minimums() {
 		let quantum = VestingPayoutQuantum::get();
 		assert!(quantum > EXISTENTIAL_DEPOSIT);
-		assert_eq!(VestingMinClaimInterval::get(), 24 * 60 * 60 * 1000);
 		assert_eq!(quantum * pallet_vesting::NON_FINAL_PAYOUT_QUANTA, 25 * UNIT);
 		assert_eq!(
 			pallet_vesting::NON_FINAL_PAYOUT_QUANTA * VolumeFeeRateBps::get() as u128 % 10_000,

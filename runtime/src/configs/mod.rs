@@ -66,7 +66,7 @@ use super::{
 	scale_fee, AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash, Nonce,
 	OriginCaller, PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
 	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, Wormhole,
-	ZkTree, DAYS, EXISTENTIAL_DEPOSIT, FEE_SCALE_DEN, FEE_SCALE_NUM, MAX_SUPPLY, MILLIS_PER_DAY,
+	ZkTree, DAYS, EXISTENTIAL_DEPOSIT, FEE_SCALE_DEN, FEE_SCALE_NUM, MAX_SUPPLY,
 	TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
 use sp_core::U512;
@@ -601,7 +601,6 @@ parameter_types! {
 	/// (`SCALE_DOWN_FACTOR`): a sub-quantum transfer would be committed as a
 	/// zero-value leaf, stranding funds paid to keyless beneficiaries.
 	pub const VestingPayoutQuantum: Balance = pallet_wormhole::SCALE_DOWN_FACTOR;
-	pub const VestingMinClaimInterval: u64 = MILLIS_PER_DAY;
 }
 
 /// The quantum above is anchored to the wormhole pallet's constant, but the value that
@@ -668,7 +667,6 @@ impl pallet_vesting::Config for Runtime {
 	// extension skips pot-touching events to avoid double-recording signed paths.
 	type ProofRecorder = Wormhole;
 	type PayoutQuantum = VestingPayoutQuantum;
-	type MinClaimInterval = VestingMinClaimInterval;
 	type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
 }
 

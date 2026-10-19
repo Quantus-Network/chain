@@ -38,7 +38,6 @@ pub const TREASURY_FUNDS: Balance = 1_000_000 * UNIT;
 /// [`reset_thread_local_state`] restores exactly what a fresh thread would start with.
 const DEFAULT_EXISTENTIAL_DEPOSIT: Balance = 1_000;
 const DEFAULT_PAYOUT_QUANTUM: Balance = 1_000;
-const DEFAULT_MIN_CLAIM_INTERVAL: u64 = 100_000;
 
 parameter_types! {
 	pub const BlockHashCount: u64 = 250;
@@ -50,7 +49,6 @@ parameter_types! {
 	/// `static` so tests can vary the wormhole leaf quantum (e.g. make it coarser than
 	/// the ED to exercise sub-quantum rounding, or finer to exercise below-ED payouts).
 	pub static PayoutQuantum: Balance = DEFAULT_PAYOUT_QUANTUM;
-	pub static MinClaimInterval: u64 = DEFAULT_MIN_CLAIM_INTERVAL;
 }
 
 impl frame_system::Config for Test {
@@ -182,7 +180,6 @@ impl pallet_vesting::Config for Test {
 	type AssetId = u32;
 	type ProofRecorder = MockProofRecorder;
 	type PayoutQuantum = PayoutQuantum;
-	type MinClaimInterval = MinClaimInterval;
 	type WeightInfo = ();
 }
 
@@ -221,7 +218,6 @@ fn reset_thread_local_state() {
 	ExistentialDeposit::set(DEFAULT_EXISTENTIAL_DEPOSIT);
 	TreasuryAccount::set(Some(TREASURY));
 	PayoutQuantum::set(DEFAULT_PAYOUT_QUANTUM);
-	MinClaimInterval::set(DEFAULT_MIN_CLAIM_INTERVAL);
 	MockProofRecorder::clear();
 }
 
