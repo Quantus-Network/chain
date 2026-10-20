@@ -495,9 +495,12 @@ pub fn run() -> sc_cli::Result<()> {
 			runner.async_run(|config| {
 				let PartialComponents { client, task_manager, backend, .. } =
 					service::new_partial(&config)?;
-				let aux_revert = Box::new(|_client, _, _blocks| {
-					unimplemented!("TODO - g*randpa was removed.");
-				});
+				// Grandpa was removed from this chain, so there is no consensus
+				// aux data to revert: the hook is a deliberate no-op instead of
+				// panicking the CLI.
+				let aux_revert = Box::new(
+					|_client, _, _blocks| -> Result<(), sc_cli::Error> { Ok(()) },
+				);
 				Ok((cmd.run(client, backend, Some(aux_revert)), task_manager))
 			})
 		},
@@ -578,8 +581,18 @@ pub fn run() -> sc_cli::Result<()> {
 						if path.is_absolute() {
 							path.to_path_buf()
 						} else {
-							// This is a valid assumption because the node is run from the shell
-							std::env::current_dir().unwrap().join(path)
+							// This is a valid assumption because the node is run from the shell;
+							// still, current_dir can legitimately fail (e.g. a deleted cwd), so
+							// surface an error instead of panicking.
+							std::env::current_dir()
+								.map_err(|e| {
+									sc_cli::Error::Input(format!(
+										"Could not resolve relative --node-key-file: failed to read the \
+										 current directory: {}",
+										e
+									))
+								})?
+								.join(path)
 						}
 					} else {
 						config.network.net_config_path.clone().unwrap().join("secret_dilithium")
