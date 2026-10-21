@@ -60,7 +60,8 @@ use sp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata};
 use sp_consensus::{BlockOrigin, BlockStatus};
 use sp_runtime::{
 	traits::{
-		Block as BlockT, CheckedSub, Header as HeaderT, NumberFor, One, SaturatedConversion, Zero,
+		Block as BlockT, CheckedAdd, CheckedSub, Header as HeaderT, NumberFor, One,
+		SaturatedConversion, Zero,
 	},
 	EncodedJustification, Justifications,
 };
@@ -1256,24 +1257,42 @@ where
 			self.allowed_requests.add(peer_id);
 			if let Some(request) = request {
 				match &mut peer.state {
-					PeerSyncState::DownloadingNew(_) => {
+					PeerSyncState::DownloadingNew(range_start) => {
+						let range_start = *range_start;
+						let max_blocks = request.max;
 						normal_sync = true;
 						self.blocks.clear_peer_download(peer_id);
 						peer.state = PeerSyncState::Available;
 						if let Some(start_block) =
 							validate_blocks::<B>(&blocks, peer_id, Some(request))?
 						{
+							ensure_response_within_request::<B>(
+								start_block,
+								blocks.len(),
+								range_start,
+								max_blocks,
+								peer_id,
+							)?;
 							self.blocks.insert(start_block, blocks, *peer_id);
 						}
 						self.ready_blocks()
 					},
-					PeerSyncState::DownloadingGap(_) => {
+					PeerSyncState::DownloadingGap(range_start) => {
+						let range_start = *range_start;
+						let max_blocks = request.max;
 						peer.state = PeerSyncState::Available;
 						if let Some(gap_sync) = &mut self.gap_sync {
 							gap_sync.blocks.clear_peer_download(peer_id);
 							if let Some(start_block) =
 								validate_blocks::<B>(&blocks, peer_id, Some(request))?
 							{
+								ensure_response_within_request::<B>(
+									start_block,
+									blocks.len(),
+									range_start,
+									max_blocks,
+									peer_id,
+								)?;
 								gap_sync.blocks.insert(start_block, blocks, *peer_id);
 							}
 							gap = true;
@@ -2523,6 +2542,32 @@ pub fn validate_blocks<Block: BlockT>(
 
 			return Err(BadPeer(*peer_id, rep::BAD_RESPONSE));
 		}
+
+		// Callers put `blocks` in ascending order before validating (descending responses are
+		// reversed), so every block must directly extend the one before it. Without this the
+		// peer could attach arbitrary blocks below the one block checked above.
+		for pair in blocks.windows(2) {
+			let (Some(prev), Some(next)) = (pair[0].header.as_ref(), pair[1].header.as_ref())
+			else {
+				continue
+			};
+
+			if prev.number().checked_add(&One::one()) != Some(*next.number()) ||
+				*next.parent_hash() != prev.hash()
+			{
+				debug!(
+					target: LOG_TARGET,
+					"Non-contiguous blocks in response from {}: block {} ({:?}) does not extend block {} ({:?}).",
+					peer_id,
+					next.number(),
+					next.hash(),
+					prev.number(),
+					prev.hash(),
+				);
+
+				return Err(BadPeer(*peer_id, rep::BAD_BLOCK));
+			}
+		}
 	}
 
 	for b in blocks {
@@ -2542,6 +2587,39 @@ pub fn validate_blocks<Block: BlockT>(
 	}
 
 	Ok(blocks.first().and_then(|b| b.header.as_ref()).map(|h| *h.number()))
+}
+
+/// Ensure a validated response is filed inside the block range that was requested from the peer.
+///
+/// `validate_blocks` pins the block at `request.from`, but when the request is by hash the number
+/// of that block comes from the peer. Checking the derived start against the requested range keeps
+/// a peer from filing a response under an arbitrary number that would never be imported or freed.
+fn ensure_response_within_request<B: BlockT>(
+	start_block: NumberFor<B>,
+	len: usize,
+	range_start: NumberFor<B>,
+	max_blocks: Option<u32>,
+	peer_id: &PeerId,
+) -> Result<(), BadPeer> {
+	let len: NumberFor<B> = (len as u32).into();
+	let range_end = max_blocks.map(|max| range_start.saturating_add(max.into()));
+	let response_end = start_block.saturating_add(len);
+
+	if start_block < range_start || range_end.map_or(false, |end| response_end > end) {
+		debug!(
+			target: LOG_TARGET,
+			"Block response from {} outside requested range: got {}..{}, requested {}..{:?}.",
+			peer_id,
+			start_block,
+			response_end,
+			range_start,
+			range_end,
+		);
+
+		return Err(BadPeer(*peer_id, rep::NOT_REQUESTED));
+	}
+
+	Ok(())
 }
 
 #[cfg(test)]
@@ -2799,5 +2877,115 @@ mod security_tests {
 		assert_eq!(block_import_origin(false, true, false), BlockOrigin::NetworkBroadcast);
 		assert_eq!(block_import_origin(false, true, true), BlockOrigin::NetworkInitialSync);
 		assert_eq!(block_import_origin(true, false, false), BlockOrigin::NetworkInitialSync);
+	}
+
+	fn block_data(header: <TestBlock as BlockT>::Header) -> BlockData<TestBlock> {
+		BlockData::<TestBlock> {
+			hash: header.hash(),
+			header: Some(header),
+			body: Some(Vec::new()),
+			indexed_body: None,
+			receipt: None,
+			message_queue: None,
+			justification: None,
+			justifications: None,
+		}
+	}
+
+	fn header(number: u64, parent_hash: H256) -> <TestBlock as BlockT>::Header {
+		<<TestBlock as BlockT>::Header as HeaderT>::new(
+			number,
+			Default::default(),
+			Default::default(),
+			parent_hash,
+			Default::default(),
+		)
+	}
+
+	/// `len` chained blocks ending at `top`, lowest first, which is how `on_block_data` orders a
+	/// descending response before validating it.
+	fn chained_blocks(top: u64, len: u64) -> Vec<BlockData<TestBlock>> {
+		let mut parent_hash = H256::random();
+		(top + 1 - len..=top)
+			.map(|number| {
+				let header = header(number, parent_hash);
+				parent_hash = header.hash();
+				block_data(header)
+			})
+			.collect()
+	}
+
+	fn descending_request(from: u64, max: u32) -> BlockRequest<TestBlock> {
+		BlockRequest::<TestBlock> {
+			id: 0,
+			fields: BlockAttributes::HEADER | BlockAttributes::BODY,
+			from: FromBlock::Number(from),
+			direction: Direction::Descending,
+			max: Some(max),
+		}
+	}
+
+	#[test]
+	fn contiguous_response_is_filed_under_its_lowest_block() {
+		let peer = PeerId::random();
+		let blocks = chained_blocks(10, 5);
+
+		assert_eq!(
+			validate_blocks::<TestBlock>(&blocks, &peer, Some(descending_request(10, 5))),
+			Ok(Some(6)),
+		);
+	}
+
+	/// Only the block at `request.from` is pinned by the request. A peer must not be able to
+	/// attach a block with an arbitrary number below it and have the response filed there.
+	#[test]
+	fn response_whose_lowest_block_is_forged_is_rejected() {
+		let peer = PeerId::random();
+		let mut blocks = chained_blocks(10, 5);
+		blocks[0] = block_data(header(1 << 31, H256::random()));
+
+		assert_eq!(
+			validate_blocks::<TestBlock>(&blocks, &peer, Some(descending_request(10, 5))),
+			Err(BadPeer(peer, rep::BAD_BLOCK)),
+		);
+	}
+
+	#[test]
+	fn response_with_broken_parent_link_is_rejected() {
+		let peer = PeerId::random();
+		let mut blocks = chained_blocks(10, 5);
+		blocks[2] = block_data(header(8, H256::random()));
+
+		assert_eq!(
+			validate_blocks::<TestBlock>(&blocks, &peer, Some(descending_request(10, 5))),
+			Err(BadPeer(peer, rep::BAD_BLOCK)),
+		);
+	}
+
+	/// The contiguity check must not overflow on a peer-supplied block number at the type's
+	/// maximum.
+	#[test]
+	fn response_with_max_block_number_is_rejected_without_panicking() {
+		let peer = PeerId::random();
+		let mut blocks = chained_blocks(10, 5);
+		blocks[0] = block_data(header(u64::MAX, H256::random()));
+
+		assert_eq!(
+			validate_blocks::<TestBlock>(&blocks, &peer, Some(descending_request(10, 5))),
+			Err(BadPeer(peer, rep::BAD_BLOCK)),
+		);
+	}
+
+	#[test]
+	fn response_must_be_filed_inside_the_requested_range() {
+		let peer = PeerId::random();
+		let within =
+			|start, len| ensure_response_within_request::<TestBlock>(start, len, 6, Some(5), &peer);
+
+		assert_eq!(within(6, 5), Ok(()));
+		assert_eq!(within(9, 2), Ok(()));
+		assert_eq!(within(5, 5), Err(BadPeer(peer, rep::NOT_REQUESTED)));
+		assert_eq!(within(8, 5), Err(BadPeer(peer, rep::NOT_REQUESTED)));
+		assert_eq!(within(1 << 31, 5), Err(BadPeer(peer, rep::NOT_REQUESTED)));
 	}
 }

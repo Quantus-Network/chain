@@ -173,7 +173,7 @@ impl<B: BlockT> BlockCollection<B> {
 			.blocks
 			.iter()
 			.next()
-			.map_or(false, |(n, _)| range.start > *n + max_ahead.into())
+			.map_or(false, |(n, _)| range.start > n.saturating_add(max_ahead.into()))
 		{
 			trace!(target: LOG_TARGET, "Too far ahead for peer {} ({})", who, range.start);
 			return None
