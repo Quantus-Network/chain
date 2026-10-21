@@ -20,6 +20,7 @@ use crate::LOG_TARGET;
 use log::trace;
 use sc_network_common::sync::message;
 use sc_network_types::PeerId;
+use sp_arithmetic::traits::Saturating;
 use sp_runtime::traits::{Block as BlockT, NumberFor, One};
 use std::{
 	cmp,
@@ -166,7 +167,7 @@ impl<B: BlockT> BlockCollection<B> {
 			trace!(target: LOG_TARGET, "Out of range for peer {} ({} vs {})", who, range.start, peer_best);
 			return None
 		}
-		range.end = cmp::min(peer_best + One::one(), range.end);
+		range.end = cmp::min(peer_best.saturating_add(One::one()), range.end);
 
 		if self
 			.blocks
@@ -178,6 +179,19 @@ impl<B: BlockT> BlockCollection<B> {
 			return None
 		}
 
+		if range.end <= range.start {
+			debug_assert!(
+				false,
+				"Empty range {:?}, count={}, peer_best={}, common={}, blocks={:?}",
+				range, count, peer_best, common, self.blocks
+			);
+			trace!(
+				target: LOG_TARGET,
+				"Empty range for peer {who}: {range:?}, count={count}, peer_best={peer_best}, common={common}",
+			);
+			return None
+		}
+
 		self.peer_requests.insert(who, range.start);
 		self.blocks.insert(
 			range.start,
@@ -186,12 +200,6 @@ impl<B: BlockT> BlockCollection<B> {
 				downloading: downloading + 1,
 			},
 		);
-		if range.end <= range.start {
-			panic!(
-				"Empty range {:?}, count={}, peer_best={}, common={}, blocks={:?}",
-				range, count, peer_best, common, self.blocks
-			);
-		}
 		Some(range)
 	}
 
@@ -645,5 +653,15 @@ mod test {
 			bc.needed_blocks(peer2, count, best, common, max_parallel, max_ahead),
 			Some(21..26), // not 16..21
 		);
+	}
+
+	#[test]
+	fn needed_blocks_handles_max_peer_best_without_panicking() {
+		let mut bc = BlockCollection::<Block>::new();
+		let peer = PeerId::random();
+
+		// A peer advertising the maximum possible best block number must not overflow when
+		// cropping the request range to the peer's best, nor produce an empty range.
+		assert_eq!(bc.needed_blocks(peer, 40, u64::MAX, 0, 1, 200), Some(1..41));
 	}
 }
