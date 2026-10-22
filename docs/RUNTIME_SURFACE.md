@@ -168,7 +168,7 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 
 ### Index 20 — `Wormhole` (`pallet-wormhole`, local)
 - `Currency = Balances`, `AssetId = u32` (native leaves tagged as asset id 0 internally; non-native exits unsupported), `VolumeFeeRateBps = 4` (0.04%; settlement ceil-rounds to ≥0.01 QTC per accepted private segment and sums those fees across a public batch), `VolumeFeesBurnRate = 50%`, `MintingAccount`, `WormholeAccountId = AccountId32`, `ZkTree = ZkTree`. No separate minimum exit amount. No `pallet-assets` dependency.
-- **Calls:** `verify_private_batch`(2) — verifies a private-batch ZK proof and processes batched transfers; `verify_public_batch`(3) — verifies a public-batch proof with per-segment denial and aggregator fee rebate.
+- **Calls:** `verify_private_batch`(2) — settles a private-batch ZK proof and processes batched transfers; `verify_public_batch`(3) — settles a public-batch proof with per-segment denial and aggregator fee rebate. Both are `None`-origin only. The ZK verify runs in `ValidateUnsigned::pre_dispatch` (bare unsigned extrinsics), which records `VerifiedProofHash`; the call body consumes that marker and fails with `ProofNotVerified` without it, so no other dispatch path can settle an unverified proof.
 - Implements `TransferProofRecorder` (`record_transfer`) consumed by mining-rewards, reversible-transfers, and the wormhole tx-extension. `on_initialize` emits genesis endowment proofs at block 1. Loads a static aggregated verifier (`get_aggregated_verifier`).
 
 ### Index 21 — `ZkTree` (`pallet-zk-tree`, local)

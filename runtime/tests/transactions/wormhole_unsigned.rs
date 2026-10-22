@@ -1,13 +1,16 @@
 //! The wormhole settlement calls (`verify_private_batch` / `verify_public_batch`) do
-//! not run the ZK verifier in their body; the verifier runs in
+//! not run the ZK verifier in their body. The verifier runs in
 //! `ValidateUnsigned::pre_dispatch`, which the executive invokes only for a bare
-//! unsigned extrinsic. The soundness property is therefore a runtime one:
+//! unsigned extrinsic and which leaves a `VerifiedProofHash` marker the dispatchable
+//! must consume. These tests pin both layers against the production runtime:
 //!
-//! 1. through the production pipeline (`Executive::apply_extrinsic`), a proof that parses but does
-//!    not verify is rejected before the dispatchable runs and mints nothing; and
-//! 2. no other way of dispatching a `RuntimeCall` in this runtime can hand those calls a `None`
-//!    origin — `batch_all` refuses `None`, governance enacts with `Root`, the scheduler's calls are
-//!    disabled, and `dispatch_as` is not compiled in.
+//! 1. through `Executive::apply_extrinsic`, a genuine proof settles and a proof that parses but
+//!    does not verify is rejected before the dispatchable runs;
+//! 2. the dispatchable itself refuses any proof that did not pass `pre_dispatch` in the same
+//!    extrinsic, so a `None`-origin dispatch from anywhere else mints nothing;
+//! 3. as defence in depth, no other way of dispatching a `RuntimeCall` in this runtime can hand
+//!    those calls a `None` origin — `batch_all` refuses `None`, governance enacts with `Root`, the
+//!    scheduler's calls are disabled, and `dispatch_as` is not compiled in.
 //!
 //! The fixture is the pallet's real private-batch proof; "tampered" below means the
 //! proof bytes are corrupted while the public inputs (serialized after the proof)
@@ -153,19 +156,23 @@ fn bare_unsigned_tampered_proof_is_rejected_before_dispatch_and_mints_nothing() 
 	});
 }
 
-/// The dispatchable alone does not verify: the same tampered bytes, dispatched
-/// directly with a `None` origin (i.e. bypassing `pre_dispatch`), mint. This is
-/// the hazard the remaining tests in this module guard against — every in-runtime
-/// dispatch path must be unable to supply a `None` origin. If the body ever grows
-/// its own verify, this test flips and should be deleted along with that guard.
+/// Nobody can mint without going through the verifier: a `None`-origin dispatch that
+/// bypasses `pre_dispatch` (what a `dispatch_as`-style wrapper, a scheduled call, or
+/// a hook would do) is refused by the dispatchable itself with `ProofNotVerified`,
+/// for genuine and tampered bytes alike, and mints nothing.
 #[test]
-fn dispatchable_alone_does_not_verify_so_none_origin_must_stay_unreachable() {
+fn none_origin_dispatch_without_pre_dispatch_is_refused() {
 	TestCommons::new_test_ext().execute_with(|| {
 		let fx = Fixture::load();
 		fx.bind_block();
 
-		assert_ok!(Fixture::call(fx.tampered_bytes()).dispatch(RuntimeOrigin::none()));
-		assert!(Balances::free_balance(&fx.exit_account) > 0);
+		for bytes in [fx.bytes.clone(), fx.tampered_bytes()] {
+			assert_eq!(
+				Fixture::call(bytes).dispatch(RuntimeOrigin::none()).unwrap_err().error,
+				pallet_wormhole::Error::<Runtime>::ProofNotVerified.into()
+			);
+		}
+		fx.assert_nothing_minted();
 	});
 }
 

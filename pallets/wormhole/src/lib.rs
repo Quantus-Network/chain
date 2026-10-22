@@ -353,6 +353,22 @@ pub mod pallet {
 	pub(super) type UsedNullifiers<T: Config> =
 		StorageMap<_, Blake2_128Concat, [u8; 32], bool, ValueQuery>;
 
+	/// `blake2_256` of the proof bytes that `ValidateUnsigned::pre_dispatch` fully
+	/// ZK-verified for the extrinsic currently being applied.
+	///
+	/// `pre_dispatch` writes it after a successful verify; the settlement dispatchable
+	/// consumes it in the same `apply_extrinsic` and refuses to settle without a
+	/// matching marker ([`Error::ProofNotVerified`]). That makes "no settlement
+	/// without verification" a property of the pallet rather than of which dispatch
+	/// paths happen to exist in the runtime.
+	///
+	/// A marker can outlive its extrinsic only if the dispatch failed after
+	/// `pre_dispatch` succeeded (the transactional rollback restores it). It then
+	/// names a proof that did pass verification and is overwritten by the next
+	/// `pre_dispatch`, so it cannot authorize anything a verified proof could not.
+	#[pallet::storage]
+	pub(super) type VerifiedProofHash<T: Config> = StorageValue<_, [u8; 32], OptionQuery>;
+
 	/// Transfer count per recipient - used to generate unique leaf indices in the ZK trie.
 	///
 	/// Keyed on the *canonical* recipient (each 8-byte limb reduced mod the Goldilocks
@@ -444,6 +460,10 @@ pub mod pallet {
 		/// silently ignore). Every proof has exactly one accepted byte encoding.
 		NonCanonicalProofEncoding,
 		ProofVerificationFailed,
+		/// The settlement call ran without `ValidateUnsigned::pre_dispatch` having
+		/// ZK-verified these exact proof bytes in the same extrinsic (see
+		/// [`VerifiedProofHash`]). Only a bare unsigned extrinsic takes that path.
+		ProofNotVerified,
 		InvalidProofPublicInputs,
 		/// The volume fee rate in the proof doesn't match the configured rate
 		InvalidVolumeFeeRate,
@@ -590,12 +610,15 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Verify a private-batch wormhole proof and process all exits in the batch.
+		/// Settle a private-batch wormhole proof: process all exits in the batch.
 		///
-		/// This body does NOT run the ZK verifier; it relies on `ValidateUnsigned::pre_dispatch`
-		/// having verified `proof_bytes`, which only happens when this call is a bare unsigned
-		/// extrinsic. Any other `None`-origin path into it (a `dispatch_as`-style wrapper, a
-		/// scheduled call, a hook) would mint from a proof that merely parses.
+		/// This body does NOT run the ZK verifier. The verifier runs in
+		/// `ValidateUnsigned::pre_dispatch`, which the executive invokes only for a bare
+		/// unsigned extrinsic and which leaves a [`VerifiedProofHash`] marker for exactly
+		/// these bytes. The body consumes that marker and fails with
+		/// [`Error::ProofNotVerified`] if it is absent, so no other dispatch path
+		/// (a `dispatch_as`-style wrapper, a scheduled call, a hook) can settle a proof
+		/// that was never verified — even if such a path could supply a `None` origin.
 		///
 		/// Returns `DispatchResultWithPostInfo` to allow weight correction on early failures.
 		/// If validation fails before ZK verification, we return minimal weight.
@@ -607,12 +630,12 @@ pub mod pallet {
 			proof_bytes: Vec<u8>,
 		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
+			Self::consume_verified_marker(&proof_bytes)?;
 
-			// The ZK verification is the block-inclusion gate in `ValidateUnsigned::pre_dispatch`,
-			// which always runs before this dispatch for a bare (unsigned) extrinsic and rejects
-			// any proof that fails to verify. This body therefore only re-runs the cheap
-			// pre-validation to recover the bundle before processing — re-verifying here would
-			// double the ZK-verify cost while the declared weight only accounts for one verify.
+			// `pre_dispatch` already verified the proof (see the marker above), so this body
+			// only re-runs the cheap pre-validation to recover the bundle before processing —
+			// re-verifying here would double the ZK-verify cost while the declared weight only
+			// accounts for one verify.
 			let (_, _, bundle, _) = match Self::pre_validate_private_batch_proof(&proof_bytes) {
 				Ok(result) => result,
 				Err(e) => {
@@ -630,11 +653,11 @@ pub mod pallet {
 			Self::settle_exit_bundle(bundle, ExitSettlementKind::Private)
 		}
 
-		/// Verify a public-batch wormhole proof and process all valid exit segments.
+		/// Settle a public-batch wormhole proof: process all valid exit segments.
 		///
-		/// Like [`Self::verify_private_batch`], this body does NOT run the ZK verifier and
-		/// relies on `ValidateUnsigned::pre_dispatch` having done so for a bare unsigned
-		/// extrinsic.
+		/// Like [`Self::verify_private_batch`], this body does NOT run the ZK verifier; it
+		/// consumes the [`VerifiedProofHash`] marker `ValidateUnsigned::pre_dispatch` left
+		/// for these bytes and fails with [`Error::ProofNotVerified`] without it.
 		///
 		/// Invalid segments (already-spent nullifiers) are denied individually; dummy-padded
 		/// segments (all-zero nullifiers) are skipped silently. A portion of the burn bucket
@@ -648,9 +671,10 @@ pub mod pallet {
 			proof_bytes: Vec<u8>,
 		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
+			Self::consume_verified_marker(&proof_bytes)?;
 
-			// ZK verification is the block-inclusion gate in `pre_dispatch` (see
-			// `verify_private_batch`); this body only re-runs the cheap pre-validation.
+			// `pre_dispatch` already verified the proof (see `verify_private_batch`); this
+			// body only re-runs the cheap pre-validation.
 			let (_, _, bundle, _) = match Self::pre_validate_public_batch_proof(&proof_bytes) {
 				Ok(result) => result,
 				Err(e) => {
@@ -678,6 +702,25 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+		/// Consume the [`VerifiedProofHash`] marker `pre_dispatch` left for exactly
+		/// `proof_bytes`, or refuse to settle.
+		///
+		/// On refusal the dispatch's transactional layer rolls the `take` back, so a
+		/// marker for some other proof is left untouched. Charges only the read.
+		fn consume_verified_marker(proof_bytes: &[u8]) -> Result<(), DispatchErrorWithPostInfo> {
+			let expected = sp_io::hashing::blake2_256(proof_bytes);
+			if VerifiedProofHash::<T>::take() == Some(expected) {
+				return Ok(());
+			}
+			Err(DispatchErrorWithPostInfo {
+				post_info: PostDispatchInfo {
+					actual_weight: Some(T::DbWeight::get().reads(1)),
+					pays_fee: Pays::No,
+				},
+				error: Error::<T>::ProofNotVerified.into(),
+			})
+		}
+
 		/// A dummy-padded segment: the public-batch circuit zeroes all nullifiers (and
 		/// exit slots) for all-dummy inner private batches.
 		fn segment_is_inert(segment: &ExitSegment) -> bool {
@@ -1126,17 +1169,26 @@ pub mod pallet {
 			// excludes the transaction from the block being built (and makes a block that
 			// includes an unverifiable proof invalid on import). This is what keeps
 			// unverified/junk proofs out of blocks now that pool admission is verify-free.
-			match call {
-				Call::verify_private_batch { proof_bytes } =>
+			//
+			// On success it leaves a `VerifiedProofHash` marker that the dispatchable
+			// consumes in the same `apply_extrinsic`; without it the dispatchable refuses
+			// to settle. Both run in one storage overlay, so the write is visible to the
+			// dispatch and discarded with the extrinsic if anything fails.
+			let proof_bytes = match call {
+				Call::verify_private_batch { proof_bytes } => {
 					Self::validate_private_batch_proof(proof_bytes)
-						.map(|_| ())
-						.map_err(|_| InvalidTransaction::Call.into()),
-				Call::verify_public_batch { proof_bytes } =>
+						.map_err(|_| TransactionValidityError::from(InvalidTransaction::Call))?;
+					proof_bytes
+				},
+				Call::verify_public_batch { proof_bytes } => {
 					Self::validate_public_batch_proof(proof_bytes)
-						.map(|_| ())
-						.map_err(|_| InvalidTransaction::Call.into()),
-				_ => Err(InvalidTransaction::Call.into()),
-			}
+						.map_err(|_| TransactionValidityError::from(InvalidTransaction::Call))?;
+					proof_bytes
+				},
+				_ => return Err(InvalidTransaction::Call.into()),
+			};
+			VerifiedProofHash::<T>::put(sp_io::hashing::blake2_256(proof_bytes));
+			Ok(())
 		}
 	}
 
