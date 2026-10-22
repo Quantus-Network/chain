@@ -592,6 +592,11 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Verify a private-batch wormhole proof and process all exits in the batch.
 		///
+		/// This body does NOT run the ZK verifier; it relies on `ValidateUnsigned::pre_dispatch`
+		/// having verified `proof_bytes`, which only happens when this call is a bare unsigned
+		/// extrinsic. Any other `None`-origin path into it (a `dispatch_as`-style wrapper, a
+		/// scheduled call, a hook) would mint from a proof that merely parses.
+		///
 		/// Returns `DispatchResultWithPostInfo` to allow weight correction on early failures.
 		/// If validation fails before ZK verification, we return minimal weight.
 		/// If ZK verification fails, we return full weight since the work was done.
@@ -626,6 +631,10 @@ pub mod pallet {
 		}
 
 		/// Verify a public-batch wormhole proof and process all valid exit segments.
+		///
+		/// Like [`Self::verify_private_batch`], this body does NOT run the ZK verifier and
+		/// relies on `ValidateUnsigned::pre_dispatch` having done so for a bare unsigned
+		/// extrinsic.
 		///
 		/// Invalid segments (already-spent nullifiers) are denied individually; dummy-padded
 		/// segments (all-zero nullifiers) are skipped silently. A portion of the burn bucket
@@ -732,6 +741,29 @@ pub mod pallet {
 			Ok(validity)
 		}
 
+		/// Whether any slot of `segment` would mint. Mirrors the mint-loop skip
+		/// condition exactly: a slot mints only if the amount is nonzero AND the exit
+		/// account is nonzero (the circuit zeroes deduplicated exit accounts).
+		fn segment_has_mintable_slot(segment: &ExitSegment) -> bool {
+			segment.account_data.iter().any(|account| {
+				account.summed_output_amount > 0 && account.exit_account.as_ref() != [0u8; 32]
+			})
+		}
+
+		/// Stateless half of [`Self::ensure_any_segment_valid`]: reject a bundle no
+		/// segment of which could mint even if every nullifier were fresh (all-dummy
+		/// padding, or real segments whose slots all exit zero). Reads no storage, so
+		/// pool admission can run it without the per-nullifier pass.
+		fn ensure_any_segment_mintable(bundle: &ExitBundle) -> Result<(), Error<T>> {
+			ensure!(
+				bundle.segments.iter().any(|segment| {
+					!Self::segment_is_inert(segment) && Self::segment_has_mintable_slot(segment)
+				}),
+				Error::<T>::NoValidSegments
+			);
+			Ok(())
+		}
+
 		/// Reject a bundle that cannot settle any value: all-dummy padding, a replay
 		/// of real segments, or valid segments that all exit zero.
 		fn ensure_any_segment_valid(
@@ -739,17 +771,11 @@ pub mod pallet {
 			validity: &[bool],
 		) -> Result<(), Error<T>> {
 			if validity.iter().any(|v| *v) {
-				// Mirrors the mint-loop skip condition exactly: a slot mints only if
-				// the amount is nonzero AND the exit account is nonzero (the circuit
-				// zeroes deduplicated exit accounts).
-				let mintable =
-					bundle.segments.iter().zip(validity.iter()).any(|(segment, valid)| {
-						*valid &&
-							segment.account_data.iter().any(|account| {
-								account.summed_output_amount > 0 &&
-									account.exit_account.as_ref() != [0u8; 32]
-							})
-					});
+				let mintable = bundle
+					.segments
+					.iter()
+					.zip(validity.iter())
+					.any(|(segment, valid)| *valid && Self::segment_has_mintable_slot(segment));
 				if mintable {
 					return Ok(());
 				}
@@ -1045,22 +1071,26 @@ pub mod pallet {
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			// Pool admission runs on every gossiped transaction, so it deliberately performs
 			// only the cheap structural pre-validation (deserialize, canonical framing,
-			// parse, stateless bundle checks) and NOT the expensive ZK verification, nor
-			// the per-nullifier `UsedNullifiers` reads. The full verify and the stateful
-			// nullifier check are the block-inclusion gate's job in `pre_dispatch` (and are
-			// recomputed at settlement). Deferring both prevents unsigned, fee-free traffic
-			// from forcing unbounded verification and per-nullifier storage-read work per
-			// gossiped byte-variant of a proof — a junk flood of structurally valid proofs
-			// with fresh nullifiers would otherwise cost every node up to
-			// `NUM_PRIVATE_BATCH_PROOFS * NUM_LEAF_PROOFS` DB reads per blob, on each
-			// revalidation, while filtering nothing (fresh nullifiers are never used yet).
+			// parse, stateless bundle checks, stateless mintability) and NOT the expensive
+			// ZK verification, nor the per-nullifier `UsedNullifiers` reads. The full verify
+			// and the stateful nullifier check are the block-inclusion gate's job in
+			// `pre_dispatch` (and are recomputed at settlement). Deferring both prevents
+			// unsigned, fee-free traffic from forcing unbounded verification and
+			// per-nullifier storage-read work per gossiped byte-variant of a proof — a junk
+			// flood of structurally valid proofs with fresh nullifiers would otherwise cost
+			// every node up to `NUM_PRIVATE_BATCH_PROOFS * NUM_LEAF_PROOFS` DB reads per
+			// blob, on each revalidation, while filtering nothing (fresh nullifiers are
+			// never used yet).
 			match call {
 				Call::verify_private_batch { proof_bytes } => {
 					let (_, _, bundle) = Self::pre_validate_private_batch_structural(proof_bytes)
 						.map_err(|_| InvalidTransaction::Call)?;
-					// Stateless bundle checks (asset, fee, block binding) only — no
-					// per-nullifier reads. Cheap to reject wrong-chain/asset/fee junk.
+					// Stateless bundle checks (asset, fee, block binding, any mintable
+					// slot) only — no per-nullifier reads. Cheap to reject
+					// wrong-chain/asset/fee junk and bundles that could never mint.
 					Self::validate_exit_bundle_stateless(&bundle)
+						.map_err(|_| InvalidTransaction::Call)?;
+					Self::ensure_any_segment_mintable(&bundle)
 						.map_err(|_| InvalidTransaction::Call)?;
 
 					ValidTransaction::with_tag_prefix("WormholePrivateBatch")
@@ -1075,6 +1105,8 @@ pub mod pallet {
 					let (_, _, bundle) = Self::pre_validate_public_batch_structural(proof_bytes)
 						.map_err(|_| InvalidTransaction::Call)?;
 					Self::validate_exit_bundle_stateless(&bundle)
+						.map_err(|_| InvalidTransaction::Call)?;
+					Self::ensure_any_segment_mintable(&bundle)
 						.map_err(|_| InvalidTransaction::Call)?;
 
 					ValidTransaction::with_tag_prefix("WormholePublicBatch")

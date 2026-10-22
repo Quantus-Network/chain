@@ -1171,6 +1171,47 @@ mod private_batch_proof_tests {
 		});
 	}
 
+	/// Dropping the per-nullifier pass from admission must not also drop the
+	/// stateless half of `ensure_any_segment_valid`: a bundle with no slot that could
+	/// ever mint (every exit amount zero) is rejected at admission without touching
+	/// `UsedNullifiers`. Such junk carries fresh, distinct nullifiers, so it would
+	/// otherwise earn a distinct pool tag per blob and reach the block author.
+	#[test]
+	fn validate_unsigned_rejects_bundle_with_no_mintable_slot() {
+		use qp_plonky2_verifier::field::types::Field;
+		use sp_runtime::{
+			traits::ValidateUnsigned,
+			transaction_validity::{InvalidTransaction, TransactionSource},
+		};
+
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+
+			// Zero every exit-slot amount in the PI section (layout: header of 8 felts,
+			// then [sum(1), exit(4)] per slot, 2N slots). Nullifiers are untouched.
+			let mut tampered_proof = deserialize_test_proof();
+			let inputs = parse_private_batch_public_inputs(&tampered_proof).expect("Should parse");
+			assert!(
+				inputs.account_data.iter().any(|a| a.summed_output_amount > 0),
+				"fixture must carry at least one mintable slot"
+			);
+			for slot in 0..inputs.account_data.len() {
+				tampered_proof.public_inputs[8 + slot * 5] = F::ZERO;
+			}
+			let call = crate::Call::<Test>::verify_private_batch {
+				proof_bytes: tampered_proof.to_bytes(),
+			};
+
+			assert_eq!(
+				<Wormhole as ValidateUnsigned>::validate_unsigned(
+					TransactionSource::External,
+					&call,
+				),
+				Err(InvalidTransaction::Call.into()),
+			);
+		});
+	}
+
 	#[test]
 	fn test_verify_private_batch_burns_sub_quantum_miner_fee() {
 		new_test_ext().execute_with(|| {
