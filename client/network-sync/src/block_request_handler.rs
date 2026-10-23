@@ -18,6 +18,8 @@
 //! Helper for handling (i.e. answering) block requests from a remote peer via the
 //! `crate::request_responses::RequestResponsesBehaviour`.
 
+use crate::request_limits::SeenRequest as SeenRequestsValue;
+
 use crate::{
 	block_relay_protocol::{BlockDownloader, BlockRelayParams, BlockResponseError, BlockServer},
 	schema::v1::{
@@ -54,19 +56,17 @@ use std::{
 	cmp::min,
 	hash::{Hash, Hasher},
 	sync::Arc,
+	time::Instant,
 };
 
 /// Maximum blocks per response.
 pub(crate) const MAX_BLOCKS_IN_RESPONSE: usize = 128;
 
-const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
-const MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER: usize = 2;
-
 mod rep {
 	use sc_network::ReputationChange as Rep;
 
 	/// Reputation change when a peer sent us the same request multiple times.
-	pub const SAME_REQUEST: Rep = Rep::new_fatal("Same block request multiple times");
+	pub const SAME_REQUEST: Rep = Rep::new(-(1 << 12), "Same block request multiple times");
 
 	/// Reputation change when a peer sent us the same "small" request multiple times.
 	pub const SAME_SMALL_REQUEST: Rep =
@@ -136,14 +136,6 @@ impl<B: BlockT> Hash for SeenRequestsKey<B> {
 			BlockId::Number(n) => n.hash(state),
 		}
 	}
-}
-
-/// The value of [`BlockRequestHandler::seen_requests`].
-enum SeenRequestsValue {
-	/// First time we have seen the request.
-	First,
-	/// We have fulfilled the request `n` times.
-	Fulfilled(usize),
 }
 
 /// The full block server implementation of [`BlockServer`]. It handles
@@ -262,18 +254,14 @@ where
 			.is_empty();
 
 		match self.seen_requests.get(&key) {
-			Some(SeenRequestsValue::First) => {},
-			Some(SeenRequestsValue::Fulfilled(ref mut requests)) => {
-				*requests = requests.saturating_add(1);
-
-				if *requests > MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER {
+			Some(value) =>
+				if value.exceeds_limit(Instant::now()) {
 					reputation_change = Some(if small_request {
 						rep::SAME_SMALL_REQUEST
 					} else {
 						rep::SAME_REQUEST
 					});
-				}
-			},
+				},
 			None => {
 				self.seen_requests.insert(key.clone(), SeenRequestsValue::First);
 			},
@@ -305,9 +293,7 @@ where
 				if let Some(value) = self.seen_requests.get(&key) {
 					// If this is the first time we have processed this request, we need to change
 					// it to `Fulfilled`.
-					if let SeenRequestsValue::First = value {
-						*value = SeenRequestsValue::Fulfilled(1);
-					}
+					value.note_fulfilled(Instant::now());
 				}
 			}
 
@@ -442,13 +428,13 @@ where
 				indexed_body,
 			};
 
-			let new_total_size = total_size +
-				block_data.body.iter().map(|ex| ex.len()).sum::<usize>() +
-				block_data.indexed_body.iter().map(|ex| ex.len()).sum::<usize>();
+			let new_total_size = total_size + block_data.encoded_len();
 
-			// Send at least one block, but make sure to not exceed the limit.
-			if !blocks.is_empty() && new_total_size > MAX_BODY_BYTES {
-				break
+			if new_total_size > (MAX_RESPONSE_SIZE as usize - 20 * 1024) {
+				if blocks.is_empty() {
+					log::error!(target: LOG_TARGET, "Single block exceeds the maximum block response size");
+				}
+				break;
 			}
 
 			total_size = new_total_size;

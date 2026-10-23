@@ -432,17 +432,21 @@ where
 		let ancient_parent = parent_status == BlockStatus::InChainPruned;
 
 		let known = self.is_known(&hash);
+		let is_major_syncing = self.is_major_syncing();
 		let peer = if let Some(peer) = self.peers.get_mut(&peer_id) {
 			peer
 		} else {
 			error!(target: LOG_TARGET, "💔 Called `on_validated_block_announce` with a bad peer ID {peer_id}");
-			return Some((hash, number))
+			return Some((hash, number));
 		};
 
 		if let PeerSyncState::AncestorSearch { .. } = peer.state {
 			trace!(target: LOG_TARGET, "Peer {} is in the ancestor search state.", peer_id);
-			return None
+			return None;
 		}
+
+		let continues_known_fork =
+			known || known_parent || announce.header.parent_hash() == &peer.best_hash;
 
 		let peer_info = is_best.then(|| {
 			// update their best block
@@ -455,12 +459,34 @@ where
 		// If the announced block is the best they have and is not ahead of us, our common number
 		// is either one further ahead or it's the one they just announced, if we know about it.
 		if is_best {
-			if known && self.best_queued_number >= number {
-				self.update_peer_common_number(&peer_id, number);
+			let best_queued_number = self.best_queued_number;
+
+			if known && best_queued_number >= number {
+				peer.update_common_number(number);
 			} else if announce.header.parent_hash() == &self.best_queued_hash ||
-				known_parent && self.best_queued_number >= number
+				known_parent && best_queued_number >= number
 			{
-				self.update_peer_common_number(&peer_id, number.saturating_sub(One::one()));
+				peer.update_common_number(number.saturating_sub(One::one()));
+			}
+
+			if !continues_known_fork && !is_major_syncing {
+				let current = number.min(best_queued_number);
+				peer.common_number = peer.common_number.min(self.client.info().finalized_number);
+				let old_state = std::mem::replace(
+					&mut peer.state,
+					PeerSyncState::AncestorSearch {
+						current,
+						start: best_queued_number,
+						state: AncestorSearchState::ExponentialBackoff(One::one()),
+					},
+				);
+				self.cancel_peer_request(peer_id, old_state);
+
+				let request = ancestry_request::<B>(current);
+				let action = self.create_block_request_action(peer_id, request);
+				self.actions.push(action);
+
+				return peer_info;
 			}
 		}
 		self.allowed_requests.add(&peer_id);
@@ -1197,6 +1223,25 @@ where
 		}
 	}
 
+	fn cancel_peer_request(&mut self, peer_id: PeerId, old_state: PeerSyncState<B>) {
+		match old_state {
+			PeerSyncState::Available => return,
+			PeerSyncState::DownloadingNew(_) => self.blocks.clear_peer_download(&peer_id),
+			PeerSyncState::DownloadingGap(_) =>
+				if let Some(gap) = &mut self.gap_sync {
+					gap.blocks.clear_peer_download(&peer_id);
+				},
+			PeerSyncState::DownloadingJustification(_) =>
+				self.extra_justifications.peer_disconnected(&peer_id),
+			PeerSyncState::DownloadingState |
+			PeerSyncState::DownloadingStale(_) |
+			PeerSyncState::AncestorSearch { .. } => {},
+		}
+		self.actions
+			.push(SyncingAction::CancelRequest { peer_id, key: Self::STRATEGY_KEY });
+		self.allowed_requests.set_all();
+	}
+
 	fn create_block_request_action(
 		&mut self,
 		peer_id: PeerId,
@@ -1817,8 +1862,8 @@ where
 			}
 		}
 
+		let old_gap = self.gap_sync.take().map(|g| (g.best_queued_number, g.target));
 		if let Some(BlockGap { start, end, .. }) = info.block_gap {
-			let old_gap = self.gap_sync.take().map(|g| (g.best_queued_number, g.target));
 			debug!(target: LOG_TARGET, "Starting gap sync #{start} - #{end} (old gap best and target: {old_gap:?})");
 			self.gap_sync = Some(GapSync {
 				best_queued_number: start - One::one(),
@@ -2638,11 +2683,13 @@ mod security_tests {
 	/// about being behind can only come from peer claims.
 	struct GenesisClient {
 		genesis: <TestBlock as BlockT>::Header,
+		best_number: u64,
 	}
 
 	impl GenesisClient {
 		fn new() -> Self {
 			Self {
+				best_number: 0,
 				genesis: <<TestBlock as BlockT>::Header as HeaderT>::new(
 					0,
 					Default::default(),
@@ -2665,7 +2712,7 @@ mod security_tests {
 		fn info(&self) -> Info<TestBlock> {
 			Info {
 				best_hash: self.genesis.hash(),
-				best_number: 0,
+				best_number: self.best_number,
 				genesis_hash: self.genesis.hash(),
 				finalized_hash: self.genesis.hash(),
 				finalized_number: 0,
@@ -2987,5 +3034,86 @@ mod security_tests {
 		assert_eq!(within(5, 5), Err(BadPeer(peer, rep::NOT_REQUESTED)));
 		assert_eq!(within(8, 5), Err(BadPeer(peer, rep::NOT_REQUESTED)));
 		assert_eq!(within(1 << 31, 5), Err(BadPeer(peer, rep::NOT_REQUESTED)));
+	}
+	#[test]
+	fn empty_unverified_state_response_is_rejected() {
+		use crate::{
+			schema::v1::StateResponse,
+			strategy::state_sync::{ImportResult, StateSync, StateSyncProvider},
+		};
+		let client = Arc::new(GenesisClient::new());
+		let mut state_sync = StateSync::<TestBlock, _>::new(
+			client.clone(),
+			client.genesis.clone(),
+			None,
+			None,
+			true,
+		);
+		assert!(matches!(
+			state_sync.import(StateResponse { entries: Vec::new(), proof: vec![1] }),
+			ImportResult::BadResponse
+		));
+		assert!(!state_sync.is_complete());
+		assert!(state_sync.next_request().start.is_empty());
+	}
+
+	#[test]
+	fn unknown_fork_announcement_starts_ancestry_search() {
+		let mut client = GenesisClient::new();
+		client.best_number = 20;
+		let client = Arc::new(client);
+		let mut sync = ChainSync::new(
+			ChainSyncMode::Full,
+			client,
+			1,
+			64,
+			ProtocolName::Static(""),
+			Arc::new(MockBlockDownloader::new()),
+			None,
+			std::iter::empty(),
+		)
+		.unwrap();
+		sync.best_queued_number = 20;
+		sync.best_queued_hash = H256::repeat_byte(20);
+		let peer_id = PeerId::random();
+		sync.add_peer(peer_id, sync.best_queued_hash, 20);
+		let peer = sync.peers.get_mut(&peer_id).unwrap();
+		peer.state = PeerSyncState::DownloadingNew(20);
+		peer.common_number = 20;
+		sync.actions.clear();
+		let header = <<TestBlock as BlockT>::Header as HeaderT>::new(
+			21,
+			Default::default(),
+			Default::default(),
+			H256::repeat_byte(99),
+			Default::default(),
+		);
+		let announce = BlockAnnounce { header, state: None, data: None };
+		sync.on_validated_block_announce(true, peer_id, &announce);
+		let peer = sync.peers.get(&peer_id).unwrap();
+		assert!(matches!(peer.state, PeerSyncState::AncestorSearch { current: 20, .. }));
+		assert_eq!(peer.common_number, 0);
+		assert!(
+			matches!(sync.actions.first(), Some(SyncingAction::CancelRequest { peer_id: id, .. }) if *id == peer_id)
+		);
+	}
+	#[test]
+	fn reset_sync_drops_a_gap_already_closed_by_the_database() {
+		let client = Arc::new(GenesisClient::new());
+		let mut sync = ChainSync::new(
+			ChainSyncMode::Full,
+			client,
+			1,
+			64,
+			ProtocolName::Static(""),
+			Arc::new(MockBlockDownloader::new()),
+			None,
+			std::iter::empty(),
+		)
+		.unwrap();
+		sync.gap_sync =
+			Some(GapSync { blocks: BlockCollection::new(), best_queued_number: 1, target: 10 });
+		sync.reset_sync_start_point().unwrap();
+		assert!(sync.gap_sync.is_none());
 	}
 }

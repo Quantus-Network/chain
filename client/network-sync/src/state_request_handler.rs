@@ -18,6 +18,8 @@
 //! Helper for handling (i.e. answering) state requests from a remote peer via the
 //! `crate::request_responses::RequestResponsesBehaviour`.
 
+use crate::request_limits::SeenRequest as SeenRequestsValue;
+
 use crate::{
 	schema::v1::{KeyValueStateEntry, StateEntry, StateRequest, StateResponse},
 	LOG_TARGET,
@@ -41,17 +43,16 @@ use sp_runtime::traits::Block as BlockT;
 use std::{
 	hash::{Hash, Hasher},
 	sync::Arc,
-	time::Duration,
+	time::{Duration, Instant},
 };
 
 const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024; // Actual reponse may be bigger.
-const MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER: usize = 2;
 
 mod rep {
 	use sc_network::ReputationChange as Rep;
 
 	/// Reputation change when a peer sent us the same request multiple times.
-	pub const SAME_REQUEST: Rep = Rep::new(i32::MIN, "Same state request multiple times");
+	pub const SAME_REQUEST: Rep = Rep::new(-(1 << 12), "Same state request multiple times");
 }
 
 /// Generates a `RequestResponseProtocolConfig` for the state request protocol, refusing incoming
@@ -106,14 +107,6 @@ impl<B: BlockT> Hash for SeenRequestsKey<B> {
 		self.block.hash(state);
 		self.start.hash(state);
 	}
-}
-
-/// The value of [`StateRequestHandler::seen_requests`].
-enum SeenRequestsValue {
-	/// First time we have seen the request.
-	First,
-	/// We have fulfilled the request `n` times.
-	Fulfilled(usize),
 }
 
 /// Handler for incoming block requests from a remote peer.
@@ -189,14 +182,10 @@ where
 		let mut reputation_changes = Vec::new();
 
 		match self.seen_requests.get(&key) {
-			Some(SeenRequestsValue::First) => {},
-			Some(SeenRequestsValue::Fulfilled(ref mut requests)) => {
-				*requests = requests.saturating_add(1);
-
-				if *requests > MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER {
+			Some(value) =>
+				if value.exceeds_limit(Instant::now()) {
 					reputation_changes.push(rep::SAME_REQUEST);
-				}
-			},
+				},
 			None => {
 				self.seen_requests.insert(key.clone(), SeenRequestsValue::First);
 			},
@@ -258,9 +247,7 @@ where
 			if let Some(value) = self.seen_requests.get(&key) {
 				// If this is the first time we have processed this request, we need to change
 				// it to `Fulfilled`.
-				if let SeenRequestsValue::First = value {
-					*value = SeenRequestsValue::Fulfilled(1);
-				}
+				value.note_fulfilled(Instant::now());
 			}
 
 			let mut data = Vec::with_capacity(response.encoded_len());

@@ -27,6 +27,7 @@ mod block_announce_validator;
 mod futures_stream;
 mod justification_requests;
 mod pending_responses;
+mod request_limits;
 mod schema;
 pub mod types;
 
