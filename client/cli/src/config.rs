@@ -240,7 +240,7 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 				);
 				DatabaseSource::ParityDb { path: paritydb_path }
 			},
-			Database::Auto => resolve_auto_database(paritydb_path, rocksdb_path, cache_size),
+			Database::Auto => resolve_auto_database(paritydb_path, rocksdb_path, cache_size)?,
 		})
 	}
 
@@ -726,20 +726,26 @@ pub(crate) fn resolve_auto_database(
 	paritydb_path: PathBuf,
 	rocksdb_path: PathBuf,
 	cache_size: usize,
-) -> DatabaseSource {
+) -> Result<DatabaseSource> {
 	#[cfg(feature = "rocksdb")]
-	if rocksdb_exists(&rocksdb_path) {
-		return DatabaseSource::RocksDb { path: rocksdb_path, cache_size };
+	if rocksdb_exists(&rocksdb_path)? {
+		return Ok(DatabaseSource::RocksDb { path: rocksdb_path, cache_size });
 	}
 	#[cfg(not(feature = "rocksdb"))]
 	let _ = (rocksdb_path, cache_size);
-	DatabaseSource::ParityDb { path: paritydb_path }
+	Ok(DatabaseSource::ParityDb { path: paritydb_path })
 }
 
-/// Whether a RocksDB database has been created at `path`.
+/// Whether a RocksDB database has been created at `path`. Only a missing manifest
+/// means "absent"; any other I/O failure (for example an unreadable `db/full`) is
+/// propagated so an existing database is never silently shadowed by a new ParityDb.
 #[cfg(any(feature = "rocksdb", test))]
-pub(crate) fn rocksdb_exists(path: &std::path::Path) -> bool {
-	path.join("CURRENT").is_file()
+pub(crate) fn rocksdb_exists(path: &std::path::Path) -> Result<bool> {
+	match std::fs::metadata(path.join("CURRENT")) {
+		Ok(meta) => Ok(meta.is_file()),
+		Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
+		Err(err) => Err(err.into()),
+	}
 }
 
 #[cfg(test)]
@@ -755,7 +761,7 @@ mod tests {
 		let root = tempfile::tempdir().unwrap();
 		let (paritydb_path, rocksdb_path) = paths(root.path());
 		assert!(matches!(
-			resolve_auto_database(paritydb_path.clone(), rocksdb_path, 128),
+			resolve_auto_database(paritydb_path.clone(), rocksdb_path, 128).unwrap(),
 			DatabaseSource::ParityDb { path } if path == paritydb_path
 		));
 	}
@@ -767,11 +773,41 @@ mod tests {
 		std::fs::create_dir_all(&rocksdb_path).unwrap();
 		std::fs::write(rocksdb_path.join("db_version"), b"4").unwrap();
 		std::fs::create_dir_all(&paritydb_path).unwrap();
-		assert!(!rocksdb_exists(&rocksdb_path));
+		assert!(!rocksdb_exists(&rocksdb_path).unwrap());
 		assert!(matches!(
-			resolve_auto_database(paritydb_path.clone(), rocksdb_path, 128),
+			resolve_auto_database(paritydb_path.clone(), rocksdb_path, 128).unwrap(),
 			DatabaseSource::ParityDb { path } if path == paritydb_path
 		));
+	}
+
+	#[test]
+	fn auto_propagates_probe_errors_other_than_not_found() {
+		let root = tempfile::tempdir().unwrap();
+		let (paritydb_path, rocksdb_path) = paths(root.path());
+		std::fs::create_dir_all(rocksdb_path.parent().unwrap()).unwrap();
+		std::fs::write(&rocksdb_path, b"not a directory").unwrap();
+		assert!(rocksdb_exists(&rocksdb_path).is_err());
+		assert!(resolve_auto_database(paritydb_path, rocksdb_path, 128).is_err());
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn auto_refuses_to_shadow_unreadable_rocksdb() {
+		use std::os::unix::fs::PermissionsExt;
+
+		let root = tempfile::tempdir().unwrap();
+		let (paritydb_path, rocksdb_path) = paths(root.path());
+		std::fs::create_dir_all(&rocksdb_path).unwrap();
+		std::fs::write(rocksdb_path.join("CURRENT"), b"MANIFEST-000001\n").unwrap();
+		std::fs::set_permissions(&rocksdb_path, std::fs::Permissions::from_mode(0o000)).unwrap();
+		let probe = std::fs::metadata(rocksdb_path.join("CURRENT"));
+		let resolved = resolve_auto_database(paritydb_path, rocksdb_path.clone(), 128);
+		std::fs::set_permissions(&rocksdb_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+		if probe.is_ok() {
+			// Running as root: permissions are not enforced, nothing to check.
+			return;
+		}
+		assert!(resolved.is_err());
 	}
 
 	#[cfg(feature = "rocksdb")]
@@ -781,9 +817,9 @@ mod tests {
 		let (paritydb_path, rocksdb_path) = paths(root.path());
 		std::fs::create_dir_all(&rocksdb_path).unwrap();
 		std::fs::write(rocksdb_path.join("CURRENT"), b"MANIFEST-000001\n").unwrap();
-		assert!(rocksdb_exists(&rocksdb_path));
+		assert!(rocksdb_exists(&rocksdb_path).unwrap());
 		assert!(matches!(
-			resolve_auto_database(paritydb_path, rocksdb_path.clone(), 128),
+			resolve_auto_database(paritydb_path, rocksdb_path.clone(), 128).unwrap(),
 			DatabaseSource::RocksDb { path, cache_size: 128 } if path == rocksdb_path
 		));
 	}
