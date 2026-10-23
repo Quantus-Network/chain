@@ -58,6 +58,18 @@ use std::{
 };
 use tracing::{debug, instrument, trace, warn, Level};
 
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum ImportedStatus {
+	NotImported,
+	Banned,
+	Imported,
+}
+impl ImportedStatus {
+	pub(super) fn is_imported(&self) -> bool {
+		!matches!(self, Self::NotImported)
+	}
+}
+
 pub(super) struct RevalidationResult<ChainApi: graph::ChainApi> {
 	revalidated: IndexMap<ExtrinsicHash<ChainApi>, ValidatedTransactionFor<ChainApi>>,
 	invalid_hashes: Vec<ExtrinsicHash<ChainApi>>,
@@ -781,10 +793,19 @@ where
 		}
 	}
 
-	/// Returns true if the transaction with given hash is already imported into the view.
-	pub(super) fn is_imported(&self, tx_hash: &ExtrinsicHash<ChainApi>) -> bool {
+	/// Checks if the transaction with given hash is already known to the view.
+	pub(super) fn imported_status(&self, tx_hash: &ExtrinsicHash<ChainApi>) -> ImportedStatus {
 		const IGNORE_BANNED: bool = false;
-		self.pool.validated_pool().check_is_known(tx_hash, IGNORE_BANNED).is_err()
+		match self.pool.validated_pool().check_is_known(tx_hash, IGNORE_BANNED) {
+			Ok(()) => ImportedStatus::NotImported,
+			Err(err) => {
+				use sc_transaction_pool_api::error::IntoPoolError;
+				match err.into_pool_error() {
+					Ok(TxPoolError::TemporarilyBanned) => ImportedStatus::Banned,
+					_ => ImportedStatus::Imported,
+				}
+			},
+		}
 	}
 
 	/// Removes the whole transaction subtree from the inner pool.

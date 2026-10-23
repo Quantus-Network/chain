@@ -115,7 +115,10 @@ enum TransactionStatusUpdate<ChainApi: graph::ChainApi> {
 	/// Notifies that a transaction was dropped from the pool.
 	///
 	/// If all preconditions are met, an external dropped event will be sent out.
-	Dropped(ExtrinsicHash<ChainApi>, DroppedReason<ExtrinsicHash<ChainApi>>),
+	Dropped(
+		ExtrinsicHash<ChainApi>,
+		TransactionStatus<ExtrinsicHash<ChainApi>, BlockHash<ChainApi>>,
+	),
 
 	/// Notifies that a finality watcher timed out.
 	///
@@ -150,12 +153,7 @@ where
 				TransactionStatus::Finalized((*hash, *index)),
 			TransactionStatusUpdate::Broadcasted(_, peers) =>
 				TransactionStatus::Broadcast(peers.clone()),
-			TransactionStatusUpdate::Dropped(_, DroppedReason::Usurped(by)) =>
-				TransactionStatus::Usurped(*by),
-			TransactionStatusUpdate::Dropped(_, DroppedReason::LimitsEnforced) =>
-				TransactionStatus::Dropped,
-			TransactionStatusUpdate::Dropped(_, DroppedReason::Invalid) =>
-				TransactionStatus::Invalid,
+			TransactionStatusUpdate::Dropped(_, status) => status.clone(),
 			TransactionStatusUpdate::FinalityTimeout(_, block_hash) =>
 				TransactionStatus::FinalityTimeout(*block_hash),
 		}
@@ -234,10 +232,19 @@ where
 	fn new_dropped(
 		tx_hash: ExtrinsicHash<ChainApi>,
 		reason: DroppedReason<ExtrinsicHash<ChainApi>>,
-	) -> Self {
-		ControllerCommand::TransactionStatusRequest(TransactionStatusUpdate::Dropped(
-			tx_hash, reason,
-		))
+	) -> Option<Self> {
+		let status = match reason {
+			DroppedReason::Usurped(by) => TransactionStatus::Usurped(by),
+			DroppedReason::LimitsEnforced => TransactionStatus::Dropped,
+			DroppedReason::Invalid => TransactionStatus::Invalid,
+			DroppedReason::Viewless => {
+				tracing::error!(target: LOG_TARGET, ?tx_hash, "Viewless recovery signal reached terminal transaction listener");
+				return None;
+			},
+		};
+		Some(ControllerCommand::TransactionStatusRequest(TransactionStatusUpdate::Dropped(
+			tx_hash, status,
+		)))
 	}
 	/// Creates new instance of a command requesting [`TransactionStatus::FinalityTimeout`]
 	/// transaction status.
@@ -887,7 +894,9 @@ where
 	pub(crate) fn transaction_dropped(&self, dropped: DroppedTransaction<ExtrinsicHash<ChainApi>>) {
 		let DroppedTransaction { tx_hash, reason } = dropped;
 		trace!(target: LOG_TARGET, ?tx_hash, ?reason, "transaction_dropped");
-		self.send_controller_command(ControllerCommand::new_dropped(tx_hash, reason));
+		if let Some(command) = ControllerCommand::new_dropped(tx_hash, reason) {
+			self.send_controller_command(command);
+		}
 	}
 
 	/// Send `Finalized` event for given transaction at given block.
@@ -1466,5 +1475,21 @@ mod backlog_tests {
 		stop.store(true, Ordering::Relaxed);
 		listener_handle.abort();
 		let _ = listener_handle.await;
+	}
+}
+
+#[cfg(test)]
+mod recovery_tests {
+	use super::*;
+	use crate::common::mock_api::MockChainApi;
+	use sp_core::H256;
+
+	#[test]
+	fn recovery_signal_cannot_generate_a_terminal_notification() {
+		assert!(ControllerCommand::<MockChainApi>::new_dropped(
+			H256::zero(),
+			DroppedReason::Viewless
+		)
+		.is_none());
 	}
 }

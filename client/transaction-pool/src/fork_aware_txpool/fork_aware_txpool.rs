@@ -24,7 +24,7 @@ use super::{
 	metrics::{EventsMetricsCollector, MetricsLink as PrometheusMetrics},
 	multi_view_listener::MultiViewListener,
 	tx_mem_pool::{InsertionInfo, TxMemPool},
-	view::View,
+	view::{ImportedStatus, View},
 	view_store::ViewStore,
 };
 use crate::{
@@ -377,6 +377,17 @@ where
 				},
 				DroppedReason::LimitsEnforced | DroppedReason::Invalid => {
 					view_store.remove_transaction_subtree(tx_hash, |_, _| {});
+				},
+				DroppedReason::Viewless => {
+					if let Some(tx) = mempool.get_by_hash(tx_hash).await {
+						trace!(
+							target: LOG_TARGET,
+							?tx_hash,
+							"dropped_monitor_task: transaction became viewless, marking for unban"
+						);
+						tx.set_needs_unban();
+					}
+					continue;
 				},
 			};
 
@@ -1573,11 +1584,14 @@ where
 		let (hashes, xts_filtered): (Vec<_>, Vec<_>) = self
 			.mempool
 			.with_transactions(|iter| {
-				iter.filter(|(hash, _)| !view.is_imported(&hash) && !included_xts.contains(&hash))
-					.map(|(k, v)| (*k, v.clone()))
-					//todo [#8835]: better approach is needed - maybe time-budget approach?
-					.take(MEMPOOL_TO_VIEW_BATCH_SIZE)
-					.collect::<HashMap<_, _>>()
+				iter.filter(|(hash, _)| {
+					matches!(view.imported_status(hash), ImportedStatus::NotImported) &&
+						!included_xts.contains(hash)
+				})
+				.map(|(k, v)| (*k, v.clone()))
+				//todo [#8835]: better approach is needed - maybe time-budget approach?
+				.take(MEMPOOL_TO_VIEW_BATCH_SIZE)
+				.collect::<HashMap<_, _>>()
 			})
 			.await
 			.into_iter()
@@ -1590,13 +1604,20 @@ where
 			.into_iter()
 			.zip(hashes)
 			.map(|(result, tx_hash)| async move {
-				if let Ok(outcome) = result {
-					Ok(self
+				match result {
+					Ok(outcome) => Ok(self
 						.mempool
 						.update_transaction_priority(outcome.hash(), outcome.priority())
-						.await)
-				} else {
-					Err(tx_hash)
+						.await),
+					Err(error) => {
+						trace!(
+							target: LOG_TARGET,
+							?tx_hash,
+							?error,
+							"update_view_with_mempool: tx rejected from view"
+						);
+						Err(tx_hash)
+					},
 				}
 			})
 			.collect::<Vec<_>>();
