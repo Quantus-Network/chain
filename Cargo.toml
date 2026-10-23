@@ -9,6 +9,7 @@ repository = "https://github.com/quantus-network/chain#"
 members = [
 	"client/cli",
 	"client/consensus/qpow",
+	"client/db",
 	"client/executor-wasmtime",
 	"client/informant",
 	"client/litep2p",
@@ -54,11 +55,13 @@ members = [
 	"pallets/vesting",
 	"pallets/wormhole",
 	"pallets/zk-tree",
+	"primitives/api-proc-macro",
 	"primitives/consensus/qpow",
 	"primitives/dilithium-crypto",
 	"primitives/header",
 	"primitives/high-security",
 	"primitives/scheduler",
+	"primitives/state-machine",
 	"primitives/wormhole",
 	"qpow-math",
 	"runtime",
@@ -209,7 +212,7 @@ rpassword = { version = "7.0.0" }
 rstest = { version = "0.18" }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rusty-fork = { version = "0.3.1" }
-sc-client-db = { version = "0.51.0", default-features = false }
+sc-client-db = { version = "0.51.3", default-features = false }
 sc-keystore = { version = "39.0.0", default-features = true }
 sc-tracing = { version = "44.0.0" }
 scale-info = { version = "2.11.6", default-features = false }
@@ -391,6 +394,7 @@ pallet-transaction-payment = { path = "./pallets/transaction-payment" }
 pallet-transaction-payment-rpc = { path = "./pallets/transaction-payment-rpc" }
 pallet-transaction-payment-rpc-runtime-api = { path = "./pallets/transaction-payment-rpc-runtime-api" }
 sc-cli = { path = "./client/cli" }
+sc-client-db = { path = "./client/db" }
 sc-executor-wasmtime = { path = "./client/executor-wasmtime" }
 sc-informant = { path = "./client/informant" }
 sc-network = { path = "client/network" }
@@ -402,6 +406,8 @@ sc-rpc-spec-v2 = { path = "./client/rpc-spec-v2" }
 sc-service = { path = "client/service" }
 sc-telemetry = { path = "client/telemetry" }
 sc-transaction-pool = { path = "client/transaction-pool" }
+sp-api-proc-macro = { path = "./primitives/api-proc-macro" }
+sp-state-machine = { path = "./primitives/state-machine" }
 sp-wasm-interface = { path = "./client/wasm-interface" }
 
 [profile.release]

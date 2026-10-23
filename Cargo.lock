@@ -233,6 +233,9 @@ name = "arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
+dependencies = [
+ "derive_arbitrary",
+]
 
 [[package]]
 name = "ark-bls12-377"
@@ -2363,6 +2366,17 @@ name = "derive-where"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ef941ded77d15ca19b40374869ac6000af1c9f2a4c0f3d4c70926287e6364a8f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "derive_arbitrary"
+version = "1.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e567bd82dcff979e4b03460c307b3cdc9e96fde3d73bed1496d2bc75d9dd62a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8543,10 +8557,10 @@ dependencies = [
 
 [[package]]
 name = "sc-client-db"
-version = "0.51.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08361119d961b4eea2fa7dcb7d5768ecf51b2f10b129643f7a850cda3af0c18c"
+version = "0.51.3"
 dependencies = [
+ "array-bytes 6.2.3",
+ "criterion",
  "hash-db",
  "kvdb",
  "kvdb-memorydb",
@@ -8556,6 +8570,8 @@ dependencies = [
  "parity-db",
  "parity-scale-codec",
  "parking_lot 0.12.4",
+ "rand 0.8.6",
+ "rstest",
  "sc-client-api",
  "sc-state-db",
  "schnellru",
@@ -8565,9 +8581,11 @@ dependencies = [
  "sp-database",
  "sp-runtime",
  "sp-state-machine",
+ "sp-tracing",
  "sp-trie",
  "substrate-prometheus-endpoint",
  "sysinfo",
+ "tempfile",
 ]
 
 [[package]]
@@ -10148,10 +10166,9 @@ dependencies = [
 [[package]]
 name = "sp-api-proc-macro"
 version = "26.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f2ae0305276704ca35c4499162a709413e4bca4e47a3c909df50a110930121f"
 dependencies = [
  "Inflector",
+ "assert_matches",
  "blake2 0.10.6",
  "expander",
  "proc-macro-crate",
@@ -10380,9 +10397,9 @@ dependencies = [
 
 [[package]]
 name = "sp-database"
-version = "10.0.1"
+version = "10.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c702cc7679fbaf0469d40251917cd27bfc165c506a8cd96fb4a9dd3947f06d70"
+checksum = "5b7d8129ad3a40b645dc446aae80cf485c521cb8fb54ea670baca41d4e4350e2"
 dependencies = [
  "kvdb",
  "kvdb-rocksdb",
@@ -10650,18 +10667,21 @@ dependencies = [
 [[package]]
 name = "sp-state-machine"
 version = "0.49.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b5bfda052a2fe9be497139e0c5d0a51946873f3cd7c2ff81bdbcb8b446caa37"
 dependencies = [
+ "arbitrary",
+ "array-bytes 6.2.3",
+ "assert_matches",
  "hash-db",
  "log",
  "parity-scale-codec",
  "parking_lot 0.12.4",
+ "pretty_assertions",
  "rand 0.8.6",
  "smallvec",
  "sp-core",
  "sp-externalities",
  "sp-panic-handler",
+ "sp-runtime",
  "sp-trie",
  "thiserror 1.0.69",
  "tracing",
