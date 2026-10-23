@@ -462,7 +462,7 @@ pub mod pallet {
 		ProofVerificationFailed,
 		/// The settlement call ran without `ValidateUnsigned::pre_dispatch` having
 		/// ZK-verified these exact proof bytes in the same extrinsic (see
-		/// [`VerifiedProofHash`]). Only a bare unsigned extrinsic takes that path.
+		/// `VerifiedProofHash`). Only a bare unsigned extrinsic takes that path.
 		ProofNotVerified,
 		InvalidProofPublicInputs,
 		/// The volume fee rate in the proof doesn't match the configured rate
@@ -614,7 +614,7 @@ pub mod pallet {
 		///
 		/// This body does NOT run the ZK verifier. The verifier runs in
 		/// `ValidateUnsigned::pre_dispatch`, which the executive invokes only for a bare
-		/// unsigned extrinsic and which leaves a [`VerifiedProofHash`] marker for exactly
+		/// unsigned extrinsic and which leaves a `VerifiedProofHash` marker for exactly
 		/// these bytes. The body consumes that marker and fails with
 		/// [`Error::ProofNotVerified`] if it is absent, so no other dispatch path
 		/// (a `dispatch_as`-style wrapper, a scheduled call, a hook) can settle a proof
@@ -656,7 +656,7 @@ pub mod pallet {
 		/// Settle a public-batch wormhole proof: process all valid exit segments.
 		///
 		/// Like [`Self::verify_private_batch`], this body does NOT run the ZK verifier; it
-		/// consumes the [`VerifiedProofHash`] marker `ValidateUnsigned::pre_dispatch` left
+		/// consumes the `VerifiedProofHash` marker `ValidateUnsigned::pre_dispatch` left
 		/// for these bytes and fails with [`Error::ProofNotVerified`] without it.
 		///
 		/// Invalid segments (already-spent nullifiers) are denied individually; dummy-padded
