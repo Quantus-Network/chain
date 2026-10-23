@@ -557,3 +557,9 @@ fn batch_all_allows_whitelisted_child_after_enrollment() {
 		qp_high_security::testing::reset();
 	});
 }
+
+#[test]
+fn empty_batch_all_has_normal_dispatch_class() {
+	let call = RuntimeCall::Utility(utility::Call::batch_all { calls: vec![] });
+	assert_eq!(call.get_dispatch_info().class, frame_support::dispatch::DispatchClass::Normal);
+}

@@ -139,7 +139,8 @@ impl<T: Config<I>, I: 'static, M: GetMaxVoters<Class = ClassOf<T, I>>>
 		}
 	}
 	fn approval(&self, _: ClassOf<T, I>) -> Perbill {
-		Perbill::from_rational(self.ayes, 1.max(self.ayes + self.nays))
+		let (ayes, nays) = (u64::from(self.ayes), u64::from(self.nays));
+		Perbill::from_rational(ayes, 1.max(ayes + nays))
 	}
 	#[cfg(feature = "runtime-benchmarks")]
 	fn unanimity(class: ClassOf<T, I>) -> Self {
@@ -243,7 +244,7 @@ impl Convert<Rank, Votes> for Unit {
 pub struct Linear;
 impl Convert<Rank, Votes> for Linear {
 	fn convert(r: Rank) -> Votes {
-		(r + 1) as Votes
+		Votes::from(r) + 1
 	}
 }
 
@@ -258,8 +259,8 @@ impl Convert<Rank, Votes> for Linear {
 pub struct Geometric;
 impl Convert<Rank, Votes> for Geometric {
 	fn convert(r: Rank) -> Votes {
-		let v = (r + 1) as Votes;
-		v * (v + 1) / 2
+		let v = u64::from(r) + 1;
+		(v * (v + 1) / 2) as Votes
 	}
 }
 
