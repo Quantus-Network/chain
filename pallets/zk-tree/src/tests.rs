@@ -270,6 +270,59 @@ fn tree_grows_at_capacity() {
 	});
 }
 
+/// A batched append must be indistinguishable from the same leaves inserted one
+/// at a time: same indices, same counters, same root, one `LeafInserted` per leaf.
+#[test]
+fn insert_leaves_matches_sequential_inserts() {
+	let leaves: Vec<_> = (0..6u64)
+		.map(|i| ZkLeaf {
+			to: make_account(i as u8 + 1),
+			transfer_count: i,
+			asset_id: 0u32,
+			amount: 100u128 + i as u128,
+		})
+		.collect();
+
+	let sequential_root = new_test_ext().execute_with(|| {
+		for leaf in leaves.clone() {
+			ZkTree::insert_leaf(leaf.to, leaf.transfer_count, leaf.asset_id, leaf.amount);
+		}
+		settle();
+		ZkTree::root()
+	});
+
+	new_test_ext().execute_with(|| {
+		ZkTree::insert_leaf(make_account(99), 0, 0u32, 1u128);
+		System::reset_events();
+
+		assert_eq!(ZkTree::insert_leaves(Vec::new()), 1);
+		assert_eq!(ZkTree::leaf_count(), 1);
+		assert!(System::events().is_empty());
+
+		let first = ZkTree::insert_leaves(leaves.clone());
+		assert_eq!(first, 1);
+		assert_eq!(ZkTree::leaf_count(), 7);
+		assert_eq!(UnprocessedLeaves::<Test>::get(), 7);
+		for (offset, leaf) in leaves.iter().enumerate() {
+			assert_eq!(Leaves::<Test>::get(first + offset as u64).as_ref(), Some(leaf));
+		}
+		let inserted: Vec<u64> = System::events()
+			.into_iter()
+			.filter_map(|r| match r.event {
+				RuntimeEvent::ZkTree(Event::LeafInserted { index }) => Some(index),
+				_ => None,
+			})
+			.collect();
+		assert_eq!(inserted, (1..7).collect::<Vec<_>>());
+	});
+
+	new_test_ext().execute_with(|| {
+		ZkTree::insert_leaves(leaves);
+		settle();
+		assert_eq!(ZkTree::root(), sequential_root);
+	});
+}
+
 #[test]
 fn tree_grows_multiple_times() {
 	new_test_ext().execute_with(|| {

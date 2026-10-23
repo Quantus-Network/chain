@@ -84,24 +84,38 @@ pub const CIRCUIT_MAX_TREE_DEPTH: u8 = 16;
 /// took only ~1.5s wall clock. Re-measure when touching the hashing code.
 pub const POSEIDON_EVAL_REF_TIME_PS: u64 = 10_000_000;
 
-/// Flat *marginal* `(reads, writes)` charged per [`Pallet::insert_leaf`].
+/// Per-leaf marginal `(reads, writes)` of [`Pallet::insert_leaves`], excluding the
+/// per-call bookkeeping in [`INSERT_BATCH_DB_OPS`].
 ///
-/// Root recomputation is batched: inserts only append (`Leaves`, `LeafCount`,
-/// `UnprocessedLeaves`), and `on_finalize` folds all of a block's leaves into the
-/// tree in one bottom-up pass. In that pass dirty parents are shared, so `n`
-/// leaves touch about `n/4 + n/16 + …` internal nodes — bounded by `n/3` — plus a
-/// depth-dependent tail that is the same no matter how many leaves the block has.
+/// Root recomputation is batched: inserts only append to `Leaves`, and
+/// `on_finalize` folds all of a block's leaves into the tree in one bottom-up
+/// pass. In that pass dirty parents are shared, so `n` leaves touch about
+/// `n/4 + n/16 + …` internal nodes — bounded by `n/3` — plus a depth-dependent tail
+/// that is the same no matter how many leaves the block has.
 ///
 /// The split keeps `price × n` sound for any multi-insert call:
-/// - this constant covers the per-leaf marginal cost: 2 insert-phase reads (`LeafCount`,
-///   `UnprocessedLeaves`) + the finalize-phase `Leaves` read, and 3 insert-phase writes (`Leaves`,
-///   `LeafCount`, `UnprocessedLeaves`) + the amortized `⌈n/3⌉ ≤ n` internal-node writes;
+/// - this constant covers the per-leaf marginal cost: the finalize-phase `Leaves` read, the
+///   insert-phase `Leaves` write and the amortized `⌈n/3⌉ ≤ n` internal-node writes;
 /// - the depth-dependent tail (boundary siblings, the path above the batch, grow bookkeeping) is
 ///   charged once per block by [`FINALIZE_BASE_DB_OPS`], reserved unconditionally in this pallet's
 ///   `on_initialize`.
 ///
 /// Charge together with [`INSERT_LEAF_HASH_REF_TIME_PS`].
-pub const INSERT_LEAF_DB_OPS: (u64, u64) = (3, 4);
+pub const INSERT_LEAF_MARGINAL_DB_OPS: (u64, u64) = (1, 2);
+
+/// Per-call `(reads, writes)` of [`Pallet::insert_leaves`]: `LeafCount` and
+/// `UnprocessedLeaves`, each read and written once however many leaves the call
+/// appends.
+pub const INSERT_BATCH_DB_OPS: (u64, u64) = (2, 2);
+
+/// Flat `(reads, writes)` charged per single-leaf [`Pallet::insert_leaf`]: one
+/// leaf's marginal cost plus one call's bookkeeping. Callers that append `n`
+/// leaves in one [`Pallet::insert_leaves`] call should price
+/// `n × INSERT_LEAF_MARGINAL_DB_OPS + INSERT_BATCH_DB_OPS` instead.
+pub const INSERT_LEAF_DB_OPS: (u64, u64) = (
+	INSERT_LEAF_MARGINAL_DB_OPS.0 + INSERT_BATCH_DB_OPS.0,
+	INSERT_LEAF_MARGINAL_DB_OPS.1 + INSERT_BATCH_DB_OPS.1,
+);
 
 /// Marginal Poseidon evaluations per insert: one `hash_leaf` in the finalize
 /// batch (the insert itself hashes nothing — the `LeafInserted` event carries
@@ -331,16 +345,32 @@ pub mod pallet {
 			asset_id: T::AssetId,
 			amount: T::Balance,
 		) -> u64 {
-			let leaf = ZkLeaf { to, transfer_count, asset_id, amount };
-			let leaf_index = LeafCount::<T>::get();
+			Self::insert_leaves(alloc::vec![ZkLeaf { to, transfer_count, asset_id, amount }])
+		}
 
-			Leaves::<T>::insert(leaf_index, leaf);
-			LeafCount::<T>::put(leaf_index + 1);
-			UnprocessedLeaves::<T>::mutate(|pending| *pending = pending.saturating_add(1));
+		/// Append `leaves` to the tree as one contiguous run, touching `LeafCount`
+		/// and `UnprocessedLeaves` once rather than once per leaf.
+		///
+		/// Returns the index of the first appended leaf; leaf `i` of the input
+		/// lands at `first + i`. An empty input appends nothing and returns the
+		/// current leaf count. Priced per leaf by [`INSERT_LEAF_MARGINAL_DB_OPS`]
+		/// plus [`INSERT_BATCH_DB_OPS`] once per call.
+		pub fn insert_leaves(leaves: Vec<ZkLeaf<AccountIdOf<T>, T::AssetId, T::Balance>>) -> u64 {
+			let first = LeafCount::<T>::get();
+			let count = leaves.len() as u64;
+			if count == 0 {
+				return first;
+			}
 
-			Self::deposit_event(Event::LeafInserted { index: leaf_index });
+			for (offset, leaf) in leaves.into_iter().enumerate() {
+				let index = first.saturating_add(offset as u64);
+				Leaves::<T>::insert(index, leaf);
+				Self::deposit_event(Event::LeafInserted { index });
+			}
+			LeafCount::<T>::put(first.saturating_add(count));
+			UnprocessedLeaves::<T>::mutate(|pending| *pending = pending.saturating_add(count));
 
-			leaf_index
+			first
 		}
 
 		/// Fold all leaves appended since the last call into `Nodes` and `Root`.
@@ -434,6 +464,12 @@ pub trait ZkTreeRecorder<AccountId, AssetId, Balance> {
 		asset_id: AssetId,
 		amount: Balance,
 	) -> u64;
+
+	/// Insert a run of transfers into the ZK tree in one append.
+	///
+	/// Returns the leaf index of the first transfer; transfer `i` of the input
+	/// lands at `first + i`. Infallible, like [`Self::record_transfer`].
+	fn record_transfers(transfers: Vec<(AccountId, u64, AssetId, Balance)>) -> u64;
 }
 
 /// No-op implementation for when ZK tree is not configured.
@@ -446,6 +482,10 @@ impl<AccountId, AssetId, Balance> ZkTreeRecorder<AccountId, AssetId, Balance> fo
 	) -> u64 {
 		0 // No-op returns 0
 	}
+
+	fn record_transfers(_transfers: Vec<(AccountId, u64, AssetId, Balance)>) -> u64 {
+		0
+	}
 }
 
 impl<T: Config> ZkTreeRecorder<T::AccountId, T::AssetId, T::Balance> for Pallet<T> {
@@ -456,6 +496,20 @@ impl<T: Config> ZkTreeRecorder<T::AccountId, T::AssetId, T::Balance> for Pallet<
 		amount: T::Balance,
 	) -> u64 {
 		Self::insert_leaf(to, transfer_count, asset_id, amount)
+	}
+
+	fn record_transfers(transfers: Vec<(T::AccountId, u64, T::AssetId, T::Balance)>) -> u64 {
+		Self::insert_leaves(
+			transfers
+				.into_iter()
+				.map(|(to, transfer_count, asset_id, amount)| ZkLeaf {
+					to,
+					transfer_count,
+					asset_id,
+					amount,
+				})
+				.collect(),
+		)
 	}
 }
 

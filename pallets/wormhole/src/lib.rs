@@ -779,6 +779,9 @@ pub mod pallet {
 
 			// Get the minting account for recording transfer proofs
 			let mint_account = T::MintingAccount::get();
+			// Every credit in this settlement (exits, aggregator rebate, miner fee)
+			// queues its leaf here; one tree append at the end.
+			let mut batch = TransferBatch::<T>::new();
 
 			let mut nullifier_list = Vec::<[u8; 32]>::new();
 			let mut denied_segments = Vec::<u32>::new();
@@ -861,7 +864,12 @@ pub mod pallet {
 			for (seg_idx, exit_account, exit_balance) in &processed_accounts {
 				// Skip failed credits (e.g. below ED); nullifier already marked, value
 				// excluded from fee settlement / event.
-				match Self::credit_and_record(exit_account, *exit_balance, &mint_account) {
+				match Self::credit_and_record(
+					exit_account,
+					*exit_balance,
+					&mint_account,
+					&mut batch,
+				) {
 					Ok(_) => {},
 					Err(e) => {
 						log::warn!(
@@ -946,6 +954,7 @@ pub mod pallet {
 						&aggregator_account,
 						rebate_quanta,
 						&mint_account,
+						&mut batch,
 					)?
 					.is_some()
 					{
@@ -966,8 +975,12 @@ pub mod pallet {
 				>(digest.logs.iter())
 				{
 					Some(author) => {
-						let credited =
-							Self::try_credit_fee_quanta(&author, miner_quanta, &mint_account)?;
+						let credited = Self::try_credit_fee_quanta(
+							&author,
+							miner_quanta,
+							&mint_account,
+							&mut batch,
+						)?;
 						if let Some(amount) = credited {
 							extra_leaf_inserts = extra_leaf_inserts.saturating_add(1);
 							Self::deposit_event(Event::MinerVolumeFeePaid {
@@ -1002,6 +1015,8 @@ pub mod pallet {
 					current.saturating_sub(burn_amount),
 				);
 			}
+
+			batch.flush();
 
 			// Declaration is worst-case; report actual work so unused block quota
 			// is reclaimed. `Pays::No` — this is not a user fee refund. Nullifier
@@ -1300,13 +1315,14 @@ pub mod pallet {
 			to: &<T as frame_system::Config>::AccountId,
 			quanta: u128,
 			mint_account: &<T as frame_system::Config>::AccountId,
+			batch: &mut TransferBatch<T>,
 		) -> Result<Option<BalanceOf<T>>, Error<T>> {
 			let amount: BalanceOf<T> =
 				quanta.saturating_mul(crate::SCALE_DOWN_FACTOR).try_into().map_err(|_| {
 					log::error!("Failed to convert fee credit to BalanceOf");
 					Error::<T>::InvalidProofPublicInputs
 				})?;
-			match Self::credit_and_record(to, amount, mint_account) {
+			match Self::credit_and_record(to, amount, mint_account, batch) {
 				Ok(_) => Ok(Some(amount)),
 				Err(e) => {
 					log::warn!(
@@ -1320,8 +1336,9 @@ pub mod pallet {
 			}
 		}
 
-		/// Credit `amount` to `to` via event-free `increase_balance` and insert a
-		/// zk-tree leaf so the credit is exitable.
+		/// Credit `amount` to `to` via event-free `increase_balance` and queue a
+		/// zk-tree leaf in `batch` so the credit is exitable once the batch is
+		/// flushed.
 		///
 		/// Must stay paired: wormhole-derived accounts have no signing key, so a
 		/// balance without a leaf is permanently frozen. Must stay
@@ -1339,6 +1356,7 @@ pub mod pallet {
 			to: &<T as frame_system::Config>::AccountId,
 			amount: BalanceOf<T>,
 			mint_account: &<T as frame_system::Config>::AccountId,
+			batch: &mut TransferBatch<T>,
 		) -> Result<BalanceOf<T>, DispatchError> {
 			let amount_u128: u128 = amount.try_into().map_err(|_| TokenError::BelowMinimum)?;
 			ensure!(
@@ -1352,7 +1370,7 @@ pub mod pallet {
 			)?;
 			let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
 			let to_account: <T as Config>::WormholeAccountId = to.clone().into();
-			Self::record_transfer(T::AssetId::default(), &from_account, &to_account, amount);
+			batch.record(T::AssetId::default(), &from_account, &to_account, amount);
 			Ok(credited)
 		}
 
@@ -1369,6 +1387,50 @@ pub mod pallet {
 			to: &<T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
 		) {
+			let mut batch = TransferBatch::<T>::new();
+			batch.record(asset_id, from, to, amount);
+			batch.flush();
+		}
+	}
+
+	/// Transfers whose ZK-tree leaves are appended in one
+	/// [`ZkTreeRecorder::record_transfers`] call.
+	///
+	/// [`Self::record`] bumps the recipient's `TransferCount` immediately, so
+	/// later records in the same batch see it; the leaf inserts and the
+	/// `*Transferred` events wait for [`Self::flush`], which assigns the
+	/// consecutive leaf indices. A settlement with hundreds of exits thus pays
+	/// the tree's per-call bookkeeping once instead of once per exit.
+	pub(crate) struct TransferBatch<T: Config> {
+		leaves: Vec<PendingLeaf<T>>,
+		events: Vec<PendingTransfer<T>>,
+	}
+
+	/// `(to, transfer_count, asset_id, amount)` as the ZK tree takes it.
+	type PendingLeaf<T> =
+		(<T as frame_system::Config>::AccountId, u64, <T as Config>::AssetId, BalanceOf<T>);
+
+	struct PendingTransfer<T: Config> {
+		asset_id: T::AssetId,
+		from: <T as Config>::WormholeAccountId,
+		to: <T as Config>::WormholeAccountId,
+		amount: BalanceOf<T>,
+		transfer_count: T::TransferCount,
+	}
+
+	impl<T: Config> TransferBatch<T> {
+		pub(crate) fn new() -> Self {
+			Self { leaves: Vec::new(), events: Vec::new() }
+		}
+
+		/// Advance `to`'s transfer count and queue the leaf and event.
+		pub(crate) fn record(
+			&mut self,
+			asset_id: T::AssetId,
+			from: &<T as Config>::WormholeAccountId,
+			to: &<T as Config>::WormholeAccountId,
+			amount: BalanceOf<T>,
+		) {
 			// The ZK leaf commits to the recipient through a lossy encoding that reduces
 			// each 8-byte limb mod the Goldilocks prime, so a recipient and its
 			// non-canonical byte aliases encode identically. Key the transfer count and
@@ -1377,44 +1439,58 @@ pub mod pallet {
 			// its own count at 0 and could commit to the same leaf (and thus the same
 			// `H(secret, transfer_count)` nullifier) as a canonical deposit, leaving one
 			// of the two permanently unexitable.
-			let leaf_to = Self::canonical_leaf_recipient(to);
+			let leaf_to = Pallet::<T>::canonical_leaf_recipient(to);
 			let current_count = TransferCount::<T>::get(&leaf_to);
-
-			// Increment transfer count for this recipient
 			TransferCount::<T>::insert(
 				&leaf_to,
 				current_count.saturating_add(T::TransferCount::one()),
 			);
 
-			// Insert into ZK tree for Merkle proof generation
-			// Returns the leaf index for clients to use when fetching proofs
-			let leaf_index = T::ZkTree::record_transfer(
-				leaf_to.into(),
-				current_count.into(),
-				asset_id.clone(),
+			self.leaves
+				.push((leaf_to.into(), current_count.into(), asset_id.clone(), amount));
+			self.events.push(PendingTransfer {
+				asset_id,
+				from: from.clone(),
+				to: to.clone(),
 				amount,
-			);
+				transfer_count: current_count,
+			});
+		}
 
-			if asset_id == T::AssetId::default() {
-				Self::deposit_event(Event::<T>::NativeTransferred {
-					from: from.clone().into(),
-					to: to.clone().into(),
-					amount,
-					transfer_count: current_count,
-					leaf_index,
-				});
-			} else {
-				Self::deposit_event(Event::<T>::AssetTransferred {
-					from: from.clone().into(),
-					to: to.clone().into(),
-					asset_id,
-					amount: amount.into(),
-					transfer_count: current_count,
-					leaf_index,
-				});
+		/// Append every queued leaf to the ZK tree and emit the transfer events,
+		/// each carrying the `leaf_index` clients pass to
+		/// `zkTree_getMerkleProof`.
+		pub(crate) fn flush(self) {
+			if self.leaves.is_empty() {
+				return;
+			}
+			let first = T::ZkTree::record_transfers(self.leaves);
+			for (offset, pending) in self.events.into_iter().enumerate() {
+				let leaf_index = first.saturating_add(offset as u64);
+				let PendingTransfer { asset_id, from, to, amount, transfer_count } = pending;
+				if asset_id == T::AssetId::default() {
+					Pallet::<T>::deposit_event(Event::<T>::NativeTransferred {
+						from: from.into(),
+						to: to.into(),
+						amount,
+						transfer_count,
+						leaf_index,
+					});
+				} else {
+					Pallet::<T>::deposit_event(Event::<T>::AssetTransferred {
+						from: from.into(),
+						to: to.into(),
+						asset_id,
+						amount: amount.into(),
+						transfer_count,
+						leaf_index,
+					});
+				}
 			}
 		}
 	}
+
+	impl<T: Config> Pallet<T> {}
 
 	// Implement the TransferProofRecorder trait for other pallets to use
 	impl<T: Config>
