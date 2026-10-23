@@ -240,7 +240,12 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 				);
 				DatabaseSource::ParityDb { path: paritydb_path }
 			},
-			Database::Auto => DatabaseSource::Auto { paritydb_path, rocksdb_path, cache_size },
+			// Resolved here rather than left as `DatabaseSource::Auto` so the startup banner
+			// and every subcommand see the backend actually in use.
+			#[cfg(feature = "rocksdb")]
+			Database::Auto if rocksdb_path.exists() =>
+				DatabaseSource::RocksDb { path: rocksdb_path, cache_size },
+			Database::Auto => DatabaseSource::ParityDb { path: paritydb_path },
 		})
 	}
 
@@ -490,16 +495,9 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		let net_config_dir = build_net_config_dir(&config_dir);
 		let client_id = C::client_id();
 		let database_cache_size = self.database_cache_size()?.unwrap_or(1024);
-		let database = self.database()?.unwrap_or(
-			#[cfg(feature = "rocksdb")]
-			{
-				Database::RocksDb
-			},
-			#[cfg(not(feature = "rocksdb"))]
-			{
-				Database::ParityDb
-			},
-		);
+		// ParityDb is the backend the runtime's `DbWeight` is priced for. `Auto` keeps an
+		// existing RocksDB database rather than silently starting a fresh ParityDb next to it.
+		let database = self.database()?.unwrap_or(Database::Auto);
 		let node_key = self.node_key(&net_config_dir)?;
 		let role = self.role(is_dev)?;
 		let max_runtime_instances = self.max_runtime_instances()?.unwrap_or(8);

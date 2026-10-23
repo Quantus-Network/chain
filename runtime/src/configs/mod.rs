@@ -41,7 +41,7 @@ use frame_support::{
 		NeverEnsureOrigin, VariantCountOf,
 	},
 	weights::{
-		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
+		constants::{ParityDbWeight, WEIGHT_REF_TIME_PER_SECOND},
 		Weight, WeightToFeeCoefficient, WeightToFeeCoefficients, WeightToFeePolynomial,
 	},
 	PalletId,
@@ -123,7 +123,11 @@ impl frame_system::Config for Runtime {
 	/// Maximum number of block number to block hash mappings to keep (oldest pruned first).
 	type BlockHashCount = BlockHashCount;
 	/// The weight of database operations that the runtime can invoke.
-	type DbWeight = RocksDbWeight;
+	///
+	/// Priced for ParityDb, the node's default backend. A node still on RocksDB imports
+	/// DB-heavy blocks slower than their weight claims and should migrate
+	/// (`export-blocks`, then `import-blocks --database paritydb`).
+	type DbWeight = ParityDbWeight;
 	/// Version of the runtime.
 	type Version = Version;
 	/// The data to be stored in an account.

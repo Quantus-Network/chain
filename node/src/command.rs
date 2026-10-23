@@ -19,7 +19,7 @@ use quantus_runtime::EXISTENTIAL_DEPOSIT;
 use rand::Rng;
 use sc_cli::SubstrateCli;
 use sc_network::config::{NodeKeyConfig, Secret};
-use sc_service::{BlocksPruning, PartialComponents, PruningMode};
+use sc_service::{BlocksPruning, Configuration, DatabaseSource, PartialComponents, PruningMode};
 use sp_core::{
 	crypto::{AccountId32, Ss58AddressFormat, Ss58Codec},
 	Pair, H256,
@@ -328,6 +328,20 @@ impl SubstrateCli for Cli {
 	}
 }
 
+/// The runtime's `DbWeight` is priced for ParityDb; a RocksDB node imports DB-heavy
+/// blocks slower than their weight claims.
+fn warn_if_rocksdb(config: &Configuration) {
+	if let DatabaseSource::RocksDb { path, .. } = &config.database {
+		log::warn!(
+			"Running on RocksDB at {}. This chain's weights assume ParityDb, which is \
+			 several times faster for state access; block import will be slower than \
+			 priced. Migrate with `export-blocks`, then `import-blocks --database paritydb` \
+			 into a fresh base path.",
+			path.display()
+		);
+	}
+}
+
 /// Parse and run command line arguments
 #[allow(clippy::result_large_err)]
 pub fn run() -> sc_cli::Result<()> {
@@ -565,6 +579,7 @@ pub fn run() -> sc_cli::Result<()> {
 			log::info!("Run until exit ....");
 			let runner = cli.create_runner(&cli.run)?;
 			runner.run_node_until_exit(|mut config| async move {
+				warn_if_rocksdb(&config);
 				//Obligatory configuration for all node holders
 				config.blocks_pruning = BlocksPruning::KeepFinalized;
 				config.state_pruning = Some(PruningMode::ArchiveCanonical);
