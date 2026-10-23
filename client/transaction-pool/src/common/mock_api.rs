@@ -25,26 +25,31 @@ use crate::{
 };
 use async_trait::async_trait;
 use codec::Encode;
+use parking_lot::Mutex;
 use sc_transaction_pool_api::error::Error as TxPoolApiError;
-use sp_blockchain::TreeRoute;
+use sp_blockchain::{HashAndNumber, TreeRoute};
 use sp_core::H256;
 use sp_runtime::{
 	generic::BlockId,
-	traits::{BlakeTwo256, Block as BlockT, Hash as _},
+	testing::MockCallU64,
+	traits::{BlakeTwo256, Block as BlockT, Hash as _, Header as _},
 	transaction_validity::{
 		InvalidTransaction, TransactionSource, TransactionValidity, ValidTransaction,
 	},
 };
 use std::{
+	collections::{HashMap, HashSet},
 	sync::atomic::{AtomicUsize, Ordering},
 	time::Duration,
 };
 
 /// Extrinsic type used with [`MockChainApi`].
-pub(crate) type Extrinsic = sp_runtime::testing::TestXt<sp_runtime::testing::MockCallU64, ()>;
+pub(crate) type Extrinsic = sp_runtime::testing::TestXt<MockCallU64, ()>;
 
 /// Block type used with [`MockChainApi`].
 pub(crate) type TestBlock = sp_runtime::testing::Block<Extrinsic>;
+
+type Header = <TestBlock as BlockT>::Header;
 
 /// Transactions with a call value at or above this threshold are reported as invalid by
 /// [`MockChainApi`].
@@ -52,7 +57,12 @@ pub(crate) const INVALID_CALL_THRESHOLD: u64 = 1000;
 
 /// Creates a test extrinsic with the given call value.
 pub(crate) fn xt(value: u64) -> Extrinsic {
-	Extrinsic::new_bare(sp_runtime::testing::MockCallU64(value))
+	Extrinsic::new_bare(MockCallU64(value))
+}
+
+/// Creates a distinct extrinsic for the same call value, so two of them share a `provides` tag.
+pub(crate) fn signed_xt(value: u64, signer: u64) -> Extrinsic {
+	Extrinsic::new_signed(MockCallU64(value), signer, (), ())
 }
 
 /// Minimal `ChainApi` mock: treats every block id as existing and validates transactions
@@ -63,6 +73,10 @@ pub(crate) struct MockChainApi {
 	validation_count: AtomicUsize,
 	/// Optional artificial delay applied inside `validate_transaction`.
 	validation_delay: Option<Duration>,
+	/// Transactions that fail validation as `Stale`.
+	invalidated: Mutex<HashSet<H256>>,
+	/// Known blocks: hash to parent hash and body.
+	blocks: Mutex<HashMap<H256, (H256, Vec<Extrinsic>)>>,
 }
 
 impl MockChainApi {
@@ -74,6 +88,35 @@ impl MockChainApi {
 	/// Returns the number of performed `validate_transaction` calls.
 	pub(crate) fn validation_count(&self) -> usize {
 		self.validation_count.load(Ordering::Relaxed)
+	}
+
+	/// Makes every later validation of the transaction fail as `Stale`.
+	pub(crate) fn invalidate(&self, hash: H256) {
+		self.invalidated.lock().insert(hash);
+	}
+
+	/// Registers a block so `block_body` and `block_header` know it.
+	pub(crate) fn add_block(&self, block: H256, parent: H256, body: Vec<Extrinsic>) {
+		self.blocks.lock().insert(block, (parent, body));
+	}
+
+	/// Registers the fork `G - R1[txs[0]] - R2[txs[1]] - R3[txs[2]] - R4[txs[3]]` and the empty
+	/// competing fork `G - E1 - E2 - E3 - E4`. Returns the retracted transactions in execution
+	/// order together with the tips `R4` and `E4`.
+	pub(crate) fn interleaved_reorg(&self) -> ([Extrinsic; 4], H256, H256) {
+		let txs = [xt(1), xt(2), xt(3), xt(4)];
+		let add_fork = |numbers: std::ops::RangeInclusive<u64>, bodies: Vec<Vec<Extrinsic>>| {
+			numbers.map(H256::from_low_u64_be).zip(bodies).fold(
+				H256::from_low_u64_be(0),
+				|parent, (block, body)| {
+					self.add_block(block, parent, body);
+					block
+				},
+			)
+		};
+		let old_tip = add_fork(1..=4, txs.iter().map(|tx| vec![tx.clone()]).collect());
+		let new_tip = add_fork(11..=14, vec![vec![]; 4]);
+		(txs, old_tip, new_tip)
 	}
 }
 
@@ -93,6 +136,9 @@ impl graph::ChainApi for MockChainApi {
 			tokio::time::sleep(delay).await;
 		}
 		self.validation_count.fetch_add(1, Ordering::Relaxed);
+		if self.invalidated.lock().contains(&self.hash_and_length(&uxt).0) {
+			return Ok(Err(InvalidTransaction::Stale.into()))
+		}
 		let value = uxt.function.0;
 		Ok(if value >= INVALID_CALL_THRESHOLD {
 			Err(InvalidTransaction::Custom(0).into())
@@ -143,23 +189,50 @@ impl graph::ChainApi for MockChainApi {
 
 	async fn block_body(
 		&self,
-		_at: <Self::Block as BlockT>::Hash,
+		at: <Self::Block as BlockT>::Hash,
 	) -> Result<Option<Vec<<Self::Block as BlockT>::Extrinsic>>, Self::Error> {
-		Ok(None)
+		Ok(self.blocks.lock().get(&at).map(|(_, body)| body.clone()))
 	}
 
 	fn block_header(
 		&self,
-		_at: <Self::Block as BlockT>::Hash,
+		at: <Self::Block as BlockT>::Hash,
 	) -> Result<Option<<Self::Block as BlockT>::Header>, Self::Error> {
-		Ok(None)
+		Ok(self.blocks.lock().get(&at).map(|(parent, _)| {
+			Header::new(
+				at.to_low_u64_be(),
+				Default::default(),
+				Default::default(),
+				*parent,
+				Default::default(),
+			)
+		}))
 	}
 
 	fn tree_route(
 		&self,
-		_from: <Self::Block as BlockT>::Hash,
-		_to: <Self::Block as BlockT>::Hash,
+		from: <Self::Block as BlockT>::Hash,
+		to: <Self::Block as BlockT>::Hash,
 	) -> Result<TreeRoute<Self::Block>, Self::Error> {
-		unimplemented!()
+		let blocks = self.blocks.lock();
+		let ancestry = |mut hash: H256| {
+			let mut path = vec![hash];
+			while let Some((parent, _)) = blocks.get(&hash) {
+				hash = *parent;
+				path.push(hash);
+			}
+			path
+		};
+		let (from_path, to_path) = (ancestry(from), ancestry(to));
+		let pivot = from_path.iter().position(|hash| to_path.contains(hash)).ok_or_else(|| {
+			TxPoolApiError::InvalidBlockId(format!("{from:?} and {to:?} have no common ancestor"))
+		})?;
+		let enacted = to_path.iter().take_while(|hash| **hash != from_path[pivot]).count();
+		let route = from_path[..=pivot]
+			.iter()
+			.chain(to_path[..enacted].iter().rev())
+			.map(|hash| HashAndNumber { hash: *hash, number: hash.to_low_u64_be() })
+			.collect();
+		TreeRoute::new(route, pivot).map_err(TxPoolApiError::InvalidBlockId)
 	}
 }

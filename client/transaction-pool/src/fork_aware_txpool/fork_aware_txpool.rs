@@ -1746,7 +1746,7 @@ where
 		{
 			let mut resubmit_transactions = Vec::new();
 
-			for retracted in tree_route.retracted() {
+			for retracted in tree_route.retracted().iter().rev() {
 				let hash = retracted.hash;
 
 				let block_transactions = api
@@ -2273,17 +2273,21 @@ mod reduce_multiview_result_tests {
 }
 
 #[cfg(test)]
-mod submission_metrics_tests {
+mod tests {
 	use super::*;
-	use crate::common::mock_api::{xt, MockChainApi, TestBlock, INVALID_CALL_THRESHOLD};
+	use crate::common::{
+		mock_api::{xt, MockChainApi, TestBlock, INVALID_CALL_THRESHOLD},
+		pool_scenarios,
+	};
 	use sp_core::H256;
 
-	fn test_pool() -> ForkAwareTxPool<MockChainApi, TestBlock> {
+	fn test_pool() -> (ForkAwareTxPool<MockChainApi, TestBlock>, Arc<MockChainApi>) {
+		let api = Arc::new(MockChainApi::default());
 		let genesis = H256::from_low_u64_be(0);
 		let (pool, [combined_task, _mempool_task]) =
-			ForkAwareTxPool::new_test(Arc::new(MockChainApi::default()), genesis, genesis, None);
+			ForkAwareTxPool::new_test(api.clone(), genesis, genesis, None);
 		tokio::spawn(combined_task);
-		pool
+		(pool, api)
 	}
 
 	/// A transaction which is accepted by the mempool but rejected during the view
@@ -2292,7 +2296,7 @@ mod submission_metrics_tests {
 	/// invalid transactions.
 	#[tokio::test]
 	async fn transaction_rejected_by_view_is_removed_from_event_metrics() {
-		let pool = test_pool();
+		let (pool, _) = test_pool();
 		let genesis = H256::from_low_u64_be(0);
 
 		// Control check: a valid transaction shall be tracked by the collector.
@@ -2315,7 +2319,7 @@ mod submission_metrics_tests {
 	/// Same as above, for the watched (`submit_and_watch`) submission path.
 	#[tokio::test]
 	async fn watched_transaction_rejected_by_view_is_removed_from_event_metrics() {
-		let pool = test_pool();
+		let (pool, _) = test_pool();
 		let genesis = H256::from_low_u64_be(0);
 
 		let result = pool
@@ -2323,5 +2327,23 @@ mod submission_metrics_tests {
 			.await;
 		assert!(result.is_err());
 		assert_eq!(pool.events_metrics_collector.tracked_txs_count().await, 0);
+	}
+
+	#[tokio::test]
+	async fn replaced_transaction_ends_invalid() {
+		let (pool, api) = test_pool();
+		pool_scenarios::replaced_transaction_ends_invalid(&pool, &api).await;
+	}
+
+	#[tokio::test]
+	async fn retracted_transactions_keep_execution_order() {
+		let (pool, api) = test_pool();
+		pool_scenarios::retracted_transactions_keep_execution_order(&pool, &api).await;
+	}
+
+	#[tokio::test]
+	async fn block_transactions_report_body_positions() {
+		let (pool, api) = test_pool();
+		pool_scenarios::block_transactions_report_body_positions(&pool, &api).await;
 	}
 }

@@ -679,21 +679,33 @@ impl<B: ChainApi, L: EventHandler<B>> ValidatedPool<B, L> {
 	) {
 		debug_assert_eq!(pruned_hashes.len(), pruned_xts.len());
 
-		// Resubmit pruned transactions
+		// Resubmit pruned transactions back to the pool. Tag-based pruning may over-prune
+		// (removing dependents in the subtree), so still-valid collateral txs need to be
+		// re-added. In the fork-aware pool this is likely redundant — `update_view_with_mempool`
+		// resubmits everything from the mempool right after pruning — and could be removed in
+		// the future.
 		let results = self.submit(pruned_xts);
 
-		// Collect the hashes of transactions that now became invalid (meaning that they are
-		// successfully pruned).
-		let hashes = results.into_iter().enumerate().filter_map(|(idx, r)| {
-			match r.map_err(error::IntoPoolError::into_pool_error) {
-				Err(Ok(error::Error::InvalidTransaction(_))) => Some(pruned_hashes[idx]),
-				_ => None,
+		let known_imported: HashSet<_> = known_imported_hashes.clone().into_iter().collect();
+
+		// Pruned transactions that failed revalidation and are absent from the block body have
+		// left the pool for good; `submit` only bans them, so notify their watchers here.
+		{
+			let mut event_dispatcher = self.event_dispatcher.write();
+			for (result, hash) in results.into_iter().zip(pruned_hashes) {
+				let invalid = matches!(
+					result.map_err(error::IntoPoolError::into_pool_error),
+					Err(Ok(error::Error::InvalidTransaction(_)))
+				);
+				if invalid && !known_imported.contains(&hash) {
+					event_dispatcher.invalid(&hash);
+				}
 			}
-		});
-		// Fire `pruned` notifications for collected hashes and make sure to include
-		// `known_imported_hashes` since they were just imported as part of the block.
-		let hashes = hashes.chain(known_imported_hashes.into_iter());
-		self.fire_pruned(at, hashes);
+		}
+
+		// Fire `pruned` (InBlock) notifications only for `known_imported_hashes` — the
+		// hashes of extrinsics actually present in the imported block body.
+		self.fire_pruned(at, known_imported_hashes.into_iter());
 
 		// perform regular cleanup of old transactions in the pool
 		// and update temporary bans.
@@ -919,11 +931,14 @@ fn fire_events<B, L, Ex>(
 }
 
 #[cfg(test)]
-mod watcher_reclaim_tests {
+mod tests {
 	use super::*;
 	use crate::common::mock_api::{xt, MockChainApi};
 	use codec::Encode;
-	use sc_transaction_pool_api::error::Error as TxPoolError;
+	use futures::executor::block_on_stream;
+	use sc_transaction_pool_api::{error::Error as TxPoolError, TransactionStatus};
+	use sp_core::H256;
+	use sp_runtime::transaction_validity::InvalidTransaction;
 
 	fn pool() -> ValidatedPool<MockChainApi, ()> {
 		ValidatedPool::new(Options::default(), true.into(), Arc::new(MockChainApi::default()))
@@ -1009,5 +1024,48 @@ mod watcher_reclaim_tests {
 			.unwrap();
 		assert!(outcome.take_watcher().is_some());
 		assert_eq!(pool.watched_transactions().len(), 1);
+	}
+
+	/// A pruned transaction that fails revalidation and is absent from the block body has left
+	/// the pool for good: its watcher must end with `Invalid`, while transactions from the block
+	/// body get `InBlock` only.
+	#[test]
+	fn resubmit_pruned_reports_invalid_for_failed_transactions_absent_from_block() {
+		let pool = pool();
+		let api = pool.api();
+		let hash_of = |value| api.hash_and_length(&xt(value)).0;
+		let (in_block_hash, stale_hash) = (hash_of(1), hash_of(2));
+		let [in_block_watcher, stale_watcher] = [1u64, 2].map(|value| {
+			pool.submit_and_watch(valid_tx(api, value, 10, value.encode()))
+				.map_err(|e| e.to_string())
+				.unwrap()
+				.take_watcher()
+				.expect("watched submission returns a watcher")
+				.into_stream()
+		});
+		let at = HashAndNumber { hash: H256::from_low_u64_be(1), number: 1 };
+
+		pool.prune_tags(vec![1u64.encode(), 2u64.encode()]);
+		pool.resubmit_pruned(
+			&at,
+			vec![in_block_hash],
+			vec![in_block_hash, stale_hash],
+			vec![
+				ValidatedTransaction::Invalid(in_block_hash, TxPoolError::TemporarilyBanned),
+				ValidatedTransaction::Invalid(
+					stale_hash,
+					TxPoolError::InvalidTransaction(InvalidTransaction::Stale),
+				),
+			],
+		);
+
+		assert_eq!(pool.watched_transactions(), vec![in_block_hash]);
+		let mut in_block_events = block_on_stream(in_block_watcher);
+		assert_eq!(in_block_events.next(), Some(TransactionStatus::Ready));
+		assert_eq!(in_block_events.next(), Some(TransactionStatus::InBlock((at.hash, 0))));
+		assert_eq!(
+			block_on_stream(stale_watcher).collect::<Vec<_>>(),
+			vec![TransactionStatus::Ready, TransactionStatus::Invalid]
+		);
 	}
 }

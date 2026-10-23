@@ -746,7 +746,7 @@ where
 		if next_action.resubmit {
 			let mut resubmit_transactions = Vec::new();
 
-			for retracted in tree_route.retracted() {
+			for retracted in tree_route.retracted().iter().rev() {
 				let hash = retracted.hash;
 
 				let block_transactions = api
@@ -873,19 +873,20 @@ where
 }
 
 #[cfg(test)]
-mod batch_admission_tests {
+mod tests {
 	use super::*;
-	use crate::common::mock_api::{xt, MockChainApi, TestBlock};
+	use crate::common::{
+		mock_api::{xt, MockChainApi, TestBlock},
+		pool_scenarios,
+	};
 	use codec::Encode;
 	use sp_core::H256;
 
 	fn test_pool(
-		ready: graph::base_pool::Limit,
-		future: graph::base_pool::Limit,
+		options: graph::Options,
 	) -> (BasicPool<MockChainApi, TestBlock>, Arc<MockChainApi>) {
 		let api = Arc::new(MockChainApi::default());
 		let genesis = H256::from_low_u64_be(0);
-		let options = graph::Options { ready, future, ..Default::default() };
 		let (pool, background_task) = BasicPool::new_test(api.clone(), genesis, genesis, options);
 		tokio::spawn(background_task);
 		(pool, api)
@@ -897,10 +898,11 @@ mod batch_admission_tests {
 	/// validation and retain arbitrarily large batches in memory before pool limits engage.
 	#[tokio::test]
 	async fn oversized_batch_count_is_capped_before_validation() {
-		let (pool, api) = test_pool(
-			graph::base_pool::Limit { count: 4, total_bytes: 1024 * 1024 },
-			graph::base_pool::Limit { count: 4, total_bytes: 1024 * 1024 },
-		);
+		let (pool, api) = test_pool(graph::Options {
+			ready: graph::base_pool::Limit { count: 4, total_bytes: 1024 * 1024 },
+			future: graph::base_pool::Limit { count: 4, total_bytes: 1024 * 1024 },
+			..Default::default()
+		});
 		let genesis = H256::from_low_u64_be(0);
 
 		let batch = (0..100).map(xt).collect::<Vec<_>>();
@@ -928,10 +930,11 @@ mod batch_admission_tests {
 	async fn oversized_batch_bytes_is_capped_before_validation() {
 		let tx_bytes = xt(0).encoded_size();
 		// Byte budget fits 4 transactions in total (2 ready + 2 future), counts are large.
-		let (pool, api) = test_pool(
-			graph::base_pool::Limit { count: 1024, total_bytes: 2 * tx_bytes },
-			graph::base_pool::Limit { count: 1024, total_bytes: 2 * tx_bytes },
-		);
+		let (pool, api) = test_pool(graph::Options {
+			ready: graph::base_pool::Limit { count: 1024, total_bytes: 2 * tx_bytes },
+			future: graph::base_pool::Limit { count: 1024, total_bytes: 2 * tx_bytes },
+			..Default::default()
+		});
 		let genesis = H256::from_low_u64_be(0);
 
 		let batch = (0..50).map(xt).collect::<Vec<_>>();
@@ -949,5 +952,23 @@ mod batch_admission_tests {
 		for result in &results[4..] {
 			assert!(matches!(result, Err(TxPoolError::ImmediatelyDropped)));
 		}
+	}
+
+	#[tokio::test]
+	async fn replaced_transaction_ends_invalid() {
+		let (pool, api) = test_pool(Default::default());
+		pool_scenarios::replaced_transaction_ends_invalid(&pool, &api).await;
+	}
+
+	#[tokio::test]
+	async fn retracted_transactions_keep_execution_order() {
+		let (pool, api) = test_pool(Default::default());
+		pool_scenarios::retracted_transactions_keep_execution_order(&pool, &api).await;
+	}
+
+	#[tokio::test]
+	async fn block_transactions_report_body_positions() {
+		let (pool, api) = test_pool(Default::default());
+		pool_scenarios::block_transactions_report_body_positions(&pool, &api).await;
 	}
 }

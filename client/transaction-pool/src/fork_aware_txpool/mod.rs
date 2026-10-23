@@ -380,6 +380,9 @@ mod tx_mem_pool;
 mod view;
 mod view_store;
 
+#[cfg(test)]
+pub(crate) use tx_mem_pool::TXMEMPOOL_REVALIDATION_PERIOD;
+
 pub use fork_aware_txpool::{ForkAwareTxPool, ForkAwareTxPoolTask};
 
 mod stream_map_util {

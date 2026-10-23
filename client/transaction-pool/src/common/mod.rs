@@ -24,6 +24,8 @@ pub(crate) mod error;
 pub(crate) mod metrics;
 #[cfg(test)]
 pub(crate) mod mock_api;
+#[cfg(test)]
+pub(crate) mod pool_scenarios;
 pub(crate) mod sliding_stat;
 #[cfg(all(test, feature = "test-helpers"))]
 pub(crate) mod tests;
