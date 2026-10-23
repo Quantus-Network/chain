@@ -125,8 +125,8 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	///
 	/// Priced for ParityDb, the node's default backend. A node still on RocksDB imports
-	/// DB-heavy blocks slower than their weight claims and should migrate
-	/// (`export-blocks`, then `import-blocks --database paritydb`).
+	/// DB-heavy blocks slower than their weight claims and should migrate (see README,
+	/// "Database Backend").
 	type DbWeight = ParityDbWeight;
 	/// Version of the runtime.
 	type Version = Version;

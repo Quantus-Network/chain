@@ -240,12 +240,7 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 				);
 				DatabaseSource::ParityDb { path: paritydb_path }
 			},
-			// Resolved here rather than left as `DatabaseSource::Auto` so the startup banner
-			// and every subcommand see the backend actually in use.
-			#[cfg(feature = "rocksdb")]
-			Database::Auto if rocksdb_path.exists() =>
-				DatabaseSource::RocksDb { path: rocksdb_path, cache_size },
-			Database::Auto => DatabaseSource::ParityDb { path: paritydb_path },
+			Database::Auto => resolve_auto_database(paritydb_path, rocksdb_path, cache_size),
 		})
 	}
 
@@ -718,4 +713,78 @@ pub(crate) fn build_network_key_dir_or_default(
 	let config_dir =
 		build_config_dir(&base_path_or_default(base_path, executable_name), chain_spec_id);
 	build_net_config_dir(&config_dir)
+}
+
+/// Resolve `--database auto` to the backend it would open: an existing RocksDB database,
+/// otherwise ParityDb. Resolved here rather than left as `DatabaseSource::Auto` so the
+/// startup banner and every subcommand see the concrete backend.
+///
+/// Presence of the directory is not enough: the backend's own non-creating RocksDB probe
+/// can leave an empty `db/full` next to a live ParityDb. A real RocksDB always has a
+/// `CURRENT` manifest pointer, so that is what is checked.
+pub(crate) fn resolve_auto_database(
+	paritydb_path: PathBuf,
+	rocksdb_path: PathBuf,
+	cache_size: usize,
+) -> DatabaseSource {
+	#[cfg(feature = "rocksdb")]
+	if rocksdb_exists(&rocksdb_path) {
+		return DatabaseSource::RocksDb { path: rocksdb_path, cache_size };
+	}
+	#[cfg(not(feature = "rocksdb"))]
+	let _ = (rocksdb_path, cache_size);
+	DatabaseSource::ParityDb { path: paritydb_path }
+}
+
+/// Whether a RocksDB database has been created at `path`.
+#[cfg(any(feature = "rocksdb", test))]
+pub(crate) fn rocksdb_exists(path: &std::path::Path) -> bool {
+	path.join("CURRENT").is_file()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn paths(root: &std::path::Path) -> (PathBuf, PathBuf) {
+		(root.join("paritydb").join("full"), root.join("db").join("full"))
+	}
+
+	#[test]
+	fn auto_picks_paritydb_on_fresh_base_path() {
+		let root = tempfile::tempdir().unwrap();
+		let (paritydb_path, rocksdb_path) = paths(root.path());
+		assert!(matches!(
+			resolve_auto_database(paritydb_path.clone(), rocksdb_path, 128),
+			DatabaseSource::ParityDb { path } if path == paritydb_path
+		));
+	}
+
+	#[test]
+	fn auto_ignores_leftover_rocksdb_directory() {
+		let root = tempfile::tempdir().unwrap();
+		let (paritydb_path, rocksdb_path) = paths(root.path());
+		std::fs::create_dir_all(&rocksdb_path).unwrap();
+		std::fs::write(rocksdb_path.join("db_version"), b"4").unwrap();
+		std::fs::create_dir_all(&paritydb_path).unwrap();
+		assert!(!rocksdb_exists(&rocksdb_path));
+		assert!(matches!(
+			resolve_auto_database(paritydb_path.clone(), rocksdb_path, 128),
+			DatabaseSource::ParityDb { path } if path == paritydb_path
+		));
+	}
+
+	#[cfg(feature = "rocksdb")]
+	#[test]
+	fn auto_keeps_existing_rocksdb() {
+		let root = tempfile::tempdir().unwrap();
+		let (paritydb_path, rocksdb_path) = paths(root.path());
+		std::fs::create_dir_all(&rocksdb_path).unwrap();
+		std::fs::write(rocksdb_path.join("CURRENT"), b"MANIFEST-000001\n").unwrap();
+		assert!(rocksdb_exists(&rocksdb_path));
+		assert!(matches!(
+			resolve_auto_database(paritydb_path, rocksdb_path.clone(), 128),
+			DatabaseSource::RocksDb { path, cache_size: 128 } if path == rocksdb_path
+		));
+	}
 }

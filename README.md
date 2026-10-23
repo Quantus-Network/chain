@@ -171,10 +171,13 @@ To migrate without a full resync:
 
 ```sh
 ./target/release/quantus-node export-blocks --chain <chain> --base-path <old-path> --binary blocks.bin
-./target/release/quantus-node import-blocks --chain <chain> --base-path <new-path> --database paritydb --binary blocks.bin
+./target/release/quantus-node import-blocks --chain <chain> --base-path <new-path> --database paritydb --state-pruning archive-canonical --binary blocks.bin
 ```
 
-Then start the node with `--base-path <new-path>`. Node keys and keystore files live outside
+`--state-pruning archive-canonical` is required: the pruning mode is fixed when the database is
+created, and a database imported with the backend's default constrained pruning cannot be
+reopened by the node (which enforces archive-canonical). Then start the node with
+`--base-path <new-path>`. Node keys and keystore files live outside
 the database directory and should be copied over from the old base path.
 
 ### Disk Usage

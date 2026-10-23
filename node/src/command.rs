@@ -335,8 +335,9 @@ fn warn_if_rocksdb(config: &Configuration) {
 		log::warn!(
 			"Running on RocksDB at {}. This chain's weights assume ParityDb, which is \
 			 several times faster for state access; block import will be slower than \
-			 priced. Migrate with `export-blocks`, then `import-blocks --database paritydb` \
-			 into a fresh base path.",
+			 priced. Migrate with `export-blocks`, then `import-blocks --database paritydb \
+			 --state-pruning archive-canonical` into a fresh base path (see README, \
+			 \"Database Backend\").",
 			path.display()
 		);
 	}
