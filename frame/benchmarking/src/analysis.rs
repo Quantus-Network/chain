@@ -327,9 +327,56 @@ impl Analysis {
 		})
 	}
 
+	// Two samples determine a single slope exactly, but cannot identify an intercept plus several
+	// slopes. The slope is rounded like the regression path; the base is then the largest residual
+	// so the fit never undercounts a measured sample.
+	fn two_sample_fit(r: &[BenchmarkResult], selector: BenchmarkSelector) -> Option<Self> {
+		let [a, b] = r else {
+			log::error!("Cannot fit benchmark slopes from a single sample");
+			return None;
+		};
+		let ([(param, xa)], [(param_b, xb)]) = (a.components.as_slice(), b.components.as_slice())
+		else {
+			log::error!(
+				"Two samples cannot fit slopes for {} benchmark components",
+				a.components.len()
+			);
+			return None;
+		};
+		if param != param_b || xa == xb {
+			log::error!("Two-sample slope fit needs one component with two distinct values");
+			return None;
+		}
+		let (ya, yb) = (selector.get_value(a), selector.get_value(b));
+		let slope = (yb as f64 - ya as f64) / (*xb as f64 - *xa as f64);
+		let slope = selector.scale_and_cast_weight(slope.max(0f64), true);
+		let base = [(xa, ya), (xb, yb)]
+			.into_iter()
+			.map(|(x, y)| selector.scale_weight(y).saturating_sub(slope.saturating_mul(*x as u128)))
+			.max()
+			.expect("two samples; qed");
+
+		Some(Self {
+			base,
+			slopes: vec![slope],
+			names: vec![format!("{:?}", param)],
+			value_dists: None,
+			errors: None,
+			minimum: selector.get_minimum(r),
+			selector,
+		})
+	}
+
 	pub fn min_squares_iqr(r: &Vec<BenchmarkResult>, selector: BenchmarkSelector) -> Option<Self> {
-		if r[0].components.is_empty() || r.len() <= 2 {
-			return Self::median_value(r, selector)
+		if r.is_empty() {
+			log::error!("Cannot fit benchmark weights without samples");
+			return None;
+		}
+		if r[0].components.is_empty() {
+			return Self::median_value(r, selector);
+		}
+		if r.len() <= 2 {
+			return Self::two_sample_fit(r, selector);
 		}
 
 		let mut results = BTreeMap::<Vec<u32>, Vec<u128>>::new();
@@ -765,5 +812,101 @@ mod tests {
 			Analysis::min_squares_iqr(&data, BenchmarkSelector::ExtrinsicTime).unwrap();
 		assert_eq!(extrinsic_time.base, 0);
 		assert_eq!(extrinsic_time.slopes, vec![2000]);
+	}
+	#[test]
+	fn min_squares_iqr_fits_slope_with_two_distinct_x_samples() {
+		let data = vec![
+			benchmark_result(vec![(BenchmarkParameter::n, 4)], 0, 0, 8, 0),
+			benchmark_result(vec![(BenchmarkParameter::n, 8)], 0, 0, 12, 0),
+		];
+		let analysis = Analysis::min_squares_iqr(&data, BenchmarkSelector::Reads).unwrap();
+		assert_eq!(analysis.slopes, vec![1]);
+		assert_eq!(analysis.base, 4);
+	}
+
+	#[test]
+	fn min_squares_iqr_two_samples_same_x_errors() {
+		let data = vec![
+			benchmark_result(vec![(BenchmarkParameter::n, 4)], 0, 0, 8, 0),
+			benchmark_result(vec![(BenchmarkParameter::n, 4)], 0, 0, 10, 0),
+		];
+		assert!(Analysis::min_squares_iqr(&data, BenchmarkSelector::Reads).is_none());
+	}
+
+	#[test]
+	fn min_squares_iqr_single_sample_with_components_errors() {
+		let data = vec![benchmark_result(vec![(BenchmarkParameter::n, 4)], 0, 0, 8, 0)];
+		assert!(Analysis::min_squares_iqr(&data, BenchmarkSelector::Reads).is_none());
+	}
+
+	#[test]
+	fn min_squares_iqr_two_samples_with_multiple_components_errors() {
+		let data = vec![
+			benchmark_result(
+				vec![(BenchmarkParameter::n, 4), (BenchmarkParameter::m, 5)],
+				0,
+				0,
+				8,
+				0,
+			),
+			benchmark_result(
+				vec![(BenchmarkParameter::n, 8), (BenchmarkParameter::m, 9)],
+				0,
+				0,
+				12,
+				0,
+			),
+		];
+		assert!(Analysis::min_squares_iqr(&data, BenchmarkSelector::Reads).is_none());
+	}
+
+	fn fractional_slope_samples() -> Vec<BenchmarkResult> {
+		vec![
+			benchmark_result(vec![(BenchmarkParameter::n, 4)], 8, 0, 8, 0),
+			benchmark_result(vec![(BenchmarkParameter::n, 8)], 11, 0, 11, 0),
+		]
+	}
+
+	fn assert_covers_samples(analysis: &Analysis, data: &[BenchmarkResult]) {
+		for result in data {
+			let x = result.components[0].1 as u128;
+			let fitted = analysis.base + analysis.slopes[0] * x;
+			assert!(fitted >= analysis.selector.scale_weight(analysis.selector.get_value(result)));
+		}
+	}
+
+	#[test]
+	fn min_squares_iqr_two_samples_fractional_slope_never_undercounts() {
+		let data = fractional_slope_samples();
+		let reads = Analysis::min_squares_iqr(&data, BenchmarkSelector::Reads).unwrap();
+		assert_eq!(reads.slopes, vec![1]);
+		assert_eq!(reads.base, 4);
+		assert_covers_samples(&reads, &data);
+
+		let time = Analysis::min_squares_iqr(&data, BenchmarkSelector::ExtrinsicTime).unwrap();
+		assert_eq!(time.slopes, vec![750]);
+		assert_eq!(time.base, 5_000);
+		assert_covers_samples(&time, &data);
+	}
+
+	#[test]
+	fn min_squares_iqr_two_samples_slope_below_half_keeps_constant_cover() {
+		let data = vec![
+			benchmark_result(vec![(BenchmarkParameter::n, 4)], 0, 0, 9, 0),
+			benchmark_result(vec![(BenchmarkParameter::n, 8)], 0, 0, 10, 0),
+		];
+		let reads = Analysis::min_squares_iqr(&data, BenchmarkSelector::Reads).unwrap();
+		assert_eq!(reads.slopes, vec![0]);
+		assert_eq!(reads.base, 10);
+		assert_covers_samples(&reads, &data);
+	}
+
+	#[test]
+	fn max_two_samples_fractional_slope_never_undercounts() {
+		let data = fractional_slope_samples();
+		let reads = Analysis::max(&data, BenchmarkSelector::Reads).unwrap();
+		assert_eq!(reads.slopes, vec![1]);
+		assert_eq!(reads.base, 5);
+		assert_covers_samples(&reads, &data);
 	}
 }
