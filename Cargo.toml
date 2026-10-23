@@ -16,6 +16,8 @@ members = [
 	"client/network-sync",
 	"client/network-transactions",
 	"client/network-types",
+	"client/rpc-servers",
+	"client/rpc-spec-v2",
 	"client/service",
 	"client/telemetry",
 	"client/transaction-pool",
@@ -395,6 +397,8 @@ sc-network = { path = "client/network" }
 sc-network-sync = { path = "client/network-sync" }
 sc-network-transactions = { path = "client/network-transactions" }
 sc-network-types = { path = "client/network-types" }
+sc-rpc-server = { path = "./client/rpc-servers" }
+sc-rpc-spec-v2 = { path = "./client/rpc-spec-v2" }
 sc-service = { path = "client/service" }
 sc-telemetry = { path = "client/telemetry" }
 sc-transaction-pool = { path = "client/transaction-pool" }

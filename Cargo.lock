@@ -9064,8 +9064,6 @@ dependencies = [
 [[package]]
 name = "sc-rpc-server"
 version = "27.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "838a6e7ed25a5c9803c27cc2acdcb4e35f069a6f67d5c9d80c4594dc72a84c9c"
 dependencies = [
  "dyn-clone",
  "forwarded-header-value",
@@ -9089,8 +9087,6 @@ dependencies = [
 [[package]]
 name = "sc-rpc-spec-v2"
 version = "0.55.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0965b02068229313d53380e584f320a9fa07d6860a0f2d480ffa8088e941e3d0"
 dependencies = [
  "array-bytes 6.2.3",
  "futures",
@@ -9108,6 +9104,7 @@ dependencies = [
  "sc-transaction-pool-api",
  "schnellru",
  "serde",
+ "serde_json",
  "sp-api",
  "sp-blockchain",
  "sp-core",
