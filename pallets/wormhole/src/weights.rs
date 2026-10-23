@@ -97,16 +97,23 @@ const PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS: u64 = 15_162_000_000;
 /// ZK verification time for a public-batch proof.
 const PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS: u64 = 21_077_000_000;
 
-/// Storage-tail calibration basis: 32 exit mints (16 leaves × 2 slots).
-/// The measured 170 writes included the 16 `UsedNullifiers` inserts (one per
-/// leaf); those are split out below and charged per *actual* nullifier write,
-/// because nullifier writes scale with valid segments, not with minted exits
-/// (a valid zero-output segment writes nullifiers but mints nothing).
-const STORAGE_CALIBRATION_EXITS: u64 = 32;
-const STORAGE_CALIBRATION_READS: u64 = 200;
-const STORAGE_CALIBRATION_NULLIFIER_WRITES: u64 = 16;
-const STORAGE_CALIBRATION_WRITES: u64 = 170 - STORAGE_CALIBRATION_NULLIFIER_WRITES;
-const STORAGE_CALIBRATION_PROOF_SIZE: u64 = 200_000;
+/// Per-credit storage outside the ZK tree, charged for every minted exit and
+/// every fee-credit leaf: `System::Account` (r/w via `increase_balance`) and
+/// `Wormhole::TransferCount` (r/w). Tree ops are priced separately through
+/// `pallet_zk_tree::INSERT_LEAF_MARGINAL_DB_OPS`; nullifier reads through the
+/// pre-validation term; nullifier writes per actual write, because they scale
+/// with valid segments rather than minted exits (a valid zero-output segment
+/// writes nullifiers but mints nothing).
+const CREDIT_DB_OPS: (u64, u64) = (2, 2);
+
+/// Conservative PoV per credit for the two keys above (`System::Account` added
+/// ≈ 2.6 KiB; `TransferCount` ≈ 2.5 KiB), kept at the historical 200 KB / 32
+/// exits calibration.
+const CREDIT_PROOF_SIZE: u64 = 200_000 / 32;
+
+/// Fixed per-settlement storage outside the tree: `System::Digest` read for the
+/// block author and `Balances::TotalIssuance` r/w for the burn.
+const SETTLEMENT_DB_OPS: (u64, u64) = (2, 1);
 
 /// Each leaf proof contributes up to two exit slots (spend + change).
 const EXITS_PER_LEAF: u64 = 2;
@@ -151,42 +158,57 @@ fn public_batch_leaf_inserts() -> u64 {
 		.saturating_add(AGGREGATOR_REBATE_LEAF_INSERTS)
 }
 
-/// Scale the storage tail to `exits` mints plus `nullifier_writes` `UsedNullifiers`
-/// inserts, plus depth-dependent ZK-tree ops per insert (`exits` plus fee credits).
-/// `extra_leaf_inserts` also adds one account r/w per fee credit (miner and, on
-/// public batch, aggregator). Nullifier *reads* are covered by the fixed
-/// pre-validation term charged twice in [`verify_batch_weight`].
+/// Storage tail `(reads, writes, proof_size)` of a settlement that credits
+/// `exits` user mints plus `extra_leaf_inserts` fee credits (miner and, on
+/// public batch, aggregator), writes `nullifier_writes` `UsedNullifiers`
+/// entries, and appends all leaves to the ZK tree in one call
+/// (`tree_ops_per_insert` marginal per leaf, `tree_ops_per_batch` once).
+/// Nullifier *reads* are covered by the fixed pre-validation term charged twice
+/// in [`verify_batch_weight`].
 fn storage_tail(
 	exits: u64,
 	nullifier_writes: u64,
 	extra_leaf_inserts: u64,
 	tree_ops_per_insert: (u64, u64),
+	tree_ops_per_batch: (u64, u64),
 ) -> (u64, u64, u64) {
 	let (tree_reads, tree_writes) = tree_ops_per_insert;
+	let (batch_reads, batch_writes) = tree_ops_per_batch;
+	let (credit_reads, credit_writes) = CREDIT_DB_OPS;
+	let (fixed_reads, fixed_writes) = SETTLEMENT_DB_OPS;
 	let inserts = exits.saturating_add(extra_leaf_inserts);
-	let reads = STORAGE_CALIBRATION_READS
-		.saturating_mul(exits)
-		.saturating_div(STORAGE_CALIBRATION_EXITS)
-		.max(1)
-		.saturating_add(inserts.saturating_mul(tree_reads))
-		.saturating_add(extra_leaf_inserts);
-	let writes = STORAGE_CALIBRATION_WRITES
-		.saturating_mul(exits)
-		.saturating_div(STORAGE_CALIBRATION_EXITS)
-		.max(1)
+	let reads = inserts
+		.saturating_mul(credit_reads.saturating_add(tree_reads))
+		.saturating_add(batch_reads)
+		.saturating_add(fixed_reads);
+	let writes = inserts
+		.saturating_mul(credit_writes.saturating_add(tree_writes))
 		.saturating_add(nullifier_writes)
-		.saturating_add(inserts.saturating_mul(tree_writes))
-		.saturating_add(extra_leaf_inserts);
-	let proof_size = STORAGE_CALIBRATION_PROOF_SIZE
-		.saturating_mul(exits)
-		.saturating_div(STORAGE_CALIBRATION_EXITS)
-		.max(1)
+		.saturating_add(batch_writes)
+		.saturating_add(fixed_writes);
+	let proof_size = inserts
+		.saturating_mul(CREDIT_PROOF_SIZE)
 		.saturating_add(
 			inserts
 				.saturating_mul(tree_reads)
+				.saturating_add(batch_reads)
 				.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
 		);
 	(reads, writes, proof_size)
+}
+
+fn settlement_storage_tail(
+	exits: u64,
+	nullifier_writes: u64,
+	extra_leaf_inserts: u64,
+) -> (u64, u64, u64) {
+	storage_tail(
+		exits,
+		nullifier_writes,
+		extra_leaf_inserts,
+		pallet_zk_tree::INSERT_LEAF_MARGINAL_DB_OPS,
+		pallet_zk_tree::INSERT_BATCH_DB_OPS,
+	)
 }
 
 /// ZK verify + two pre-validations + a storage/tree tail scaled to `exits` and
@@ -199,9 +221,8 @@ fn verify_batch_weight(
 	nullifier_writes: u64,
 	extra_leaf_inserts: u64,
 ) -> Weight {
-	let tree_ops = pallet_zk_tree::INSERT_LEAF_DB_OPS;
 	let (reads, writes, proof_size) =
-		storage_tail(exits, nullifier_writes, extra_leaf_inserts, tree_ops);
+		settlement_storage_tail(exits, nullifier_writes, extra_leaf_inserts);
 	let hash_time = exits
 		.saturating_add(extra_leaf_inserts)
 		.saturating_mul(pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS);
@@ -215,9 +236,10 @@ fn verify_batch_weight(
 /// Weights for `pallet_wormhole` using the Substrate node and recommended hardware.
 ///
 /// Every processed exit inserts a ZK-tree leaf, plus one leaf for the miner
-/// volume-fee credit (and the aggregator rebate on public batch); that component
-/// is flat-priced at [`pallet_zk_tree::CIRCUIT_MAX_TREE_DEPTH`] via
-/// `pallet_zk_tree::INSERT_LEAF_*`.
+/// volume-fee credit (and the aggregator rebate on public batch). A settlement
+/// appends all of them in one `insert_leaves` call, so that component is priced
+/// at `pallet_zk_tree::INSERT_LEAF_MARGINAL_DB_OPS` per leaf plus
+/// `pallet_zk_tree::INSERT_BATCH_DB_OPS` once.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `System::BlockHash` (r:1 w:0)
@@ -369,9 +391,8 @@ mod tests {
 				.saturating_mul(circuit_config::NUM_PRIVATE_BATCH_PROOFS as u64)
 		);
 
-		let tree_ops = pallet_zk_tree::INSERT_LEAF_DB_OPS;
-		let (priv_r, priv_w, _) = storage_tail(private_batch_max_exits(), private_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS, tree_ops);
-		let (pub_r, pub_w, _) = storage_tail(public_batch_max_exits(), public_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS.saturating_add(AGGREGATOR_REBATE_LEAF_INSERTS), tree_ops);
+		let (priv_r, priv_w, _) = settlement_storage_tail(private_batch_max_exits(), private_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS);
+		let (pub_r, pub_w, _) = settlement_storage_tail(public_batch_max_exits(), public_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS.saturating_add(AGGREGATOR_REBATE_LEAF_INSERTS));
 
 		// Public must charge strictly more DB weight than a single private batch
 		// whenever more than one inner segment is configured.
@@ -386,12 +407,11 @@ mod tests {
 	fn verify_weights_cover_both_prevalidations() {
 		crate::mock::new_test_ext().execute_with(|| {
 			type W = SubstrateWeight<crate::mock::Test>;
-			let tree_ops = pallet_zk_tree::INSERT_LEAF_DB_OPS;
 
 			let pre_private = W::pre_validate_proof();
 			let verify_private = W::verify_private_batch();
 			let (_, _, private_tail_pov) =
-				storage_tail(private_batch_max_exits(), private_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS, tree_ops);
+				settlement_storage_tail(private_batch_max_exits(), private_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS);
 			assert!(
 				verify_private.ref_time() >=
 					PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS + 2 * pre_private.ref_time(),
@@ -406,7 +426,7 @@ mod tests {
 			let pre_public = W::pre_validate_public_batch_proof();
 			let verify_public = W::verify_public_batch();
 			let (_, _, public_tail_pov) =
-				storage_tail(public_batch_max_exits(), public_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS.saturating_add(AGGREGATOR_REBATE_LEAF_INSERTS), tree_ops);
+				settlement_storage_tail(public_batch_max_exits(), public_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS.saturating_add(AGGREGATOR_REBATE_LEAF_INSERTS));
 			assert!(
 				verify_public.ref_time() >=
 					PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS + 2 * pre_public.ref_time(),
@@ -422,12 +442,11 @@ mod tests {
 	/// Same bound on the `()` impl (nonzero `RocksDbWeight` catches missing DB reads).
 	#[test]
 	fn unit_impl_verify_weights_cover_both_prevalidations() {
-		let tree_ops = pallet_zk_tree::INSERT_LEAF_DB_OPS;
 
 		let pre_private = <() as WeightInfo>::pre_validate_proof();
 		let verify_private = <() as WeightInfo>::verify_private_batch();
 		let (reads, writes, private_tail_pov) =
-			storage_tail(private_batch_max_exits(), private_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS, tree_ops);
+			settlement_storage_tail(private_batch_max_exits(), private_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS);
 		let private_tail_time = RocksDbWeight::get()
 			.reads(reads)
 			.saturating_add(RocksDbWeight::get().writes(writes))
@@ -446,7 +465,7 @@ mod tests {
 		let pre_public = <() as WeightInfo>::pre_validate_public_batch_proof();
 		let verify_public = <() as WeightInfo>::verify_public_batch();
 		let (reads, writes, public_tail_pov) =
-			storage_tail(public_batch_max_exits(), public_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS.saturating_add(AGGREGATOR_REBATE_LEAF_INSERTS), tree_ops);
+			settlement_storage_tail(public_batch_max_exits(), public_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS.saturating_add(AGGREGATOR_REBATE_LEAF_INSERTS));
 		let public_tail_time = RocksDbWeight::get()
 			.reads(reads)
 			.saturating_add(RocksDbWeight::get().writes(writes))
@@ -497,9 +516,8 @@ mod tests {
 	#[test]
 	fn unit_impl_verify_weights_charge_per_exit_hash_compute() {
 		let hash_per_insert = pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS;
-		let tree_ops = pallet_zk_tree::INSERT_LEAF_DB_OPS;
 
-		let (reads, writes, _) = storage_tail(private_batch_max_exits(), private_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS, tree_ops);
+		let (reads, writes, _) = settlement_storage_tail(private_batch_max_exits(), private_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS);
 		let private_db_time = RocksDbWeight::get()
 			.reads(reads)
 			.saturating_add(RocksDbWeight::get().writes(writes))
@@ -513,7 +531,7 @@ mod tests {
 			"() private verify must charge per-exit hash compute on top of DB ops"
 		);
 
-		let (reads, writes, _) = storage_tail(public_batch_max_exits(), public_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS.saturating_add(AGGREGATOR_REBATE_LEAF_INSERTS), tree_ops);
+		let (reads, writes, _) = settlement_storage_tail(public_batch_max_exits(), public_batch_max_nullifier_writes(), MINER_FEE_LEAF_INSERTS.saturating_add(AGGREGATOR_REBATE_LEAF_INSERTS));
 		let public_db_time = RocksDbWeight::get()
 			.reads(reads)
 			.saturating_add(RocksDbWeight::get().writes(writes))
@@ -526,6 +544,30 @@ mod tests {
 					public_batch_leaf_inserts().saturating_mul(hash_per_insert),
 			"() public verify must charge per-exit hash compute on top of DB ops"
 		);
+	}
+
+	/// The tail prices each credit's own keys plus the tree's per-leaf marginal
+	/// share, and the tree's per-call bookkeeping only once per settlement —
+	/// not once per leaf, and with no second copy of the tree ops.
+	#[test]
+	fn storage_tail_charges_tree_batch_bookkeeping_once() {
+		let (credit_r, credit_w) = CREDIT_DB_OPS;
+		let (leaf_r, leaf_w) = pallet_zk_tree::INSERT_LEAF_MARGINAL_DB_OPS;
+		let (batch_r, batch_w) = pallet_zk_tree::INSERT_BATCH_DB_OPS;
+		let (fixed_r, fixed_w) = SETTLEMENT_DB_OPS;
+
+		let (r1, w1, _) = settlement_storage_tail(1, 1, 0);
+		let (r2, w2, _) = settlement_storage_tail(2, 1, 0);
+		assert_eq!(r2 - r1, credit_r + leaf_r, "one more exit adds exactly one credit + one leaf");
+		assert_eq!(w2 - w1, credit_w + leaf_w);
+
+		let (r0, w0, _) = settlement_storage_tail(0, 0, 0);
+		assert_eq!((r0, w0), (batch_r + fixed_r, batch_w + fixed_w));
+
+		let exits = public_batch_max_exits();
+		let (reads, writes, _) = settlement_storage_tail(exits, 0, 0);
+		assert_eq!(reads, exits * (credit_r + leaf_r) + batch_r + fixed_r);
+		assert_eq!(writes, exits * (credit_w + leaf_w) + batch_w + fixed_w);
 	}
 
 	#[test]
