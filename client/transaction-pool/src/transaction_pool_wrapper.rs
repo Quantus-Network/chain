@@ -22,6 +22,7 @@
 use crate::{
 	builder::FullClientTransactionPool,
 	graph::{base_pool::Transaction, ExtrinsicFor, ExtrinsicHash},
+	interceptor::{Interception, SubmissionInterceptor},
 	ChainApi, FullChainApi, ReadyIteratorFor,
 };
 use async_trait::async_trait;
@@ -36,9 +37,7 @@ use std::{collections::HashMap, pin::Pin, sync::Arc};
 /// The wrapper for actual object providing implementation of TransactionPool.
 ///
 /// This wraps actual implementation of the TransactionPool, e.g. fork-aware or single-state.
-pub struct TransactionPoolWrapper<Block, Client>(
-	pub Box<dyn FullClientTransactionPool<Block, Client>>,
-)
+pub struct TransactionPoolWrapper<Block, Client>
 where
 	Block: BlockT,
 	Client: sp_api::ProvideRuntimeApi<Block>
@@ -47,7 +46,45 @@ where
 		+ sp_runtime::traits::BlockIdTo<Block>
 		+ sp_blockchain::HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ 'static,
-	Client::Api: sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>;
+	Client::Api: sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
+{
+	/// The actual pool implementation.
+	pub inner: Box<dyn FullClientTransactionPool<Block, Client>>,
+	/// Optional node-local hook consulted before admission (see [`SubmissionInterceptor`]).
+	interceptor: Option<Arc<dyn SubmissionInterceptor<Block>>>,
+}
+
+impl<Block, Client> TransactionPoolWrapper<Block, Client>
+where
+	Block: BlockT,
+	Client: sp_api::ProvideRuntimeApi<Block>
+		+ sc_client_api::BlockBackend<Block>
+		+ sc_client_api::blockchain::HeaderBackend<Block>
+		+ sp_runtime::traits::BlockIdTo<Block>
+		+ sp_blockchain::HeaderMetadata<Block, Error = sp_blockchain::Error>
+		+ 'static,
+	Client::Api: sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
+{
+	/// Wrap `inner`, optionally fronting it with `interceptor`.
+	pub fn new(
+		inner: Box<dyn FullClientTransactionPool<Block, Client>>,
+		interceptor: Option<Arc<dyn SubmissionInterceptor<Block>>>,
+	) -> Self {
+		Self { inner, interceptor }
+	}
+
+	async fn intercept(
+		&self,
+		at: Block::Hash,
+		source: TransactionSource,
+		xt: &Block::Extrinsic,
+	) -> Interception {
+		match &self.interceptor {
+			Some(interceptor) => interceptor.intercept(at, source, xt).await,
+			None => Interception::Pass,
+		}
+	}
+}
 
 #[async_trait]
 impl<Block, Client> TransactionPool for TransactionPoolWrapper<Block, Client>
@@ -75,7 +112,40 @@ where
 		source: TransactionSource,
 		xts: Vec<TransactionFor<Self>>,
 	) -> Result<Vec<Result<TxHash<Self>, Self::Error>>, Self::Error> {
-		self.0.submit_at(at, source, xts).await
+		if self.interceptor.is_none() {
+			return self.inner.submit_at(at, source, xts).await;
+		}
+
+		// Claimed extrinsics are answered with their hash in place; the rest go to
+		// the pool as one batch and their results are spliced back in order.
+		let mut slots = Vec::with_capacity(xts.len());
+		let mut to_submit = Vec::new();
+		for xt in xts {
+			match self.intercept(at, source, &xt).await {
+				Interception::Claimed => slots.push(Some(self.inner.hash_of(&xt))),
+				Interception::Pass => {
+					slots.push(None);
+					to_submit.push(xt);
+				},
+			}
+		}
+		let mut submitted = if to_submit.is_empty() {
+			Vec::new()
+		} else {
+			self.inner.submit_at(at, source, to_submit).await?
+		}
+		.into_iter();
+		Ok(slots
+			.into_iter()
+			.map(|claimed| match claimed {
+				Some(hash) => Ok(hash),
+				None => submitted.next().unwrap_or_else(|| {
+					Err(crate::common::error::Error::RuntimeApi(
+						"transaction pool returned fewer results than submitted".into(),
+					))
+				}),
+			})
+			.collect())
 	}
 
 	async fn submit_one(
@@ -84,7 +154,10 @@ where
 		source: TransactionSource,
 		xt: TransactionFor<Self>,
 	) -> Result<TxHash<Self>, Self::Error> {
-		self.0.submit_one(at, source, xt).await
+		if let Interception::Claimed = self.intercept(at, source, &xt).await {
+			return Ok(self.inner.hash_of(&xt));
+		}
+		self.inner.submit_one(at, source, xt).await
 	}
 
 	async fn submit_and_watch(
@@ -93,18 +166,18 @@ where
 		source: TransactionSource,
 		xt: TransactionFor<Self>,
 	) -> Result<Pin<Box<TransactionStatusStreamFor<Self>>>, Self::Error> {
-		self.0.submit_and_watch(at, source, xt).await
+		self.inner.submit_and_watch(at, source, xt).await
 	}
 
 	async fn ready_at(
 		&self,
 		at: <Self::Block as BlockT>::Hash,
 	) -> ReadyIteratorFor<FullChainApi<Client, Block>> {
-		self.0.ready_at(at).await
+		self.inner.ready_at(at).await
 	}
 
 	fn ready(&self) -> Box<dyn ReadyTransactions<Item = Arc<Self::InPoolTransaction>> + Send> {
-		self.0.ready()
+		self.inner.ready()
 	}
 
 	async fn report_invalid(
@@ -112,31 +185,31 @@ where
 		at: Option<<Self::Block as BlockT>::Hash>,
 		invalid_tx_errors: TxInvalidityReportMap<TxHash<Self>>,
 	) -> Vec<Arc<Self::InPoolTransaction>> {
-		self.0.report_invalid(at, invalid_tx_errors).await
+		self.inner.report_invalid(at, invalid_tx_errors).await
 	}
 
 	fn futures(&self) -> Vec<Self::InPoolTransaction> {
-		self.0.futures()
+		self.inner.futures()
 	}
 
 	fn status(&self) -> PoolStatus {
-		self.0.status()
+		self.inner.status()
 	}
 
 	fn import_notification_stream(&self) -> ImportNotificationStream<TxHash<Self>> {
-		self.0.import_notification_stream()
+		self.inner.import_notification_stream()
 	}
 
 	fn on_broadcasted(&self, propagations: HashMap<TxHash<Self>, Vec<String>>) {
-		self.0.on_broadcasted(propagations)
+		self.inner.on_broadcasted(propagations)
 	}
 
 	fn hash_of(&self, xt: &TransactionFor<Self>) -> TxHash<Self> {
-		self.0.hash_of(xt)
+		self.inner.hash_of(xt)
 	}
 
 	fn ready_transaction(&self, hash: &TxHash<Self>) -> Option<Arc<Self::InPoolTransaction>> {
-		self.0.ready_transaction(hash)
+		self.inner.ready_transaction(hash)
 	}
 
 	async fn ready_at_with_timeout(
@@ -144,7 +217,7 @@ where
 		at: <Self::Block as BlockT>::Hash,
 		timeout: std::time::Duration,
 	) -> ReadyIteratorFor<FullChainApi<Client, Block>> {
-		self.0.ready_at_with_timeout(at, timeout).await
+		self.inner.ready_at_with_timeout(at, timeout).await
 	}
 }
 
@@ -161,7 +234,7 @@ where
 	Client::Api: sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block>,
 {
 	async fn maintain(&self, event: ChainEvent<Self::Block>) {
-		self.0.maintain(event).await;
+		self.inner.maintain(event).await;
 	}
 }
 
@@ -185,6 +258,6 @@ where
 		at: <Self::Block as BlockT>::Hash,
 		xt: LocalTransactionFor<Self>,
 	) -> Result<Self::Hash, Self::Error> {
-		self.0.submit_local(at, xt)
+		self.inner.submit_local(at, xt)
 	}
 }

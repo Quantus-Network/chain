@@ -692,6 +692,8 @@ pub fn run() -> sc_cli::Result<()> {
 				// Allow mining without peers if --dev or --force-authoring is set
 				let allow_mining_without_peers = config.force_authoring;
 
+				let public_batch_aggregator = public_batch_aggregator_config(&cli)?;
+
 				log::info!("Using litep2p network backend (with Dilithium)");
 				service::new_full::<sc_network::litep2p::Litep2pNetworkBackend>(
 					config,
@@ -704,11 +706,66 @@ pub fn run() -> sc_cli::Result<()> {
 					cli.sync_block_request_timeout,
 					allow_mining_without_peers,
 					cli.max_tip_age,
+					public_batch_aggregator,
 				)
 				.map_err(sc_cli::Error::Service)
 			})
 		},
 	}
+}
+
+/// Translate the `--public-batch-*` flags into an aggregator configuration.
+#[allow(clippy::result_large_err)]
+fn public_batch_aggregator_config(
+	cli: &Cli,
+) -> sc_cli::Result<Option<crate::public_batch_aggregator::AggregatorConfig>> {
+	use qp_wormhole_aggregator::pool::PoolLimits;
+	use std::time::Duration;
+
+	if !cli.public_batch_aggregator {
+		return Ok(None);
+	}
+	let Some(address) = &cli.public_batch_aggregator_address else {
+		eprintln!("Error: --public-batch-aggregator requires --public-batch-aggregator-address.\n");
+		return Err(sc_cli::Error::Input("Missing --public-batch-aggregator-address".into()));
+	};
+	let (aggregator_address, _) =
+		AccountId32::from_ss58check_with_version(address).map_err(|e| {
+			eprintln!(
+				"Error: --public-batch-aggregator-address is not a valid SS58 address: {e}\n"
+			);
+			sc_cli::Error::Input("Invalid --public-batch-aggregator-address".into())
+		})?;
+	if cli.public_batch_min_proofs == 0 ||
+		cli.public_batch_min_proofs > pallet_wormhole::circuit_config::NUM_PRIVATE_BATCH_PROOFS
+	{
+		eprintln!(
+			"Error: --public-batch-min-proofs must be between 1 and {}.\n",
+			pallet_wormhole::circuit_config::NUM_PRIVATE_BATCH_PROOFS
+		);
+		return Err(sc_cli::Error::Input("Invalid --public-batch-min-proofs".into()));
+	}
+
+	// A proof can only settle while its block is still in `frame_system::BlockHash`.
+	let acceptance_window_ms =
+		u64::from(<quantus_runtime::configs::BlockHashCount as sp_core::Get<u32>>::get())
+			.saturating_mul(quantus_runtime::TARGET_BLOCK_TIME_MS);
+	let proof_expiry = cli
+		.public_batch_proof_expiry
+		.map(Duration::from_secs)
+		.unwrap_or(Duration::from_millis(acceptance_window_ms));
+
+	let pool_limits =
+		PoolLimits { max_proofs: cli.public_batch_pool_max_proofs, ..PoolLimits::default() };
+
+	Ok(Some(crate::public_batch_aggregator::AggregatorConfig {
+		aggregator_address,
+		min_proofs: cli.public_batch_min_proofs,
+		max_wait: Duration::from_secs(cli.public_batch_max_wait),
+		reprove_after: Duration::from_secs(cli.public_batch_reprove_after),
+		proof_expiry,
+		pool_limits,
+	}))
 }
 
 #[cfg(test)]
@@ -722,6 +779,101 @@ mod tests {
 			TEST_WORMHOLE_PREIMAGE,
 		},
 	};
+
+	#[test]
+	fn public_batch_aggregator_is_off_by_default() {
+		use clap::Parser;
+
+		let cli = crate::cli::Cli::try_parse_from(["quantus-node", "--validator"]).expect("parse");
+		assert!(public_batch_aggregator_config(&cli).expect("config").is_none());
+	}
+
+	#[test]
+	fn public_batch_aggregator_flags_build_config() {
+		use clap::Parser;
+
+		let cli = crate::cli::Cli::try_parse_from([
+			"quantus-node",
+			"--public-batch-aggregator",
+			"--public-batch-aggregator-address",
+			TEST_ADDRESS,
+			"--public-batch-min-proofs",
+			"4",
+			"--public-batch-max-wait",
+			"30",
+			"--public-batch-proof-expiry",
+			"600",
+			"--public-batch-pool-max-proofs",
+			"256",
+		])
+		.expect("parse");
+		let config = public_batch_aggregator_config(&cli).expect("config").expect("enabled");
+		assert_eq!(
+			config
+				.aggregator_address
+				.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
+			TEST_ADDRESS
+		);
+		assert_eq!(config.min_proofs, 4);
+		assert_eq!(config.max_wait, std::time::Duration::from_secs(30));
+		assert_eq!(config.proof_expiry, std::time::Duration::from_secs(600));
+		assert_eq!(config.pool_limits.max_proofs, 256);
+	}
+
+	#[test]
+	fn public_batch_proof_expiry_defaults_to_acceptance_window() {
+		use clap::Parser;
+
+		let cli = crate::cli::Cli::try_parse_from([
+			"quantus-node",
+			"--public-batch-aggregator",
+			"--public-batch-aggregator-address",
+			TEST_ADDRESS,
+		])
+		.expect("parse");
+		let config = public_batch_aggregator_config(&cli).expect("config").expect("enabled");
+		let window_blocks =
+			u64::from(<quantus_runtime::configs::BlockHashCount as sp_core::Get<u32>>::get());
+		assert_eq!(
+			config.proof_expiry,
+			std::time::Duration::from_millis(window_blocks * quantus_runtime::TARGET_BLOCK_TIME_MS)
+		);
+	}
+
+	#[test]
+	fn public_batch_aggregator_requires_address() {
+		use clap::Parser;
+
+		let cli = crate::cli::Cli::try_parse_from(["quantus-node", "--public-batch-aggregator"])
+			.expect("parse");
+		assert!(public_batch_aggregator_config(&cli).is_err());
+
+		// The policy flags are only meaningful with the aggregator enabled.
+		assert!(crate::cli::Cli::try_parse_from([
+			"quantus-node",
+			"--validator",
+			"--public-batch-min-proofs",
+			"4"
+		])
+		.is_err());
+	}
+
+	#[test]
+	fn public_batch_min_proofs_is_bounded_by_batch_size() {
+		use clap::Parser;
+
+		let too_many = (pallet_wormhole::circuit_config::NUM_PRIVATE_BATCH_PROOFS + 1).to_string();
+		let cli = crate::cli::Cli::try_parse_from([
+			"quantus-node",
+			"--public-batch-aggregator",
+			"--public-batch-aggregator-address",
+			TEST_ADDRESS,
+			"--public-batch-min-proofs",
+			&too_many,
+		])
+		.expect("parse");
+		assert!(public_batch_aggregator_config(&cli).is_err());
+	}
 
 	#[test]
 	fn force_authoring_flag_is_parsed() {

@@ -23,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
 	miner_server::{MinerServer, MinerServerConfig, DEFAULT_MINER_AUTH_TOKEN_FILENAME},
 	prometheus::BusinessMetrics,
+	public_batch_aggregator::{Aggregator, AggregatorConfig, PrivateBatchInterceptor},
 };
 use codec::Encode;
 use jsonrpsee::tokio;
@@ -737,6 +738,16 @@ pub type Service = sc_service::PartialComponents<
 
 #[allow(clippy::result_large_err)]
 pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
+	new_partial_with_aggregator(config, None).map(|(service, _)| service)
+}
+
+/// [`new_partial`] that additionally fronts the transaction pool with the
+/// public-batch aggregator's interceptor when `aggregator_config` is set.
+#[allow(clippy::result_large_err)]
+pub fn new_partial_with_aggregator(
+	config: &Configuration,
+	aggregator_config: Option<AggregatorConfig>,
+) -> Result<(Service, Option<Arc<Aggregator>>), ServiceError> {
 	let telemetry = config
 		.telemetry_endpoints
 		.clone()
@@ -768,18 +779,26 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		telemetry
 	});
 
+	let aggregator = aggregator_config
+		.map(|cfg| Aggregator::new(cfg, config.prometheus_registry()))
+		.transpose()
+		.map_err(ServiceError::Other)?;
+
 	// Pool type/limits come from CLI (`--pool-type`, `--pool-limit`, `--pool-kbytes`, …)
 	// via `Configuration::transaction_pool`. Builder logs the selected type at create time.
-	let transaction_pool = Arc::from(
-		sc_transaction_pool::Builder::new(
-			task_manager.spawn_essential_handle(),
-			client.clone(),
-			config.role.is_authority().into(),
-		)
-		.with_options(config.transaction_pool.clone())
-		.with_prometheus(config.prometheus_registry())
-		.build(),
-	);
+	let mut pool_builder = sc_transaction_pool::Builder::new(
+		task_manager.spawn_essential_handle(),
+		client.clone(),
+		config.role.is_authority().into(),
+	)
+	.with_options(config.transaction_pool.clone())
+	.with_prometheus(config.prometheus_registry());
+	if let Some(aggregator) = &aggregator {
+		pool_builder = pool_builder.with_submission_interceptor(Arc::new(
+			PrivateBatchInterceptor::new(client.clone(), aggregator.clone()),
+		));
+	}
+	let transaction_pool = Arc::from(pool_builder.build());
 
 	let inherent_data_providers = Box::new(move |_, _| async move {
 		let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
@@ -808,16 +827,19 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		config.prometheus_registry(),
 	)?;
 
-	Ok(sc_service::PartialComponents {
-		client,
-		backend,
-		task_manager,
-		import_queue,
-		keystore_container,
-		select_chain: (),
-		transaction_pool,
-		other: (pow_block_import, telemetry),
-	})
+	Ok((
+		sc_service::PartialComponents {
+			client,
+			backend,
+			task_manager,
+			import_queue,
+			keystore_container,
+			select_chain: (),
+			transaction_pool,
+			other: (pow_block_import, telemetry),
+		},
+		aggregator,
+	))
 }
 
 /// Builds a new service for a full client.
@@ -835,17 +857,21 @@ pub fn new_full<
 	sync_block_request_timeout: u64,
 	allow_mining_without_peers: bool,
 	max_tip_age_secs: u64,
+	public_batch_aggregator: Option<AggregatorConfig>,
 ) -> Result<TaskManager, ServiceError> {
-	let sc_service::PartialComponents {
-		client,
-		backend,
-		mut task_manager,
-		import_queue,
-		keystore_container,
-		select_chain: _,
-		transaction_pool,
-		other: (pow_block_import, mut telemetry),
-	} = new_partial(&config)?;
+	let (
+		sc_service::PartialComponents {
+			client,
+			backend,
+			mut task_manager,
+			import_queue,
+			keystore_container,
+			select_chain: _,
+			transaction_pool,
+			other: (pow_block_import, mut telemetry),
+		},
+		aggregator,
+	) = new_partial_with_aggregator(&config, public_batch_aggregator)?;
 
 	let tx_stream_for_worker = transaction_pool.clone().import_notification_stream();
 	#[cfg(feature = "tx-logging")]
@@ -931,6 +957,17 @@ pub fn new_full<
 
 	log::info!("🧹 Blocks pruning mode: {:?}", config.blocks_pruning);
 	log::info!("📦 State pruning mode: {:?}", config.state_pruning);
+
+	if let Some(aggregator) = aggregator {
+		log::info!("🧮 Public-batch aggregation enabled");
+		crate::public_batch_aggregator::spawn(
+			aggregator,
+			client.clone(),
+			transaction_pool.clone(),
+			&task_manager,
+			Duration::from_millis(quantus_runtime::TARGET_BLOCK_TIME_MS),
+		);
+	}
 
 	let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
 		network: network.clone(),

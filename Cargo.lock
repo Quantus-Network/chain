@@ -7430,9 +7430,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-aggregator"
-version = "4.3.0"
+version = "4.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6604a9d9248e3270d330155fc27a4a84b382849b2aecb1f92a110511314fe07b"
+checksum = "9f32f9fbbd49a0655b267a151afe4e6fd38edcad13bce79e487a949073672d46"
 dependencies = [
  "anyhow",
  "hex",
@@ -7442,15 +7442,16 @@ dependencies = [
  "qp-wormhole-prover",
  "qp-zk-circuits-common",
  "rand 0.8.6",
+ "rayon",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "qp-wormhole-circuit"
-version = "4.3.0"
+version = "4.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55167daf965a3616b74184171148b94c64b3a48771d6433a1a43377a6e46c6e8"
+checksum = "997bce0db5f628ff973b9983b167f8499ab5e0aa2b07848d97d6be5e7b0e921a"
 dependencies = [
  "anyhow",
  "hex",
@@ -7462,9 +7463,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit-builder"
-version = "4.3.0"
+version = "4.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4fe35e0d8ad019e37e447e092da348fe4c52ae691d84dfd919fc9b58e7effe5"
+checksum = "372d30af09b9b9fcde24549d40749219ecf4098a48ef7c0cae2cc414141b4435"
 dependencies = [
  "anyhow",
  "clap",
@@ -7477,18 +7478,18 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-inputs"
-version = "4.3.0"
+version = "4.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c07863a2211a17b46319289c5ef22e5670a3fb8653386bb366c418193254793"
+checksum = "536c7358f87bb209d3113e89763a1bc7a45a2cd4fc82968869f1be3cdd59a21a"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "qp-wormhole-prover"
-version = "4.3.0"
+version = "4.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7203e454113812e1ca85aee7687dc5f270f7c297d113a647a3a00b6d43c5a4f6"
+checksum = "ee1fd5f90cfca2e5f01d7e36fe35d417b541443d7e6548d99b7e73b0c3ce75c4"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -7498,9 +7499,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-verifier"
-version = "4.3.0"
+version = "4.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "677a24da8f5a55f52d7dab865d8d70f3f501f26a85c1ab086684fa1f16b8a671"
+checksum = "019abd6bf19f3340227acf7d5129e3f5091f30edcbc5e51601e531456122309a"
 dependencies = [
  "anyhow",
  "qp-plonky2-verifier",
@@ -7510,9 +7511,9 @@ dependencies = [
 
 [[package]]
 name = "qp-zk-circuits-common"
-version = "4.3.0"
+version = "4.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dec45510701f160fdb730bdb622d6cdd0a62547e607c9b1ecb19558202797f81"
+checksum = "10135f3f253f33423341f97c71de9eeaf39fe7f1d791e1cfab026c14fdf172bd"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -7563,10 +7564,12 @@ name = "quantus-node"
 version = "1.0.2-Qm"
 dependencies = [
  "array-bytes 6.2.3",
+ "async-trait",
  "clap",
  "frame-benchmarking",
  "frame-benchmarking-cli",
  "frame-metadata-hash-extension",
+ "frame-support",
  "frame-system",
  "futures",
  "hex",
@@ -7576,13 +7579,19 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "pallet-utility",
+ "pallet-wormhole",
  "pallet-zk-tree",
  "parity-scale-codec",
+ "parking_lot 0.12.4",
  "prometheus",
  "qp-dilithium-crypto",
+ "qp-plonky2",
  "qp-rusty-crystals-dilithium",
  "qp-rusty-crystals-hdwallet",
  "qp-wormhole",
+ "qp-wormhole-aggregator",
+ "qp-wormhole-inputs",
+ "qp-zk-circuits-common",
  "qpow-math",
  "quantus-miner-api",
  "quantus-runtime",
@@ -7622,6 +7631,7 @@ dependencies = [
  "sp-runtime",
  "sp-state-machine",
  "sp-timestamp",
+ "sp-transaction-pool",
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
  "tokio",
@@ -7911,9 +7921,9 @@ checksum = "60a357793950651c4ed0f3f52338f53b2f809f32d83a07f72909fa13e4c6c1e3"
 
 [[package]]
 name = "rayon"
-version = "1.11.0"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "368f01d005bf8fd9b1206fb6fa653e6c4a81ceb1466406b81792d87c5677a58f"
+checksum = "fb39b166781f92d482534ef4b4b1b2568f42613b53e5b6c160e24cfbfa30926d"
 dependencies = [
  "either",
  "rayon-core",

@@ -145,6 +145,39 @@ order and boundaries remain part of the tag. The independently rounded fee of
 each accepted segment is summed before the burn/miner split, and public batches
 can redirect part of the burn bucket to their proof-bound aggregator address.
 
+### Running a node as a public-batch aggregator
+
+`quantus-node --public-batch-aggregator --public-batch-aggregator-address <SS58>`
+turns the node into a public-batch aggregator (`node/src/public_batch_aggregator/`).
+It hooks the transaction pool's submission path: every bare
+`verify_private_batch` received over gossip or RPC is first run through the
+same checks a block author would apply — the runtime's `validate_transaction`,
+a `UsedNullifiers` lookup for each nullifier, and a full plonky2 verification
+in `ProofPool::push`. Proofs that pass are *claimed*: they never enter the
+transaction pool, so this node neither propagates nor authors them. Proofs
+that fail any check fall through to the normal pool untouched.
+
+Claimed proofs are bucketed by `(block_hash, asset_id, volume_fee_bps)`, which
+is what a public batch requires of its inner proofs. A bucket is proved when it
+is full, or once it holds at least `--public-batch-min-proofs` proofs and its
+oldest proof is older than `--public-batch-max-wait` seconds. The resulting
+`verify_public_batch` is submitted locally with the configured aggregator
+address bound into the proof.
+
+Buckets are kept in sync with the chain: nullifiers settled on each new best
+block (from `ProofVerified` events) evict their proofs, proofs older than
+`--public-batch-proof-expiry` (default: the block-hash acceptance window) are
+dropped, and buckets anchored to a block that is no longer canonical are
+discarded. Before submitting, the aggregator re-checks each segment's
+nullifiers and skips the submission if nothing is left to settle.
+
+Watched submissions (`author_submitAndWatchExtrinsic`) are not intercepted so
+callers waiting on a status stream still see their own extrinsic. Other nodes
+still relay and include private batches they hear about directly, so the
+aggregator only captures the traffic that reaches it before inclusion.
+
+Prometheus metrics are exported under `quantus_public_batch_*`.
+
 ---
 
 ## Key constants and where to look
