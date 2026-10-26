@@ -171,10 +171,14 @@ dropped, and buckets anchored to a block that is no longer canonical are
 discarded. Before submitting, the aggregator re-checks each segment's
 nullifiers and skips the submission if nothing is left to settle.
 
-Watched submissions (`author_submitAndWatchExtrinsic`) are not intercepted so
-callers waiting on a status stream still see their own extrinsic. Other nodes
-still relay and include private batches they hear about directly, so the
-aggregator only captures the traffic that reaches it before inclusion.
+Watched submissions (`author_submitAndWatchExtrinsic`, which is what subxt and
+`quantus-cli` use) are claimed too. The status stream then follows the proof's
+nullifiers rather than the submitted extrinsic: `Ready` when claimed, then
+`InBlock` / `Finalized` for the extrinsic that settled them (normally the
+aggregator's public batch; its hash is not the submitted hash), or `Dropped` if
+the proof is evicted unsettled. Other nodes still relay and include private
+batches they hear about directly, so the aggregator only captures the traffic
+that reaches it before inclusion.
 
 Prometheus metrics are exported under `quantus_public_batch_*`.
 

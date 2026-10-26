@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use codec::Decode;
 use frame_support::storage::storage_prefix;
@@ -14,10 +14,10 @@ use qp_zk_circuits_common::circuit::{C, D, F};
 use quantus_runtime::{opaque::Block, Runtime, RuntimeCall, RuntimeEvent, UncheckedExtrinsic};
 use sc_client_api::{BlockchainEvents, StorageProvider};
 use sc_service::{SpawnTaskHandle, TaskManager};
-use sc_transaction_pool_api::{TransactionPool, TransactionSource};
+use sc_transaction_pool_api::{TransactionPool, TransactionSource, TxIndex};
 use sp_blockchain::HeaderBackend;
 use sp_core::{storage::StorageKey, H256};
-use sp_runtime::OpaqueExtrinsic;
+use sp_runtime::{traits::Header as _, OpaqueExtrinsic};
 
 use super::{interceptor::parse_private_batch_inputs, Aggregator, AggregatorConfig, LOG_TARGET};
 use crate::service::FullClient;
@@ -61,6 +61,7 @@ async fn run(
 	);
 	let mut build = tokio::task::spawn_blocking(build_prover).fuse();
 	let mut imports = client.import_notification_stream().fuse();
+	let mut finality = client.finality_notification_stream().fuse();
 	let mut ticker = tokio::time::interval(block_time);
 
 	loop {
@@ -90,6 +91,13 @@ async fn run(
 					on_new_best(&aggregator, &client, notification.hash);
 				}
 			},
+			notification = finality.next() => {
+				let Some(notification) = notification else {
+					log::warn!(target: LOG_TARGET, "finality notification stream ended");
+					return;
+				};
+				on_finalized(&aggregator, &client, *notification.header.number());
+			},
 			_ = ticker.tick().fuse() => {},
 		}
 		maybe_prove(&aggregator, &client, &tx_pool, &spawn_handle);
@@ -109,18 +117,30 @@ fn build_prover() -> Result<PublicBatchProver, String> {
 	.map_err(|e| format!("{e:#}"))
 }
 
-/// Settle-driven, expiry and canonicality eviction for one new best block.
+/// Settle-driven, expiry and canonicality eviction for one new best block,
+/// mirrored onto the watchers of the evicted proofs.
 fn on_new_best(aggregator: &Aggregator, client: &FullClient, hash: H256) {
 	let settled = settled_nullifiers(client, hash);
 	let mut pool = aggregator.pool.lock();
+	let mut watchers = aggregator.watchers.lock();
+	watchers.prune_closed();
 
-	let evicted_settled = if settled.is_empty() { 0 } else { pool.evict_settled(&settled) };
+	let evicted_settled = if settled.is_empty() {
+		0
+	} else {
+		if let Ok(Some(number)) = client.number(hash) {
+			watchers.on_settled(hash, number, &settled);
+		}
+		pool.evict_settled(&settled.keys().copied().collect())
+	};
 	let evicted_expired = pool.evict_older_than(aggregator.config.proof_expiry);
+	watchers.drop_expired(aggregator.config.proof_expiry);
 
 	let mut evicted_noncanonical = 0;
 	for stats in pool.bucket_stats() {
 		if !bucket_block_is_canonical(client, &stats.key) {
 			evicted_noncanonical += pool.remove_bucket(&stats.key).len();
+			watchers.drop_bucket(&stats.key);
 		}
 	}
 
@@ -139,15 +159,25 @@ fn on_new_best(aggregator: &Aggregator, client: &FullClient, hash: H256) {
 	aggregator.update_pool_gauges(&pool);
 }
 
-/// Nullifiers settled by `ProofVerified` events in block `hash`.
-fn settled_nullifiers(client: &FullClient, hash: H256) -> HashSet<BytesDigest> {
+/// Finalized settlements become `Finalized`; settlements on a block that lost
+/// to finality become `Retracted`.
+fn on_finalized(aggregator: &Aggregator, client: &FullClient, finalized_number: u32) {
+	aggregator.watchers.lock().on_finalized(
+		finalized_number,
+		|number, hash| matches!(client.hash(number), Ok(Some(h)) if h == hash),
+	);
+}
+
+/// Nullifiers settled by `ProofVerified` events in block `hash`, with the
+/// index of the extrinsic that settled each.
+fn settled_nullifiers(client: &FullClient, hash: H256) -> HashMap<BytesDigest, TxIndex> {
 	let key = StorageKey(storage_prefix(b"System", b"Events").to_vec());
 	let raw = match client.storage(hash, &key) {
 		Ok(Some(data)) => data.0,
-		Ok(None) => return HashSet::new(),
+		Ok(None) => return HashMap::new(),
 		Err(e) => {
 			log::warn!(target: LOG_TARGET, "failed to read events of {hash:?}: {e}");
-			return HashSet::new();
+			return HashMap::new();
 		},
 	};
 	let records = match Vec::<frame_system::EventRecord<RuntimeEvent, H256>>::decode(&mut &raw[..])
@@ -155,7 +185,7 @@ fn settled_nullifiers(client: &FullClient, hash: H256) -> HashSet<BytesDigest> {
 		Ok(records) => records,
 		Err(e) => {
 			log::warn!(target: LOG_TARGET, "failed to decode events of {hash:?}: {e}");
-			return HashSet::new();
+			return HashMap::new();
 		},
 	};
 	records
@@ -163,11 +193,16 @@ fn settled_nullifiers(client: &FullClient, hash: H256) -> HashSet<BytesDigest> {
 		.filter_map(|record| match record.event {
 			RuntimeEvent::Wormhole(pallet_wormhole::Event::ProofVerified {
 				nullifiers, ..
-			}) => Some(nullifiers),
+			}) => {
+				let tx_index = match record.phase {
+					frame_system::Phase::ApplyExtrinsic(i) => i as TxIndex,
+					_ => 0,
+				};
+				Some(nullifiers.into_iter().map(move |n| (BytesDigest::new_unchecked(n), tx_index)))
+			},
 			_ => None,
 		})
 		.flatten()
-		.map(BytesDigest::new_unchecked)
 		.collect()
 }
 
@@ -392,5 +427,14 @@ mod tests {
 		let mut dummy = stats(53, Duration::ZERO);
 		dummy.key.block_hash = BytesDigest::default();
 		assert!(!eligible(&dummy, &config()));
+	}
+
+	/// Builds the real public-batch circuit from the embedded artifacts (tens
+	/// of seconds, several GB). Run with `--ignored` to check the embedded
+	/// artifacts and feature flags still line up with the prover.
+	#[test]
+	#[ignore]
+	fn build_prover_succeeds() {
+		build_prover().expect("public-batch prover builds from embedded artifacts");
 	}
 }

@@ -22,7 +22,7 @@
 use crate::{
 	builder::FullClientTransactionPool,
 	graph::{base_pool::Transaction, ExtrinsicFor, ExtrinsicHash},
-	interceptor::{Interception, SubmissionInterceptor},
+	interceptor::{Interception, SubmissionInterceptor, WatchedInterception},
 	ChainApi, FullChainApi, ReadyIteratorFor,
 };
 use async_trait::async_trait;
@@ -166,6 +166,13 @@ where
 		source: TransactionSource,
 		xt: TransactionFor<Self>,
 	) -> Result<Pin<Box<TransactionStatusStreamFor<Self>>>, Self::Error> {
+		if let Some(interceptor) = &self.interceptor {
+			if let WatchedInterception::Claimed(status) =
+				interceptor.intercept_watched(at, source, &xt).await
+			{
+				return Ok(status);
+			}
+		}
 		self.inner.submit_and_watch(at, source, xt).await
 	}
 

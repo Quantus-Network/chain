@@ -26,13 +26,17 @@
 //! peers are not penalised and the handler's known-transaction cache dedupes
 //! re-gossip as usual.
 //!
-//! Watched submissions (`submit_and_watch`) are never offered to the
-//! interceptor: a watcher promises status updates for *that* extrinsic hash,
-//! which a component that takes custody of the extrinsic cannot honour.
+//! Watched submissions (`submit_and_watch`) go through
+//! [`SubmissionInterceptor::intercept_watched`] instead. A watcher promises
+//! status updates for *that* extrinsic hash, so an interceptor that claims a
+//! watched extrinsic must supply the status stream the submitter receives and
+//! keep reporting on the extrinsic until it reaches a terminal status.
 
 use async_trait::async_trait;
-use sc_transaction_pool_api::TransactionSource;
+use futures::Stream;
+use sc_transaction_pool_api::{TransactionSource, TransactionStatus};
 use sp_runtime::traits::Block as BlockT;
+use std::pin::Pin;
 
 /// Outcome of offering an extrinsic to a [`SubmissionInterceptor`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +45,23 @@ pub enum Interception {
 	Pass,
 	/// Claimed; the pool must not see the extrinsic.
 	Claimed,
+}
+
+/// Status stream an interceptor hands to the submitter of a claimed watched
+/// extrinsic.
+pub type InterceptedStatusStream<Block> = Pin<
+	Box<
+		dyn Stream<Item = TransactionStatus<<Block as BlockT>::Hash, <Block as BlockT>::Hash>>
+			+ Send,
+	>,
+>;
+
+/// Outcome of offering a watched extrinsic to a [`SubmissionInterceptor`].
+pub enum WatchedInterception<Block: BlockT> {
+	/// Not claimed; the pool admits and watches the extrinsic normally.
+	Pass,
+	/// Claimed; the submitter watches the extrinsic through this stream.
+	Claimed(InterceptedStatusStream<Block>),
 }
 
 /// A component that may take custody of extrinsics before pool admission.
@@ -56,4 +77,17 @@ pub trait SubmissionInterceptor<Block: BlockT>: Send + Sync {
 		source: TransactionSource,
 		xt: &Block::Extrinsic,
 	) -> Interception;
+
+	/// Offer a watched `xt` to the interceptor.
+	///
+	/// Interceptors that cannot report on claimed extrinsics leave the
+	/// default, which passes every watched submission to the pool.
+	async fn intercept_watched(
+		&self,
+		_at: Block::Hash,
+		_source: TransactionSource,
+		_xt: &Block::Extrinsic,
+	) -> WatchedInterception<Block> {
+		WatchedInterception::Pass
+	}
 }

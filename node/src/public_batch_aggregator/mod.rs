@@ -32,6 +32,12 @@
 //! events on every new best block), when their block falls off the canonical
 //! chain, or when they outlive [`AggregatorConfig::proof_expiry`].
 //!
+//! Submitters that watch their extrinsic (`author_submitAndWatchExtrinsic`,
+//! which is what subxt and quantus-cli use) get a status stream that follows
+//! the proof's nullifiers rather than the extrinsic itself: `Ready` on claim,
+//! `InBlock` / `Finalized` for the extrinsic that settled them, `Dropped` if
+//! the proof is evicted unsettled (see [`watchers`]).
+//!
 //! # Policy
 //!
 //! One public batch is proved at a time. A bucket is eligible once it is full,
@@ -41,6 +47,7 @@
 
 mod interceptor;
 mod metrics;
+mod watchers;
 mod worker;
 
 pub use interceptor::PrivateBatchInterceptor;
@@ -65,7 +72,7 @@ use qp_wormhole_inputs::BytesDigest;
 use qp_zk_circuits_common::circuit::{D, F};
 use sp_core::crypto::AccountId32;
 
-use self::metrics::Metrics;
+use self::{metrics::Metrics, watchers::Watchers};
 
 pub const LOG_TARGET: &str = "public-batch";
 
@@ -91,6 +98,8 @@ pub struct Aggregator {
 	config: AggregatorConfig,
 	aggregator_digest: BytesDigest,
 	pool: Mutex<ProofPool>,
+	/// Status streams of watched submissions that were claimed into `pool`.
+	watchers: Mutex<Watchers>,
 	/// Set once the background circuit build finishes.
 	prover: RwLock<Option<Arc<PublicBatchProver>>>,
 	proving: AtomicBool,
@@ -141,6 +150,7 @@ impl Aggregator {
 			config,
 			aggregator_digest,
 			pool: Mutex::new(pool),
+			watchers: Mutex::new(Watchers::default()),
 			prover: RwLock::new(None),
 			proving: AtomicBool::new(false),
 			private_batch_common,

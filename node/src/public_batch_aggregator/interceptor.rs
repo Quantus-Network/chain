@@ -3,10 +3,11 @@ use std::sync::Arc;
 use codec::{Decode, Encode};
 use jsonrpsee::tokio;
 use plonky2::{field::types::PrimeField64, plonk::proof::ProofWithPublicInputs};
+use qp_wormhole_aggregator::pool::BatchKey;
 use qp_wormhole_inputs::{BytesDigest, PrivateBatchPublicInputs};
 use qp_zk_circuits_common::circuit::{C, D, F};
 use quantus_runtime::{opaque::Block, RuntimeCall, UncheckedExtrinsic};
-use sc_transaction_pool::{Interception, SubmissionInterceptor};
+use sc_transaction_pool::{Interception, SubmissionInterceptor, WatchedInterception};
 use sc_transaction_pool_api::TransactionSource;
 use sp_api::ProvideRuntimeApi;
 use sp_runtime::{generic::Preamble, traits::Block as BlockT};
@@ -29,12 +30,12 @@ impl PrivateBatchInterceptor {
 		Self { client, aggregator }
 	}
 
-	fn decline(&self, reason: &str) -> Interception {
+	fn decline(&self, reason: &str) -> Option<Claimed> {
 		log::debug!(target: LOG_TARGET, "private batch not claimed: {reason}");
 		if let Some(m) = &self.aggregator.metrics {
 			m.declined.inc();
 		}
-		Interception::Pass
+		None
 	}
 
 	/// Whether any of `nullifiers` is already settled in state at `at`.
@@ -73,21 +74,25 @@ pub(super) fn parse_private_batch_inputs(
 		.map_err(|e| format!("public inputs do not parse: {e}"))
 }
 
-#[async_trait::async_trait]
-impl SubmissionInterceptor<Block> for PrivateBatchInterceptor {
-	async fn intercept(
+/// A private batch admitted to the pool.
+struct Claimed {
+	nullifiers: Vec<BytesDigest>,
+	bucket: BatchKey,
+}
+
+impl PrivateBatchInterceptor {
+	/// Run the admission pipeline; `None` means the pool should see `xt`.
+	async fn admit(
 		&self,
 		at: <Block as BlockT>::Hash,
 		source: TransactionSource,
 		xt: &<Block as BlockT>::Extrinsic,
-	) -> Interception {
+	) -> Option<Claimed> {
 		// Block re-validation is not a submission.
 		if source == TransactionSource::InBlock {
-			return Interception::Pass;
+			return None;
 		}
-		let Some(proof_bytes) = private_batch_proof_bytes(xt) else {
-			return Interception::Pass;
-		};
+		let proof_bytes = private_batch_proof_bytes(xt)?;
 
 		// 1. The runtime's own pool-admission checks.
 		match self.client.runtime_api().validate_transaction(at, source, xt.clone(), at) {
@@ -122,7 +127,7 @@ impl SubmissionInterceptor<Block> for PrivateBatchInterceptor {
 		})
 		.await;
 		match pushed {
-			Ok(Ok(_key)) => {
+			Ok(Ok(bucket)) => {
 				log::debug!(
 					target: LOG_TARGET,
 					"claimed private batch for block #{} ({} nullifiers)",
@@ -132,10 +137,39 @@ impl SubmissionInterceptor<Block> for PrivateBatchInterceptor {
 				if let Some(m) = &self.aggregator.metrics {
 					m.claimed.inc();
 				}
-				Interception::Claimed
+				Some(Claimed { nullifiers: inputs.nullifiers, bucket })
 			},
 			Ok(Err(e)) => self.decline(&format!("proof pool refused it: {e}")),
 			Err(e) => self.decline(&format!("pool task failed: {e}")),
+		}
+	}
+}
+
+#[async_trait::async_trait]
+impl SubmissionInterceptor<Block> for PrivateBatchInterceptor {
+	async fn intercept(
+		&self,
+		at: <Block as BlockT>::Hash,
+		source: TransactionSource,
+		xt: &<Block as BlockT>::Extrinsic,
+	) -> Interception {
+		match self.admit(at, source, xt).await {
+			Some(_) => Interception::Claimed,
+			None => Interception::Pass,
+		}
+	}
+
+	async fn intercept_watched(
+		&self,
+		at: <Block as BlockT>::Hash,
+		source: TransactionSource,
+		xt: &<Block as BlockT>::Extrinsic,
+	) -> WatchedInterception<Block> {
+		match self.admit(at, source, xt).await {
+			Some(Claimed { nullifiers, bucket }) => WatchedInterception::Claimed(
+				self.aggregator.watchers.lock().watch(nullifiers, bucket),
+			),
+			None => WatchedInterception::Pass,
 		}
 	}
 }
@@ -169,6 +203,20 @@ mod tests {
 			private_batch_proof_bytes(&OpaqueExtrinsic::from(UncheckedExtrinsic::new_bare(remark))),
 			None
 		);
+	}
+
+	/// subxt and quantus-cli submit bare extrinsics in the legacy v4 encoding
+	/// (`0x04` version byte), not the v5 `new_bare` produces.
+	#[test]
+	fn legacy_v4_bare_private_batch_is_recognised() {
+		let call = RuntimeCall::Wormhole(pallet_wormhole::Call::verify_private_batch {
+			proof_bytes: vec![1, 2, 3],
+		});
+		let mut body = vec![0x04u8];
+		body.extend(codec::Encode::encode(&call));
+		let xt = OpaqueExtrinsic::try_from_encoded_extrinsic(&codec::Encode::encode(&body))
+			.expect("opaque");
+		assert_eq!(private_batch_proof_bytes(&xt), Some(vec![1, 2, 3]));
 	}
 
 	#[test]
