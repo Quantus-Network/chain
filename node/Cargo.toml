@@ -46,7 +46,7 @@ pallet-zk-tree.workspace = true
 parking_lot.workspace = true
 prometheus.workspace = true
 qp-dilithium-crypto = { workspace = true }
-qp-plonky2 = { workspace = true, features = ["rand", "std"] }
+qp-plonky2 = { workspace = true, features = ["parallel", "rand", "std"] }
 qp-rusty-crystals-dilithium.workspace = true
 qp-rusty-crystals-hdwallet.workspace = true
 qp-wormhole.workspace = true
