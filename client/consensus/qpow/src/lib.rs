@@ -4,7 +4,7 @@ mod worker;
 pub use chain_management::{
 	delete_cumulative_achieved_work, finalize_canonical_at_depth, get_chain_work,
 	get_cumulative_achieved_work, initialize_genesis_achieved_work, is_heavier,
-	store_cumulative_achieved_work, ChainManagementError,
+	revert_achieved_work, store_cumulative_achieved_work, ChainManagementError,
 };
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;

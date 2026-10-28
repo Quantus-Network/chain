@@ -2,13 +2,17 @@ use codec::{Decode, Encode};
 use primitive_types::{H256, U512};
 use sc_client_api::{AuxStore, Finalizer};
 use sp_api::ProvideRuntimeApi;
-use sp_blockchain::HeaderBackend;
+use sp_blockchain::{Backend as _, HeaderBackend, HeaderMetadata};
 use sp_consensus::Error as ConsensusError;
 use sp_consensus_qpow::QPoWApi;
-use sp_runtime::traits::{Block as BlockT, Header, One, Zero};
-use std::fmt;
+use sp_runtime::traits::{Block as BlockT, Header, NumberFor, One, Zero};
+use std::{collections::HashSet, fmt, sync::Arc};
 
 const ACHIEVED_WORK_PREFIX: &[u8] = b"QPow:AchievedWork:";
+
+fn achieved_work_key<H: AsRef<[u8]>>(block_hash: H) -> Vec<u8> {
+	[ACHIEVED_WORK_PREFIX, block_hash.as_ref()].concat()
+}
 
 #[derive(Debug)]
 pub enum ChainManagementError {
@@ -45,7 +49,7 @@ pub fn store_cumulative_achieved_work<B: BlockT, C: AuxStore>(
 	block_hash: B::Hash,
 	cumulative_work: U512,
 ) -> Result<(), sp_blockchain::Error> {
-	let key = [ACHIEVED_WORK_PREFIX, block_hash.as_ref()].concat();
+	let key = achieved_work_key(block_hash);
 	client.insert_aux(&[(&key[..], &cumulative_work.encode()[..])], &[])?;
 	log::debug!(
 		target: "qpow",
@@ -62,7 +66,7 @@ pub fn get_cumulative_achieved_work<B: BlockT, C: AuxStore>(
 	client: &C,
 	block_hash: B::Hash,
 ) -> Result<U512, sp_blockchain::Error> {
-	let key = [ACHIEVED_WORK_PREFIX, block_hash.as_ref()].concat();
+	let key = achieved_work_key(block_hash);
 	match client.get_aux(&key)? {
 		Some(bytes) => {
 			let work = U512::decode(&mut &bytes[..]).map_err(|e| {
@@ -90,12 +94,80 @@ pub fn delete_cumulative_achieved_work<B: BlockT, C: AuxStore>(
 	client: &C,
 	block_hash: B::Hash,
 ) -> Result<(), sp_blockchain::Error> {
-	let key = [ACHIEVED_WORK_PREFIX, block_hash.as_ref()].concat();
+	let key = achieved_work_key(block_hash);
 	client.insert_aux(&[], &[&key[..]])?;
 	log::trace!(
 		target: "qpow",
 		"Deleted cumulative achieved work for block {:?}",
 		block_hash
+	);
+	Ok(())
+}
+
+/// Remove the cumulative achieved work entries for every block above the point
+/// the chain is about to be reverted to, across all branches that descend from it.
+///
+/// Mirrors `sc_service::chain_ops::revert_chain`: at most `blocks` non-finalized
+/// blocks are reverted, and every leaf higher than the resulting best block is
+/// dropped. The entry for the new best block itself is kept, because it is the
+/// parent work source for the next import on top of it.
+///
+/// Must run before the backend revert, while the leaves and headers of the
+/// blocks being removed are still readable.
+pub fn revert_achieved_work<B, C, BE>(
+	client: Arc<C>,
+	backend: Arc<BE>,
+	blocks: NumberFor<B>,
+) -> Result<(), sp_blockchain::Error>
+where
+	B: BlockT,
+	C: AuxStore + HeaderBackend<B> + HeaderMetadata<B, Error = sp_blockchain::Error>,
+	BE: sc_client_api::Backend<B>,
+{
+	let info = client.info();
+	let best_number = info.best_number;
+	let finalized = info.finalized_number;
+
+	let revertible = blocks.min(best_number - finalized);
+	if revertible.is_zero() {
+		return Ok(());
+	}
+
+	let revert_up_to_number = best_number - revertible;
+	let revert_up_to_hash = client.hash(revert_up_to_number)?.ok_or_else(|| {
+		sp_blockchain::Error::Backend(format!(
+			"Unexpected hash lookup failure for block number: {}",
+			revert_up_to_number
+		))
+	})?;
+
+	let leaves = backend.blockchain().leaves()?.into_iter().filter(|&leaf| {
+		sp_blockchain::tree_route(&*client, revert_up_to_hash, leaf)
+			.map(|route| route.retracted().is_empty())
+			.unwrap_or_default()
+	});
+
+	let mut keys = HashSet::new();
+	for leaf in leaves {
+		let mut hash = leaf;
+		loop {
+			let meta = client.header_metadata(hash)?;
+			if meta.number <= revert_up_to_number || !keys.insert(achieved_work_key(hash)) {
+				break;
+			}
+			hash = meta.parent;
+		}
+	}
+
+	let keys: Vec<&[u8]> = keys.iter().map(|k| k.as_slice()).collect();
+	client.insert_aux(&[], keys.iter())?;
+
+	log::info!(
+		target: "qpow",
+		"Removed cumulative achieved work for {} blocks above #{} ({:?})",
+		keys.len(),
+		revert_up_to_number,
+		revert_up_to_hash
 	);
 	Ok(())
 }

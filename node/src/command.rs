@@ -495,12 +495,12 @@ pub fn run() -> sc_cli::Result<()> {
 			runner.async_run(|config| {
 				let PartialComponents { client, task_manager, backend, .. } =
 					service::new_partial(&config)?;
-				// Grandpa was removed from this chain, so there is no consensus
-				// aux data to revert: the hook is a deliberate no-op instead of
-				// panicking the CLI.
-				let aux_revert = Box::new(
-					|_client, _, _blocks| -> Result<(), sc_cli::Error> { Ok(()) },
-				);
+				let aux_revert = Box::new(|client, backend, blocks| {
+					sc_consensus_qpow::revert_achieved_work::<quantus_runtime::opaque::Block, _, _>(
+						client, backend, blocks,
+					)
+					.map_err(sc_cli::Error::from)
+				});
 				Ok((cmd.run(client, backend, Some(aux_revert)), task_manager))
 			})
 		},
