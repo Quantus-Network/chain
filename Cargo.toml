@@ -208,7 +208,7 @@ rand = { version = "0.8.5", default-features = false }
 rcgen = { version = "0.13" }
 regex = { version = "1.10.2" }
 reqwest = { version = "0.11.24", default-features = false, features = ["json"] }
-rpassword = { version = "7.0.0" }
+rpassword = { version = "7.5.0" }
 rstest = { version = "0.18" }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rusty-fork = { version = "0.3.1" }
@@ -220,7 +220,7 @@ schnellru = { version = "0.2.3" }
 serde = { version = "1.0.214", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0.132", default-features = false }
 serde_millis = { version = "0.1" }
-serde_with = { version = "3.12.0", default-features = false, features = ["hex", "macros"] }
+serde_with = { version = "3.21.0", default-features = false, features = ["hex", "macros"] }
 sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }
 simple-dns = { version = "0.11.0" }
