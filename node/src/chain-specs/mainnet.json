@@ -13,7 +13,7 @@
   ],
   "telemetryEndpoints": [
     [
-      "wss://shard-telemetry.quantus.cat/submit/",
+      "wss://shard-telemetry.quantus.com/submit/",
       0
     ]
   ],

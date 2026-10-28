@@ -3,13 +3,13 @@
   "id": "planck",
   "chainType": "Live",
   "bootNodes": [
-    "/dns/a1-p2p-planck.quantus.cat/tcp/30333/p2p/QmQ4AywkRZuv2L4XKb71Y3erk2DpQPNUTmMS2LGEEr5q8r",
-    "/dns/a2-p2p-planck.quantus.cat/tcp/30333/p2p/QmZT5LVJjBWf3QeJY6JKcFY6bCJoWucji96pKwpgbfTgic",
+    "/dns/a1-p2p-planck.quantus.com/tcp/30333/p2p/QmQ4AywkRZuv2L4XKb71Y3erk2DpQPNUTmMS2LGEEr5q8r",
+    "/dns/a2-p2p-planck.quantus.com/tcp/30333/p2p/QmZT5LVJjBWf3QeJY6JKcFY6bCJoWucji96pKwpgbfTgic",
     "/ip4/72.61.118.55/tcp/30333/p2p/QmbctLKQojifo6bym7a1ypph55n1nSw58YZGDkGtgRNVmF"
   ],
   "telemetryEndpoints": [
     [
-      "/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F",
+      "/dns/shard-telemetry.quantus.com/tcp/443/x-parity-wss/%2Fsubmit%2F",
       0
     ]
   ],

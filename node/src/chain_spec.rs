@@ -46,16 +46,16 @@ pub fn heisenberg_chain_spec() -> Result<ChainSpec, String> {
 	properties.insert("ss58Format".into(), json!(189));
 
 	let telemetry_endpoints = TelemetryEndpoints::new(vec![(
-		"/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(),
+		"/dns/shard-telemetry.quantus.com/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(),
 		0,
 	)])
 	.expect("Telemetry endpoints config is valid; qed");
 
 	let boot_nodes = vec![
-		"/dns/a1-p2p-heisenberg.quantus.cat/tcp/30333/p2p/Qmdts9fu3NCMFnvLdD1dHAHFer8EPzVDXxVnyPxRKA3Gkt"
+		"/dns/a1-p2p-heisenberg.quantus.com/tcp/30333/p2p/Qmdts9fu3NCMFnvLdD1dHAHFer8EPzVDXxVnyPxRKA3Gkt"
 			.parse()
 			.unwrap(),
-		"/dns/a2-p2p-heisenberg.quantus.cat/tcp/30333/p2p/QmcKHndoiNRdiT6iVp6ugj8bNse5Vd5WmCoE9YWn9kNaTM"
+		"/dns/a2-p2p-heisenberg.quantus.com/tcp/30333/p2p/QmcKHndoiNRdiT6iVp6ugj8bNse5Vd5WmCoE9YWn9kNaTM"
 			.parse()
 			.unwrap(),
 	];
@@ -86,7 +86,7 @@ pub fn mainnet_chain_spec() -> Result<ChainSpec, String> {
 	properties.insert("ss58Format".into(), json!(189));
 
 	let telemetry_endpoints = TelemetryEndpoints::new(vec![(
-		"/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(),
+		"/dns/shard-telemetry.quantus.com/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(),
 		0,
 	)])
 	.expect("Telemetry endpoints config is valid; qed");
@@ -113,16 +113,16 @@ pub fn planck_chain_spec() -> Result<ChainSpec, String> {
 	properties.insert("ss58Format".into(), json!(189));
 
 	let telemetry_endpoints = TelemetryEndpoints::new(vec![(
-		"/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(),
+		"/dns/shard-telemetry.quantus.com/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(),
 		0,
 	)])
 	.expect("Telemetry endpoints config is valid; qed");
 
 	let boot_nodes = vec![
-		"/dns/a1-p2p-planck.quantus.cat/tcp/30333/p2p/QmQ4AywkRZuv2L4XKb71Y3erk2DpQPNUTmMS2LGEEr5q8r"
+		"/dns/a1-p2p-planck.quantus.com/tcp/30333/p2p/QmQ4AywkRZuv2L4XKb71Y3erk2DpQPNUTmMS2LGEEr5q8r"
 			.parse()
 			.unwrap(),
-		"/dns/a2-p2p-planck.quantus.cat/tcp/30333/p2p/QmZT5LVJjBWf3QeJY6JKcFY6bCJoWucji96pKwpgbfTgic"
+		"/dns/a2-p2p-planck.quantus.com/tcp/30333/p2p/QmZT5LVJjBWf3QeJY6JKcFY6bCJoWucji96pKwpgbfTgic"
 			.parse()
 			.unwrap(),
 		"/ip4/72.61.118.55/tcp/30333/p2p/QmbctLKQojifo6bym7a1ypph55n1nSw58YZGDkGtgRNVmF"

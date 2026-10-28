@@ -3,12 +3,12 @@
   "id": "heisenberg",
   "chainType": "Live",
   "bootNodes": [
-    "/dns/a1-p2p-heisenberg.quantus.cat/tcp/30333/p2p/Qmdts9fu3NCMFnvLdD1dHAHFer8EPzVDXxVnyPxRKA3Gkt",
-    "/dns/a2-p2p-heisenberg.quantus.cat/tcp/30333/p2p/QmcKHndoiNRdiT6iVp6ugj8bNse5Vd5WmCoE9YWn9kNaTM"
+    "/dns/a1-p2p-heisenberg.quantus.com/tcp/30333/p2p/Qmdts9fu3NCMFnvLdD1dHAHFer8EPzVDXxVnyPxRKA3Gkt",
+    "/dns/a2-p2p-heisenberg.quantus.com/tcp/30333/p2p/QmcKHndoiNRdiT6iVp6ugj8bNse5Vd5WmCoE9YWn9kNaTM"
   ],
   "telemetryEndpoints": [
     [
-      "/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F",
+      "/dns/shard-telemetry.quantus.com/tcp/443/x-parity-wss/%2Fsubmit%2F",
       0
     ]
   ],

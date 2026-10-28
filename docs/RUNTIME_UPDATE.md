@@ -48,8 +48,8 @@ missing.
 
 ```bash
 # 1. Endpoints + signing wallets (see tables below)
-export HEISENBERG_WS="wss://a1-heisenberg.quantus.cat"
-export PLANCK_WS="wss://a1-planck.quantus.cat"
+export HEISENBERG_WS="wss://a1-heisenberg.quantus.com"
+export PLANCK_WS="wss://a1-planck.quantus.com"
 
 # 2. Get the runtime wasm (from the GitHub release, or the srtool CI artifact)
 export WASM=/path/to/quantus_runtime.compact.compressed.wasm
@@ -72,8 +72,8 @@ nodes**, not RPC URLs — but each network also exposes the Substrate RPC over *
 
 | Testnet | RPC endpoint (`--node-url`) | Backup |
 |---|---|---|
-| **Heisenberg** | `wss://a1-heisenberg.quantus.cat` | `wss://a2-heisenberg.quantus.cat` |
-| **Planck** | `wss://a1-planck.quantus.cat` | `wss://a2-planck.quantus.cat` |
+| **Heisenberg** | `wss://a1-heisenberg.quantus.com` | `wss://a2-heisenberg.quantus.com` |
+| **Planck** | `wss://a1-planck.quantus.com` | `wss://a2-planck.quantus.com` |
 
 > These are secure `wss://` endpoints, so all commands — including `quantus system
 > --runtime`, whose stricter "chainHead" client refuses a remote plain `ws://` with
@@ -154,7 +154,7 @@ export WASM="$(pwd)/target/release/wbuild/quantus-runtime/quantus_runtime.compac
 ## Step 1 — Update the runtime on Heisenberg
 
 ```bash
-export HEISENBERG_WS="wss://a1-heisenberg.quantus.cat"
+export HEISENBERG_WS="wss://a1-heisenberg.quantus.com"
 export HEISENBERG_TC="crystal_alice"
 
 # a) Diff the new wasm against the live runtime (confirms it's actually an upgrade and
@@ -244,7 +244,7 @@ NODE_URL="$HEISENBERG_WS" ./scripts/testing/submit_transfer.sh 5
 Identical flow, pointed at Planck, using the Planck wallets.
 
 ```bash
-export PLANCK_WS="wss://a1-planck.quantus.cat"
+export PLANCK_WS="wss://a1-planck.quantus.com"
 
 # a) diff vs live
 quantus runtime compare --wasm-file "$WASM" --node-url "$PLANCK_WS"
