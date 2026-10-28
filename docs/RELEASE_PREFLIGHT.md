@@ -77,8 +77,8 @@ rm -rf /tmp/quantus-preflight-planck
 - Peers connect and block import starts.
 - Best / finalized keep moving.
 - Node reaches **Idle** at the live tip (compare `system_syncState` or
-  `chain_getHeader` against `wss://a1-heisenberg.quantus.cat` /
-  `wss://a1-planck.quantus.cat`).
+  `chain_getHeader` against `wss://a1-heisenberg.quantus.com` /
+  `wss://a1-planck.quantus.com`).
 - No panic, repeated import failures, or disconnect loops.
 
 A full Heisenberg sync can take well over an hour on a long-lived chain.
@@ -166,7 +166,7 @@ cargo build --release --features try-runtime
 try-runtime \
   --runtime target/release/wbuild/quantus-runtime/quantus_runtime.wasm \
   on-runtime-upgrade --disable-spec-version-check --blocktime 10000 \
-  live --uri wss://a1-heisenberg.quantus.cat
+  live --uri wss://a1-heisenberg.quantus.com
 ```
 
 Repeat against Planck if that network will get the same wasm.
