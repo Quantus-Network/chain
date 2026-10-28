@@ -178,20 +178,23 @@ Every balance transfer on the chain is automatically captured and recorded into 
                            ▼
    ┌──────────────────────────────────────────────┐
    │ Wormhole::record_transfer()                   │
+   │   (or one TransferBatch for a whole exit      │
+   │    settlement)                                │
    │                                               │
    │  1. Reads TransferCount[bob] → current_count  │
    │  2. Increments TransferCount[bob]             │
-   │  3. Calls T::ZkTrie::record_transfer(         │
-   │       bob, current_count, asset_id, amount)   │
+   │  3. Calls T::ZkTrie::record_transfers(        │
+   │       [(bob, current_count, asset_id, amount),│
+   │        ...])                                  │
    └───────────────────────┬───────────────────────┘
                            │
                            ▼
    ┌──────────────────────────────────────────────┐
-   │ ZkTrie::insert_leaf()                         │
+   │ ZkTrie::insert_leaves()                       │
    │                                               │
-   │  1. Store leaf data at next index             │
-   │  2. Mark the leaf as pending                  │
-   │  3. Emit LeafInserted event                   │
+   │  1. Store each leaf at the next indices       │
+   │  2. Emit LeafInserted per leaf                │
+   │  3. Bump LeafCount / UnprocessedLeaves once   │
    └───────────────────────┬───────────────────────┘
                            │  (once per block)
                            ▼
@@ -213,6 +216,13 @@ the batched pass costs roughly `n/4 + n/16 + … + depth` hashes for a block wit
 transfers. Nothing on-chain needs the root mid-block — exit proofs verify against
 historical block headers — so during block execution `Root` is simply the root as of
 the end of the previous block.
+
+Appends are batched too: a wormhole exit settlement queues every credit's leaf
+(exits, aggregator rebate, miner fee) in a `TransferBatch` and hands them to
+`insert_leaves` in one call, so `LeafCount` and `UnprocessedLeaves` are read and
+written once per settlement rather than once per leaf. Weight-wise that is
+`INSERT_LEAF_MARGINAL_DB_OPS` per leaf plus `INSERT_BATCH_DB_OPS` per call;
+single-transfer recorders pay the sum, `INSERT_LEAF_DB_OPS`.
 
 ### 2. Generating a ZK Proof
 

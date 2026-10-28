@@ -1787,6 +1787,66 @@ mod exit_bundle_tests {
 		});
 	}
 
+	/// A settlement appends every credit's leaf (exits, then the aggregator
+	/// rebate) in one contiguous run: `NativeTransferred.leaf_index` values are
+	/// consecutive from the pre-settlement leaf count, each is retrievable from
+	/// the tree, and the count advances by exactly the number of credits.
+	#[test]
+	fn process_exit_bundle_appends_all_leaves_contiguously() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			// Pre-existing leaf so the run does not start at zero.
+			assert_ok!(Balances::mint_into(&account_id(999), 1_000 * UNIT));
+			Wormhole::record_transfer(0, &MINTING_ACCOUNT, &account_id(999), UNIT);
+			let leaves_before = ZkTree::leaf_count();
+			System::reset_events();
+
+			let b = bundle(
+				vec![
+					segment(&[1, 2], &[(10, AMOUNT_FOUR_QUANTUM_FEE), (11, AMOUNT_A)]),
+					segment(&[3], &[(12, AMOUNT_B), (10, AMOUNT_A)]),
+				],
+				Some(digest(7)),
+			);
+			assert_ok!(Wormhole::process_exit_bundle(b));
+
+			let recorded: Vec<(AccountId, u64, u64)> = System::events()
+				.into_iter()
+				.filter_map(|r| match r.event {
+					RuntimeEvent::Wormhole(crate::Event::<Test>::NativeTransferred {
+						to,
+						transfer_count,
+						leaf_index,
+						..
+					}) => Some((to, transfer_count, leaf_index)),
+					_ => None,
+				})
+				.collect();
+
+			// Four exits plus the aggregator rebate; no block author, so no miner leaf.
+			assert_eq!(recorded.len(), 5);
+			let indices: Vec<u64> = recorded.iter().map(|(_, _, i)| *i).collect();
+			assert_eq!(indices, (leaves_before..leaves_before + 5).collect::<Vec<_>>());
+			assert_eq!(ZkTree::leaf_count(), leaves_before + 5);
+
+			// Exit account 10 is credited twice and must get distinct transfer counts.
+			let exit_10 = AccountId32::new([10u8; 32]);
+			let counts_for_10: Vec<u64> = recorded
+				.iter()
+				.filter(|(to, _, _)| *to == exit_10)
+				.map(|(_, c, _)| *c)
+				.collect();
+			assert_eq!(counts_for_10, vec![0, 1]);
+			assert_eq!(Wormhole::transfer_count(&exit_10), 2);
+
+			for (to, transfer_count, leaf_index) in recorded {
+				let leaf = ZkTree::leaf(leaf_index).expect("leaf stored at the reported index");
+				assert_eq!(leaf.to, to);
+				assert_eq!(leaf.transfer_count, transfer_count);
+			}
+		});
+	}
+
 	#[test]
 	fn process_exit_bundle_sums_independently_rounded_segment_fees() {
 		new_test_ext().execute_with(|| {
