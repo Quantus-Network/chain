@@ -490,16 +490,9 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		let net_config_dir = build_net_config_dir(&config_dir);
 		let client_id = C::client_id();
 		let database_cache_size = self.database_cache_size()?.unwrap_or(1024);
-		let database = self.database()?.unwrap_or(
-			#[cfg(feature = "rocksdb")]
-			{
-				Database::RocksDb
-			},
-			#[cfg(not(feature = "rocksdb"))]
-			{
-				Database::ParityDb
-			},
-		);
+		// ParityDb is the backend the runtime's `DbWeight` is priced for. `Auto` keeps an
+		// existing RocksDB database rather than silently starting a fresh ParityDb next to it.
+		let database = self.database()?.unwrap_or(Database::Auto);
 		let node_key = self.node_key(&net_config_dir)?;
 		let role = self.role(is_dev)?;
 		let max_runtime_instances = self.max_runtime_instances()?.unwrap_or(8);

@@ -12,7 +12,7 @@ use futures::StreamExt;
 use quantus_runtime::{self, apis::RuntimeApi, opaque::Block};
 use sc_client_api::Backend;
 use sc_consensus_qpow::MiningHandle;
-use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
+use sc_service::{error::Error as ServiceError, Configuration, DatabaseSource, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 #[cfg(feature = "tx-logging")]
 use sc_transaction_pool_api::InPoolTransaction;
@@ -820,6 +820,25 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 	})
 }
 
+/// The runtime's `DbWeight` is priced for ParityDb; a RocksDB node imports DB-heavy
+/// blocks slower than their weight claims. Called after the database has been opened, so
+/// for `Auto` a RocksDB manifest at `rocksdb_path` means RocksDB is what was opened.
+fn warn_if_rocksdb(database: &DatabaseSource) {
+	let path = match database {
+		DatabaseSource::RocksDb { path, .. } => path,
+		DatabaseSource::Auto { rocksdb_path, .. } if rocksdb_path.join("CURRENT").is_file() =>
+			rocksdb_path,
+		_ => return,
+	};
+	log::warn!(
+		"Running on RocksDB at {}. This chain's weights assume ParityDb, which is several \
+		 times faster for state access; block import will be slower than priced. Migrate \
+		 with `export-blocks`, then `import-blocks --database paritydb --state-pruning \
+		 archive-canonical` into a fresh base path (see README, \"Database Backend\").",
+		path.display()
+	);
+}
+
 /// Builds a new service for a full client.
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn new_full<
@@ -846,6 +865,8 @@ pub fn new_full<
 		transaction_pool,
 		other: (pow_block_import, mut telemetry),
 	} = new_partial(&config)?;
+
+	warn_if_rocksdb(&config.database);
 
 	let tx_stream_for_worker = transaction_pool.clone().import_notification_stream();
 	#[cfg(feature = "tx-logging")]

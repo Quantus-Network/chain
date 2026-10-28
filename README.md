@@ -159,6 +159,27 @@ This chain has mandatory storage configuration settings that cannot be overridde
 
 Note that any command-line parameters related to pruning (`--state-pruning`, `--blocks-pruning`) will be ignored as these settings are enforced at the code level for all node operators.
 
+### Database Backend
+
+The runtime's storage weights are priced for **ParityDb**, and new nodes use it by default
+(`--database auto`: an existing RocksDB database under `<base-path>/chains/<id>/db` is reused,
+otherwise ParityDb is created under `<base-path>/chains/<id>/paritydb`).
+
+Nodes still on RocksDB log a warning at startup. They keep working, but state access is
+several times slower than the weights assume, so DB-heavy blocks take longer to import.
+To migrate without a full resync:
+
+```sh
+./target/release/quantus-node export-blocks --chain <chain> --base-path <old-path> --binary blocks.bin
+./target/release/quantus-node import-blocks --chain <chain> --base-path <new-path> --database paritydb --state-pruning archive-canonical --binary blocks.bin
+```
+
+`--state-pruning archive-canonical` is required: the pruning mode is fixed when the database is
+created, and a database imported with the backend's default constrained pruning cannot be
+reopened by the node (which enforces archive-canonical). Then start the node with
+`--base-path <new-path>`. Node keys and keystore files live outside
+the database directory and should be copied over from the old base path.
+
 ### Disk Usage
 
 This configuration provides a good balance between storage efficiency and data availability. You should expect your database to grow steadily over time as the blockchain progresses, though at a slower rate than a full archive node. If you're running a validator or service that needs access to historical chain state, this configuration will meet your needs while optimizing disk usage.

@@ -23,6 +23,9 @@ use clap::Args;
 #[derive(Debug, Clone, PartialEq, Args)]
 pub struct DatabaseParams {
 	/// Select database backend to use.
+	///
+	/// Defaults to `auto`: an existing RocksDB database is reused, otherwise a ParityDb
+	/// database is created.
 	#[arg(long, alias = "db", value_name = "DB", ignore_case = true, value_enum)]
 	pub database: Option<Database>,
 
