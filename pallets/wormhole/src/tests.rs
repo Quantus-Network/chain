@@ -691,6 +691,19 @@ mod private_batch_proof_tests {
 			.expect("Proof should deserialize")
 	}
 
+	/// Leave the `VerifiedProofHash` marker `pre_dispatch` would have left for `bytes`,
+	/// so a direct dispatch exercises the body as if the inclusion gate had run.
+	fn mark_verified(bytes: &[u8]) {
+		crate::pallet::VerifiedProofHash::<Test>::put(sp_io::hashing::blake2_256(bytes));
+	}
+
+	/// Dispatch `verify_private_batch` with `None` origin as the executive would after
+	/// a successful `pre_dispatch` (marker set, ZK verify assumed done).
+	fn settle_private(bytes: Vec<u8>) -> frame_support::dispatch::DispatchResultWithPostInfo {
+		mark_verified(&bytes);
+		Wormhole::verify_private_batch(RawOrigin::None.into(), bytes)
+	}
+
 	#[test]
 	fn test_proof_deserialization_succeeds() {
 		// Just test that the proof deserializes correctly
@@ -740,7 +753,7 @@ mod private_batch_proof_tests {
 			// Random invalid bytes should fail deserialization
 			let invalid_bytes = vec![0u8; 100];
 
-			let result = Wormhole::verify_private_batch(RawOrigin::None.into(), invalid_bytes);
+			let result = settle_private(invalid_bytes);
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::ProofDeserializationFailed.into());
@@ -754,7 +767,7 @@ mod private_batch_proof_tests {
 
 			// The proof references a block that doesn't exist in our mock
 			// This should fail with BlockNotFound
-			let result = Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes);
+			let result = settle_private(proof_bytes);
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::BlockNotFound.into());
@@ -784,7 +797,7 @@ mod private_batch_proof_tests {
 
 			let proof_bytes = get_test_proof_bytes();
 
-			let result = Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes);
+			let result = settle_private(proof_bytes);
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::NullifierAlreadyUsed.into());
@@ -805,7 +818,7 @@ mod private_batch_proof_tests {
 
 			let proof_bytes = get_test_proof_bytes();
 
-			let result = Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes);
+			let result = settle_private(proof_bytes);
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::InvalidPublicInputs.into());
@@ -832,7 +845,7 @@ mod private_batch_proof_tests {
 			let proof_bytes = get_test_proof_bytes();
 
 			// This should succeed - proof is valid and state matches
-			assert_ok!(Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes));
+			assert_ok!(settle_private(proof_bytes));
 
 			// Verify nullifiers are now marked as used
 			for nullifier in &inputs.nullifiers {
@@ -908,10 +921,7 @@ mod private_batch_proof_tests {
 			assert!(expected_exit > 0, "test proof must credit at least one exit");
 
 			System::reset_events();
-			assert_ok!(Wormhole::verify_private_batch(
-				RawOrigin::None.into(),
-				get_test_proof_bytes()
-			));
+			assert_ok!(settle_private(get_test_proof_bytes()));
 
 			// No `Transfer`/`Minted` events: nothing for an event-based recorder to pick up.
 			for record in System::events() {
@@ -991,6 +1001,112 @@ mod private_batch_proof_tests {
 				<Wormhole as ValidateUnsigned>::pre_dispatch(&call).is_err(),
 				"pre_dispatch must reject an unverifiable proof"
 			);
+		});
+	}
+
+	/// The dispatchable must not settle a proof that `pre_dispatch` did not verify in
+	/// the same extrinsic — regardless of origin. A genuine proof against valid state,
+	/// dispatched directly with `None` and no marker, is refused and mints nothing.
+	/// This is what makes "no mint without verify" a pallet property rather than a
+	/// property of which `None`-origin dispatch paths the runtime happens to have.
+	#[test]
+	fn dispatch_without_pre_dispatch_marker_is_refused() {
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+			let proof = deserialize_test_proof();
+			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
+			let exit = inputs
+				.account_data
+				.iter()
+				.find(|a| a.summed_output_amount > 0)
+				.map(|a| {
+					sp_core::crypto::AccountId32::new(a.exit_account.as_ref().try_into().unwrap())
+				})
+				.expect("fixture has a mintable exit");
+
+			let err =
+				Wormhole::verify_private_batch(RawOrigin::None.into(), get_test_proof_bytes())
+					.unwrap_err();
+			assert_eq!(err.error, Error::<Test>::ProofNotVerified.into());
+			assert_eq!(
+				err.post_info.actual_weight,
+				Some(
+					<<Test as frame_system::Config>::DbWeight as frame_support::traits::Get<
+						frame_support::weights::RuntimeDbWeight,
+					>>::get()
+					.reads(1)
+				)
+			);
+			assert_eq!(Balances::balance(&exit), 0);
+			for nullifier in &inputs.nullifiers {
+				let bytes: [u8; 32] = nullifier.as_ref().try_into().unwrap();
+				assert!(!UsedNullifiers::<Test>::contains_key(bytes));
+			}
+		});
+	}
+
+	/// The marker is bound to the exact bytes `pre_dispatch` verified: a marker for one
+	/// proof does not authorize settling different bytes, and a refused dispatch leaves
+	/// the marker in place (the transactional layer rolls back the `take`).
+	#[test]
+	fn pre_dispatch_marker_is_bound_to_exact_proof_bytes() {
+		use sp_runtime::traits::ValidateUnsigned;
+
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+			let genuine = get_test_proof_bytes();
+			let call = crate::Call::<Test>::verify_private_batch { proof_bytes: genuine.clone() };
+			assert_ok!(<Wormhole as ValidateUnsigned>::pre_dispatch(&call));
+			let marker = crate::pallet::VerifiedProofHash::<Test>::get();
+			assert_eq!(marker, Some(sp_io::hashing::blake2_256(&genuine)));
+
+			let mut other = genuine.clone();
+			other[0] ^= 0xFF;
+			let err = Wormhole::verify_private_batch(RawOrigin::None.into(), other).unwrap_err();
+			assert_eq!(err.error, Error::<Test>::ProofNotVerified.into());
+			assert_eq!(crate::pallet::VerifiedProofHash::<Test>::get(), marker);
+		});
+	}
+
+	/// The production handoff: `pre_dispatch` verifies and leaves the marker, the
+	/// dispatchable consumes it and settles, and nothing is left behind for a second
+	/// dispatch to reuse.
+	#[test]
+	fn pre_dispatch_then_dispatch_settles_and_consumes_marker() {
+		use sp_runtime::traits::ValidateUnsigned;
+
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+			let genuine = get_test_proof_bytes();
+			let call = crate::Call::<Test>::verify_private_batch { proof_bytes: genuine.clone() };
+
+			assert_ok!(<Wormhole as ValidateUnsigned>::pre_dispatch(&call));
+			assert_ok!(Wormhole::verify_private_batch(RawOrigin::None.into(), genuine.clone()));
+			assert_eq!(crate::pallet::VerifiedProofHash::<Test>::get(), None);
+
+			let err = Wormhole::verify_private_batch(RawOrigin::None.into(), genuine).unwrap_err();
+			assert_eq!(err.error, Error::<Test>::ProofNotVerified.into());
+		});
+	}
+
+	/// A tampered proof never gets a marker: `pre_dispatch` rejects it, and the direct
+	/// dispatch that a hypothetical `None`-origin wrapper would perform is refused too.
+	#[test]
+	fn unverifiable_proof_cannot_be_settled_by_any_route() {
+		use sp_runtime::traits::ValidateUnsigned;
+
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+			let mut tampered = get_test_proof_bytes();
+			for byte in tampered.iter_mut().take(64) {
+				*byte ^= 0xFF;
+			}
+			let call = crate::Call::<Test>::verify_private_batch { proof_bytes: tampered.clone() };
+
+			assert!(<Wormhole as ValidateUnsigned>::pre_dispatch(&call).is_err());
+			assert_eq!(crate::pallet::VerifiedProofHash::<Test>::get(), None);
+			let err = Wormhole::verify_private_batch(RawOrigin::None.into(), tampered).unwrap_err();
+			assert_eq!(err.error, Error::<Test>::ProofNotVerified.into());
 		});
 	}
 
@@ -1122,6 +1238,96 @@ mod private_batch_proof_tests {
 		});
 	}
 
+	/// Pool admission must not read `UsedNullifiers`. That per-nullifier storage pass
+	/// scales with batch size and, on the unsigned fee-free gossip path, would let a
+	/// junk flood force up to `NUM_PRIVATE_BATCH_PROOFS * NUM_LEAF_PROOFS` DB reads per
+	/// blob on every node, repeated on each revalidation — while filtering nothing (a
+	/// flood uses fresh nullifiers that are never already used). The nullifier check is
+	/// the block-inclusion gate's job instead.
+	///
+	/// This pins that behavior: with *every* nullifier of the fixture pre-marked used —
+	/// the state under which the old admission path returned `NullifierAlreadyUsed` —
+	/// `validate_unsigned` still admits the proof, while the full pre-validation that
+	/// `pre_dispatch` runs rejects it. If admission ever reads nullifier state again,
+	/// the first assertion fails.
+	#[test]
+	fn validate_unsigned_does_not_read_used_nullifiers() {
+		use sp_runtime::{traits::ValidateUnsigned, transaction_validity::TransactionSource};
+
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+
+			// Mark every real nullifier of the fixture as already used.
+			let proof = deserialize_test_proof();
+			let inputs = parse_private_batch_public_inputs(&proof).expect("Should parse");
+			let mut marked = 0u32;
+			for nullifier in &inputs.nullifiers {
+				let bytes: [u8; 32] = nullifier.as_ref().try_into().unwrap();
+				if bytes != [0u8; 32] {
+					UsedNullifiers::<Test>::insert(bytes, true);
+					marked += 1;
+				}
+			}
+			assert!(marked > 0, "fixture must carry at least one real nullifier");
+
+			let call =
+				crate::Call::<Test>::verify_private_batch { proof_bytes: get_test_proof_bytes() };
+
+			// Admission ignores nullifier state and still admits the proof ...
+			assert_ok!(<Wormhole as ValidateUnsigned>::validate_unsigned(
+				TransactionSource::External,
+				&call,
+			));
+
+			// ... while the stateful pre-validation the inclusion gate runs rejects it.
+			assert!(matches!(
+				Wormhole::pre_validate_private_batch_proof(&get_test_proof_bytes()),
+				Err(Error::<Test>::NullifierAlreadyUsed)
+			));
+		});
+	}
+
+	/// Dropping the per-nullifier pass from admission must not also drop the
+	/// stateless half of `ensure_any_segment_valid`: a bundle with no slot that could
+	/// ever mint (every exit amount zero) is rejected at admission without touching
+	/// `UsedNullifiers`. Such junk carries fresh, distinct nullifiers, so it would
+	/// otherwise earn a distinct pool tag per blob and reach the block author.
+	#[test]
+	fn validate_unsigned_rejects_bundle_with_no_mintable_slot() {
+		use qp_plonky2_verifier::field::types::Field;
+		use sp_runtime::{
+			traits::ValidateUnsigned,
+			transaction_validity::{InvalidTransaction, TransactionSource},
+		};
+
+		new_test_ext().execute_with(|| {
+			setup_valid_block_state_for_test_proof();
+
+			// Zero every exit-slot amount in the PI section (layout: header of 8 felts,
+			// then [sum(1), exit(4)] per slot, 2N slots). Nullifiers are untouched.
+			let mut tampered_proof = deserialize_test_proof();
+			let inputs = parse_private_batch_public_inputs(&tampered_proof).expect("Should parse");
+			assert!(
+				inputs.account_data.iter().any(|a| a.summed_output_amount > 0),
+				"fixture must carry at least one mintable slot"
+			);
+			for slot in 0..inputs.account_data.len() {
+				tampered_proof.public_inputs[8 + slot * 5] = F::ZERO;
+			}
+			let call = crate::Call::<Test>::verify_private_batch {
+				proof_bytes: tampered_proof.to_bytes(),
+			};
+
+			assert_eq!(
+				<Wormhole as ValidateUnsigned>::validate_unsigned(
+					TransactionSource::External,
+					&call,
+				),
+				Err(InvalidTransaction::Call.into()),
+			);
+		});
+	}
+
 	#[test]
 	fn test_verify_private_batch_burns_sub_quantum_miner_fee() {
 		new_test_ext().execute_with(|| {
@@ -1166,10 +1372,7 @@ mod private_batch_proof_tests {
 
 			let author_balance_before = Balances::balance(&expected_author);
 
-			assert_ok!(Wormhole::verify_private_batch(
-				RawOrigin::None.into(),
-				get_test_proof_bytes()
-			));
+			assert_ok!(settle_private(get_test_proof_bytes()));
 
 			assert!(
 				!System::events().iter().any(|r| matches!(
@@ -1201,10 +1404,10 @@ mod private_batch_proof_tests {
 			let proof_bytes = get_test_proof_bytes();
 
 			// First submission should succeed
-			assert_ok!(Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes.clone()));
+			assert_ok!(settle_private(proof_bytes.clone()));
 
 			// Second submission with same proof should fail (nullifiers already used)
-			let result = Wormhole::verify_private_batch(RawOrigin::None.into(), proof_bytes);
+			let result = settle_private(proof_bytes);
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::NullifierAlreadyUsed.into());
@@ -2287,6 +2490,18 @@ mod public_batch_proof_tests {
 			.expect("Proof should deserialize")
 	}
 
+	/// See `private_batch_proof_tests::mark_verified`.
+	fn mark_verified(bytes: &[u8]) {
+		crate::pallet::VerifiedProofHash::<Test>::put(sp_io::hashing::blake2_256(bytes));
+	}
+
+	/// Dispatch `verify_public_batch` with `None` origin as the executive would after
+	/// a successful `pre_dispatch`.
+	fn settle_public(bytes: Vec<u8>) -> frame_support::dispatch::DispatchResultWithPostInfo {
+		mark_verified(&bytes);
+		Wormhole::verify_public_batch(RawOrigin::None.into(), bytes)
+	}
+
 	fn parse_test_inputs() -> PublicBatchPublicInputs {
 		let proof = deserialize_test_proof();
 		parse_public_batch_public_inputs(
@@ -2405,7 +2620,7 @@ mod public_batch_proof_tests {
 	#[test]
 	fn test_verify_public_batch_fails_with_invalid_bytes() {
 		new_test_ext().execute_with(|| {
-			let result = Wormhole::verify_public_batch(RawOrigin::None.into(), vec![0u8; 100]);
+			let result = settle_public(vec![0u8; 100]);
 			assert!(result.is_err());
 			assert_eq!(result.unwrap_err().error, Error::<Test>::ProofDeserializationFailed.into());
 		});
@@ -2429,10 +2644,7 @@ mod public_batch_proof_tests {
 				.map(|a| a.summed_output_amount as u128)
 				.sum();
 
-			assert_ok!(Wormhole::verify_public_batch(
-				RawOrigin::None.into(),
-				get_test_proof_bytes()
-			));
+			assert_ok!(settle_public(get_test_proof_bytes()));
 
 			// Real nullifiers marked used; zero (dummy) nullifiers never stored.
 			for nullifier in &inputs.nullifiers {
@@ -2472,8 +2684,7 @@ mod public_batch_proof_tests {
 			setup_matching_block_state(&inputs);
 
 			let info =
-				Wormhole::verify_public_batch(RawOrigin::None.into(), get_test_proof_bytes())
-					.expect("fixture public batch must succeed");
+				settle_public(get_test_proof_bytes()).expect("fixture public batch must succeed");
 
 			// Fixture: one real exit; its segment writes NUM_LEAF_PROOFS nullifiers
 			// (dummy leaves in a real private batch carry non-zero H(H(p)) ones).
@@ -2495,21 +2706,38 @@ mod public_batch_proof_tests {
 		});
 	}
 
+	/// Public-batch twin of `dispatch_without_pre_dispatch_marker_is_refused`: without
+	/// the marker `pre_dispatch` leaves, the genuine fixture is refused and nothing
+	/// is minted to the exit or the aggregator.
+	#[test]
+	fn public_dispatch_without_pre_dispatch_marker_is_refused() {
+		new_test_ext().execute_with(|| {
+			let inputs = parse_test_inputs();
+			setup_matching_block_state(&inputs);
+			let aggregator = AccountId32::new(AGGREGATOR_ADDRESS);
+
+			let err = Wormhole::verify_public_batch(RawOrigin::None.into(), get_test_proof_bytes())
+				.unwrap_err();
+			assert_eq!(err.error, Error::<Test>::ProofNotVerified.into());
+			assert_eq!(Balances::balance(&aggregator), 0);
+			for nullifier in &inputs.nullifiers {
+				let bytes: [u8; 32] = nullifier.as_ref().try_into().unwrap();
+				assert!(!UsedNullifiers::<Test>::contains_key(bytes));
+			}
+		});
+	}
+
 	#[test]
 	fn test_verify_public_batch_cannot_replay() {
 		new_test_ext().execute_with(|| {
 			let inputs = parse_test_inputs();
 			setup_matching_block_state(&inputs);
 
-			assert_ok!(Wormhole::verify_public_batch(
-				RawOrigin::None.into(),
-				get_test_proof_bytes()
-			));
+			assert_ok!(settle_public(get_test_proof_bytes()));
 
 			// All real segments are now spent; replay must be rejected outright
 			// (dummy segments alone cannot make a bundle acceptable).
-			let result =
-				Wormhole::verify_public_batch(RawOrigin::None.into(), get_test_proof_bytes());
+			let result = settle_public(get_test_proof_bytes());
 			assert!(result.is_err());
 			assert_eq!(result.unwrap_err().error, Error::<Test>::NullifierAlreadyUsed.into());
 		});
@@ -2531,8 +2759,7 @@ mod public_batch_proof_tests {
 			let bytes: [u8; 32] = real_nullifier.as_ref().try_into().unwrap();
 			UsedNullifiers::<Test>::insert(bytes, true);
 
-			let result =
-				Wormhole::verify_public_batch(RawOrigin::None.into(), get_test_proof_bytes());
+			let result = settle_public(get_test_proof_bytes());
 			assert!(result.is_err());
 			assert_eq!(result.unwrap_err().error, Error::<Test>::NullifierAlreadyUsed.into());
 		});

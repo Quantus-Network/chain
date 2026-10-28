@@ -76,19 +76,30 @@ be zero).
 
 ### On‑chain verification
 
-`pallet_wormhole::verify_private_batch` (`pallets/wormhole/src/lib.rs`):
+`pallet_wormhole::verify_private_batch` (`pallets/wormhole/src/lib.rs`) is a
+`None`-origin call submitted as a bare unsigned extrinsic, so it is gated by
+`ValidateUnsigned`:
 
-1. `validate_proof`: deserialize, parse PIs, check `asset_id == 0`,
-   `volume_fee_bps` matches `T::VolumeFeeRateBps::get()`, `block_hash` matches
-   the on‑chain header at `block_number`, no nullifier already in
-   `UsedNullifiers`, then run full plonky2 verification.
-2. Mark each nullifier used.
-3. Walk the `2·N` exit slots, skipping any with `exit == [0;32]` or `sum == 0`
+1. `validate_unsigned` (pool admission): deserialize, parse PIs, check
+   `asset_id == 0`, `volume_fee_bps` matches `T::VolumeFeeRateBps::get()`,
+   `block_hash` matches the on‑chain header at `block_number`, and at least one
+   exit slot is mintable. No per‑nullifier storage reads and no ZK verify here,
+   so a flood of garbage blobs costs the node only the cheap structural work.
+2. `pre_dispatch` (block inclusion): repeat the structural checks, require that
+   some segment still has an unused nullifier, run full plonky2 verification,
+   then write `VerifiedProofHash = blake2_256(proof_bytes)`.
+3. The call body consumes `VerifiedProofHash` and fails with `ProofNotVerified`
+   if it is missing or does not match the submitted bytes. This is what keeps
+   any other dispatch route (batching, governance, future `None`-origin
+   forwarders) from settling an unverified proof. It then re-checks nullifiers
+   against `UsedNullifiers`, since an earlier extrinsic in the same block may
+   have spent them, and marks each nullifier used.
+4. Walk the `2·N` exit slots, skipping any with `exit == [0;32]` or `sum == 0`
    (covers dummies + dedup'd slots).
-4. Mint `sum · 10^10` (circuit uses 2dp `u32`, chain uses 12dp `u128`) to each
+5. Mint `sum · 10^10` (circuit uses 2dp `u32`, chain uses 12dp `u128`) to each
    surviving exit; record each transfer in `pallet-zk-tree` so the new mint
    becomes a fresh leaf available for future wormhole exits.
-5. Fee handling: for each accepted private segment, compute
+6. Fee handling: for each accepted private segment, compute
    `segment_fee = ceil(segment_minted_quanta · bps / (10000 − bps))`, then sum
    the segment fees. A private-batch proof has one segment; a public batch has
    one segment per inner private batch. Split the total per

@@ -70,8 +70,10 @@ substrate-wasm-builder = { optional = true, workspace = true, default-features =
 
 [dev-dependencies]
 env_logger.workspace = true
+hex = { workspace = true, features = ["std"] }
 qp-dilithium-crypto.workspace = true
 qp-poseidon-core.workspace = true
+qp-wormhole-verifier = { workspace = true, features = ["std"] }
 sp-io.workspace = true
 
 [features]

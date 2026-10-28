@@ -189,8 +189,12 @@ fn storage_tail(
 	(reads, writes, proof_size)
 }
 
-/// ZK verify + two pre-validations + a storage/tree tail scaled to `exits` and
-/// `nullifier_writes`.
+/// `VerifiedProofHash` marker: one write in `pre_dispatch`, one read + one kill in
+/// the dispatchable.
+const VERIFIED_MARKER_DB_OPS: (u64, u64) = (1, 2);
+
+/// ZK verify + two pre-validations + the verified-marker handoff + a storage/tree
+/// tail scaled to `exits` and `nullifier_writes`.
 fn verify_batch_weight(
 	db: RuntimeDbWeight,
 	zk_verify_ps: u64,
@@ -202,12 +206,13 @@ fn verify_batch_weight(
 	let tree_ops = pallet_zk_tree::INSERT_LEAF_DB_OPS;
 	let (reads, writes, proof_size) =
 		storage_tail(exits, nullifier_writes, extra_leaf_inserts, tree_ops);
+	let (marker_reads, marker_writes) = VERIFIED_MARKER_DB_OPS;
 	let hash_time = exits
 		.saturating_add(extra_leaf_inserts)
 		.saturating_mul(pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS);
 	Weight::from_parts(zk_verify_ps.saturating_add(hash_time), proof_size)
-		.saturating_add(db.reads(reads))
-		.saturating_add(db.writes(writes))
+		.saturating_add(db.reads(reads.saturating_add(marker_reads)))
+		.saturating_add(db.writes(writes.saturating_add(marker_writes)))
 		.saturating_add(pre_validate)
 		.saturating_add(pre_validate)
 }
