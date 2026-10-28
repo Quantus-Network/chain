@@ -207,6 +207,23 @@ pub fn get_public_batch_verifier() -> Result<&'static WormholeVerifier, &'static
 	PUBLIC_BATCH_VERIFIER.as_ref().ok_or("Public-batch verifier not available")
 }
 
+/// Serialized private-batch circuit artifacts embedded at build time, for node-side
+/// components (the public-batch aggregator) that must prove against exactly the
+/// circuit shape this runtime verifies.
+#[cfg(feature = "std")]
+pub mod embedded_artifacts {
+	/// `CommonCircuitData` of the private-batch circuit.
+	pub const PRIVATE_BATCH_COMMON: &[u8] =
+		include_bytes!(concat!(env!("OUT_DIR"), "/private_batch_common.bin"));
+	/// `VerifierOnlyCircuitData` of the private-batch circuit.
+	pub const PRIVATE_BATCH_VERIFIER: &[u8] =
+		include_bytes!(concat!(env!("OUT_DIR"), "/private_batch_verifier.bin"));
+	/// All-dummy private-batch proof (`block_hash == 0`, zero payouts) used to pad
+	/// partial public batches. Only generated for `std` builds (see `build.rs`).
+	pub const DUMMY_PRIVATE_BATCH_PROOF: &[u8] =
+		include_bytes!(concat!(env!("OUT_DIR"), "/dummy_private_batch_proof.bin"));
+}
+
 /// Scale factor for quantizing amounts from 12 to 2 decimal places (10^10).
 /// Amounts in the circuit are stored as u32 with 2 decimal places of precision.
 /// On-chain amounts use 12 decimal places, so we multiply by this factor when
@@ -350,7 +367,7 @@ pub mod pallet {
 
 	#[pallet::storage]
 	#[pallet::getter(fn used_nullifiers)]
-	pub(super) type UsedNullifiers<T: Config> =
+	pub type UsedNullifiers<T: Config> =
 		StorageMap<_, Blake2_128Concat, [u8; 32], bool, ValueQuery>;
 
 	/// `blake2_256` of the proof bytes that `ValidateUnsigned::pre_dispatch` fully

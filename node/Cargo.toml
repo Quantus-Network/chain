@@ -16,12 +16,15 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 array-bytes.workspace = true
+async-trait.workspace = true
 clap = { features = ["derive"], workspace = true }
 codec.workspace = true
 frame-benchmarking = { workspace = true, default-features = true, optional = true }
 frame-benchmarking-cli = { workspace = true, default-features = true, optional = true }
 frame-metadata-hash-extension.default-features = true
 frame-metadata-hash-extension.workspace = true
+frame-support.default-features = true
+frame-support.workspace = true
 frame-system.default-features = true
 frame-system.workspace = true
 futures = { features = ["thread-pool"], workspace = true }
@@ -36,13 +39,20 @@ pallet-transaction-payment-rpc.default-features = true
 pallet-transaction-payment-rpc.workspace = true
 pallet-utility.default-features = true
 pallet-utility.workspace = true
+pallet-wormhole.default-features = true
+pallet-wormhole.workspace = true
 pallet-zk-tree.default-features = true
 pallet-zk-tree.workspace = true
+parking_lot.workspace = true
 prometheus.workspace = true
 qp-dilithium-crypto = { workspace = true }
+qp-plonky2 = { workspace = true, features = ["parallel", "rand", "std"] }
 qp-rusty-crystals-dilithium.workspace = true
 qp-rusty-crystals-hdwallet.workspace = true
 qp-wormhole.workspace = true
+qp-wormhole-aggregator = { workspace = true, features = ["multithread", "std"] }
+qp-wormhole-inputs = { workspace = true, features = ["std"] }
+qp-zk-circuits-common = { workspace = true, features = ["std"] }
 qpow-math.workspace = true
 quantus-miner-api = { workspace = true }
 quantus-runtime.workspace = true
@@ -107,6 +117,8 @@ sp-runtime.default-features = true
 sp-runtime.workspace = true
 sp-timestamp.default-features = true
 sp-timestamp.workspace = true
+sp-transaction-pool.default-features = true
+sp-transaction-pool.workspace = true
 substrate-frame-rpc-system.default-features = true
 substrate-frame-rpc-system.workspace = true
 tokio-util.workspace = true
