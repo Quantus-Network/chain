@@ -780,6 +780,7 @@ mod tests {
 		));
 	}
 
+	#[cfg(feature = "rocksdb")]
 	#[test]
 	fn auto_propagates_probe_errors_other_than_not_found() {
 		let root = tempfile::tempdir().unwrap();
@@ -790,7 +791,7 @@ mod tests {
 		assert!(resolve_auto_database(paritydb_path, rocksdb_path, 128).is_err());
 	}
 
-	#[cfg(unix)]
+	#[cfg(all(unix, feature = "rocksdb"))]
 	#[test]
 	fn auto_refuses_to_shadow_unreadable_rocksdb() {
 		use std::os::unix::fs::PermissionsExt;
