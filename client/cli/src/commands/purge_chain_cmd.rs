@@ -27,6 +27,7 @@ use std::{
 	fmt::Debug,
 	fs,
 	io::{self, Write},
+	path::Path,
 };
 
 /// The `purge-chain` command used to remove the whole chain.
@@ -48,12 +49,10 @@ pub struct PurgeChainCmd {
 impl PurgeChainCmd {
 	/// Run the purge command
 	pub fn run(&self, database_config: DatabaseSource) -> error::Result<()> {
-		let db_path = database_config.path().and_then(|p| p.parent()).ok_or_else(|| {
-			error::Error::Input("Cannot purge custom database implementation".into())
-		})?;
+		let db_paths = purge_paths(&database_config)?;
 
 		if !self.yes {
-			print!("Are you sure to remove {:?}? [y/N]: ", &db_path);
+			print!("Are you sure to remove {:?}? [y/N]: ", &db_paths);
 			io::stdout().flush().expect("failed to flush stdout");
 
 			let mut input = String::new();
@@ -69,17 +68,34 @@ impl PurgeChainCmd {
 			}
 		}
 
-		match fs::remove_dir_all(&db_path) {
-			Ok(_) => {
-				println!("{:?} removed.", &db_path);
-				Ok(())
-			},
-			Err(ref err) if err.kind() == io::ErrorKind::NotFound => {
-				eprintln!("{:?} did not exist.", &db_path);
-				Ok(())
-			},
-			Err(err) => Result::Err(err.into()),
+		for db_path in db_paths {
+			match fs::remove_dir_all(db_path) {
+				Ok(_) => println!("{:?} removed.", db_path),
+				Err(ref err) if err.kind() == io::ErrorKind::NotFound =>
+					eprintln!("{:?} did not exist.", db_path),
+				Err(err) => return Err(err.into()),
+			}
 		}
+		Ok(())
+	}
+}
+
+/// Directories removed by `purge-chain`. `Auto` does not say which backend holds the
+/// chain, so both candidate locations are purged.
+fn purge_paths(database_config: &DatabaseSource) -> error::Result<Vec<&Path>> {
+	fn parent(p: &Path) -> error::Result<&Path> {
+		p.parent()
+			.ok_or_else(|| error::Error::Input(format!("Database path {p:?} has no parent")))
+	}
+	match database_config {
+		DatabaseSource::Auto { paritydb_path, rocksdb_path, .. } =>
+			Ok(vec![parent(paritydb_path)?, parent(rocksdb_path)?]),
+		other => {
+			let path = other.path().ok_or_else(|| {
+				error::Error::Input("Cannot purge custom database implementation".into())
+			})?;
+			Ok(vec![parent(path)?])
+		},
 	}
 }
 
@@ -90,5 +106,57 @@ impl CliConfiguration for PurgeChainCmd {
 
 	fn database_params(&self) -> Option<&DatabaseParams> {
 		Some(&self.database_params)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use clap::Parser;
+
+	fn cmd() -> PurgeChainCmd {
+		PurgeChainCmd::parse_from(["purge-chain", "-y"])
+	}
+
+	fn layout(root: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+		let rocksdb_path = root.join("db").join("full");
+		let paritydb_path = root.join("paritydb").join("full");
+		fs::create_dir_all(&rocksdb_path).unwrap();
+		fs::write(rocksdb_path.join("CURRENT"), b"MANIFEST-000001\n").unwrap();
+		(paritydb_path, rocksdb_path)
+	}
+
+	#[test]
+	fn auto_purges_rocksdb_only_layout() {
+		let root = tempfile::tempdir().unwrap();
+		let (paritydb_path, rocksdb_path) = layout(root.path());
+		cmd()
+			.run(DatabaseSource::Auto { paritydb_path, rocksdb_path, cache_size: 128 })
+			.unwrap();
+		assert!(!root.path().join("db").exists());
+		assert!(!root.path().join("paritydb").exists());
+	}
+
+	#[test]
+	fn auto_purges_both_backends() {
+		let root = tempfile::tempdir().unwrap();
+		let (paritydb_path, rocksdb_path) = layout(root.path());
+		fs::create_dir_all(&paritydb_path).unwrap();
+		fs::write(paritydb_path.join("metadata"), b"x").unwrap();
+		cmd()
+			.run(DatabaseSource::Auto { paritydb_path, rocksdb_path, cache_size: 128 })
+			.unwrap();
+		assert!(!root.path().join("db").exists());
+		assert!(!root.path().join("paritydb").exists());
+	}
+
+	#[test]
+	fn explicit_backend_purges_only_its_own_directory() {
+		let root = tempfile::tempdir().unwrap();
+		let (paritydb_path, rocksdb_path) = layout(root.path());
+		fs::create_dir_all(&paritydb_path).unwrap();
+		cmd().run(DatabaseSource::ParityDb { path: paritydb_path }).unwrap();
+		assert!(rocksdb_path.join("CURRENT").is_file());
+		assert!(!root.path().join("paritydb").exists());
 	}
 }
