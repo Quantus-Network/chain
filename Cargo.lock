@@ -8679,6 +8679,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "qp-header",
  "sc-client-api",
+ "sc-client-db",
  "sc-consensus",
  "sp-api",
  "sp-block-builder",

@@ -29,6 +29,9 @@ sp-runtime = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 
+[dev-dependencies]
+sc-client-db = { features = ["test-helpers"], workspace = true }
+
 [features]
 default = ["std"]
 std = [
