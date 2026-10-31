@@ -493,12 +493,21 @@ pub fn run() -> sc_cli::Result<()> {
 		Some(Subcommand::Revert(cmd)) => {
 			let runner = cli.create_runner(cmd)?;
 			runner.async_run(|config| {
-				let PartialComponents { client, task_manager, backend, .. } =
+				let PartialComponents { task_manager, backend, .. } =
 					service::new_partial(&config)?;
-				let aux_revert = Box::new(|_client, _, _blocks| {
-					unimplemented!("TODO - g*randpa was removed.");
-				});
-				Ok((cmd.run(client, backend, Some(aux_revert)), task_manager))
+				// Not `cmd.run`: its aux hook runs before the backend revert, but
+				// the QPoW achieved-work cleanup has to observe what the backend
+				// actually removed, so `sc_consensus_qpow::revert` owns both steps.
+				let blocks = cmd.num.parse()?;
+				Ok((
+					async move {
+						sc_consensus_qpow::revert::<quantus_runtime::opaque::Block, _>(
+							&*backend, blocks,
+						)
+						.map_err(sc_cli::Error::from)
+					},
+					task_manager,
+				))
 			})
 		},
 		#[cfg(feature = "runtime-benchmarks")]
@@ -578,8 +587,18 @@ pub fn run() -> sc_cli::Result<()> {
 						if path.is_absolute() {
 							path.to_path_buf()
 						} else {
-							// This is a valid assumption because the node is run from the shell
-							std::env::current_dir().unwrap().join(path)
+							// This is a valid assumption because the node is run from the shell;
+							// still, current_dir can legitimately fail (e.g. a deleted cwd), so
+							// surface an error instead of panicking.
+							std::env::current_dir()
+								.map_err(|e| {
+									sc_cli::Error::Input(format!(
+										"Could not resolve relative --node-key-file: failed to read the \
+										 current directory: {}",
+										e
+									))
+								})?
+								.join(path)
 						}
 					} else {
 						config.network.net_config_path.clone().unwrap().join("secret_dilithium")
