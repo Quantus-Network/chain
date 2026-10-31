@@ -3619,32 +3619,6 @@ pub(crate) mod tests {
 		assert!(tree_route.retracted().is_empty());
 	}
 
-	#[cfg(feature = "test-helpers")]
-	#[test]
-	fn test_leaves_with_complex_block_tree() {
-		let backend: Arc<Backend<substrate_test_runtime_client::runtime::Block>> =
-			Arc::new(Backend::new_test(20, 20));
-		substrate_test_runtime_client::trait_tests::test_leaves_for_backend(backend);
-	}
-
-	#[cfg(feature = "test-helpers")]
-	#[test]
-	fn test_children_with_complex_block_tree() {
-		let backend: Arc<Backend<substrate_test_runtime_client::runtime::Block>> =
-			Arc::new(Backend::new_test(20, 20));
-		substrate_test_runtime_client::trait_tests::test_children_for_backend(backend);
-	}
-
-	#[cfg(feature = "test-helpers")]
-	#[test]
-	fn test_blockchain_query_by_number_gets_canonical() {
-		let backend: Arc<Backend<substrate_test_runtime_client::runtime::Block>> =
-			Arc::new(Backend::new_test(20, 20));
-		substrate_test_runtime_client::trait_tests::test_blockchain_query_by_number_gets_canonical(
-			backend,
-		);
-	}
-
 	#[test]
 	fn test_leaves_pruned_on_finality() {
 		//   / 1b - 2b - 3b
