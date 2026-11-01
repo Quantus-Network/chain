@@ -3008,3 +3008,89 @@ fn execute_mismatch_never_reports_more_weight_than_declared() {
 		);
 	});
 }
+
+/// Mirror of the test above for the opposite size ordering: a *submitted* call
+/// that encodes to more than `MaxCallSize`, against a small stored proposal.
+///
+/// The declaration reserves bookkeeping at a flat `MaxCallSize` and no longer
+/// grows with `call.encoded_size()`, so the `CallMismatch` path's `call_size`
+/// must be clamped to `MaxCallSize` to stay inside that reservation. Such a
+/// call can only ever end in `CallMismatch`: `proposal.call` is a
+/// `BoundedVec<_, MaxCallSize>`, so an over-sized submission can never be
+/// byte-equal to it.
+///
+/// Asserted against `execute(MaxCallSize)` rather than only against the full
+/// declaration, because the declaration also carries the inner call's own
+/// weight — which for a large `remark` is big enough to absorb the bookkeeping
+/// overshoot and hide the regression.
+#[test]
+fn execute_oversized_submitted_call_stays_within_bookkeeping_reservation() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let signers = vec![alice(), bob()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0,
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Store a small proposal, and approve it so `execute` reaches the
+		// call-binding check rather than short-circuiting on status.
+		let small = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			small.encode().try_into().unwrap(),
+			100,
+		));
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+			stored_call(&multisig_address, 0)
+		));
+
+		// Submit a call encoding well past `MaxCallSize` (mock: 1024 bytes).
+		let max_call_size = <Test as crate::Config>::MaxCallSize::get();
+		let big = RuntimeCall::System(frame_system::Call::remark {
+			remark: vec![7u8; max_call_size as usize * 4],
+		});
+		assert!(big.encoded_size() > max_call_size as usize);
+
+		let declared = crate::Call::<Test>::execute {
+			multisig_address: multisig_address.clone(),
+			proposal_id: 0,
+			call: Box::new(big.clone()),
+		}
+		.get_dispatch_info()
+		.call_weight;
+
+		let err = Multisig::execute(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			0,
+			Box::new(big),
+		)
+		.unwrap_err();
+		assert_eq!(err.error, Error::<Test>::CallMismatch.into());
+		let actual = err.post_info.actual_weight.expect("mismatch path reports its actual weight");
+
+		// The bookkeeping term the declaration actually reserved.
+		let reserved = <<Test as crate::Config>::WeightInfo as crate::weights::WeightInfo>::execute(
+			max_call_size,
+		);
+		assert!(
+			actual.all_lte(reserved),
+			"mismatch bookkeeping must stay within execute(MaxCallSize): \
+			 actual={actual:?} reserved={reserved:?}"
+		);
+		assert!(
+			actual.all_lte(declared),
+			"post-dispatch weight must not exceed the declaration: \
+			 actual={actual:?} declared={declared:?}"
+		);
+	});
+}

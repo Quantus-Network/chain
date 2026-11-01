@@ -1079,15 +1079,21 @@ pub mod pallet {
 		#[pallet::call_index(6)]
 		#[pallet::weight({
 			// Bookkeeping (storage reads/writes) plus the inner call's own declared
-			// weight, refunded post-dispatch to actuals. Bookkeeping is sized by the
-			// larger of the submitted call and `MaxCallSize`: the dispatch reads the
-			// stored proposal bytes, whose length is unknown pre-dispatch (bounded
-			// only by `MaxCallSize`), and no error path may report more weight than
-			// was declared (FRAME clamps and logs such violations).
-			<T as Config>::WeightInfo::execute(
-				T::MaxCallSize::get().max(call.encoded_size() as u32),
-			)
-			.saturating_add(call.get_dispatch_info().call_weight)
+			// weight, refunded post-dispatch to actuals. Bookkeeping is reserved at
+			// `MaxCallSize`, which bounds both the stored proposal bytes the dispatch
+			// reads and the submitted call's bookkeeping term (`call_size` below is
+			// clamped to the same constant), so no error path can report more weight
+			// than was declared (FRAME clamps and logs such violations).
+			//
+			// Deliberately *not* sized by `call.encoded_size()`: `encoded_size` walks
+			// the whole remaining call subtree, and `get_dispatch_info()` below
+			// recurses into a nested `execute`, re-evaluating this annotation over
+			// that subtree in turn. Taking the byte count at every level would make
+			// validation O(depth * bytes) of encode-walking on a caller-supplied
+			// extrinsic, before `CheckWeight` or `ChargeTransactionPayment` can
+			// reject it. The recursion itself is inherent and stays.
+			<T as Config>::WeightInfo::execute(T::MaxCallSize::get())
+				.saturating_add(call.get_dispatch_info().call_weight)
 		})]
 		#[allow(clippy::useless_conversion)]
 		pub fn execute(
@@ -1128,7 +1134,14 @@ pub mod pallet {
 			// after proposal is loaded, since reading the proposal incurs size-dependent
 			// cost. Sized by the larger of stored and submitted encodings so mismatch
 			// error paths also cover the submitted call's encode below.
-			let call_size = (proposal.call.len() as u32).max(call.encoded_size() as u32);
+			// Clamped to `MaxCallSize` so this can never exceed the weight declared
+			// above. `proposal.call` is a `BoundedVec<_, MaxCallSize>`, so a submitted
+			// call encoding to more than `MaxCallSize` bytes can never be byte-equal
+			// to it and can only end in `CallMismatch` below; charging that path
+			// `execute(MaxCallSize)` is correct.
+			let call_size = (proposal.call.len() as u32)
+				.max(call.encoded_size() as u32)
+				.min(T::MaxCallSize::get());
 			let bookkeeping_weight = <T as Config>::WeightInfo::execute(call_size);
 
 			// Must be Approved status
