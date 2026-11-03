@@ -22,6 +22,7 @@ use crate::{
 	common::api::FullChainApi,
 	fork_aware_txpool::ForkAwareTxPool as ForkAwareFullPool,
 	graph::{base_pool::Transaction, ChainApi, ExtrinsicFor, ExtrinsicHash, IsValidator, Options},
+	interceptor::SubmissionInterceptor,
 	single_state_txpool::BasicPool as SingleStateFullPool,
 	TransactionPoolWrapper, LOG_TARGET,
 };
@@ -195,6 +196,7 @@ pub struct Builder<'a, Block, Client> {
 	prometheus: Option<&'a PrometheusRegistry>,
 	client: Arc<Client>,
 	spawner: Box<dyn SpawnEssentialNamed>,
+	interceptor: Option<Arc<dyn SubmissionInterceptor<Block>>>,
 	_phantom: PhantomData<(Client, Block)>,
 }
 
@@ -227,6 +229,7 @@ where
 			client,
 			is_validator,
 			prometheus: None,
+			interceptor: None,
 		}
 	}
 
@@ -242,6 +245,16 @@ where
 		self
 	}
 
+	/// Fronts the pool with a [`SubmissionInterceptor`] that may claim extrinsics
+	/// before they are admitted.
+	pub fn with_submission_interceptor(
+		mut self,
+		interceptor: Arc<dyn SubmissionInterceptor<Block>>,
+	) -> Self {
+		self.interceptor = Some(interceptor);
+		self
+	}
+
 	/// Creates an instance of transaction pool.
 	pub fn build(self) -> TransactionPoolHandle<Block, Client> {
 		tracing::info!(
@@ -251,22 +264,24 @@ where
 			future = ?self.options.options.future,
 			"Creating transaction pool"
 		);
-		TransactionPoolWrapper::<Block, Client>(match self.options.txpool_type {
-			TransactionPoolType::SingleState => Box::new(SingleStateFullPool::new_full(
-				self.options.options,
-				self.is_validator,
-				self.prometheus,
-				self.spawner,
-				self.client,
-			)),
-			TransactionPoolType::ForkAware => Box::new(ForkAwareFullPool::new_full(
-				self.options.options,
-				self.is_validator,
-				self.prometheus,
-				self.spawner,
-				self.client,
-			)),
-		})
+		let inner: Box<dyn FullClientTransactionPool<Block, Client>> =
+			match self.options.txpool_type {
+				TransactionPoolType::SingleState => Box::new(SingleStateFullPool::new_full(
+					self.options.options,
+					self.is_validator,
+					self.prometheus,
+					self.spawner,
+					self.client,
+				)),
+				TransactionPoolType::ForkAware => Box::new(ForkAwareFullPool::new_full(
+					self.options.options,
+					self.is_validator,
+					self.prometheus,
+					self.spawner,
+					self.client,
+				)),
+			};
+		TransactionPoolWrapper::new(inner, self.interceptor)
 	}
 }
 

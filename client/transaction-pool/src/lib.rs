@@ -27,6 +27,7 @@ mod builder;
 mod common;
 mod fork_aware_txpool;
 mod graph;
+mod interceptor;
 mod single_state_txpool;
 mod transaction_pool_wrapper;
 
@@ -43,6 +44,9 @@ pub use fork_aware_txpool::{ForkAwareTxPool, ForkAwareTxPoolTask};
 pub use graph::{
 	base_pool::{Limit as PoolLimit, TimedTransactionSource},
 	ChainApi, Options, Pool, ValidateTransactionPriority,
+};
+pub use interceptor::{
+	InterceptedStatusStream, Interception, SubmissionInterceptor, WatchedInterception,
 };
 use single_state_txpool::prune_known_txs_for_block;
 pub use single_state_txpool::{BasicPool, RevalidationType};

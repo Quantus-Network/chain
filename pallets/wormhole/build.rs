@@ -57,12 +57,18 @@ fn main() {
 		num_leaf_proofs, num_private_batch_proofs
 	);
 
+	// The dummy private-batch padding template (`dummy_private_batch_proof.bin`) is
+	// only consumed by the node-side public-batch aggregator, which is `std`-only.
+	// Generating it costs a private-batch proving run, so skip it for the wasm
+	// runtime build, which never embeds it.
+	let include_dummy_private_batch_proof = env::var_os("CARGO_FEATURE_STD").is_some();
+
 	let start = Instant::now();
 
 	// Generate leaf + private batch + public batch verifier binaries (no prover).
 	qp_wormhole_circuit_builder::generate_all_circuit_binaries(
 		Path::new(&out_dir),
-		false, // include_prover = false
+		include_dummy_private_batch_proof,
 		num_leaf_proofs,
 		Some(num_private_batch_proofs),
 	)
@@ -90,6 +96,9 @@ fn main() {
 	print_bin_hash(out_path, "dummy_proof.bin");
 	print_bin_hash(out_path, "private_batch_common.bin");
 	print_bin_hash(out_path, "private_batch_verifier.bin");
+	if include_dummy_private_batch_proof {
+		print_bin_hash(out_path, "dummy_private_batch_proof.bin");
+	}
 	print_bin_hash(out_path, "public_batch_common.bin");
 	print_bin_hash(out_path, "public_batch_verifier.bin");
 }
