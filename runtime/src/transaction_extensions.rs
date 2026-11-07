@@ -7,6 +7,7 @@ use frame_support::pallet_prelude::{
 	InvalidTransaction, TransactionValidityError, ValidTransaction,
 };
 use qp_high_security::HighSecurityInspector;
+use qp_wormhole::TransferProofRecorder;
 use scale_info::TypeInfo;
 use sp_core::Get;
 use sp_runtime::{
@@ -392,25 +393,44 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		Self(PhantomData)
 	}
 
-	/// Weight charged per recorded ZK-tree leaf.
+	/// Weight charged per recorded transfer proof.
 	///
-	/// Per recorded leaf, `record_transfer` touches one `TransferCount` read and one
+	/// Per recorded transfer, `record_transfer` touches one `TransferCount` read and one
 	/// write, plus the ZK-tree leaf insert. The insert price is FLAT at the circuit
 	/// depth ceiling (see [`pallet_zk_tree::INSERT_LEAF_DB_OPS`]), so multiplying this
-	/// single price by a leaf count is sound even for multi-transfer calls that cross
-	/// capacity boundaries. The path update also puts every tree key it reads into
-	/// the PoV ([`pallet_zk_tree::TREE_KEY_POV`] each); omitting that proof-size term
-	/// would let deep-tree blocks exceed the PoV budget validators re-execute against.
-	/// Recording finally deposits two events per leaf; those land after the scan
-	/// snapshot, so this reservation is the only place their System work can be
-	/// charged. (`TreeGrew` is deliberately not modeled: the tree grows at most
-	/// [`pallet_zk_tree::MAX_TREE_DEPTH`] times over the chain's entire life, and the
-	/// flat depth-ceiling insert pricing already carries margin for young trees.)
-	///
-	/// The formula lives in the wormhole pallet so the hook-context recorder path
-	/// registers the same price for its surplus leaves.
+	/// single price by a transfer count is sound even for multi-transfer calls that
+	/// cross capacity boundaries. The path update also puts every tree key it reads
+	/// into the PoV ([`pallet_zk_tree::TREE_KEY_POV`] each); omitting that proof-size
+	/// term would let deep-tree blocks exceed the PoV budget validators re-execute
+	/// against. Recording finally deposits [`Self::EVENTS_PER_RECORDED_PROOF`] events;
+	/// those land after the scan snapshot, so this reservation is the only place their
+	/// System work can be charged.
 	fn per_transfer_weight() -> Weight {
-		pallet_wormhole::Pallet::<T>::leaf_record_weight()
+		let (tree_reads, tree_writes) = pallet_zk_tree::INSERT_LEAF_DB_OPS;
+		let hash_time = pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS;
+		T::DbWeight::get()
+			.reads_writes(1u64.saturating_add(tree_reads), 1u64.saturating_add(tree_writes))
+			.saturating_add(Weight::from_parts(
+				hash_time,
+				tree_reads.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
+			))
+			.saturating_add(Self::event_deposit_weight(Self::EVENTS_PER_RECORDED_PROOF))
+	}
+
+	/// Events deposited by one successfully recorded proof: `ZkTree::LeafInserted`
+	/// plus the wormhole's `NativeTransferred` / `AssetTransferred`. (`TreeGrew` is
+	/// deliberately not modeled: the tree grows at most [`pallet_zk_tree::MAX_TREE_DEPTH`]
+	/// times over the chain's entire life, and the flat depth-ceiling insert pricing
+	/// already carries margin for young trees.)
+	const EVENTS_PER_RECORDED_PROOF: u64 = 2;
+
+	/// Weight of depositing `events` records from proof recording. Each
+	/// `frame_system::deposit_event` reads and writes `EventCount` and appends the
+	/// encoded record to `Events`. These deposits happen after the scan snapshot is
+	/// taken, so no scan charge can cover them — they must be part of the static
+	/// per-transfer reservation.
+	fn event_deposit_weight(events: u64) -> Weight {
+		T::DbWeight::get().reads_writes(events, events.saturating_mul(2))
 	}
 
 	/// Worst-case `ref_time` (picoseconds) of the *structural* work to decode one
@@ -621,16 +641,16 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 				.collect();
 
 		// Now record the proofs - this is safe because we're no longer iterating over Events.
-		// Count the leaves actually inserted: `record_credit` returns 0 for deliberately
-		// dropped credits (counting those would over-reserve fees and falsely register
-		// extra block weight on opaque paths) and more than 1 for credits above the leaf
-		// cap. `record_credit` rather than the `TransferProofRecorder` impl: that impl
-		// registers surplus leaves against the block itself, which would double-count
-		// the reconciliation done in `post_dispatch_details`.
+		// Count the leaves actually inserted: `record_transfer_proof` returns 0 for
+		// deliberately dropped credits (counting those would over-reserve fees and
+		// falsely register extra block weight on opaque paths) and more than 1 for
+		// credits above the leaf cap.
 		let mut recorded = 0u64;
 		for (asset_id, from, to, amount) in transfers_to_record {
-			recorded = recorded
-				.saturating_add(u64::from(Wormhole::record_credit(asset_id, from, to, amount)));
+			let leaves = <Wormhole as TransferProofRecorder<AccountId, AssetId, Balance>>::record_transfer_proof(
+				asset_id, from, to, amount,
+			);
+			recorded = recorded.saturating_add(u64::from(leaves));
 		}
 		(recorded, event_bytes)
 	}
@@ -1913,8 +1933,8 @@ mod tests {
 			// `EventCount` read/write and an `Events` append. Those deposits happen after
 			// the scan snapshot, so nothing downstream can charge them: the static
 			// reservation must.
-			let event_deposits = pallet_wormhole::Pallet::<Runtime>::event_deposit_weight(
-				pallet_wormhole::EVENTS_PER_LEAF,
+			let event_deposits = WormholeProofRecorderExtension::<Runtime>::event_deposit_weight(
+				WormholeProofRecorderExtension::<Runtime>::EVENTS_PER_RECORDED_PROOF,
 			);
 			assert!(
 				weight.ref_time() >=
@@ -1927,7 +1947,7 @@ mod tests {
 	}
 
 	/// Pins the multiplier behind the modeled event-deposit charge: one recorded leaf
-	/// deposits exactly `pallet_wormhole::EVENTS_PER_LEAF` events. If recording ever starts
+	/// deposits exactly `EVENTS_PER_RECORDED_PROOF` events. If recording ever starts
 	/// emitting more, the static reservation must be updated with it. (Capacity-boundary
 	/// inserts additionally emit `TreeGrew`, deliberately unmodeled: it happens at most
 	/// `MAX_TREE_DEPTH` times over the chain's whole life — the warm-up insert below
@@ -1958,7 +1978,7 @@ mod tests {
 
 			assert_eq!(
 				record_one_transfer(),
-				pallet_wormhole::EVENTS_PER_LEAF,
+				WormholeProofRecorderExtension::<Runtime>::EVENTS_PER_RECORDED_PROOF,
 				"the modeled events-per-leaf multiplier must match what recording deposits"
 			);
 		});

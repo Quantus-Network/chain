@@ -309,10 +309,9 @@ mod wormhole_tests {
 		});
 	}
 
-	/// The recorder trait reports the leaf count and registers the surplus leaves'
-	/// weight against the block, since pallet call sites price one leaf per transfer.
+	/// The recorder trait reports how many leaves a credit was recorded as.
 	#[test]
-	fn recorder_reports_leaf_count_and_registers_surplus_weight() {
+	fn recorder_reports_leaf_count() {
 		use pallet_zk_tree::tree::LEAF_AMOUNT_CAP;
 		use qp_wormhole::TransferProofRecorder;
 
@@ -320,31 +319,26 @@ mod wormhole_tests {
 			System::set_block_number(1);
 			let from = account_id(1);
 			let to = account_id(2);
-			let before = System::block_weight().total();
 
-			let leaves =
+			assert_eq!(
 				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
 					None,
 					from.clone(),
 					to.clone(),
 					3 * LEAF_AMOUNT_CAP,
-				);
-			assert_eq!(leaves, 3);
-			assert_eq!(
-				System::block_weight().total(),
-				before.saturating_add(Wormhole::leaf_record_weight().saturating_mul(2)),
-				"the two leaves beyond the first must be registered against the block"
+				),
+				3
 			);
-
-			// A single-leaf credit registers nothing: its weight is the caller's.
-			let before = System::block_weight().total();
 			assert_eq!(
 				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
-					None, from, to, UNIT,
+					None,
+					from,
+					to.clone(),
+					UNIT,
 				),
 				1
 			);
-			assert_eq!(System::block_weight().total(), before);
+			assert_eq!(Wormhole::transfer_count(&to), 4);
 		});
 	}
 

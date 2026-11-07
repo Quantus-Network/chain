@@ -213,12 +213,6 @@ pub fn get_public_batch_verifier() -> Result<&'static WormholeVerifier, &'static
 /// converting from circuit amounts to on-chain amounts.
 pub const SCALE_DOWN_FACTOR: u128 = 10_000_000_000;
 
-/// Events deposited per recorded leaf: `ZkTree::LeafInserted` plus the wormhole's
-/// `NativeTransferred` / `AssetTransferred`. Priced into
-/// [`Pallet::leaf_record_weight`]; `TreeGrew` is deliberately not modeled (the tree
-/// grows at most `MAX_TREE_DEPTH` times over the chain's life).
-pub const EVENTS_PER_LEAF: u64 = 2;
-
 #[frame_support::pallet]
 pub mod pallet {
 	use crate::WeightInfo;
@@ -1598,41 +1592,17 @@ pub mod pallet {
 			TransferCount::<T>::insert(&leaf_to, count);
 			leaves
 		}
+	}
 
-		/// Weight of recording one leaf: the `TransferCount` read and write, the
-		/// flat marginal ZK-tree insert (priced at the circuit depth ceiling, see
-		/// [`pallet_zk_tree::INSERT_LEAF_DB_OPS`]) with its per-key PoV, and the
-		/// [`crate::EVENTS_PER_LEAF`] events each leaf deposits
-		/// (`frame_system::deposit_event` reads and writes `EventCount` and appends
-		/// to `Events`).
-		///
-		/// Flat per leaf, so callers can price a credit as `leaves × this`.
-		pub fn leaf_record_weight() -> Weight {
-			let (tree_reads, tree_writes) = pallet_zk_tree::INSERT_LEAF_DB_OPS;
-			T::DbWeight::get()
-				.reads_writes(1u64.saturating_add(tree_reads), 1u64.saturating_add(tree_writes))
-				.saturating_add(Weight::from_parts(
-					pallet_zk_tree::INSERT_LEAF_HASH_REF_TIME_PS,
-					tree_reads.saturating_mul(pallet_zk_tree::TREE_KEY_POV),
-				))
-				.saturating_add(Self::event_deposit_weight(crate::EVENTS_PER_LEAF))
-		}
-
-		/// Weight of depositing `events` records: each `frame_system::deposit_event`
-		/// reads and writes `EventCount` and appends the encoded record to `Events`.
-		pub fn event_deposit_weight(events: u64) -> Weight {
-			T::DbWeight::get().reads_writes(events, events.saturating_mul(2))
-		}
-
-		/// Record a credit observed by a transfer source (event scan or call site),
-		/// dropping the credits that must never become leaves. Returns the number of
-		/// leaves inserted (0 when the credit was dropped).
-		///
-		/// This is the [`qp_wormhole::TransferProofRecorder`] body without the
-		/// extra-weight registration that implementation adds; callers that account
-		/// for every recorded leaf themselves (the runtime's event-scanning
-		/// transaction extension) use this directly.
-		pub fn record_credit(
+	// Implement the TransferProofRecorder trait for other pallets to use
+	impl<T: Config>
+		qp_wormhole::TransferProofRecorder<
+			<T as Config>::WormholeAccountId,
+			<T as Config>::AssetId,
+			BalanceOf<T>,
+		> for Pallet<T>
+	{
+		fn record_transfer_proof(
 			asset_id: Option<<T as Config>::AssetId>,
 			from: <T as Config>::WormholeAccountId,
 			to: <T as Config>::WormholeAccountId,
@@ -1684,38 +1654,6 @@ pub mod pallet {
 				// leaf, preserving the existing behaviour for future asset-wormhole support.
 				Some(id) => Self::record_transfer(id, &from, &to, amount),
 			}
-		}
-	}
-
-	// Implement the TransferProofRecorder trait for other pallets to use
-	impl<T: Config>
-		qp_wormhole::TransferProofRecorder<
-			<T as Config>::WormholeAccountId,
-			<T as Config>::AssetId,
-			BalanceOf<T>,
-		> for Pallet<T>
-	{
-		/// Pallet call sites (vesting, reversible transfers, mining rewards) carry one
-		/// leaf per recorded transfer in their benchmarked weights. A credit above the
-		/// leaf cap inserts more; the surplus is registered against the block here so
-		/// capacity accounting stays sound. It is not fee-charged: the only callers
-		/// that can reach it move amounts above ~429k QTC through admin-created
-		/// vesting schedules or already-held scheduled transfers, and the surplus is
-		/// bounded by `MAX_LEAVES_PER_CREDIT − 1` leaves per credit.
-		fn record_transfer_proof(
-			asset_id: Option<<T as Config>::AssetId>,
-			from: <T as Config>::WormholeAccountId,
-			to: <T as Config>::WormholeAccountId,
-			amount: BalanceOf<T>,
-		) -> u32 {
-			let leaves = Self::record_credit(asset_id, from, to, amount);
-			if leaves > 1 {
-				frame_system::Pallet::<T>::register_extra_weight_unchecked(
-					Self::leaf_record_weight().saturating_mul(u64::from(leaves - 1)),
-					DispatchClass::Normal,
-				);
-			}
-			leaves
 		}
 	}
 }
