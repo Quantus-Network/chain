@@ -264,6 +264,10 @@ pub mod pallet {
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
 		/// Native balance type for transfer proofs.
+		///
+		/// Leaf amounts, exit outputs, and fee shares are computed in `u128` planck
+		/// (see [`crate::SCALE_DOWN_FACTOR`]), so the balance must convert losslessly
+		/// both ways.
 		type NativeBalance: Parameter
 			+ Member
 			+ Default
@@ -273,7 +277,9 @@ pub mod pallet {
 			+ sp_runtime::traits::CheckedAdd
 			+ sp_runtime::traits::CheckedSub
 			+ sp_runtime::traits::Zero
-			+ sp_runtime::traits::Saturating;
+			+ sp_runtime::traits::Saturating
+			+ From<u128>
+			+ Into<u128>;
 
 		/// Currency type used for native token transfers and minting.
 		type Currency: Mutate<<Self as frame_system::Config>::AccountId, Balance = Self::NativeBalance>
@@ -907,13 +913,9 @@ pub mod pallet {
 					}
 
 					// Convert output amount to Balance type (scale up from quantized value)
-					let exit_balance_u128 = (account_data.summed_output_amount as u128)
-						.saturating_mul(crate::SCALE_DOWN_FACTOR);
-					let exit_balance: BalanceOf<T> =
-						exit_balance_u128.try_into().map_err(|_| {
-							log::error!("Failed to convert exit_balance at idx {}", idx);
-							Error::<T>::InvalidProofPublicInputs
-						})?;
+					let exit_balance: BalanceOf<T> = (account_data.summed_output_amount as u128)
+						.saturating_mul(crate::SCALE_DOWN_FACTOR)
+						.into();
 
 					// Decode exit account from public inputs
 					let exit_account = <T as frame_system::Config>::AccountId::decode(
@@ -966,19 +968,13 @@ pub mod pallet {
 				nullifiers: nullifier_list,
 			});
 
-			let total_fee_u128 = minted_exit_by_segment.into_iter().try_fold(
-				0u128,
-				|total, segment_balance| -> Result<u128, Error<T>> {
-					let segment_u128: u128 = segment_balance.try_into().map_err(|_| {
-						log::error!("Failed to convert segment minted amount to u128");
-						Error::<T>::InvalidProofPublicInputs
-					})?;
-					Ok(total.saturating_add(Self::volume_fee_for_exit(
-						segment_u128,
+			let total_fee_u128 =
+				minted_exit_by_segment.into_iter().fold(0u128, |total, segment_balance| {
+					total.saturating_add(Self::volume_fee_for_exit(
+						segment_balance.into(),
 						T::VolumeFeeRateBps::get(),
-					)))
-				},
-			)?;
+					))
+				});
 
 			// Fee distribution: configurable portion burned, remainder to miner.
 			//
@@ -1023,7 +1019,7 @@ pub mod pallet {
 						&aggregator_account,
 						rebate_quanta,
 						&mint_account,
-					)?
+					)
 					.is_some()
 					{
 						extra_leaf_inserts = extra_leaf_inserts.saturating_add(1);
@@ -1044,7 +1040,7 @@ pub mod pallet {
 				{
 					Some(author) => {
 						let credited =
-							Self::try_credit_fee_quanta(&author, miner_quanta, &mint_account)?;
+							Self::try_credit_fee_quanta(&author, miner_quanta, &mint_account);
 						if let Some(amount) = credited {
 							extra_leaf_inserts = extra_leaf_inserts.saturating_add(1);
 							Self::deposit_event(Event::MinerVolumeFeePaid {
@@ -1069,10 +1065,7 @@ pub mod pallet {
 
 			// Burn the total burn amount (base burn + any uncredited fee shares)
 			let burn_amount: BalanceOf<T> =
-				burn_quanta.saturating_mul(crate::SCALE_DOWN_FACTOR).try_into().map_err(|_| {
-					log::error!("Failed to convert burn amount to BalanceOf");
-					Error::<T>::InvalidProofPublicInputs
-				})?;
+				burn_quanta.saturating_mul(crate::SCALE_DOWN_FACTOR).into();
 			if !burn_amount.is_zero() {
 				let current = <T::Currency as FungibleInspect<_>>::total_issuance();
 				<T::Currency as Unbalanced<_>>::set_total_issuance(
@@ -1458,14 +1451,10 @@ pub mod pallet {
 			to: &<T as frame_system::Config>::AccountId,
 			quanta: u128,
 			mint_account: &<T as frame_system::Config>::AccountId,
-		) -> Result<Option<BalanceOf<T>>, Error<T>> {
-			let amount: BalanceOf<T> =
-				quanta.saturating_mul(crate::SCALE_DOWN_FACTOR).try_into().map_err(|_| {
-					log::error!("Failed to convert fee credit to BalanceOf");
-					Error::<T>::InvalidProofPublicInputs
-				})?;
+		) -> Option<BalanceOf<T>> {
+			let amount: BalanceOf<T> = quanta.saturating_mul(crate::SCALE_DOWN_FACTOR).into();
 			match Self::credit_and_record(to, amount, mint_account) {
-				Ok(_) => Ok(Some(amount)),
+				Ok(_) => Some(amount),
 				Err(e) => {
 					log::warn!(
 						"Fee credit of {:?} to {:?} failed ({:?}); burning it instead",
@@ -1473,7 +1462,7 @@ pub mod pallet {
 						to,
 						e
 					);
-					Ok(None)
+					None
 				},
 			}
 		}
@@ -1498,7 +1487,7 @@ pub mod pallet {
 			amount: BalanceOf<T>,
 			mint_account: &<T as frame_system::Config>::AccountId,
 		) -> Result<BalanceOf<T>, DispatchError> {
-			let amount_u128: u128 = amount.try_into().map_err(|_| TokenError::BelowMinimum)?;
+			let amount_u128: u128 = amount.into();
 			ensure!(
 				amount_u128 > 0 && amount_u128.is_multiple_of(crate::SCALE_DOWN_FACTOR),
 				TokenError::BelowMinimum
@@ -1566,7 +1555,7 @@ pub mod pallet {
 					from: from.clone().into(),
 					to: to.clone().into(),
 					asset_id,
-					amount: amount.into(),
+					amount: AssetBalanceOf::<T>::from(amount),
 					transfer_count: current_count,
 					leaf_index,
 				});
