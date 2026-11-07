@@ -616,14 +616,17 @@ const _: () = assert!(
 	"vesting payout quantum must match the ZK tree's leaf amount scale factor"
 );
 
-/// A ZK leaf commits `amount / AMOUNT_SCALE_DOWN_FACTOR` as a `u32`, saturating at
-/// `u32::MAX`. A payout past that ceiling would move real funds while committing a
-/// clamped leaf, leaving the excess unexitable for a keyless beneficiary. Nothing in
-/// the runtime bounds a single vesting payout below the ceiling — total issuance does:
-/// no payout can exceed the maximum supply.
+/// A ZK leaf commits its amount as a `u32` and is capped at
+/// `pallet_zk_tree::tree::LEAF_AMOUNT_CAP`; the wormhole records a larger credit as
+/// several leaves, at most `MAX_LEAVES_PER_CREDIT`. Nothing in the runtime bounds a
+/// single credit below the cap — total issuance does: no credit can exceed the maximum
+/// supply, so the supply must fit the leaf bound or a large credit would be recorded
+/// with a saturated (partly unexitable) last leaf.
 const _: () = assert!(
-	MAX_SUPPLY < (u32::MAX as Balance) * pallet_zk_tree::tree::AMOUNT_SCALE_DOWN_FACTOR,
-	"a single payout could exceed the ZK leaf's u32 amount ceiling"
+	MAX_SUPPLY <=
+		(pallet_zk_tree::tree::MAX_LEAVES_PER_CREDIT as Balance) *
+			pallet_zk_tree::tree::LEAF_AMOUNT_CAP,
+	"a single credit could exceed the ZK tree's leaves-per-credit bound"
 );
 
 /// The configured treasury account as an `Option` — unlike
