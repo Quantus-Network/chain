@@ -942,8 +942,11 @@ pub mod pallet {
 				// excluded from fee settlement / event.
 				match Self::credit_and_record(exit_account, *exit_balance, &mint_account) {
 					Ok(leaves) => {
-						// The settled weight prices one leaf per exit; a split exit adds
-						// the rest here.
+						// The declared weight prices one leaf per exit. A split exit's
+						// extra leaves are counted here so `settled` is truthful, but the
+						// returned weight is capped at the declaration, so beyond the fee
+						// leaves' headroom they are an accepted, supply-bounded overshoot
+						// (at most `MAX_LEAVES_PER_CREDIT − 1` leaves per batch).
 						extra_leaf_inserts =
 							extra_leaf_inserts.saturating_add(u64::from(leaves.saturating_sub(1)));
 					},
@@ -1502,7 +1505,7 @@ pub mod pallet {
 		///
 		/// Returns the number of leaves recorded: an exit above the leaf cap (a
 		/// 32-bit output at today's 10^10 scale can reach ~42.9M QTC) is split like
-		/// any other credit, and the caller folds the surplus into the settled weight.
+		/// any other credit. The surplus leaves are not priced into the batch weight.
 		fn credit_and_record(
 			to: &<T as frame_system::Config>::AccountId,
 			amount: BalanceOf<T>,
