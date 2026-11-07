@@ -561,9 +561,10 @@ pub const MAX_HIGH_SECURITY_EXTRINSIC_LEN: u32 = 10 * 1024;
 /// length cap above), this bounds the fee itself, so a future whitelisted
 /// call with an unforeseen length or weight surface cannot reopen the
 /// fee-drain channel. The costliest legitimate extrinsic today is
-/// `recover_funds` at ~0.098 UNIT (17 statically charged wormhole proof
-/// reservations); a 16-leaf `batch_all` of `schedule_transfer`s is
-/// ~0.021 UNIT. 1 UNIT gives ~10x headroom for re-benchmarking drift and
+/// `recover_funds` at ~0.37 UNIT (65 statically charged wormhole leaf
+/// reservations: 17 credits plus the supply-bounded split surplus, mostly
+/// refunded post-dispatch); a 16-leaf `batch_all` of `schedule_transfer`s is
+/// ~0.021 UNIT. 1 UNIT gives headroom for re-benchmarking drift and
 /// caps the worst-case drain at `MaxHighSecurityTxsPerWindow` UNIT per
 /// rolling day. Deterministic: `FeeMultiplierUpdate` is a constant one.
 /// Scaled by `FEE_SCALE` in lockstep with the fees it bounds, so the headroom
