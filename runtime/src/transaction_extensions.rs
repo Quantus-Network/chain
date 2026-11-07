@@ -413,12 +413,6 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		pallet_wormhole::Pallet::<T>::leaf_record_weight()
 	}
 
-	/// Leaves a credit of `value` is recorded as (see
-	/// [`pallet_zk_tree::tree::leaves_for_amount`]).
-	fn leaves_for(value: Balance) -> u64 {
-		u64::from(pallet_zk_tree::tree::leaves_for_amount(value))
-	}
-
 	/// Worst-case `ref_time` (picoseconds) of the *structural* work to decode one
 	/// `EventRecord` in [`Self::record_proofs_from_events_since`]: phase + event enum
 	/// dispatch + topics. Payload size is charged separately per byte (see
@@ -459,22 +453,18 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		))
 	}
 
-	/// Leaves the call's recorded transfers are statically expected to insert.
+	/// Transfers the call is statically expected to record, one leaf each.
 	///
-	/// A credit above `pallet_zk_tree::tree::LEAF_AMOUNT_CAP` is recorded as several
-	/// leaves, so calls that carry their amount are priced by `leaves_for(value)`;
-	/// `transfer_all` moves state the call does not reveal and reserves the supply
-	/// bound, refunded post-dispatch like every other over-reservation.
+	/// A credit above `pallet_zk_tree::tree::LEAF_AMOUNT_CAP` inserts several leaves,
+	/// but that is far too rare to price into every transfer: the extra leaves are
+	/// absorbed by the post-dispatch shortfall registration instead.
 	fn count_transfers(call: &RuntimeCall) -> u64 {
 		// NOTE: this must stay in sync with the events matched by `record_proofs_from_events_since`
 		// — we only weight calls whose emitted events we actually record.
 		match call {
-			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { value, .. }) |
-			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
-				value, ..
-			}) => Self::leaves_for(*value),
-			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) =>
-				u64::from(pallet_zk_tree::tree::MAX_LEAVES_PER_CREDIT),
+			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
+			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
+			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) => 1,
 
 			// Guardian cancel seizes the hold with `transfer_on_hold` and emits one
 			// `TransferOnHold` the scan records. Owner self-cancel of a one-time
@@ -493,11 +483,6 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			// taken — so charge the static worst case. The overcharge on accounts with fewer
 			// pending transfers is accepted: this is a rare emergency path, and `weight()`
 			// must not depend on mutable state.
-			//
-			// The held amounts are state too, so this counts one leaf per credit; a
-			// recovered hold above the leaf cap is covered by the post-dispatch shortfall
-			// registration rather than inflating this reservation by the supply bound
-			// (which would push the high-security inclusion fee past its cap).
 			RuntimeCall::ReversibleTransfers(
 				pallet_reversible_transfers::Call::recover_funds { .. },
 			) => u64::from(
@@ -748,11 +733,10 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		//
 		// 2. Recording shortfall: leaves the static `count_transfers` matcher could not see. Every
 		//    dispatch wrapper (multisig `execute` included) carries its inner call in the submitted
-		//    extrinsic and amount-bearing transfers are priced by their leaf count, so the only
-		//    known shortfall is a `cancel` / `recover_funds` hold above the leaf cap (the held
-		//    amount is state the call does not reveal) — bounded by `MAX_LEAVES_PER_CREDIT − 1`
-		//    leaves per hold. Should the proof-recording work above exceed the weight reserved by
-		//    `weight()`, the flat per-leaf price times the count difference covers it.
+		//    extrinsic and `recover_funds` is charged its worst case, so the only known shortfall
+		//    is a credit above the leaf cap, which inserts up to `MAX_LEAVES_PER_CREDIT` leaves
+		//    where one was reserved — far too rare to price into every transfer. The flat per-leaf
+		//    price times the count difference covers it.
 		//
 		// "Post-hoc and not fee-charged" is a deliberate, accepted trade-off, not an
 		// oversight (security review 2026-08):
@@ -2097,51 +2081,11 @@ mod tests {
 		});
 	}
 
-	/// Amount-bearing transfers are priced by the leaves they will insert; a
-	/// `transfer_all` does not reveal its amount and reserves the supply bound.
+	/// A transfer above the leaf cap is reserved as one leaf like any other transfer
+	/// but records several; the surplus leaves are registered against the block as a
+	/// recording shortfall and nothing is refunded.
 	#[test]
-	fn count_transfers_prices_amount_bearing_calls_by_leaf_count() {
-		use pallet_zk_tree::tree::{LEAF_AMOUNT_CAP, MAX_LEAVES_PER_CREDIT};
-
-		let keep_alive = |value: Balance| {
-			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
-				dest: MultiAddress::Id(bob()),
-				value,
-			})
-		};
-		let allow_death = |value: Balance| {
-			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
-				dest: MultiAddress::Id(bob()),
-				value,
-			})
-		};
-		let count = WormholeProofRecorderExtension::<Runtime>::count_transfers;
-
-		assert_eq!(count(&keep_alive(1)), 1);
-		assert_eq!(count(&keep_alive(LEAF_AMOUNT_CAP)), 1);
-		assert_eq!(count(&keep_alive(LEAF_AMOUNT_CAP + 1)), 2);
-		assert_eq!(count(&allow_death(3 * LEAF_AMOUNT_CAP)), 3);
-		assert_eq!(count(&allow_death(crate::MAX_SUPPLY)), u64::from(MAX_LEAVES_PER_CREDIT));
-		assert_eq!(
-			count(&RuntimeCall::Balances(pallet_balances::Call::transfer_all {
-				dest: MultiAddress::Id(bob()),
-				keep_alive: true,
-			})),
-			u64::from(MAX_LEAVES_PER_CREDIT)
-		);
-		assert_eq!(
-			count(&RuntimeCall::Utility(pallet_utility::Call::batch_all {
-				calls: vec![keep_alive(2 * LEAF_AMOUNT_CAP), keep_alive(1)],
-			})),
-			3
-		);
-	}
-
-	/// A transfer above the leaf cap is recorded as several leaves, and the static
-	/// charge covers every one of them: nothing is refunded and no recording
-	/// shortfall is registered against the block.
-	#[test]
-	fn split_credit_is_charged_and_recorded_leaf_for_leaf() {
+	fn split_credit_is_reserved_as_one_leaf_and_registers_the_surplus() {
 		use frame_support::traits::fungible::Mutate;
 		use pallet_zk_tree::tree::LEAF_AMOUNT_CAP;
 
@@ -2154,9 +2098,10 @@ mod tests {
 				dest: MultiAddress::Id(bob()),
 				value: amount,
 			});
-			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&call), 3);
+			assert_eq!(WormholeProofRecorderExtension::<Runtime>::count_transfers(&call), 1);
 			let count_before = Wormhole::transfer_count(bob());
 			let leaves_before = crate::ZkTree::leaf_count();
+			let weight_before = frame_system::Pallet::<Runtime>::block_weight().total();
 
 			let (info, post_info) = run_lifecycle_with_result(&alice(), call, Ok(()), || {
 				assert_ok!(Balances::transfer_keep_alive(
@@ -2171,7 +2116,15 @@ mod tests {
 			assert_eq!(
 				post_info.actual_weight,
 				Some(info.total_weight()),
-				"three leaves were charged and three were recorded: nothing to refund"
+				"more was recorded than reserved: nothing to refund"
+			);
+			let registered = frame_system::Pallet::<Runtime>::block_weight()
+				.total()
+				.saturating_sub(weight_before);
+			let per_leaf = WormholeProofRecorderExtension::<Runtime>::per_transfer_weight();
+			assert!(
+				registered.all_gte(per_leaf.saturating_mul(2)),
+				"the two surplus leaves must be registered against the block: {registered:?}"
 			);
 			let recorded: Balance = System::events()
 				.into_iter()
@@ -2185,38 +2138,6 @@ mod tests {
 				})
 				.sum();
 			assert_eq!(recorded, amount, "the leaves must sum to the transferred amount");
-		});
-	}
-
-	/// `transfer_all` reserves the supply bound of leaves; a dispatch that actually
-	/// moved a single-leaf amount gets the surplus refunded.
-	#[test]
-	fn transfer_all_reservation_is_refunded_down_to_recorded_leaves() {
-		use pallet_zk_tree::tree::MAX_LEAVES_PER_CREDIT;
-
-		new_test_ext().execute_with(|| {
-			System::set_block_number(1);
-			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_all {
-				dest: MultiAddress::Id(bob()),
-				keep_alive: true,
-			});
-			let (info, post_info) = run_lifecycle_with_result(&alice(), call, Ok(()), || {
-				assert_ok!(Balances::transfer_all(
-					RuntimeOrigin::signed(alice()),
-					MultiAddress::Id(bob()),
-					true,
-				));
-			});
-			let per_leaf = WormholeProofRecorderExtension::<Runtime>::per_transfer_weight();
-			assert_eq!(
-				post_info.actual_weight,
-				Some(
-					info.total_weight().saturating_sub(
-						per_leaf.saturating_mul(u64::from(MAX_LEAVES_PER_CREDIT) - 1)
-					)
-				),
-				"all but the one recorded leaf must be refunded"
-			);
 		});
 	}
 
