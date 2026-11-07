@@ -243,7 +243,7 @@ pub mod pallet {
 		transaction_validity::{
 			InvalidTransaction, TransactionSource, TransactionValidity, ValidTransaction,
 		},
-		Permill, TokenError,
+		Permill, SaturatedConversion, TokenError,
 	};
 
 	pub type BalanceOf<T> = <T as Config>::NativeBalance;
@@ -1561,14 +1561,9 @@ pub mod pallet {
 			let leaf_to = Self::canonical_leaf_recipient(to);
 			let mut count = TransferCount::<T>::get(&leaf_to);
 
-			let amount_u128: u128 = amount.try_into().unwrap_or(u128::MAX);
 			let mut leaves = 0u32;
-			for chunk in pallet_zk_tree::tree::credit_chunks(amount_u128) {
-				// Each chunk is at most `amount`, which came from a `BalanceOf<T>`.
-				let Ok(chunk_amount) = BalanceOf::<T>::try_from(chunk) else {
-					debug_assert!(false, "credit chunk must fit the balance type");
-					break;
-				};
+			for chunk in pallet_zk_tree::tree::credit_chunks(amount.saturated_into::<u128>()) {
+				let chunk_amount: BalanceOf<T> = chunk.saturated_into();
 
 				let leaf_index = T::ZkTree::record_transfer(
 					leaf_to.clone().into(),
