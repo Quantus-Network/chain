@@ -84,13 +84,14 @@ mod wormhole_tests {
 			// A pallet_assets asset-0 mint (arrives as `Some(0)`) must be inert for the
 			// native wormhole: no leaf — and must report as not recorded so weight
 			// reconciliation does not treat the drop as a ZK-tree insert.
-			assert!(
-				!<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+			assert_eq!(
+				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
 					Some(0u32),
 					from.clone(),
 					to.clone(),
 					amount,
 				),
+				0,
 				"an asset-0 credit must report as not recorded"
 			);
 			assert_eq!(
@@ -100,10 +101,11 @@ mod wormhole_tests {
 			);
 
 			// Genuine native (arrives as `None`) is still recorded.
-			assert!(
+			assert_eq!(
 				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
 					None, from, to, amount,
 				),
+				1,
 				"a native deposit must report as recorded"
 			);
 			assert_eq!(ZkTree::leaf_count(), 1, "a native deposit must insert a leaf");
@@ -125,13 +127,14 @@ mod wormhole_tests {
 			let from = account_id(1);
 			let to = account_id(9001);
 
-			assert!(
-				!<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+			assert_eq!(
+				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
 					None,
 					from.clone(),
 					to.clone(),
 					0,
 				),
+				0,
 				"a zero-amount credit must report as not recorded"
 			);
 			assert_eq!(ZkTree::leaf_count(), 0, "no ZK-tree leaf for a zero-amount credit");
@@ -142,10 +145,11 @@ mod wormhole_tests {
 			);
 
 			// Sanity: the same credit with a nonzero amount is recorded.
-			assert!(
+			assert_eq!(
 				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
 					None, from, to, 1,
-				)
+				),
+				1
 			);
 			assert_eq!(ZkTree::leaf_count(), 1);
 		});
@@ -164,13 +168,14 @@ mod wormhole_tests {
 			System::set_block_number(1);
 			let who = account_id(1);
 
-			assert!(
-				!<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+			assert_eq!(
+				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
 					None,
 					who.clone(),
 					who.clone(),
 					1_000 * UNIT,
 				),
+				0,
 				"a self-directed credit must report as not recorded"
 			);
 			assert_eq!(ZkTree::leaf_count(), 0, "no ZK-tree leaf for a self-directed credit");
@@ -181,13 +186,14 @@ mod wormhole_tests {
 			);
 
 			let other = account_id(2);
-			assert!(
+			assert_eq!(
 				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
 					None,
 					who,
 					other.clone(),
 					1,
-				)
+				),
+				1
 			);
 			assert_eq!(ZkTree::leaf_count(), 1);
 			assert_eq!(Wormhole::transfer_count(&other), 1);
@@ -210,6 +216,160 @@ mod wormhole_tests {
 			Wormhole::record_transfer(0u32, &alice, &bob, amount);
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 2);
 		});
+	}
+
+	/// Leaves recorded for `to` as `(transfer_count, amount)` from the emitted
+	/// `NativeTransferred` events, cross-checked against the stored zk-tree leaves.
+	fn recorded_native_leaves(to: &AccountId) -> Vec<(u64, u128)> {
+		System::events()
+			.into_iter()
+			.filter_map(|r| match r.event {
+				RuntimeEvent::Wormhole(crate::Event::<Test>::NativeTransferred {
+					to: event_to,
+					amount,
+					transfer_count,
+					leaf_index,
+					..
+				}) if event_to == *to => {
+					let leaf = ZkTree::leaf(leaf_index).expect("event leaf must be stored");
+					assert_eq!(leaf.to, *to);
+					assert_eq!(leaf.transfer_count, transfer_count);
+					assert_eq!(leaf.amount, amount);
+					Some((transfer_count, amount))
+				},
+				_ => None,
+			})
+			.collect()
+	}
+
+	/// A credit above the per-leaf cap is recorded as several consecutive leaves for
+	/// the recipient that sum to the credit, each within the cap and each committing a
+	/// nonzero, non-saturated amount at both the current and the target scale.
+	#[test]
+	fn credit_above_leaf_cap_is_split_into_capped_leaves() {
+		use pallet_zk_tree::tree::{
+			credit_chunks, LEAF_AMOUNT_CAP, TARGET_AMOUNT_SCALE_DOWN_FACTOR,
+		};
+
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let from = account_id(1);
+			let to = account_id(2);
+			// Three leaves' worth plus some unaligned dust.
+			let amount = 2 * LEAF_AMOUNT_CAP + 12_345 * UNIT + 67;
+			let expected: Vec<u128> = credit_chunks(amount).collect();
+			assert_eq!(expected.len(), 3);
+
+			let leaves = Wormhole::record_transfer(0u32, &from, &to, amount);
+			assert_eq!(leaves, 3);
+			assert_eq!(ZkTree::leaf_count(), 3);
+			assert_eq!(Wormhole::transfer_count(&to), 3);
+
+			let recorded = recorded_native_leaves(&to);
+			assert_eq!(
+				recorded,
+				expected.iter().enumerate().map(|(i, a)| (i as u64, *a)).collect::<Vec<_>>(),
+				"one leaf per chunk, consecutive transfer counts, chunk amounts"
+			);
+			assert_eq!(recorded.iter().map(|(_, a)| a).sum::<u128>(), amount);
+			for (_, chunk) in &recorded {
+				assert!(*chunk <= LEAF_AMOUNT_CAP);
+				let target_quanta = chunk / TARGET_AMOUNT_SCALE_DOWN_FACTOR;
+				assert!(
+					target_quanta > 0 && target_quanta <= u32::MAX as u128,
+					"chunk {chunk} must be representable at the target scale"
+				);
+				assert!(
+					chunk / crate::SCALE_DOWN_FACTOR > 0,
+					"chunk {chunk} must commit a nonzero amount today"
+				);
+			}
+		});
+	}
+
+	/// A credit at or below the cap is still exactly one leaf, and a following credit
+	/// to the same recipient continues the count sequence after a split.
+	#[test]
+	fn credit_at_cap_is_one_leaf_and_counts_continue_after_a_split() {
+		use pallet_zk_tree::tree::LEAF_AMOUNT_CAP;
+
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let from = account_id(1);
+			let to = account_id(2);
+
+			assert_eq!(Wormhole::record_transfer(0u32, &from, &to, LEAF_AMOUNT_CAP), 1);
+			assert_eq!(Wormhole::record_transfer(0u32, &from, &to, LEAF_AMOUNT_CAP + 1), 2);
+			assert_eq!(Wormhole::record_transfer(0u32, &from, &to, UNIT), 1);
+
+			let counts: Vec<u64> =
+				recorded_native_leaves(&to).into_iter().map(|(c, _)| c).collect();
+			assert_eq!(counts, vec![0, 1, 2, 3]);
+			assert_eq!(Wormhole::transfer_count(&to), 4);
+		});
+	}
+
+	/// The recorder trait reports how many leaves a credit was recorded as.
+	#[test]
+	fn recorder_reports_leaf_count() {
+		use pallet_zk_tree::tree::LEAF_AMOUNT_CAP;
+		use qp_wormhole::TransferProofRecorder;
+
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let from = account_id(1);
+			let to = account_id(2);
+
+			assert_eq!(
+				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+					None,
+					from.clone(),
+					to.clone(),
+					3 * LEAF_AMOUNT_CAP,
+				),
+				3
+			);
+			assert_eq!(
+				<Wormhole as TransferProofRecorder<AccountId, u32, u128>>::record_transfer_proof(
+					None,
+					from,
+					to.clone(),
+					UNIT,
+				),
+				1
+			);
+			assert_eq!(Wormhole::transfer_count(&to), 4);
+		});
+	}
+
+	/// A genesis endowment above the cap (the vesting pot on mainnet) is recorded as
+	/// several block-1 leaves, and the hook's weight counts every one of them.
+	#[test]
+	fn genesis_endowment_above_cap_is_split_at_block_one() {
+		use frame_support::traits::{Get, OnInitialize};
+		use pallet_zk_tree::tree::{leaves_for_amount, LEAF_AMOUNT_CAP};
+
+		let big = account_id(7);
+		let small = account_id(8);
+		let big_amount = 5 * LEAF_AMOUNT_CAP + UNIT;
+		let expected_leaves = u64::from(leaves_for_amount(big_amount)) + 1;
+		new_test_ext_with_endowments(vec![(big.clone(), big_amount), (small.clone(), UNIT)])
+			.execute_with(|| {
+				System::set_block_number(1);
+				let weight = Wormhole::on_initialize(1);
+
+				assert_eq!(ZkTree::leaf_count(), expected_leaves);
+				assert_eq!(Wormhole::transfer_count(&big), expected_leaves - 1);
+				assert_eq!(Wormhole::transfer_count(&small), 1);
+				assert_eq!(
+					recorded_native_leaves(&big).iter().map(|(_, a)| a).sum::<u128>(),
+					big_amount
+				);
+				// 2 accounts iterated + 2 reads/2 writes per recorded leaf.
+				let db: frame_support::weights::RuntimeDbWeight =
+					<Test as frame_system::Config>::DbWeight::get();
+				assert_eq!(weight, db.reads_writes(2 + expected_leaves * 2, expected_leaves * 2));
+			});
 	}
 
 	/// Security regression test (leaf-encoding aliasing).

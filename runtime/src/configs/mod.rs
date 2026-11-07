@@ -561,9 +561,10 @@ pub const MAX_HIGH_SECURITY_EXTRINSIC_LEN: u32 = 10 * 1024;
 /// length cap above), this bounds the fee itself, so a future whitelisted
 /// call with an unforeseen length or weight surface cannot reopen the
 /// fee-drain channel. The costliest legitimate extrinsic today is
-/// `recover_funds` at ~0.098 UNIT (17 statically charged wormhole proof
-/// reservations); a 16-leaf `batch_all` of `schedule_transfer`s is
-/// ~0.021 UNIT. 1 UNIT gives ~10x headroom for re-benchmarking drift and
+/// `recover_funds` at ~0.37 UNIT (65 statically charged wormhole leaf
+/// reservations: 17 credits plus the supply-bounded split surplus, mostly
+/// refunded post-dispatch); a 16-leaf `batch_all` of `schedule_transfer`s is
+/// ~0.021 UNIT. 1 UNIT gives headroom for re-benchmarking drift and
 /// caps the worst-case drain at `MaxHighSecurityTxsPerWindow` UNIT per
 /// rolling day. Deterministic: `FeeMultiplierUpdate` is a constant one.
 /// Scaled by `FEE_SCALE` in lockstep with the fees it bounds, so the headroom
@@ -616,14 +617,17 @@ const _: () = assert!(
 	"vesting payout quantum must match the ZK tree's leaf amount scale factor"
 );
 
-/// A ZK leaf commits `amount / AMOUNT_SCALE_DOWN_FACTOR` as a `u32`, saturating at
-/// `u32::MAX`. A payout past that ceiling would move real funds while committing a
-/// clamped leaf, leaving the excess unexitable for a keyless beneficiary. Nothing in
-/// the runtime bounds a single vesting payout below the ceiling — total issuance does:
-/// no payout can exceed the maximum supply.
+/// A ZK leaf commits its amount as a `u32` and is capped at
+/// `pallet_zk_tree::tree::LEAF_AMOUNT_CAP`; the wormhole records a larger credit as
+/// several leaves, at most `MAX_LEAVES_PER_CREDIT`. Nothing in the runtime bounds a
+/// single credit below the cap — total issuance does: no credit can exceed the maximum
+/// supply, so the supply must fit the leaf bound or a large credit would be recorded
+/// with a saturated (partly unexitable) last leaf.
 const _: () = assert!(
-	MAX_SUPPLY < (u32::MAX as Balance) * pallet_zk_tree::tree::AMOUNT_SCALE_DOWN_FACTOR,
-	"a single payout could exceed the ZK leaf's u32 amount ceiling"
+	MAX_SUPPLY <=
+		(pallet_zk_tree::tree::MAX_LEAVES_PER_CREDIT as Balance) *
+			pallet_zk_tree::tree::LEAF_AMOUNT_CAP,
+	"a single credit could exceed the ZK tree's leaves-per-credit bound"
 );
 
 /// The configured treasury account as an `Option` — unlike

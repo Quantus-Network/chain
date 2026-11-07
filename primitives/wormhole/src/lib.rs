@@ -81,17 +81,18 @@ pub trait TransferProofRecorder<AccountId, AssetId, Balance> {
 	/// - `None` for native tokens (internally tagged as asset_id = 0)
 	/// - `Some(asset_id)` for specific assets
 	///
-	/// Returns `true` if a proof was actually recorded (ZK-tree leaf insert / bookkeeping
-	/// work performed), and `false` if the credit was deliberately dropped (e.g. a
-	/// `pallet_assets` asset-0 credit, which must not be conflated with native). Callers
-	/// that reconcile weight against recorded work must use this return value — counting
-	/// the call itself over-charges dropped credits.
+	/// Returns the number of ZK-tree leaves inserted: `0` if the credit was deliberately
+	/// dropped (e.g. a `pallet_assets` asset-0 credit, which must not be conflated with
+	/// native), `1` for an ordinary credit, and more when the amount exceeds the per-leaf
+	/// cap and is recorded as several leaves. Callers that reconcile weight against
+	/// recorded work must use this return value — counting the call itself over-charges
+	/// dropped credits and under-charges split ones.
 	fn record_transfer_proof(
 		asset_id: Option<AssetId>,
 		from: AccountId,
 		to: AccountId,
 		amount: Balance,
-	) -> bool;
+	) -> u32;
 }
 
 /// Derive a wormhole address from a 32-byte inner_digest (already hashed).
