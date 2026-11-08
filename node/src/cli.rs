@@ -55,6 +55,57 @@ pub struct Cli {
 	/// Sync: block request timeout in seconds (default: 30).
 	#[arg(long, default_value_t = 30)]
 	pub sync_block_request_timeout: u64,
+
+	/// Opt in to public-batch aggregation of wormhole exits.
+	///
+	/// Private-batch proofs offered to this node's transaction pool (gossip and
+	/// RPC) are verified, pooled, and folded into public-batch proofs that this
+	/// node submits instead; the on-chain aggregator rebate is paid to
+	/// `--public-batch-aggregator-address`. Building the public-batch circuit
+	/// takes tens of seconds and several GB of memory at startup, and each
+	/// batch is tens of seconds of proving. Requires
+	/// `--public-batch-aggregator-address`.
+	#[arg(long)]
+	pub public_batch_aggregator: bool,
+
+	/// SS58 account credited with the public-batch aggregator rebate.
+	#[arg(long, value_name = "SS58", requires = "public_batch_aggregator")]
+	pub public_batch_aggregator_address: Option<String>,
+
+	/// Prove a partial public batch once it holds at least this many private
+	/// batches and the oldest has waited `--public-batch-max-wait`.
+	#[arg(long, value_name = "N", default_value_t = 1, requires = "public_batch_aggregator")]
+	pub public_batch_min_proofs: usize,
+
+	/// Seconds the oldest proof of a partial bucket waits before it is proved.
+	/// Full buckets are proved immediately.
+	#[arg(
+		long,
+		value_name = "SECONDS",
+		default_value_t = 60,
+		requires = "public_batch_aggregator"
+	)]
+	pub public_batch_max_wait: u64,
+
+	/// Seconds to leave a bucket alone after proving it, so the submitted batch
+	/// can settle before the bucket is considered again.
+	#[arg(
+		long,
+		value_name = "SECONDS",
+		default_value_t = 120,
+		requires = "public_batch_aggregator"
+	)]
+	pub public_batch_reprove_after: u64,
+
+	/// Seconds after which a pooled private batch is dropped even if it never
+	/// settled. Defaults to the chain's proof acceptance window
+	/// (`BlockHashCount` blocks).
+	#[arg(long, value_name = "SECONDS", requires = "public_batch_aggregator")]
+	pub public_batch_proof_expiry: Option<u64>,
+
+	/// Maximum private-batch proofs held by the aggregator pool.
+	#[arg(long, value_name = "N", default_value_t = 1024, requires = "public_batch_aggregator")]
+	pub public_batch_pool_max_proofs: usize,
 }
 
 #[derive(Debug, clap::Subcommand)]

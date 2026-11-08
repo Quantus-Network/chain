@@ -364,6 +364,22 @@ service and must never be reachable from the open internet.
 | `--name` | Node display name | Auto-generated |
 | `--base-path` | Data directory | `~/.local/share/quantus-node` |
 
+### Public-Batch Aggregator (opt-in)
+
+A node can aggregate the wormhole private-batch proofs it hears about into
+public-batch proofs, earning the aggregator share of the fee for each batch it
+settles. See `docs/wormhole-zk.md` for how admission and eviction work.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--public-batch-aggregator` | Enable public-batch aggregation | off |
+| `--public-batch-aggregator-address` | SS58 address bound into every public batch (required when enabled) | — |
+| `--public-batch-min-proofs` | Minimum pooled proofs before a partial batch is proved | `1` |
+| `--public-batch-max-wait` | Seconds a partial batch may wait before being proved | `60` |
+| `--public-batch-reprove-after` | Seconds before a bucket already sent to the prover may be proved again | `120` |
+| `--public-batch-proof-expiry` | Seconds a pooled proof is kept before being dropped | block-hash acceptance window |
+| `--public-batch-pool-max-proofs` | Maximum proofs held across all buckets | `1024` |
+
 
 
 ## Monitoring Your Node

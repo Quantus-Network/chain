@@ -8,6 +8,7 @@ mod cli;
 mod command;
 mod miner_server;
 mod prometheus;
+mod public_batch_aggregator;
 mod rpc;
 mod service;
 #[cfg(test)]
