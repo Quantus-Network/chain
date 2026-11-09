@@ -1026,8 +1026,8 @@ mod proof_recording {
 		});
 	}
 
-	/// The `TransferProofRecorder` contract permits `false` for a deliberately dropped
-	/// credit. A payout without its proof material must not be finalized: the funds
+	/// The `TransferProofRecorder` contract permits a zero leaf count for a deliberately
+	/// dropped credit. A payout without its proof material must not be finalized: the funds
 	/// move but no wormhole leaf exists, and once `claimed` advances (or the schedule
 	/// is removed) the payout can never be retried to create the missing proof. Every
 	/// payout path must roll back completely and stay retryable.

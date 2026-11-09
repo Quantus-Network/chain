@@ -6177,6 +6177,7 @@ version = "0.1.0"
 dependencies = [
  "frame-support",
  "frame-system",
+ "log",
  "parity-scale-codec",
  "qp-poseidon-core",
  "scale-info",

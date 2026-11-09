@@ -71,13 +71,23 @@ const _: () = assert!(
 /// Number of leaves a credit of `amount` is recorded as: one up to
 /// [`LEAF_AMOUNT_CAP`], then `ceil(amount / LEAF_AMOUNT_CAP)`, clamped to
 /// [`MAX_LEAVES_PER_CREDIT`].
+///
+/// The clamp is unreachable for native credits (the runtime asserts the supply
+/// fits the bound); a clamped split yields chunks above the cap, so it is
+/// logged as an error rather than failing a credit that already happened.
 pub fn leaves_for_amount(amount: u128) -> u32 {
 	if amount <= LEAF_AMOUNT_CAP {
 		return 1;
 	}
-	u32::try_from(amount.div_ceil(LEAF_AMOUNT_CAP))
-		.unwrap_or(u32::MAX)
-		.min(MAX_LEAVES_PER_CREDIT)
+	let n = u32::try_from(amount.div_ceil(LEAF_AMOUNT_CAP)).unwrap_or(u32::MAX);
+	if n > MAX_LEAVES_PER_CREDIT {
+		log::error!(
+			target: "runtime::zk-tree",
+			"credit of {amount} needs {n} leaves, clamped to {MAX_LEAVES_PER_CREDIT}: chunks exceed LEAF_AMOUNT_CAP"
+		);
+		return MAX_LEAVES_PER_CREDIT;
+	}
+	n
 }
 
 /// Per-leaf amounts a credit is split into; see [`credit_chunks`].
@@ -103,13 +113,13 @@ impl Iterator for CreditChunks {
 			},
 		}
 	}
-}
 
-impl ExactSizeIterator for CreditChunks {
-	fn len(&self) -> usize {
-		self.remaining as usize
+	fn size_hint(&self) -> (usize, Option<usize>) {
+		(self.remaining as usize, Some(self.remaining as usize))
 	}
 }
+
+impl ExactSizeIterator for CreditChunks {}
 
 /// Split a credit into [`leaves_for_amount`] balanced leaf amounts that sum to
 /// `amount`.

@@ -309,6 +309,38 @@ mod wormhole_tests {
 		});
 	}
 
+	/// The exit-credit path (`credit_and_record`, used by batch settlement for
+	/// exits and fee shares) splits above the cap like any other credit: the
+	/// balance is minted whole, every chunk is a quantum-aligned leaf, and the
+	/// returned count is what settlement folds into `extra_leaf_inserts`.
+	#[test]
+	fn exit_credit_above_cap_mints_whole_and_records_capped_leaves() {
+		use pallet_zk_tree::tree::LEAF_AMOUNT_CAP;
+
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let to = account_id(2);
+			let amount = 3 * LEAF_AMOUNT_CAP + 5 * crate::SCALE_DOWN_FACTOR;
+			let balance_before = Balances::free_balance(&to);
+
+			assert_eq!(
+				Wormhole::credit_and_record(&to, amount, &MINTING_ACCOUNT),
+				Ok(4),
+				"an exit of just over three caps is four leaves"
+			);
+			assert_eq!(Balances::free_balance(&to), balance_before + amount);
+
+			let leaves = recorded_native_leaves(&to);
+			assert_eq!(leaves.len(), 4);
+			assert_eq!(leaves.iter().map(|(_, a)| a).sum::<u128>(), amount);
+			for (_, chunk) in &leaves {
+				assert!(*chunk <= LEAF_AMOUNT_CAP);
+				assert_eq!(chunk % crate::SCALE_DOWN_FACTOR, 0, "exit chunks stay quantized");
+			}
+			assert_eq!(Wormhole::transfer_count(&to), 4);
+		});
+	}
+
 	/// The recorder trait reports how many leaves a credit was recorded as.
 	#[test]
 	fn recorder_reports_leaf_count() {

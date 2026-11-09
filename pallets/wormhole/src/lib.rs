@@ -1495,7 +1495,7 @@ pub mod pallet {
 		/// Returns the number of leaves recorded: an exit above the leaf cap (a
 		/// 32-bit output at today's 10^10 scale can reach ~42.9M QTC) is split like
 		/// any other credit. The surplus leaves are not priced into the batch weight.
-		fn credit_and_record(
+		pub(crate) fn credit_and_record(
 			to: &<T as frame_system::Config>::AccountId,
 			amount: BalanceOf<T>,
 			mint_account: &<T as frame_system::Config>::AccountId,
@@ -1527,6 +1527,14 @@ pub mod pallet {
 		/// and event, so that no leaf ever exceeds the circuit's 32-bit amount range.
 		/// Native credits are bounded by the maximum supply and therefore by
 		/// [`pallet_zk_tree::tree::MAX_LEAVES_PER_CREDIT`] leaves.
+		///
+		/// The event shape is unchanged; only its cardinality is: one credit above
+		/// the cap is several `NativeTransferred` events whose amounts sum to the
+		/// credit. Clients that locate a funding event by exact amount, or assume
+		/// one event per credit (CLI `dissolve` / `multiround`, the indexers, the
+		/// SDK's wormhole history), see this only for credits above ~429k QTC and
+		/// have not yet been updated. Accepted for now: funds in that case are
+		/// recorded and exitable, just not found by those code paths.
 		///
 		/// The emitted events include `leaf_index` which clients can use to fetch
 		/// Merkle proofs via `zkTree_getMerkleProof(leaf_index)` RPC.
