@@ -63,11 +63,11 @@ use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
-	scale_fee, AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash, Nonce,
-	OriginCaller, PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, Wormhole,
-	ZkTree, DAYS, EXISTENTIAL_DEPOSIT, FEE_SCALE_DEN, FEE_SCALE_NUM, MAX_SUPPLY,
-	TARGET_BLOCK_TIME_MS, UNIT, VERSION,
+	scale_fee, AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash,
+	MultiBlockMigrations, Nonce, OriginCaller, PalletInfo, Preimage, Runtime, RuntimeCall,
+	RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler,
+	System, Timestamp, Vesting, Wormhole, ZkTree, DAYS, EXISTENTIAL_DEPOSIT, FEE_SCALE_DEN,
+	FEE_SCALE_NUM, MAX_SUPPLY, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
 use sp_core::U512;
 
@@ -139,9 +139,36 @@ impl frame_system::Config for Runtime {
 	/// fast-upgrade track's `FastUpgrade` origin. `set_code` and
 	/// `authorize_upgrade_without_checks` remain Root-only.
 	type AuthorizeUpgradeOrigin = EitherOfDiverse<EnsureRoot<AccountId>, FastUpgrade>;
+	/// Drives multi-block migrations: `Executive` steps it from `on_initialize` / `on_poll`
+	/// and withholds non-inherent extrinsics while one is ongoing; `set_code` is refused
+	/// until it finishes.
+	type MultiBlockMigrator = MultiBlockMigrations;
 }
 
 impl pallet_custom_origins::Config for Runtime {}
+
+parameter_types! {
+	/// Per-block weight budget for multi-block migration steps. Blocks that run a step
+	/// carry only inherents, so most of the block is available.
+	pub MbmServiceWeight: Weight = Perbill::from_percent(80) * RuntimeBlockWeights::get().max_block;
+}
+
+impl pallet_migrations::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	/// Multi-block migrations to run on upgrade. Append in release PRs; remove once the
+	/// `Cursor` is `None` again on-chain (`Historic` keeps completed ones from re-running).
+	#[cfg(not(feature = "runtime-benchmarks"))]
+	type Migrations = ();
+	// Benchmarks need mocked migrations to guarantee that they succeed.
+	#[cfg(feature = "runtime-benchmarks")]
+	type Migrations = pallet_migrations::mock_helpers::MockedMigrations;
+	type CursorMaxLen = ConstU32<65_536>;
+	type IdentifierMaxLen = ConstU32<256>;
+	type MigrationStatusHandler = ();
+	type FailedMigrationHandler = frame_support::migrations::FreezeChainOnFailedMigration;
+	type MaxServiceWeight = MbmServiceWeight;
+	type WeightInfo = pallet_migrations::weights::SubstrateWeight<Runtime>;
+}
 
 parameter_types! {
 	pub const MiningUnit: Balance = UNIT;
