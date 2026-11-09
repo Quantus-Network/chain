@@ -5849,6 +5849,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-migrations"
+version = "15.0.0"
+dependencies = [
+ "docify",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "impl-trait-for-tuples",
+ "log",
+ "parity-scale-codec",
+ "pretty_assertions",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-mining-rewards"
 version = "0.1.0"
 dependencies = [
@@ -7659,6 +7677,7 @@ dependencies = [
  "lazy_static",
  "log",
  "pallet-balances",
+ "pallet-migrations",
  "pallet-mining-rewards",
  "pallet-multisig",
  "pallet-preimage",
