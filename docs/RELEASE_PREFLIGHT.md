@@ -9,7 +9,7 @@ Do not skip the sync gate for "small" client changes.
 Related:
 
 - Runtime upgrade after the release exists: [`RUNTIME_UPDATE.md`](./RUNTIME_UPDATE.md)
-- Warp sync details: [`FAST_SYNC.md`](./FAST_SYNC.md)
+- Warp sync: extra gate later in this document, used when sync or checkpoint code changed
 - CLI exercise suite: `quantus-cli` README, `quantus exercise`
 
 ---
