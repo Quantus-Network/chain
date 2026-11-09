@@ -8,19 +8,21 @@ This guide will help you install and run a Quantus Network node for mining.
 
 ## Prerequisites
 
-Use Rust nightly version from December 2024 or newer. The stable channel will not work.
+Install [rustup](https://rustup.rs). This repository pins the compiler in [`rust-toolchain`](./rust-toolchain): stable **1.93.0**, the `clippy` component, and the `wasm32v1-none` target. `cargo` installs and selects that toolchain when you build inside the repo. Leave your global default toolchain alone.
+
+Host packages match CI:
+
+- **Ubuntu/Debian:** `clang`, `libclang-dev`, `protobuf-compiler`
+- **macOS (Homebrew):** `protobuf`, `llvm`, `cmake`, `openssl`. Point bindgen at Homebrew LLVM with `export LIBCLANG_PATH="$(brew --prefix llvm)/lib"`.
+- **Windows:** `protoc` and LLVM (`choco install protoc llvm`), with `LIBCLANG_PATH` set to `C:\Program Files\LLVM\bin`.
+
+Formatting uses a different compiler. Nightly `rustfmt` is pinned in [`rustfmt-toolchain`](./rustfmt-toolchain) and installed by [`scripts/fmt.sh`](./scripts/fmt.sh). Full steps are in [docs/rust-setup.md](docs/rust-setup.md).
+
+Check the active toolchain from the repository root:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-rustup toolchain install nightly
-rustup default nightly
-```
-
-Verify your installation:
-
-```sh
-cargo --version
-# Expected output: cargo 1.85.0-nightly (769f622e1 2024-12-14) or newer
+rustup show
+# active toolchain: 1.93.0
 ```
 
 ## Build
@@ -199,7 +201,7 @@ After you build the project, you can use the following command to explore its pa
 You can generate and view the [Rust Docs](https://doc.rust-lang.org/cargo/commands/cargo-doc.html) for this project with this command:
 
 ```sh
-cargo +nightly doc --open
+cargo doc --open
 ```
 
 ## Architecture
@@ -219,20 +221,20 @@ A blockchain node is an application that allows users to participate in a blockc
 There are several files in the `node` directory. Take special note of the following:
 
 - [`chain_spec.rs`](./node/src/chain_spec.rs): A [chain specification](https://docs.substrate.io/build/chain-spec/) is a source code file that defines a Substrate chain's initial (genesis) state. Chain specifications are useful for development and testing, and critical when architecting the launch of a production chain. Take note of the `development_config` and `testnet_genesis` functions. These functions are used to define the genesis state for the local development chain configuration. These functions identify some [well-known accounts](https://docs.substrate.io/reference/command-line-tools/subkey/) and use them to configure the blockchain's initial state.
-- [`service.rs`](./node/src/service.rs): This file defines the node implementation. Take note of the libraries that this file imports and the names of the functions it invokes. In particular, there are references to consensus-related topics, such as the [block finalization and forks](https://docs.substrate.io/fundamentals/consensus/#finalization-and-forks) and other [consensus mechanisms](https://docs.substrate.io/fundamentals/consensus/#default-consensus-models) such as Aura for block authoring and GRANDPA for finality.
+- [`service.rs`](./node/src/service.rs): This file defines the node implementation, including the QPoW import queue and mining worker (`sc_consensus_qpow`).
 
 ### Runtime
 
 In Substrate, the terms "runtime" and "state transition function" are analogous. Both terms refer to the core logic of the blockchain that is responsible for validating blocks and executing the state changes they define. The Substrate project in this repository uses [FRAME](https://docs.substrate.io/learn/runtime-development/#frame) to construct a blockchain runtime. FRAME allows runtime developers to declare domain-specific logic in modules called "pallets". At the heart of FRAME is a helpful [macro language](https://docs.substrate.io/reference/frame-macros/) that makes it easy to create pallets and flexibly compose them to create blockchains that can address [a variety of needs](https://substrate.io/ecosystem/projects/).
 
-Review the [FRAME runtime implementation](./runtime/src/lib.rs) included in this template and note the following:
+Review the [FRAME runtime implementation](./runtime/src/lib.rs) and note the following:
 
 - This file configures several pallets to include in the runtime. Each pallet configuration is defined by a code block that begins with `impl $PALLET_NAME::Config for Runtime`.
 - The pallets are composed into a single runtime by way of the [`construct_runtime!`](https://paritytech.github.io/substrate/master/frame_support/macro.construct_runtime.html) macro, which is part of the [core FRAME pallet library](https://docs.substrate.io/reference/frame-pallets/#system-pallets).
 
 ### Pallets
 
-The runtime in this project is constructed using many FRAME pallets that ship with [the Substrate repository](https://github.com/paritytech/polkadot-sdk/tree/master/substrate/frame) and a template pallet that is [defined in the `pallets`](./pallets/template/src/lib.rs) directory.
+The runtime is composed from the FRAME pallets under [`pallets/`](./pallets). Quantus-specific pallets include [`qpow`](./pallets/qpow), [`mining-rewards`](./pallets/mining-rewards), [`reversible-transfers`](./pallets/reversible-transfers), [`wormhole`](./pallets/wormhole), and [`zk-tree`](./pallets/zk-tree). Governance uses the local [`ranked-collective`](./pallets/ranked-collective) and [`referenda`](./pallets/referenda) forks.
 
 A FRAME pallet is comprised of a number of blockchain primitives, including:
 
@@ -245,19 +247,21 @@ Each pallet has its own `Config` trait which serves as a configuration interface
 
 ## Alternative Installations
 
-Instead of installing dependencies and building this source directly, consider the following alternatives.
+### Docker
+
+[`Dockerfile`](./Dockerfile) is the image CI and releases publish. The release workflow unpacks `quantus-node` into `dist/<arch>/` before the build; the image copies that binary and starts it with `--chain planck_live_spec`.
+
+[`Dockerfile.local`](./Dockerfile.local) compiles the node from this tree for a local image.
 
 ### Nix
 
-Install [nix](https://nixos.org/) and [nix-direnv](https://github.com/nix-community/nix-direnv) for a fully plug-and-play experience for setting up the development environment. To get all the correct dependencies, activate direnv:
+[`env-setup/flake.nix`](./env-setup/flake.nix) provides a dev shell with `rustup`, `clang`, and `protobuf`. From `env-setup/`:
 
 ```sh
-direnv allow
+nix develop
 ```
 
-### Docker
-
-Please follow the [Substrate Docker instructions here](https://github.com/paritytech/polkadot-sdk/blob/master/substrate/docker/README.md) to build the Docker container with the Substrate Node Template binary.
+Build from the repository root afterward so cargo selects [`rust-toolchain`](./rust-toolchain) (1.93.0).
 
 ### try-runtime
 
@@ -268,6 +272,22 @@ cargo build --release --features try-runtime
 
 try-runtime --runtime target/release/wbuild/quantus-runtime/quantus_runtime.wasm on-runtime-upgrade --disable-spec-version-check --blocktime 10000 live --uri <WS_URL>
 ```
+
+## Further documentation
+
+| Guide | What it covers |
+| --- | --- |
+| [MINING.md](MINING.md) | Mining setup, wormhole addresses, and the external miner |
+| [docs/rust-setup.md](docs/rust-setup.md) | Compiler pin, host packages, and `rustfmt` |
+| [docs/CHAINSPEC_CREATION.md](docs/CHAINSPEC_CREATION.md) | Producing a raw JSON chain spec |
+| [docs/RELEASE_PREFLIGHT.md](docs/RELEASE_PREFLIGHT.md) | Checks to run before tagging a node or runtime release |
+| [docs/RUNTIME_UPDATE.md](docs/RUNTIME_UPDATE.md) | Shipping a runtime to Heisenberg and Planck |
+| [docs/RUNTIME_UPGRADE_VIA_GOVERNANCE.md](docs/RUNTIME_UPGRADE_VIA_GOVERNANCE.md) | Authorize-then-apply upgrade flow |
+| [docs/RUNTIME_SURFACE.md](docs/RUNTIME_SURFACE.md) | Call surface and why sudo is gone |
+| [docs/TECH_COLLECTIVE_GOVERNANCE_TUNING.md](docs/TECH_COLLECTIVE_GOVERNANCE_TUNING.md) | Tech-collective track parameters |
+| [docs/TECH_REFERENDA_FEATURES.md](docs/TECH_REFERENDA_FEATURES.md) | Referenda features wired in the runtime |
+| [docs/wormhole-zk.md](docs/wormhole-zk.md) | Leaf, private-batch, and public-batch proofs |
+| [docs/zk-trie-architecture.md](docs/zk-trie-architecture.md) | Poseidon Merkle tree used by wormhole |
 
 ## Resources
 
