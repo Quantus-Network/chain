@@ -27,9 +27,9 @@ use crate::{
 	ObservedRole, ReputationChange,
 };
 
+use futures_timer::Delay;
 use parking_lot::Mutex;
 use prometheus_endpoint::Registry;
-use wasm_timer::Delay;
 
 use sc_network_types::PeerId;
 
@@ -356,7 +356,7 @@ impl Peerstore {
 			};
 
 			self.peerstore_handle.progress_time(seconds_passed);
-			let _ = Delay::new(Duration::from_secs(1)).await;
+			Delay::new(Duration::from_secs(1)).await;
 		}
 	}
 }

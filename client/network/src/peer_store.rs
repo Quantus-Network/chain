@@ -21,6 +21,7 @@
 
 use crate::service::{metrics::PeerStoreMetrics, traits::PeerStore as PeerStoreT};
 
+use futures_timer::Delay;
 use log::trace;
 use parking_lot::Mutex;
 use partial_sort::PartialSort;
@@ -34,7 +35,6 @@ use std::{
 	sync::Arc,
 	time::{Duration, Instant},
 };
-use wasm_timer::Delay;
 
 /// Log target for this file.
 pub const LOG_TARGET: &str = "peerset";
@@ -445,7 +445,7 @@ impl PeerStore {
 			};
 
 			self.inner.lock().progress_time(seconds_passed);
-			let _ = Delay::new(Duration::from_secs(1)).await;
+			Delay::new(Duration::from_secs(1)).await;
 		}
 	}
 }

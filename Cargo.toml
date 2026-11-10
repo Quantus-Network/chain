@@ -230,7 +230,6 @@ uint = { version = "0.10.0" }
 unsigned-varint = { version = "0.8.0", features = ["codec"] }
 url = { version = "2.5.4" }
 void = { version = "1.0.2" }
-wasm-timer = { version = "0.2.5" }
 x509-parser = { version = "0.18.1" }
 yamux = { version = "0.13.9" }
 yasna = { version = "0.5.0" }
