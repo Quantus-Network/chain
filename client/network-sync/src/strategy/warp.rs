@@ -20,7 +20,17 @@
 
 use sc_consensus::IncomingBlock;
 use sp_consensus::BlockOrigin;
-pub use sp_consensus_grandpa::{AuthorityList, SetId};
+
+/// Identifier of the authority set a warp proof is verified against.
+///
+/// Upstream takes this (and [`AuthorityList`]) from `sp-consensus-grandpa`. Quantus has no
+/// GRANDPA, and the sync strategy only threads both values between a [`WarpSyncProvider`]'s
+/// `verify` results and its next `verify` call, so they are kept as opaque local types to
+/// avoid pulling the GRANDPA primitives into the client.
+pub type SetId = u64;
+
+/// Opaque, SCALE-encoded authority set handed to a [`WarpSyncProvider`].
+pub type AuthorityList = Vec<u8>;
 
 use crate::{
 	block_relay_protocol::{BlockDownloader, BlockResponseError},
@@ -773,7 +783,6 @@ mod test {
 	use crate::{mock::MockBlockDownloader, service::network::NetworkServiceProvider};
 	use sc_block_builder::BlockBuilderBuilder;
 	use sp_blockchain::{BlockStatus, Error as BlockchainError, HeaderBackend, Info};
-	use sp_consensus_grandpa::{AuthorityList, SetId, GRANDPA_ENGINE_ID};
 	use sp_core::H256;
 	use sp_runtime::traits::{Block as BlockT, Header as HeaderT, NumberFor};
 	use std::{io::ErrorKind, sync::Arc};
@@ -781,6 +790,8 @@ mod test {
 		runtime::{Block, Hash},
 		BlockBuilderExt, DefaultTestClientBuilderExt, TestClientBuilder, TestClientBuilderExt,
 	};
+
+	const GRANDPA_ENGINE_ID: sp_runtime::ConsensusEngineId = *b"FRNK";
 
 	mockall::mock! {
 		pub Client<B: BlockT> {}

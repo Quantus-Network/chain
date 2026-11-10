@@ -26,7 +26,6 @@ environmental.workspace = true
 frame-metadata = { features = ["current", "unstable"], workspace = true }
 frame-support-procedural.workspace = true
 impl-trait-for-tuples.workspace = true
-k256 = { features = ["ecdsa"], workspace = true }
 log.workspace = true
 macro_magic.workspace = true
 paste = { workspace = true, default-features = true }
@@ -76,7 +75,6 @@ std = [
 	"environmental/std",
 	"frame-metadata/std",
 	"frame-support-procedural/std",
-	"k256/std",
 	"log/std",
 	"scale-info/std",
 	"serde/std",

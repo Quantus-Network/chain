@@ -16,7 +16,6 @@ codec = { features = ["derive", "max-encoded-len"], workspace = true }
 frame-benchmarking = { optional = true, workspace = true }
 frame-support.workspace = true
 frame-system.workspace = true
-log.workspace = true
 pallet-balances.workspace = true
 pallet-reversible-transfers = { path = "../reversible-transfers", default-features = false, optional = true }
 qp-high-security = { path = "../../primitives/high-security", default-features = false }
@@ -34,7 +33,6 @@ pallet-balances = { workspace = true, features = ["std"] }
 pallet-preimage = { workspace = true, default-features = true }
 pallet-reversible-transfers = { path = "../reversible-transfers", default-features = true }
 pallet-scheduler = { workspace = true, default-features = true }
-pallet-timestamp.workspace = true
 pallet-utility = { workspace = true, default-features = true }
 qp-scheduler = { workspace = true, default-features = true }
 qp-wormhole = { workspace = true, default-features = true }
@@ -59,10 +57,8 @@ std = [
 	"frame-benchmarking?/std",
 	"frame-support/std",
 	"frame-system/std",
-	"log/std",
 	"pallet-balances/std",
 	"pallet-reversible-transfers?/std",
-	"pallet-timestamp/std",
 	"qp-high-security/std",
 	"qp-scheduler?/std",
 	"scale-info/std",

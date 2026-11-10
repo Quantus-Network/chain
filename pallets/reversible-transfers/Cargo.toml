@@ -30,7 +30,6 @@ frame-support = { workspace = true, features = ["experimental"], default-feature
 pallet-balances = { workspace = true, features = ["std"] }
 pallet-preimage.workspace = true
 pallet-scheduler.workspace = true
-pallet-timestamp.workspace = true
 pallet-utility.workspace = true
 qp-scheduler.workspace = true
 sp-core.workspace = true
@@ -47,7 +46,6 @@ std = [
 	"pallet-balances/std",
 	"pallet-preimage/std",
 	"pallet-scheduler/std",
-	"pallet-timestamp/std",
 	"pallet-utility/std",
 	"pallet-zk-tree/std",
 	"qp-scheduler/std",

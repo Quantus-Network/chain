@@ -25,7 +25,7 @@ serde_json = { workspace = true, features = ["std"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 tokio-tungstenite = { workspace = true }
-url = { workspace = true }
+url = { workspace = true, features = ["serde"] }
 
 [lints]
 workspace = true

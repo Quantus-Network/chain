@@ -1,3 +1,7 @@
+# Not a buildable crate: this manifest is a fixture for the
+# `frame-support-procedural` tasks-parsing tests, which point
+# `simulate_manifest_dir("../examples/basic", ..)` at it so that
+# `generate_access_from_frame_or_crate` can resolve `frame-support`.
 [package]
 edition = "2021"
 name = "pallet-example-basic"
