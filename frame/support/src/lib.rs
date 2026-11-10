@@ -82,7 +82,6 @@ pub mod __private {
 
 #[macro_use]
 pub mod dispatch;
-pub mod crypto;
 pub mod dispatch_context;
 mod hash;
 pub mod inherent;
