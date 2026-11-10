@@ -27,7 +27,6 @@ litep2p.workspace = true
 log = { workspace = true, default-features = true }
 names = { workspace = true }
 qp-dilithium-crypto = { workspace = true, features = ["full_crypto", "serde", "std"] }
-qp-rusty-crystals-dilithium = { workspace = true }
 rand = { workspace = true, default-features = true }
 regex = { workspace = true }
 rpassword = { workspace = true }
