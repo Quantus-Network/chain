@@ -33,6 +33,113 @@ pub fn capacity_at_depth(depth: u8) -> u64 {
 /// 10^10 means 1 DEV (10^12 planck) becomes 100 in the leaf.
 pub const AMOUNT_SCALE_DOWN_FACTOR: u128 = 10_000_000_000;
 
+/// Quantization factor the chain is migrating to (10^8: 4 decimal places, a 0.0001 QTC
+/// leaf quantum and wormhole fee floor). Leaves are already capped against this value
+/// so that every leaf recorded from now on stays representable once the switch happens.
+pub const TARGET_AMOUNT_SCALE_DOWN_FACTOR: u128 = 100_000_000;
+
+/// Largest amount a single leaf may carry: `u32::MAX` quanta at the target scale,
+/// floored to a whole number of current quanta (429,496.72 QTC). The circuit
+/// range-checks every leaf and exit-slot amount to 32 bits, so a leaf above the
+/// target-scale ceiling would be exitable only for its saturated value. Keeping the
+/// cap aligned to the current quantum lets [`credit_chunks`] round chunks up to that
+/// quantum without ever crossing the ceiling. Credits above the cap are split into
+/// several leaves.
+pub const LEAF_AMOUNT_CAP: u128 = ((u32::MAX as u128) * TARGET_AMOUNT_SCALE_DOWN_FACTOR /
+	AMOUNT_SCALE_DOWN_FACTOR) *
+	AMOUNT_SCALE_DOWN_FACTOR;
+
+/// Upper bound on the leaves one credit can split into. Native credits are bounded by
+/// the 21M QTC maximum supply (`ceil(21_000_000 QTC / LEAF_AMOUNT_CAP) = 49`), which
+/// the runtime asserts against this constant; the recorder clamps here so an
+/// out-of-contract caller can never make a single credit insert unbounded leaves.
+pub const MAX_LEAVES_PER_CREDIT: u32 = 49;
+
+const _: () = assert!(
+	LEAF_AMOUNT_CAP / TARGET_AMOUNT_SCALE_DOWN_FACTOR <= u32::MAX as u128,
+	"a capped leaf must not saturate at the target scale"
+);
+const _: () = assert!(
+	LEAF_AMOUNT_CAP <= (u32::MAX as u128) * AMOUNT_SCALE_DOWN_FACTOR,
+	"a capped leaf must not saturate at the current scale"
+);
+const _: () = assert!(
+	LEAF_AMOUNT_CAP.is_multiple_of(AMOUNT_SCALE_DOWN_FACTOR),
+	"the leaf cap must be a whole number of current quanta"
+);
+
+/// Number of leaves a credit of `amount` is recorded as: one up to
+/// [`LEAF_AMOUNT_CAP`], then `ceil(amount / LEAF_AMOUNT_CAP)`, clamped to
+/// [`MAX_LEAVES_PER_CREDIT`].
+///
+/// The clamp is unreachable for native credits (the runtime asserts the supply
+/// fits the bound); a clamped split yields chunks above the cap, so it is
+/// logged as an error rather than failing a credit that already happened.
+pub fn leaves_for_amount(amount: u128) -> u32 {
+	if amount <= LEAF_AMOUNT_CAP {
+		return 1;
+	}
+	let n = u32::try_from(amount.div_ceil(LEAF_AMOUNT_CAP)).unwrap_or(u32::MAX);
+	if n > MAX_LEAVES_PER_CREDIT {
+		log::error!(
+			target: "runtime::zk-tree",
+			"credit of {amount} needs {n} leaves, clamped to {MAX_LEAVES_PER_CREDIT}: chunks exceed LEAF_AMOUNT_CAP"
+		);
+		return MAX_LEAVES_PER_CREDIT;
+	}
+	n
+}
+
+/// Per-leaf amounts a credit is split into; see [`credit_chunks`].
+pub struct CreditChunks {
+	remaining: u32,
+	chunk: u128,
+	last: u128,
+}
+
+impl Iterator for CreditChunks {
+	type Item = u128;
+
+	fn next(&mut self) -> Option<u128> {
+		match self.remaining {
+			0 => None,
+			1 => {
+				self.remaining = 0;
+				Some(self.last)
+			},
+			_ => {
+				self.remaining -= 1;
+				Some(self.chunk)
+			},
+		}
+	}
+
+	fn size_hint(&self) -> (usize, Option<usize>) {
+		(self.remaining as usize, Some(self.remaining as usize))
+	}
+}
+
+impl ExactSizeIterator for CreditChunks {}
+
+/// Split a credit into [`leaves_for_amount`] balanced leaf amounts that sum to
+/// `amount`.
+///
+/// All but the last chunk are `amount / n` rounded *up* to the current quantum;
+/// the last chunk carries the remainder (and any sub-quantum dust). Rounding up
+/// keeps every chunk at or below [`LEAF_AMOUNT_CAP`] whenever the split is not
+/// clamped (`amount / n ≤ cap` and the cap is quantum-aligned), while balancing
+/// avoids a dust-sized final leaf that would cost a whole fee quantum to exit. A
+/// credit at or below the cap is returned unchanged as a single chunk.
+pub fn credit_chunks(amount: u128) -> CreditChunks {
+	let n = leaves_for_amount(amount);
+	if n == 1 {
+		return CreditChunks { remaining: 1, chunk: amount, last: amount };
+	}
+	let chunk = (amount / n as u128).div_ceil(AMOUNT_SCALE_DOWN_FACTOR) * AMOUNT_SCALE_DOWN_FACTOR;
+	let last = amount.saturating_sub(chunk.saturating_mul((n - 1) as u128));
+	CreditChunks { remaining: n, chunk, last }
+}
+
 /// The Goldilocks prime `p = 2^64 - 2^32 + 1`.
 pub const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
 
@@ -381,6 +488,100 @@ mod tests {
 			n,
 			acc[0]
 		);
+	}
+
+	const UNIT: u128 = 1_000_000_000_000;
+	const MAX_SUPPLY: u128 = 21_000_000 * UNIT;
+
+	fn assert_chunks_well_formed(amount: u128) -> Vec<u128> {
+		let chunks: Vec<u128> = credit_chunks(amount).collect();
+		assert_eq!(chunks.len(), leaves_for_amount(amount) as usize);
+		assert_eq!(chunks.iter().sum::<u128>(), amount, "chunks must sum to the credit");
+		assert!(chunks.iter().all(|c| *c <= LEAF_AMOUNT_CAP), "every chunk must fit a leaf");
+		assert!(
+			chunks.iter().all(|c| *c >= AMOUNT_SCALE_DOWN_FACTOR),
+			"no chunk may commit a zero-value leaf"
+		);
+		assert!(
+			chunks[..chunks.len() - 1].iter().all(|c| c % AMOUNT_SCALE_DOWN_FACTOR == 0),
+			"all but the last chunk must be quantum-aligned"
+		);
+		chunks
+	}
+
+	#[test]
+	fn leaf_cap_is_the_largest_aligned_amount_below_u32_max_target_quanta() {
+		assert_eq!(LEAF_AMOUNT_CAP, 429_496_720_000_000_000);
+		assert!(
+			u32::try_from(LEAF_AMOUNT_CAP / TARGET_AMOUNT_SCALE_DOWN_FACTOR).is_ok(),
+			"the cap must not saturate at the target scale"
+		);
+		assert!(
+			u32::try_from(
+				(LEAF_AMOUNT_CAP + AMOUNT_SCALE_DOWN_FACTOR) / TARGET_AMOUNT_SCALE_DOWN_FACTOR
+			)
+			.is_err(),
+			"one current quantum more would saturate at the target scale"
+		);
+		assert_eq!(MAX_LEAVES_PER_CREDIT as u128, MAX_SUPPLY.div_ceil(LEAF_AMOUNT_CAP));
+	}
+
+	#[test]
+	fn credits_at_or_below_cap_are_a_single_unchanged_chunk() {
+		for amount in
+			[0, 1, AMOUNT_SCALE_DOWN_FACTOR - 1, UNIT, LEAF_AMOUNT_CAP - 1, LEAF_AMOUNT_CAP]
+		{
+			assert_eq!(leaves_for_amount(amount), 1);
+			assert_eq!(credit_chunks(amount).collect::<Vec<_>>(), vec![amount]);
+		}
+	}
+
+	#[test]
+	fn credits_above_cap_split_into_balanced_capped_chunks() {
+		let amounts = [
+			LEAF_AMOUNT_CAP + 1,
+			LEAF_AMOUNT_CAP + AMOUNT_SCALE_DOWN_FACTOR,
+			2 * LEAF_AMOUNT_CAP - 1,
+			2 * LEAF_AMOUNT_CAP,
+			2 * LEAF_AMOUNT_CAP + 1,
+			3 * LEAF_AMOUNT_CAP - AMOUNT_SCALE_DOWN_FACTOR + 7,
+			5_670_000 * UNIT + 123_456_789,
+			49 * LEAF_AMOUNT_CAP - 1,
+			MAX_SUPPLY,
+			MAX_SUPPLY - 1,
+		];
+		for amount in amounts {
+			let chunks = assert_chunks_well_formed(amount);
+			assert!(chunks.len() >= 2, "{amount} must split");
+			let spread = chunks.iter().max().unwrap() - chunks.iter().min().unwrap();
+			assert!(
+				spread <= (chunks.len() as u128) * AMOUNT_SCALE_DOWN_FACTOR,
+				"chunks of {amount} must be balanced, spread {spread}"
+			);
+		}
+	}
+
+	#[test]
+	fn just_above_cap_splits_in_two_rather_than_cap_plus_dust() {
+		let chunks = assert_chunks_well_formed(LEAF_AMOUNT_CAP + 1);
+		assert_eq!(chunks.len(), 2);
+		// Balanced: each half is ~214,748 QTC, not (cap, 1 planck).
+		assert!(chunks[0] < LEAF_AMOUNT_CAP / 2 + AMOUNT_SCALE_DOWN_FACTOR);
+		assert!(chunks[1] > LEAF_AMOUNT_CAP / 2 - AMOUNT_SCALE_DOWN_FACTOR);
+	}
+
+	#[test]
+	fn max_supply_fits_the_leaf_bound() {
+		assert_eq!(leaves_for_amount(MAX_SUPPLY), MAX_LEAVES_PER_CREDIT);
+		assert!(MAX_SUPPLY <= MAX_LEAVES_PER_CREDIT as u128 * LEAF_AMOUNT_CAP);
+	}
+
+	#[test]
+	fn leaves_are_clamped_for_out_of_contract_amounts() {
+		assert_eq!(leaves_for_amount(u128::MAX), MAX_LEAVES_PER_CREDIT);
+		let chunks: Vec<u128> = credit_chunks(u128::MAX).collect();
+		assert_eq!(chunks.len(), MAX_LEAVES_PER_CREDIT as usize);
+		assert!(chunks.iter().all(|c| *c > 0));
 	}
 
 	#[test]

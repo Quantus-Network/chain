@@ -510,13 +510,15 @@ pub mod pallet {
 					continue;
 				}
 				let to: T::WormholeAccountId = who.into();
-				// Record transfer proof and emit event
-				Self::record_transfer(T::AssetId::default(), &minting_account, &to, amount);
-				recorded = recorded.saturating_add(1);
+				// Record transfer proof and emit event(s); an endowment above the leaf
+				// cap (e.g. the vesting pot) is recorded as several leaves.
+				let leaves =
+					Self::record_transfer(T::AssetId::default(), &minting_account, &to, amount);
+				recorded = recorded.saturating_add(u64::from(leaves));
 			}
 
 			// Weight: 1 read per iterated account + N * (2 reads + 2 writes + 1 event)
-			// per recorded proof
+			// per recorded leaf
 			T::DbWeight::get().reads_writes(
 				accounts_seen.saturating_add(recorded.saturating_mul(2)),
 				recorded.saturating_mul(2),
@@ -941,7 +943,15 @@ pub mod pallet {
 				// Skip failed credits (e.g. below ED); nullifier already marked, value
 				// excluded from fee settlement / event.
 				match Self::credit_and_record(exit_account, *exit_balance, &mint_account) {
-					Ok(_) => {},
+					Ok(leaves) => {
+						// The declared weight prices one leaf per exit. A split exit's
+						// extra leaves are counted here so `settled` is truthful, but the
+						// returned weight is capped at the declaration, so beyond the fee
+						// leaves' headroom they are an accepted, supply-bounded overshoot
+						// (at most `MAX_LEAVES_PER_CREDIT − 1` leaves per batch).
+						extra_leaf_inserts =
+							extra_leaf_inserts.saturating_add(u64::from(leaves.saturating_sub(1)));
+					},
 					Err(e) => {
 						log::warn!(
 							"Exit mint of {:?} to {:?} failed ({:?}); skipping this exit",
@@ -1015,14 +1025,12 @@ pub mod pallet {
 
 					// A failed rebate mint (e.g. below ED) must not revert the whole
 					// bundle; the share simply stays in the burn bucket.
-					if Self::try_credit_fee_quanta(
+					if let Some((_, leaves)) = Self::try_credit_fee_quanta(
 						&aggregator_account,
 						rebate_quanta,
 						&mint_account,
-					)
-					.is_some()
-					{
-						extra_leaf_inserts = extra_leaf_inserts.saturating_add(1);
+					) {
+						extra_leaf_inserts = extra_leaf_inserts.saturating_add(leaves);
 						burn_quanta = burn_quanta.saturating_sub(rebate_quanta);
 					}
 				}
@@ -1041,8 +1049,8 @@ pub mod pallet {
 					Some(author) => {
 						let credited =
 							Self::try_credit_fee_quanta(&author, miner_quanta, &mint_account);
-						if let Some(amount) = credited {
-							extra_leaf_inserts = extra_leaf_inserts.saturating_add(1);
+						if let Some((amount, leaves)) = credited {
+							extra_leaf_inserts = extra_leaf_inserts.saturating_add(leaves);
 							Self::deposit_event(Event::MinerVolumeFeePaid {
 								miner: author,
 								amount,
@@ -1443,18 +1451,19 @@ pub mod pallet {
 		/// Credit a fee share of `quanta` whole quanta to `to`, or leave it for
 		/// the burn bucket.
 		///
-		/// Returns the credited balance, or `None` when the mint failed (e.g. the
-		/// account doesn't exist and the share is below the existential deposit).
-		/// A failed fee credit must not revert the bundle — users' exits would be
-		/// dragged down with it — so the caller burns the share instead.
+		/// Returns the credited balance and the leaves it was recorded as, or `None`
+		/// when the mint failed (e.g. the account doesn't exist and the share is below
+		/// the existential deposit). A failed fee credit must not revert the bundle —
+		/// users' exits would be dragged down with it — so the caller burns the share
+		/// instead.
 		fn try_credit_fee_quanta(
 			to: &<T as frame_system::Config>::AccountId,
 			quanta: u128,
 			mint_account: &<T as frame_system::Config>::AccountId,
-		) -> Option<BalanceOf<T>> {
+		) -> Option<(BalanceOf<T>, u64)> {
 			let amount: BalanceOf<T> = quanta.saturating_mul(crate::SCALE_DOWN_FACTOR).into();
 			match Self::credit_and_record(to, amount, mint_account) {
-				Ok(_) => Some(amount),
+				Ok(leaves) => Some((amount, u64::from(leaves))),
 				Err(e) => {
 					log::warn!(
 						"Fee credit of {:?} to {:?} failed ({:?}); burning it instead",
@@ -1482,40 +1491,59 @@ pub mod pallet {
 		/// zero-commitment leaf and freeze the balance. All callers satisfy this by
 		/// construction (exit balances are quantized circuit outputs; fee shares are
 		/// split in quanta); the check is a backstop for future call sites.
-		fn credit_and_record(
+		///
+		/// Returns the number of leaves recorded: an exit above the leaf cap (a
+		/// 32-bit output at today's 10^10 scale can reach ~42.9M QTC) is split like
+		/// any other credit. The surplus leaves are not priced into the batch weight.
+		pub(crate) fn credit_and_record(
 			to: &<T as frame_system::Config>::AccountId,
 			amount: BalanceOf<T>,
 			mint_account: &<T as frame_system::Config>::AccountId,
-		) -> Result<BalanceOf<T>, DispatchError> {
+		) -> Result<u32, DispatchError> {
 			let amount_u128: u128 = amount.into();
 			ensure!(
 				amount_u128 > 0 && amount_u128.is_multiple_of(crate::SCALE_DOWN_FACTOR),
 				TokenError::BelowMinimum
 			);
-			let credited = <T::Currency as Unbalanced<_>>::increase_balance(
+			<T::Currency as Unbalanced<_>>::increase_balance(
 				to,
 				amount,
 				frame_support::traits::tokens::Precision::Exact,
 			)?;
 			let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
 			let to_account: <T as Config>::WormholeAccountId = to.clone().into();
-			Self::record_transfer(T::AssetId::default(), &from_account, &to_account, amount);
-			Ok(credited)
+			Ok(Self::record_transfer(T::AssetId::default(), &from_account, &to_account, amount))
 		}
 
-		/// Record a transfer in the ZK tree and emit events.
+		/// Record a transfer in the ZK tree and emit events. Returns the number of
+		/// leaves inserted.
 		///
 		/// This inserts the transfer data into the 4-ary Poseidon Merkle tree
 		/// managed by pallet-zk-tree, which provides Merkle proofs for ZK circuits.
 		///
-		/// The emitted event includes `leaf_index` which clients can use to fetch
+		/// A credit above [`pallet_zk_tree::tree::LEAF_AMOUNT_CAP`] is recorded as
+		/// several consecutive leaves for the same recipient (see
+		/// [`pallet_zk_tree::tree::credit_chunks`]), each with its own transfer count
+		/// and event, so that no leaf ever exceeds the circuit's 32-bit amount range.
+		/// Native credits are bounded by the maximum supply and therefore by
+		/// [`pallet_zk_tree::tree::MAX_LEAVES_PER_CREDIT`] leaves.
+		///
+		/// The event shape is unchanged; only its cardinality is: one credit above
+		/// the cap is several `NativeTransferred` events whose amounts sum to the
+		/// credit. Clients that locate a funding event by exact amount, or assume
+		/// one event per credit (CLI `dissolve` / `multiround`, the indexers, the
+		/// SDK's wormhole history), see this only for credits above ~429k QTC and
+		/// have not yet been updated. Accepted for now: funds in that case are
+		/// recorded and exitable, just not found by those code paths.
+		///
+		/// The emitted events include `leaf_index` which clients can use to fetch
 		/// Merkle proofs via `zkTree_getMerkleProof(leaf_index)` RPC.
 		pub fn record_transfer(
 			asset_id: T::AssetId,
 			from: &<T as Config>::WormholeAccountId,
 			to: &<T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
-		) {
+		) -> u32 {
 			// The ZK leaf commits to the recipient through a lossy encoding that reduces
 			// each 8-byte limb mod the Goldilocks prime, so a recipient and its
 			// non-canonical byte aliases encode identically. Key the transfer count and
@@ -1525,41 +1553,44 @@ pub mod pallet {
 			// `H(secret, transfer_count)` nullifier) as a canonical deposit, leaving one
 			// of the two permanently unexitable.
 			let leaf_to = Self::canonical_leaf_recipient(to);
-			let current_count = TransferCount::<T>::get(&leaf_to);
+			let mut count = TransferCount::<T>::get(&leaf_to);
 
-			// Increment transfer count for this recipient
-			TransferCount::<T>::insert(
-				&leaf_to,
-				current_count.saturating_add(T::TransferCount::one()),
-			);
+			let mut leaves = 0u32;
+			for chunk in pallet_zk_tree::tree::credit_chunks(amount.into()) {
+				let chunk_amount: BalanceOf<T> = chunk.into();
 
-			// Insert into ZK tree for Merkle proof generation
-			// Returns the leaf index for clients to use when fetching proofs
-			let leaf_index = T::ZkTree::record_transfer(
-				leaf_to.into(),
-				current_count.into(),
-				asset_id.clone(),
-				amount,
-			);
+				let leaf_index = T::ZkTree::record_transfer(
+					leaf_to.clone().into(),
+					count.into(),
+					asset_id.clone(),
+					chunk_amount,
+				);
 
-			if asset_id == T::AssetId::default() {
-				Self::deposit_event(Event::<T>::NativeTransferred {
-					from: from.clone().into(),
-					to: to.clone().into(),
-					amount,
-					transfer_count: current_count,
-					leaf_index,
-				});
-			} else {
-				Self::deposit_event(Event::<T>::AssetTransferred {
-					from: from.clone().into(),
-					to: to.clone().into(),
-					asset_id,
-					amount: AssetBalanceOf::<T>::from(amount),
-					transfer_count: current_count,
-					leaf_index,
-				});
+				if asset_id == T::AssetId::default() {
+					Self::deposit_event(Event::<T>::NativeTransferred {
+						from: from.clone().into(),
+						to: to.clone().into(),
+						amount: chunk_amount,
+						transfer_count: count,
+						leaf_index,
+					});
+				} else {
+					Self::deposit_event(Event::<T>::AssetTransferred {
+						from: from.clone().into(),
+						to: to.clone().into(),
+						asset_id: asset_id.clone(),
+						amount: AssetBalanceOf::<T>::from(chunk_amount),
+						transfer_count: count,
+						leaf_index,
+					});
+				}
+
+				count = count.saturating_add(T::TransferCount::one());
+				leaves = leaves.saturating_add(1);
 			}
+
+			TransferCount::<T>::insert(&leaf_to, count);
+			leaves
 		}
 	}
 
@@ -1576,7 +1607,7 @@ pub mod pallet {
 			from: <T as Config>::WormholeAccountId,
 			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
-		) -> bool {
+		) -> u32 {
 			// A zero-amount credit moves no value, so a leaf for it is pure state growth:
 			// it would advance the recipient's transfer count, enlarge the ZK tree, and
 			// emit a transfer event for nothing. Zero-value `Balances::Transfer` events
@@ -1585,7 +1616,7 @@ pub mod pallet {
 			// chokepoint every event-scan / call-site recorder goes through — and report
 			// it as not recorded so weight reconciliation does not count a leaf insert.
 			if amount.is_zero() {
-				return false;
+				return 0;
 			}
 			// A self-directed credit moves no value either: nothing is debited from one
 			// account and credited to another. Recording it would still advance the
@@ -1594,7 +1625,7 @@ pub mod pallet {
 			// self-short-circuit on the hold path) and from hook-context recorders that
 			// key off dispatch `Ok` rather than a moved amount.
 			if from == to {
-				return false;
+				return 0;
 			}
 			// The wormhole tags native leaves with `asset_id == 0`, but `pallet_assets` uses
 			// id 0 for an unrelated, independently-mintable token. Genuine native reaches us as
@@ -1605,10 +1636,7 @@ pub mod pallet {
 			// asset-0 issuer mint unbacked native out of the wormhole.
 			match asset_id {
 				// Native token.
-				None => {
-					Self::record_transfer(T::AssetId::default(), &from, &to, amount);
-					true
-				},
+				None => Self::record_transfer(T::AssetId::default(), &from, &to, amount),
 				// A `pallet_assets` asset whose id collides with the reserved native id. The
 				// wormhole only supports native exits, and this is not a native deposit, so it
 				// must not touch native accounting — drop it.
@@ -1620,14 +1648,11 @@ pub mod pallet {
 						to,
 						amount,
 					);
-					false
+					0
 				},
 				// A genuine non-native asset: recorded as an inert (non-native, never-exitable)
 				// leaf, preserving the existing behaviour for future asset-wormhole support.
-				Some(id) => {
-					Self::record_transfer(id, &from, &to, amount);
-					true
-				},
+				Some(id) => Self::record_transfer(id, &from, &to, amount),
 			}
 		}
 	}

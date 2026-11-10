@@ -159,4 +159,5 @@ can redirect part of the burn bucket to their proof-bound aggregator address.
 | Embedded verifier bytes | `pallets/wormhole/src/lib.rs` (`PRIVATE_BATCH_VERIFIER`, `PUBLIC_BATCH_VERIFIER`) |
 | On‑chain verify entrypoints | `pallet_wormhole::{verify_private_batch, verify_public_batch}` |
 | Amount scale (10^10) | `pallets/wormhole/src/lib.rs` (`SCALE_DOWN_FACTOR`) |
+| Per-leaf amount cap and credit splitting | `pallets/zk-tree/src/tree.rs` (`LEAF_AMOUNT_CAP`, `credit_chunks`) |
 | 4‑ary Poseidon Merkle tree | `pallets/zk-tree/`, see `docs/zk-trie-architecture.md` |

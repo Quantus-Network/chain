@@ -231,11 +231,11 @@ impl qp_wormhole::TransferProofRecorder<AccountId, u32, Balance> for MockProofRe
 		from: AccountId,
 		to: AccountId,
 		amount: Balance,
-	) -> bool {
+	) -> u32 {
 		RECORDED_PROOFS.with(|proofs| {
 			proofs.borrow_mut().push(RecordedTransferProof { asset_id, from, to, amount });
 		});
-		true
+		1
 	}
 }
 

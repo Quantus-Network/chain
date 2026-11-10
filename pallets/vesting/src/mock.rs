@@ -144,7 +144,7 @@ impl MockProofRecorder {
 	}
 
 	/// Make the recorder report every subsequent credit as deliberately dropped
-	/// (the `false` branch the `TransferProofRecorder` contract permits).
+	/// (the zero-leaf return the `TransferProofRecorder` contract permits).
 	pub fn set_drop_credits(drop: bool) {
 		DROP_CREDITS.with(|flag| flag.set(drop));
 	}
@@ -161,13 +161,13 @@ impl qp_wormhole::TransferProofRecorder<AccountId32, u32, Balance> for MockProof
 		from: AccountId32,
 		to: AccountId32,
 		amount: Balance,
-	) -> bool {
+	) -> u32 {
 		assert!(asset_id.is_none(), "vesting transfers are always native");
 		if DROP_CREDITS.with(|flag| flag.get()) {
-			return false;
+			return 0;
 		}
 		RECORDED_PROOFS.with(|proofs| proofs.borrow_mut().push((from, to, amount)));
-		true
+		1
 	}
 }
 

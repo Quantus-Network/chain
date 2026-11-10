@@ -611,7 +611,7 @@ pub mod pallet {
 		/// them. The extension in turn skips pot-touching transfer events, so signed
 		/// paths are not double-recorded.
 		///
-		/// The recorder contract permits `false` for a deliberately dropped credit.
+		/// The recorder contract permits zero leaves for a deliberately dropped credit.
 		/// That must be treated as failure here: were the transfer finalized anyway,
 		/// the caller would advance `claimed` (or remove the schedule), making the
 		/// missing proof unrecoverable. The storage layer rolls the transfer back, so
@@ -628,7 +628,7 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::Currency::transfer(from, to, amount, Preservation::Preserve)?;
 			ensure!(
-				T::ProofRecorder::record_transfer_proof(None, from.clone(), to.clone(), amount),
+				T::ProofRecorder::record_transfer_proof(None, from.clone(), to.clone(), amount) > 0,
 				Error::<T>::TransferProofNotRecorded
 			);
 			Ok(())

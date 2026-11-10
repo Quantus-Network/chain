@@ -200,28 +200,37 @@ fn assert_tip_cannot_move_extra_value(
 	}
 }
 
-/// The fee ceiling must admit every legitimate worst-case extrinsic with at
+/// The fee ceiling must admit every legitimate whitelisted leaf call with at
 /// least 2x headroom, so re-benchmarking drift cannot lock a high-security
-/// account out of its own whitelist (recovery included).
+/// account out of its own whitelist (recovery included). A full
+/// `MaxHighSecurityBatchLen` batch of each leaf call must still fit: the 2x
+/// invariant is per leaf call, the batch only has to be admitted.
 #[test]
 fn high_security_fee_ceiling_admits_worst_case_legitimate_extrinsics() {
 	let pair = pair();
 	let account = pair.public().into_account();
 	test_ext(&account).execute_with(|| {
 		let ceiling = quantus_runtime::configs::MAX_HIGH_SECURITY_INCLUSION_FEE;
-		let batch16 = RuntimeCall::Utility(pallet_utility::Call::batch_all {
-			calls: vec![schedule_small_transfer(); 16],
-		});
+		let fee_of =
+			|call: RuntimeCall| inclusion_fee(&signed_call(&pair, account.clone(), call, 0, 0));
+		let batch16 = |call: RuntimeCall| {
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls: vec![call; 16] })
+		};
 		for (name, call) in [
-			("batch_all of 16 schedule_transfers", batch16),
+			("schedule_transfer", schedule_small_transfer()),
+			("cancel", bogus_cancel()),
 			("recover_funds", recover_own_funds(&account)),
 		] {
-			let xt = signed_call(&pair, account.clone(), call, 0, 0);
-			let fee = inclusion_fee(&xt);
+			let fee = fee_of(call.clone());
 			assert!(
 				fee.saturating_mul(2) <= ceiling,
 				"{name} must clear MAX_HIGH_SECURITY_INCLUSION_FEE with 2x headroom: \
 				 fee {fee}, ceiling {ceiling}"
+			);
+			let batch_fee = fee_of(batch16(call));
+			assert!(
+				batch_fee <= ceiling,
+				"a batch_all of 16 {name}s must be admitted: fee {batch_fee}, ceiling {ceiling}"
 			);
 		}
 	});
