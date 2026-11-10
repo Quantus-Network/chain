@@ -204,7 +204,8 @@ pub type UncheckedExtrinsic =
 /// The payload being signed in transactions.
 pub type SignedPayload = generic::SignedPayload<RuntimeCall, TxExtension>;
 
-/// All storage migrations to run on runtime upgrade.
+/// Single-block storage migrations to run on runtime upgrade. Migrations too heavy for one
+/// block go in `pallet_migrations::Config::Migrations` (see `configs`) instead.
 pub type Migrations = (
 	// v1 -> v2: delete the removed wormhole soundness counters.
 	pallet_wormhole::migrations::MigrateV1ToV2<Runtime>,
@@ -314,4 +315,7 @@ mod runtime {
 	// non-Root tech-referenda tracks, e.g. `FastUpgrade`.
 	#[runtime::pallet_index(23)]
 	pub type Origins = pallet_custom_origins;
+
+	#[runtime::pallet_index(24)]
+	pub type MultiBlockMigrations = pallet_migrations;
 }

@@ -84,6 +84,7 @@ The runtime derives `RuntimeCall`, `RuntimeEvent`, `RuntimeError`, `RuntimeOrigi
 | 21 | `ZkTree` | `pallet-zk-tree` | **Local** (`pallets/zk-tree`) | no |
 | 22 | `Vesting` | `pallet-vesting` | **Local** (`pallets/vesting`) | yes |
 | 23 | `Origins` | `pallet_custom_origins` | **Local** (`runtime/src/governance/origins.rs`) | no |
+| 24 | `MultiBlockMigrations` | `pallet-migrations` `15.0.0` | **Inlined** (`pallets/migrations`) | yes (Root-only) |
 
 > Indices 4, 10, 12, 16, 17, and 18 are intentionally left vacant after pallet removals so downstream indices stay stable.
 
@@ -190,6 +191,12 @@ All `Config` impls live in `runtime/src/configs/mod.rs` unless noted.
 - Storage-less, call-less, event-less origin declaration: its whole body is one `#[pallet::origin] enum Origin { FastUpgrade }`. A pallet is the only way to contribute a variant to `RuntimeOrigin`/`OriginCaller`.
 - `Origin::FastUpgrade` is the proposal origin of tech-referenda track 1 (`fast_upgrade`) and is honored **only** by `system.authorize_upgrade` (`AuthorizeUpgradeOrigin = EitherOfDiverse<EnsureRoot, FastUpgrade>` in the forked frame-system). `set_code` and `authorize_upgrade_without_checks` remain Root-only, so the track can publish an upgrade hash and nothing else.
 - **Calls:** none. See `docs/RUNTIME_UPGRADE_VIA_GOVERNANCE.md` for the authorize-then-apply flow.
+
+### Index 24 — `MultiBlockMigrations` (`pallet-migrations`)
+- Wired as `frame_system::Config::MultiBlockMigrator`. `Executive` steps it from `on_initialize`/`on_poll`, blocks carry only inherents while a migration is ongoing (`ExtrinsicInclusionMode::OnlyInherents`), and `system.set_code` is refused until it finishes.
+- `Migrations = ()` (none registered yet; mocked migrations under `runtime-benchmarks`), `CursorMaxLen = 65_536`, `IdentifierMaxLen = 256`, `MaxServiceWeight = 80% max block`, `FailedMigrationHandler = FreezeChainOnFailedMigration`.
+- **Storage:** `Cursor` (active migration + inner cursor; `None` when idle), `Historic` (identifiers of completed migrations, so a migration still in the tuple is not re-run).
+- **Calls (all Root):** `force_set_cursor`(0), `force_set_active_cursor`(1), `force_onboard_mbms`(2), `clear_historic`(3). Emergency levers only; the normal path is `on_runtime_upgrade` onboarding.
 
 ---
 

@@ -38,6 +38,7 @@ members = [
 	"node",
 	"pallets/balances",
 	"pallets/frame-system",
+	"pallets/migrations",
 	"pallets/mining-rewards",
 	"pallets/multisig",
 	"pallets/preimage",
@@ -301,6 +302,7 @@ frame-system-benchmarking = { path = "./frame/system-benchmarking", default-feat
 frame-system-rpc-runtime-api = { path = "./frame/system-rpc-runtime-api", default-features = false }
 frame-try-runtime = { path = "./frame/try-runtime", default-features = false }
 hickory-resolver = { version = "0.26.1" }
+pallet-migrations = { path = "./pallets/migrations", default-features = false }
 pallet-preimage = { path = "./pallets/preimage", default-features = false }
 pallet-ranked-collective = { path = "./pallets/ranked-collective", default-features = false }
 pallet-referenda = { path = "./pallets/referenda", default-features = false }
