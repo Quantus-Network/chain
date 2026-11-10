@@ -772,12 +772,26 @@ mod tests {
 	impl NativeExecutionDispatch for MyExecutorDispatch {
 		type ExtendHostFunctions = (my_interface::HostFunctions, my_interface::HostFunctions);
 
-		fn dispatch(method: &str, data: &[u8]) -> Option<Vec<u8>> {
-			substrate_test_runtime::api::dispatch(method, data)
+		// The test only inspects host-function registration; no native runtime is needed
+		// (upstream wires in the unpublished substrate test runtime here).
+		fn dispatch(_method: &str, _data: &[u8]) -> Option<Vec<u8>> {
+			None
 		}
 
 		fn native_version() -> NativeVersion {
-			substrate_test_runtime::native_version()
+			NativeVersion {
+				runtime_version: RuntimeVersion {
+					spec_name: "test".into(),
+					impl_name: "test".into(),
+					authoring_version: 1,
+					spec_version: 1,
+					impl_version: 1,
+					apis: sp_version::create_apis_vec!([]),
+					transaction_version: 1,
+					system_version: 1,
+				},
+				can_author_with: Default::default(),
+			}
 		}
 	}
 

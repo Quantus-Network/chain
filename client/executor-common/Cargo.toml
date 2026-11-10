@@ -10,22 +10,22 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
-name = "sc-executor-common"
-version = "0.43.0"
 authors = ["Parity Technologies <admin@parity.io>"]
-build = false
-autolib = false
+autobenches = false
 autobins = false
 autoexamples = false
+autolib = false
 autotests = false
-autobenches = false
+build = false
 description = "A set of common definitions that are needed for defining execution engines."
-homepage = "https://paritytech.github.io/polkadot-sdk/"
 documentation = "https://docs.rs/sc-executor-common/"
-readme = "README.md"
+edition = "2021"
+homepage = "https://paritytech.github.io/polkadot-sdk/"
 license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+name = "sc-executor-common"
+readme = "README.md"
 repository = "https://github.com/paritytech/polkadot-sdk.git"
+version = "0.43.0"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -37,137 +37,24 @@ default = []
 name = "sc_executor_common"
 path = "src/lib.rs"
 
-[dependencies.polkavm]
-version = "0.26.0"
-default-features = false
-
 [dependencies.sc-allocator]
-version = "35.0.0"
 default-features = true
+version = "35.0.0"
 
 [dependencies.sp-maybe-compressed-blob]
-version = "11.1.0"
 default-features = true
+version = "11.1.0"
 
 [dependencies.sp-wasm-interface]
-version = "24.0.0"
 default-features = true
+version = "24.0.0"
 
 [dependencies.thiserror]
 version = "1.0.64"
 
 [dependencies.wasm-instrument]
-version = "0.4"
 default-features = true
+version = "0.4"
 
-[lints.clippy.all]
-level = "allow"
-priority = 0
-
-[lints.clippy.bind_instead_of_map]
-level = "allow"
-priority = 2
-
-[lints.clippy.borrowed-box]
-level = "allow"
-priority = 2
-
-[lints.clippy.complexity]
-level = "warn"
-priority = 1
-
-[lints.clippy.correctness]
-level = "warn"
-priority = 1
-
-[lints.clippy.default_constructed_unit_structs]
-level = "allow"
-priority = 2
-
-[lints.clippy.derivable_impls]
-level = "allow"
-priority = 2
-
-[lints.clippy.eq_op]
-level = "allow"
-priority = 2
-
-[lints.clippy.erasing_op]
-level = "allow"
-priority = 2
-
-[lints.clippy.extra-unused-type-parameters]
-level = "allow"
-priority = 2
-
-[lints.clippy.identity-op]
-level = "allow"
-priority = 2
-
-[lints.clippy.if-same-then-else]
-level = "allow"
-priority = 2
-
-[lints.clippy.needless-lifetimes]
-level = "allow"
-priority = 2
-
-[lints.clippy.needless_option_as_deref]
-level = "allow"
-priority = 2
-
-[lints.clippy.nonminimal-bool]
-level = "allow"
-priority = 2
-
-[lints.clippy.option-map-unit-fn]
-level = "allow"
-priority = 2
-
-[lints.clippy.stable_sort_primitive]
-level = "allow"
-priority = 2
-
-[lints.clippy.too-many-arguments]
-level = "allow"
-priority = 2
-
-[lints.clippy.type_complexity]
-level = "allow"
-priority = 2
-
-[lints.clippy.unit_arg]
-level = "allow"
-priority = 2
-
-[lints.clippy.unnecessary_cast]
-level = "allow"
-priority = 2
-
-[lints.clippy.useless_conversion]
-level = "allow"
-priority = 2
-
-[lints.clippy.while_immutable_condition]
-level = "allow"
-priority = 2
-
-[lints.clippy.zero-prefixed-literal]
-level = "allow"
-priority = 2
-
-[lints.rust.suspicious_double_ref_op]
-level = "allow"
-priority = 2
-
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(build_opt_level, values("3"))',
-    'cfg(build_profile, values("debug", "release"))',
-    "cfg(enable_alloc_error_handler)",
-    "cfg(fuzzing)",
-    "cfg(ignore_flaky_test)",
-    "cfg(substrate_runtime)",
-]
+[lints]
+workspace = true

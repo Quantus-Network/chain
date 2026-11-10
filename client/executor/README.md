@@ -1,3 +1,17 @@
+# sc-executor (vendored)
+
+Vendored from crates.io `sc-executor` **0.47.0**, then patched to drop the
+experimental PolkaVM executor (`sc-executor-polkavm`). Quantus runs WebAssembly
+runtimes only, so the PolkaVM dispatch in `create_wasm_runtime_with_code` is
+removed along with the dependency; see `../executor-common` for the matching
+`RuntimeBlob` change.
+
+Upstream unit tests that depend on the unpublished `sc-runtime-test` /
+`substrate-test-runtime` crates were dropped or rewritten against small WAT
+modules. The Criterion bench (and its kusama runtime blob) is not vendored.
+
+---
+
 A crate that provides means of executing/dispatching calls into the runtime.
 
 There are a few responsibilities of this crate at the moment:

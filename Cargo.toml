@@ -10,6 +10,8 @@ members = [
 	"client/cli",
 	"client/consensus/qpow",
 	"client/db",
+	"client/executor",
+	"client/executor-common",
 	"client/executor-wasmtime",
 	"client/informant",
 	"client/litep2p",
@@ -374,6 +376,8 @@ pallet-transaction-payment-rpc = { path = "./pallets/transaction-payment-rpc" }
 pallet-transaction-payment-rpc-runtime-api = { path = "./pallets/transaction-payment-rpc-runtime-api" }
 sc-cli = { path = "./client/cli" }
 sc-client-db = { path = "./client/db" }
+sc-executor = { path = "./client/executor" }
+sc-executor-common = { path = "./client/executor-common" }
 sc-executor-wasmtime = { path = "./client/executor-wasmtime" }
 sc-informant = { path = "./client/informant" }
 sc-network = { path = "client/network" }

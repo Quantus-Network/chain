@@ -297,10 +297,6 @@ pub fn create_wasm_runtime_with_code<H>(
 where
 	H: HostFunctions,
 {
-	if let Some(blob) = blob.as_polkavm_blob() {
-		return sc_executor_polkavm::create_runtime::<H>(blob);
-	}
-
 	match wasm_method {
 		WasmExecutionMethod::Compiled { instantiation_strategy } =>
 			sc_executor_wasmtime::create_runtime::<H>(
@@ -447,9 +443,12 @@ mod tests {
 	use alloc::borrow::Cow;
 	use codec::Encode;
 	use sp_api::{Core, RuntimeApiInfo};
+	use sp_runtime::{generic, traits::BlakeTwo256, OpaqueExtrinsic};
 	use sp_version::{create_apis_vec, RuntimeVersion};
 	use sp_wasm_interface::HostFunctions;
-	use substrate_test_runtime::Block;
+
+	// Any block type works here: `Core::<Block>::ID` does not depend on the block.
+	type Block = generic::Block<generic::Header<u32, BlakeTwo256>, OpaqueExtrinsic>;
 
 	#[derive(Encode)]
 	pub struct OldRuntimeVersion {
@@ -534,11 +533,10 @@ mod tests {
 
 	#[test]
 	fn embed_runtime_version_works() {
-		let wasm = sp_maybe_compressed_blob::decompress(
-			substrate_test_runtime::wasm_binary_unwrap(),
-			sp_maybe_compressed_blob::CODE_BLOB_BOMB_LIMIT,
-		)
-		.expect("Decompressing works");
+		// Upstream embeds into the substrate test runtime, which is not published; a minimal
+		// module with an exported memory exercises the same custom-section round trip.
+		let wasm = wat::parse_str(r#"(module (memory 1) (export "memory" (memory 0)))"#)
+			.expect("valid wat");
 		let runtime_version = RuntimeVersion {
 			spec_name: "test_replace".into(),
 			impl_name: "test_replace".into(),

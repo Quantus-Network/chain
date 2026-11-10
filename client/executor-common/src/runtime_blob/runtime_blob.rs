@@ -17,24 +17,22 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::{error::WasmError, wasm_runtime::HeapAllocStrategy};
-use polkavm::ArcBytes;
 use wasm_instrument::parity_wasm::elements::{
 	deserialize_buffer, serialize, ExportEntry, External, Internal, MemorySection, MemoryType,
 	Module, Section,
 };
 
 /// A program blob containing a Substrate runtime.
+///
+/// Quantus: upstream also accepts PolkaVM program blobs behind the
+/// `SUBSTRATE_ENABLE_POLKAVM` environment variable. This chain runs WebAssembly runtimes
+/// only, so the PolkaVM variant (and the `polkavm` dependency) is removed; a PolkaVM blob
+/// is rejected in [`RuntimeBlob::new`].
 #[derive(Clone)]
-pub struct RuntimeBlob(BlobKind);
-
-#[derive(Clone)]
-enum BlobKind {
-	WebAssembly(Module),
-	PolkaVM((polkavm::ProgramBlob, ArcBytes)),
-}
+pub struct RuntimeBlob(Module);
 
 impl RuntimeBlob {
-	/// Create `RuntimeBlob` from the given WASM or PolkaVM compressed program blob.
+	/// Create `RuntimeBlob` from the given WASM compressed program blob.
 	///
 	/// See [`sp_maybe_compressed_blob`] for details about decompression.
 	pub fn uncompress_if_needed(wasm_code: &[u8]) -> Result<Self, WasmError> {
@@ -44,26 +42,19 @@ impl RuntimeBlob {
 		Self::new(&wasm_code)
 	}
 
-	/// Create `RuntimeBlob` from the given WASM or PolkaVM program blob.
+	/// Create `RuntimeBlob` from the given WASM program blob.
 	///
-	/// Returns `Err` if the blob cannot be deserialized.
-	///
-	/// Will only accept a PolkaVM program if the `SUBSTRATE_ENABLE_POLKAVM` environment
-	/// variable is set to `1`.
+	/// Returns `Err` if the blob cannot be deserialized, or if it is a PolkaVM program.
 	pub fn new(raw_blob: &[u8]) -> Result<Self, WasmError> {
 		if raw_blob.starts_with(b"PVM\0") {
-			if crate::is_polkavm_enabled() {
-				let raw = ArcBytes::from(raw_blob);
-				let blob = polkavm::ProgramBlob::parse(raw.clone())?;
-				return Ok(Self(BlobKind::PolkaVM((blob, raw))));
-			} else {
-				return Err(WasmError::Other("expected a WASM runtime blob, found a PolkaVM runtime blob; set the 'SUBSTRATE_ENABLE_POLKAVM' environment variable to enable the experimental PolkaVM-based executor".to_string()));
-			}
+			return Err(WasmError::Other(
+				"expected a WASM runtime blob, found a PolkaVM runtime blob; PolkaVM runtimes are not supported by this node".to_string(),
+			));
 		}
 
 		let raw_module: Module = deserialize_buffer(raw_blob)
 			.map_err(|e| WasmError::Other(format!("cannot deserialize module: {:?}", e)))?;
-		Ok(Self(BlobKind::WebAssembly(raw_module)))
+		Ok(Self(raw_module))
 	}
 
 	/// Run a pass that instrument this module so as to introduce a deterministic stack height
@@ -76,8 +67,6 @@ impl RuntimeBlob {
 	///
 	/// The stack cost of a function is computed based on how much locals there are and the maximum
 	/// depth of the wasm operand stack.
-	///
-	/// Only valid for WASM programs; will return an error if the blob is a PolkaVM program.
 	pub fn inject_stack_depth_metering(self, stack_depth_limit: u32) -> Result<Self, WasmError> {
 		let injected_module =
 			wasm_instrument::inject_stack_limiter(self.into_webassembly_blob()?, stack_depth_limit)
@@ -85,7 +74,7 @@ impl RuntimeBlob {
 					WasmError::Other(format!("cannot inject the stack limiter: {:?}", e))
 				})?;
 
-		Ok(Self(BlobKind::WebAssembly(injected_module)))
+		Ok(Self(injected_module))
 	}
 
 	/// Converts a WASM memory import into a memory section and exports it.
@@ -93,8 +82,6 @@ impl RuntimeBlob {
 	/// Does nothing if there's no memory import.
 	///
 	/// May return an error in case the WASM module is invalid.
-	///
-	/// Only valid for WASM programs; will return an error if the blob is a PolkaVM program.
 	pub fn convert_memory_import_into_export(&mut self) -> Result<(), WasmError> {
 		let raw_module = self.as_webassembly_blob_mut()?;
 		let import_section = match raw_module.import_section_mut() {
@@ -145,8 +132,6 @@ impl RuntimeBlob {
 	///
 	/// Will return an error in case there is no memory section present,
 	/// or if the memory section is empty.
-	///
-	/// Only valid for WASM programs; will return an error if the blob is a PolkaVM program.
 	pub fn setup_memory_according_to_heap_alloc_strategy(
 		&mut self,
 		heap_alloc_strategy: HeapAllocStrategy,
@@ -178,8 +163,6 @@ impl RuntimeBlob {
 
 	/// Scans the wasm blob for the first section with the name that matches the given. Returns the
 	/// contents of the custom section if found or `None` otherwise.
-	///
-	/// Only valid for WASM programs; will return an error if the blob is a PolkaVM program.
 	pub fn custom_section_contents(&self, section_name: &str) -> Option<&[u8]> {
 		self.as_webassembly_blob()
 			.ok()?
@@ -190,45 +173,18 @@ impl RuntimeBlob {
 
 	/// Consumes this runtime blob and serializes it.
 	pub fn serialize(self) -> Vec<u8> {
-		match self.0 {
-			BlobKind::WebAssembly(raw_module) =>
-				serialize(raw_module).expect("serializing into a vec should succeed; qed"),
-			BlobKind::PolkaVM(ref blob) => blob.1.to_vec(),
-		}
+		serialize(self.0).expect("serializing into a vec should succeed; qed")
 	}
 
 	fn as_webassembly_blob(&self) -> Result<&Module, WasmError> {
-		match self.0 {
-			BlobKind::WebAssembly(ref raw_module) => Ok(raw_module),
-			BlobKind::PolkaVM(..) => Err(WasmError::Other(
-				"expected a WebAssembly program; found a PolkaVM program blob".into(),
-			)),
-		}
+		Ok(&self.0)
 	}
 
 	fn as_webassembly_blob_mut(&mut self) -> Result<&mut Module, WasmError> {
-		match self.0 {
-			BlobKind::WebAssembly(ref mut raw_module) => Ok(raw_module),
-			BlobKind::PolkaVM(..) => Err(WasmError::Other(
-				"expected a WebAssembly program; found a PolkaVM program blob".into(),
-			)),
-		}
+		Ok(&mut self.0)
 	}
 
 	fn into_webassembly_blob(self) -> Result<Module, WasmError> {
-		match self.0 {
-			BlobKind::WebAssembly(raw_module) => Ok(raw_module),
-			BlobKind::PolkaVM(..) => Err(WasmError::Other(
-				"expected a WebAssembly program; found a PolkaVM program blob".into(),
-			)),
-		}
-	}
-
-	/// Gets a reference to the inner PolkaVM program blob, if this is a PolkaVM program.
-	pub fn as_polkavm_blob(&self) -> Option<&polkavm::ProgramBlob> {
-		match self.0 {
-			BlobKind::WebAssembly(..) => None,
-			BlobKind::PolkaVM((ref blob, _)) => Some(blob),
-		}
+		Ok(self.0)
 	}
 }
