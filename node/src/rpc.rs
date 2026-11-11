@@ -114,9 +114,10 @@ pub struct FullDeps<C, P> {
 ///   `system_dryRun`).
 /// - **Safe**: public data with bounded per-request work (e.g. zkTree proof-window guard; the
 ///   `state_call` and `archive_v1_call` replacements, which window `ZkTreeApi_get_merkle_proof` and
-///   otherwise fail closed — untrusted callers reach only the cheap read-only
-///   `PUBLIC_STATE_CALL_ALLOWLIST`, never heavy unmetered APIs like `GenesisBuilder_build_state` or
-///   `BlockBuilder_apply_extrinsic`; TxWatch's fixed broadcast capacity).
+///   otherwise fail closed — untrusted callers reach only the cheap read-only allowlist in
+///   `sc_rpc_spec_v2::runtime_call_policy`, never heavy unmetered APIs like
+///   `GenesisBuilder_build_state` or `BlockBuilder_apply_extrinsic` (the same allowlist the in-tree
+///   `chainHead_v1_call` enforces); TxWatch's fixed broadcast capacity).
 pub fn create_full<C, P>(
 	deps: FullDeps<C, P>,
 ) -> Result<RpcModule<()>, Box<dyn std::error::Error + Send + Sync>>

@@ -8,8 +8,10 @@ use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use pallet_zk_tree::{Hash256, ZkMerkleProofRpc, ZkTreeApi as ZkTreeRuntimeApi};
 use quantus_runtime::opaque::Block;
 use sc_client_api::{CallExecutor, ExecutorProvider};
-use sc_rpc_api::DenyUnsafe;
-use sc_rpc_spec_v2::archive::{error::Error as ArchiveRpcError, MethodResult};
+use sc_rpc_spec_v2::{
+	archive::{error::Error as ArchiveRpcError, MethodResult},
+	runtime_call_policy::{is_public_runtime_call_allowed, is_trusted_caller},
+};
 use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
@@ -170,42 +172,6 @@ where
 /// and `archive_v1_call`.
 pub const ZKTREE_GET_MERKLE_PROOF_RUNTIME_CALL: &str = "ZkTreeApi_get_merkle_proof";
 
-/// Runtime APIs an untrusted (public) caller may invoke through `state_call` /
-/// `state_callAt` / `archive_v1_call`.
-///
-/// `state_call` is a safe-classified RPC: it reaches the executor for any
-/// caller and never runs `check_if_safe` (neither the upstream handler nor our
-/// replacement reads `Extensions` for that purpose on the method itself). Left
-/// ungated it forwards *any* runtime API to an unauthenticated caller,
-/// including unmetered heavy ones — `GenesisBuilder_build_state` (a full serde
-/// parse plus genesis storage writes) and `BlockBuilder_apply_extrinsic`
-/// (which reaches the wormhole `pre_dispatch` plonky2 verify that pool
-/// admission deliberately avoids) — a fee-free remote DoS.
-///
-/// The public surface is therefore fail-closed: only these cheap, read-only
-/// APIs that legitimate tooling (subxt, wallets, explorers) relies on are
-/// allowed. The windowed [`ZKTREE_GET_MERKLE_PROOF_RUNTIME_CALL`] is handled
-/// separately (see [`resolve_runtime_call_block`]). Every other runtime API —
-/// block building, execution, transaction validation, genesis construction,
-/// offchain worker — is rejected for untrusted callers and stays available
-/// only to trusted (local / `--rpc-methods unsafe`) callers. Operators who
-/// need a wider public surface can extend this list.
-const PUBLIC_STATE_CALL_ALLOWLIST: &[&str] = &[
-	"Core_version",
-	"Metadata_metadata",
-	"Metadata_metadata_at_version",
-	"Metadata_metadata_versions",
-	"AccountNonceApi_account_nonce",
-	"TransactionPaymentApi_query_info",
-	"TransactionPaymentApi_query_fee_details",
-	"TransactionPaymentApi_query_weight_to_fee",
-	"TransactionPaymentApi_query_length_to_fee",
-	"TransactionPaymentCallApi_query_call_info",
-	"TransactionPaymentCallApi_query_call_fee_details",
-	"TransactionPaymentCallApi_query_weight_to_fee",
-	"TransactionPaymentCallApi_query_length_to_fee",
-];
-
 /// Resolve the block a runtime call executes at, enforcing the public
 /// runtime-API policy by trust.
 ///
@@ -230,11 +196,16 @@ const PUBLIC_STATE_CALL_ALLOWLIST: &[&str] = &[
 ///   cannot enforce it. Neither vendored handler receives `Extensions` (sc-rpc 50's `state_call`,
 ///   sc-rpc-spec-v2's `archive_v1_call`), so `check_if_safe` cannot close this; the check has to
 ///   happen here, before the executor loads state.
-/// * Other cheap read-only APIs in [`PUBLIC_STATE_CALL_ALLOWLIST`] run at the caller's chosen
-///   block.
+/// * Other cheap read-only APIs on the shared [`is_public_runtime_call_allowed`] allowlist run at
+///   the caller's chosen block.
 /// * Every other runtime API is rejected, which closes the unauthenticated griefing/DoS vector:
 ///   heavy unmetered APIs such as `GenesisBuilder_build_state` and `BlockBuilder_apply_extrinsic`
 ///   are no longer reachable by the public.
+///
+/// The RPC-v2 `chainHead_v1_call` reaches the same executor surface and applies
+/// the same [`is_public_runtime_call_allowed`] allowlist inline (see
+/// `sc_rpc_spec_v2::chain_head`); it pins recent blocks, so it does not need the
+/// deep-history window.
 fn resolve_runtime_call_block<C>(
 	client: &C,
 	method: &str,
@@ -252,7 +223,7 @@ where
 		return resolve_proof_block(client, at_block);
 	}
 
-	if PUBLIC_STATE_CALL_ALLOWLIST.contains(&method) {
+	if is_public_runtime_call_allowed(method) {
 		return Ok(at_block.unwrap_or_else(|| client.info().best_hash));
 	}
 
@@ -374,8 +345,7 @@ where
 		bytes: Bytes,
 		hash: Option<H256>,
 	) -> RpcResult<Bytes> {
-		let is_trusted = matches!(ext.get::<DenyUnsafe>(), Some(DenyUnsafe::No));
-		let at = resolve_runtime_call_block(&*self.client, &name, hash, is_trusted)?;
+		let at = resolve_runtime_call_block(&*self.client, &name, hash, is_trusted_caller(ext))?;
 		self.client
 			.executor()
 			.call(at, &name, bytes.as_ref(), CallContext::Offchain)
@@ -447,8 +417,12 @@ where
 		call_parameters: String,
 	) -> RpcResult<MethodResult> {
 		let call_parameters = parse_hex_param(call_parameters)?;
-		let is_trusted = matches!(ext.get::<DenyUnsafe>(), Some(DenyUnsafe::No));
-		let at = resolve_runtime_call_block(&*self.client, &function, Some(hash), is_trusted)?;
+		let at = resolve_runtime_call_block(
+			&*self.client,
+			&function,
+			Some(hash),
+			is_trusted_caller(ext),
+		)?;
 
 		// Same result shape as the vendored handler: execution failures are
 		// reported in-band as `MethodResult::err`, not as JSON-RPC errors.
@@ -466,6 +440,7 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use sc_rpc_api::DenyUnsafe;
 	use sp_blockchain::{BlockStatus, Info, Result as BlockchainResult};
 	use sp_core::Get;
 	use sp_runtime::traits::{Block as BlockT, NumberFor};
@@ -762,7 +737,7 @@ mod tests {
 		let ancient = 1;
 		let chain = MockChain::with_blocks(best, &[best, ancient]);
 
-		for method in PUBLIC_STATE_CALL_ALLOWLIST {
+		for method in sc_rpc_spec_v2::runtime_call_policy::PUBLIC_RUNTIME_CALL_ALLOWLIST {
 			assert_eq!(
 				resolve_runtime_call_block(&chain, method, Some(hash_for(ancient)), false).unwrap(),
 				hash_for(ancient),
