@@ -42,6 +42,18 @@ jobs:
           taplo format --check --config taplo.toml
           scripts/fmt.sh --all -- --check
 
+  lru-memory-safety:
+    name: LRU iterator memory safety
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Miri
+        run: rustup toolchain install nightly-2026-08-31 --profile minimal --component miri,rust-src
+      - name: Check both cache implementations
+        run: |
+          cargo +nightly-2026-08-31 miri test --locked -p lru@0.12.5 --test iter_mut
+          cargo +nightly-2026-08-31 miri test --locked -p lru@0.12.5 --no-default-features --test iter_mut
+
   build-and-test-matrix:
     name: 🛠️ Check & Test Matrix
     needs: fast-checks

@@ -58,6 +58,7 @@ members = [
 	"pallets/vesting",
 	"pallets/wormhole",
 	"pallets/zk-tree",
+	"patches/lru",
 	"primitives/api-proc-macro",
 	"primitives/consensus/qpow",
 	"primitives/dilithium-crypto",
@@ -370,6 +371,7 @@ frame-system-benchmarking = { path = "./frame/system-benchmarking" }
 frame-system-rpc-runtime-api = { path = "./frame/system-rpc-runtime-api" }
 frame-try-runtime = { path = "./frame/try-runtime" }
 litep2p = { path = "./client/litep2p" }
+lru = { path = "./patches/lru" }
 pallet-transaction-payment = { path = "./pallets/transaction-payment" }
 pallet-transaction-payment-rpc = { path = "./pallets/transaction-payment-rpc" }
 pallet-transaction-payment-rpc-runtime-api = { path = "./pallets/transaction-payment-rpc-runtime-api" }
