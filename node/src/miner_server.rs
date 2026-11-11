@@ -31,10 +31,11 @@ use std::{
 	collections::HashMap,
 	fs,
 	io::Write,
+	net::IpAddr,
 	path::{Path, PathBuf},
 	sync::{
 		atomic::{AtomicU64, Ordering},
-		Arc,
+		Arc, Mutex,
 	},
 	time::Duration,
 };
@@ -70,6 +71,17 @@ const AUTH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Cap on connections that have not yet completed auth (prevents pre-auth task/memory DoS).
 const MAX_UNAUTHENTICATED_CONNECTIONS: usize = 32;
 
+/// Cap on in-flight pre-auth handshakes from a single source IP.
+///
+/// The global `MAX_UNAUTHENTICATED_CONNECTIONS` cap alone does not stop one
+/// tokenless peer from completing the QUIC/TLS handshake, never sending `Ready`,
+/// and reconnecting the instant `AUTH_HANDSHAKE_TIMEOUT` frees the slot — at
+/// ~32/10s that keeps every slot full and refuses every legitimate miner. A peer
+/// must receive our packets to finish the handshake, so its source IP is genuine;
+/// bounding slots per IP means exhausting the global budget now needs many
+/// distinct hosts, not one.
+const MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP: usize = 4;
+
 /// Everything needed to start the external-miner server.
 ///
 /// Bundling these makes "a listen port implies a token path and TLS dir" a
@@ -96,6 +108,9 @@ pub struct MinerServer {
 	auth_token: String,
 	/// Limits concurrent pre-auth handshakes.
 	unauth_slots: Arc<Semaphore>,
+	/// In-flight pre-auth handshakes per source IP (caps any single peer's share
+	/// of `unauth_slots`).
+	unauth_by_ip: Arc<Mutex<HashMap<IpAddr, usize>>>,
 }
 
 /// Handle for communicating with a connected miner.
@@ -134,6 +149,7 @@ impl MinerServer {
 			next_miner_id: AtomicU64::new(1),
 			auth_token,
 			unauth_slots: Arc::new(Semaphore::new(MAX_UNAUTHENTICATED_CONNECTIONS)),
+			unauth_by_ip: Arc::new(Mutex::new(HashMap::new())),
 		});
 
 		// Start the acceptor task
@@ -597,12 +613,58 @@ fn create_server_endpoint(
 	Ok(endpoint)
 }
 
+/// RAII guard for one per-IP pre-auth slot; releases it on drop.
+struct IpSlotGuard {
+	ip: IpAddr,
+	counts: Arc<Mutex<HashMap<IpAddr, usize>>>,
+}
+
+impl Drop for IpSlotGuard {
+	fn drop(&mut self) {
+		let mut counts = self.counts.lock().expect("unauth_by_ip mutex poisoned");
+		if let Some(n) = counts.get_mut(&self.ip) {
+			*n -= 1;
+			if *n == 0 {
+				counts.remove(&self.ip);
+			}
+		}
+	}
+}
+
+/// Reserve a pre-auth slot for `ip`, or `None` if that IP is already at
+/// `MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP`.
+fn try_acquire_ip_slot(
+	counts: &Arc<Mutex<HashMap<IpAddr, usize>>>,
+	ip: IpAddr,
+) -> Option<IpSlotGuard> {
+	let mut map = counts.lock().expect("unauth_by_ip mutex poisoned");
+	let n = map.entry(ip).or_insert(0);
+	if *n >= MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP {
+		return None;
+	}
+	*n += 1;
+	Some(IpSlotGuard { ip, counts: counts.clone() })
+}
+
 /// Background task that accepts incoming miner connections.
 async fn acceptor_task(endpoint: quinn::Endpoint, server: Arc<MinerServer>) {
 	log::debug!("Acceptor task started");
 
 	while let Some(connecting) = endpoint.accept().await {
 		let server = server.clone();
+		let remote_ip = connecting.remote_address().ip();
+
+		// Cap pre-auth handshakes per source IP first: one tokenless peer must
+		// not be able to hold every global slot by refilling them as fast as
+		// AUTH_HANDSHAKE_TIMEOUT frees them.
+		let Some(ip_guard) = try_acquire_ip_slot(&server.unauth_by_ip, remote_ip) else {
+			log::warn!(
+				"⛏️ Rejecting miner connection from {}: {} unauthenticated handshakes from this IP already in flight",
+				remote_ip, MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP
+			);
+			connecting.refuse();
+			continue;
+		};
 
 		// Refuse early when the pre-auth budget is exhausted so we do not spawn
 		// unbounded tasks for silent connect-and-stall peers.
@@ -631,6 +693,7 @@ async fn acceptor_task(endpoint: quinn::Endpoint, server: Arc<MinerServer>) {
 							// not consume the unauth budget. The streams keep the
 							// quinn connection alive; no handle needs to be held.
 							drop(unauth_permit);
+							drop(ip_guard);
 							drop(connection);
 							serve_authenticated_miner(server, send, recv).await;
 							return;
@@ -652,6 +715,7 @@ async fn acceptor_task(endpoint: quinn::Endpoint, server: Arc<MinerServer>) {
 				},
 			}
 			drop(unauth_permit);
+			drop(ip_guard);
 		});
 	}
 
@@ -930,6 +994,7 @@ mod tests {
 			next_miner_id: AtomicU64::new(1),
 			auth_token: String::new(),
 			unauth_slots: Arc::new(Semaphore::new(1)),
+			unauth_by_ip: Arc::new(Mutex::new(HashMap::new())),
 		};
 		// Poll until recv holds the mutex, then cancel the pending future.
 		assert!(server.recv_result().now_or_never().is_none());
@@ -1014,7 +1079,35 @@ mod tests {
 			next_miner_id: AtomicU64::new(1),
 			auth_token: "token".to_string(),
 			unauth_slots: Arc::new(Semaphore::new(MAX_UNAUTHENTICATED_CONNECTIONS)),
+			unauth_by_ip: Arc::new(Mutex::new(HashMap::new())),
 		}
+	}
+
+	#[test]
+	fn per_ip_preauth_cap_bounds_one_ip_and_releases_on_drop() {
+		let counts = Arc::new(Mutex::new(HashMap::new()));
+		let ip: IpAddr = "203.0.113.7".parse().unwrap();
+
+		// One IP can hold at most MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP slots.
+		let mut guards: Vec<IpSlotGuard> = (0..MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP)
+			.map(|_| try_acquire_ip_slot(&counts, ip).expect("slot within cap"))
+			.collect();
+		assert!(try_acquire_ip_slot(&counts, ip).is_none(), "cap must refuse the next slot");
+
+		// A different IP is unaffected by the first IP's usage.
+		let other: IpAddr = "203.0.113.8".parse().unwrap();
+		let other_guard =
+			try_acquire_ip_slot(&counts, other).expect("distinct IP has its own budget");
+
+		// Freeing a slot lets the same IP reconnect.
+		guards.pop();
+		let reused = try_acquire_ip_slot(&counts, ip).expect("released slot is reusable");
+
+		// Dropping every guard clears the per-IP entry entirely.
+		drop(guards);
+		drop(reused);
+		drop(other_guard);
+		assert!(counts.lock().unwrap().is_empty(), "fully released IPs leave no entries");
 	}
 
 	fn dummy_job(job_id: &str) -> MiningRequest {
