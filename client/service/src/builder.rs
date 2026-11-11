@@ -938,8 +938,9 @@ where
 	rpc_api.merge(child_state).map_err(|e| Error::Application(e.into()))?;
 	// sc-rpc 50's `state_call` has no `Extensions` and cannot apply
 	// `check_if_safe`. Drop it so the node's extra RPCs can register a
-	// replacement that windows `ZkTreeApi_get_merkle_proof` before the
-	// executor loads historical state.
+	// replacement that windows `ZkTreeApi_get_merkle_proof` and restricts
+	// untrusted callers to an allowlist of cheap runtime APIs before the
+	// executor loads state.
 	rpc_api.remove_method("state_call");
 	rpc_api.remove_method("state_callAt");
 	// The RPC-v2 archive module (merged above whenever the node is an archive

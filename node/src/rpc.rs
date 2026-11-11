@@ -112,9 +112,11 @@ pub struct FullDeps<C, P> {
 /// policy (not a module-level gate). Classify each merged method as:
 /// - **Unsafe**: call `sc_rpc_api::check_if_safe(ext)` first (e.g. [`Peer::get_network_info`],
 ///   `system_dryRun`).
-/// - **Safe**: public data with bounded per-request work (e.g. zkTree proof-window guard, including
-///   the `state_call` and `archive_v1_call` replacements for `ZkTreeApi_get_merkle_proof`,
-///   TxWatch's fixed broadcast capacity).
+/// - **Safe**: public data with bounded per-request work (e.g. zkTree proof-window guard; the
+///   `state_call` and `archive_v1_call` replacements, which window `ZkTreeApi_get_merkle_proof` and
+///   otherwise fail closed — untrusted callers reach only the cheap read-only
+///   `PUBLIC_STATE_CALL_ALLOWLIST`, never heavy unmetered APIs like `GenesisBuilder_build_state` or
+///   `BlockBuilder_apply_extrinsic`; TxWatch's fixed broadcast capacity).
 pub fn create_full<C, P>(
 	deps: FullDeps<C, P>,
 ) -> Result<RpcModule<()>, Box<dyn std::error::Error + Send + Sync>>
