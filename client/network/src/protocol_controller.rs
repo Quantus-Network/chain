@@ -44,6 +44,7 @@
 use crate::peer_store::{PeerStoreProvider, ProtocolHandle as ProtocolHandleT};
 
 use futures::{channel::oneshot, future::Either, FutureExt, StreamExt};
+use futures_timer::Delay;
 use log::{debug, error, trace, warn};
 use sc_network_types::PeerId;
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
@@ -53,7 +54,6 @@ use std::{
 	sync::Arc,
 	time::{Duration, Instant},
 };
-use wasm_timer::Delay;
 
 /// Log target for this file.
 pub const LOG_TARGET: &str = "peerset";
@@ -342,7 +342,10 @@ impl ProtocolController {
 	/// Intended for tests only. Use `run` for driving [`ProtocolController`].
 	pub async fn next_action(&mut self) -> bool {
 		let either = loop {
-			let mut next_alloc_slots = Delay::new_at(self.next_periodic_alloc_slots).fuse();
+			let mut next_alloc_slots = Delay::new(
+				self.next_periodic_alloc_slots.saturating_duration_since(Instant::now()),
+			)
+			.fuse();
 
 			// See the module doc for why we use `select_biased!`.
 			futures::select_biased! {

@@ -70,7 +70,6 @@ tokio = { features = ["macros", "sync"], workspace = true, default-features = tr
 tokio-stream = { workspace = true }
 unsigned-varint = { features = ["asynchronous_codec", "futures"], workspace = true }
 void = { workspace = true }
-wasm-timer = { workspace = true }
 zeroize = { workspace = true, default-features = true }
 
 [dev-dependencies]
