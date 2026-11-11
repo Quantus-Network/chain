@@ -65,21 +65,15 @@ pub const DEFAULT_MINER_TLS_CERT_SHA256_FILENAME: &str = "miner-tls-cert-sha256"
 /// indistinguishable from a wrong token. `/2` = authenticated `Ready { token }`.
 pub const MINER_ALPN: &[u8] = b"quantus-miner/2";
 
-/// Max time for stream accept + `Ready` auth before the connection is dropped.
+/// Max time for the whole pre-auth path (QUIC/TLS handshake, stream accept, and
+/// `Ready` auth) before the connection is dropped and its pre-auth slot freed.
 const AUTH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Cap on connections that have not yet completed auth (prevents pre-auth task/memory DoS).
 const MAX_UNAUTHENTICATED_CONNECTIONS: usize = 32;
 
-/// Cap on in-flight pre-auth handshakes from a single source IP.
-///
-/// The global `MAX_UNAUTHENTICATED_CONNECTIONS` cap alone does not stop one
-/// tokenless peer from completing the QUIC/TLS handshake, never sending `Ready`,
-/// and reconnecting the instant `AUTH_HANDSHAKE_TIMEOUT` frees the slot — at
-/// ~32/10s that keeps every slot full and refuses every legitimate miner. A peer
-/// must receive our packets to finish the handshake, so its source IP is genuine;
-/// bounding slots per IP means exhausting the global budget now needs many
-/// distinct hosts, not one.
+/// Max in-flight pre-auth handshakes from one (Retry-validated) source IP, so a
+/// single peer cannot hold the whole `MAX_UNAUTHENTICATED_CONNECTIONS` budget.
 const MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP: usize = 4;
 
 /// Everything needed to start the external-miner server.
@@ -613,37 +607,60 @@ fn create_server_endpoint(
 	Ok(endpoint)
 }
 
-/// RAII guard for one per-IP pre-auth slot; releases it on drop.
-struct IpSlotGuard {
+/// Why a pre-auth slot could not be reserved.
+enum PreAuthReject {
+	/// The global `MAX_UNAUTHENTICATED_CONNECTIONS` budget is exhausted.
+	GlobalFull,
+	/// This source IP already holds `MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP`.
+	PerIp,
+}
+
+/// RAII reservation of one pre-auth slot: a global permit plus a per-IP count.
+/// Dropping it releases both together, on every handshake exit path.
+struct PreAuthSlot {
+	_permit: tokio::sync::OwnedSemaphorePermit,
 	ip: IpAddr,
 	counts: Arc<Mutex<HashMap<IpAddr, usize>>>,
 }
 
-impl Drop for IpSlotGuard {
+impl Drop for PreAuthSlot {
 	fn drop(&mut self) {
 		let mut counts = self.counts.lock().expect("unauth_by_ip mutex poisoned");
-		if let Some(n) = counts.get_mut(&self.ip) {
-			*n -= 1;
-			if *n == 0 {
-				counts.remove(&self.ip);
-			}
+		match counts.get_mut(&self.ip) {
+			Some(n) => {
+				*n -= 1;
+				if *n == 0 {
+					counts.remove(&self.ip);
+				}
+			},
+			// A live slot always has a matching entry; a miss is a bug, not a
+			// recoverable state.
+			None => debug_assert!(false, "pre-auth slot released for untracked IP {}", self.ip),
 		}
 	}
 }
 
-/// Reserve a pre-auth slot for `ip`, or `None` if that IP is already at
-/// `MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP`.
-fn try_acquire_ip_slot(
-	counts: &Arc<Mutex<HashMap<IpAddr, usize>>>,
+/// Reserve a pre-auth slot for a Retry-validated source `ip`: the global budget
+/// first, then the per-IP cap. The caller holds the returned guard for the whole
+/// pre-auth handshake and drops it to release both counts.
+fn try_acquire_preauth_slot(
+	server: &MinerServer,
 	ip: IpAddr,
-) -> Option<IpSlotGuard> {
-	let mut map = counts.lock().expect("unauth_by_ip mutex poisoned");
-	let n = map.entry(ip).or_insert(0);
+) -> Result<PreAuthSlot, PreAuthReject> {
+	let permit = server
+		.unauth_slots
+		.clone()
+		.try_acquire_owned()
+		.map_err(|_| PreAuthReject::GlobalFull)?;
+	let mut counts = server.unauth_by_ip.lock().expect("unauth_by_ip mutex poisoned");
+	let n = counts.entry(ip).or_insert(0);
 	if *n >= MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP {
-		return None;
+		// `permit` drops here, returning the global slot we just took.
+		return Err(PreAuthReject::PerIp);
 	}
 	*n += 1;
-	Some(IpSlotGuard { ip, counts: counts.clone() })
+	drop(counts);
+	Ok(PreAuthSlot { _permit: permit, ip, counts: server.unauth_by_ip.clone() })
 }
 
 /// Background task that accepts incoming miner connections.
@@ -652,48 +669,60 @@ async fn acceptor_task(endpoint: quinn::Endpoint, server: Arc<MinerServer>) {
 
 	while let Some(connecting) = endpoint.accept().await {
 		let server = server.clone();
-		let remote_ip = connecting.remote_address().ip();
 
-		// Cap pre-auth handshakes per source IP first: one tokenless peer must
-		// not be able to hold every global slot by refilling them as fast as
-		// AUTH_HANDSHAKE_TIMEOUT frees them.
-		let Some(ip_guard) = try_acquire_ip_slot(&server.unauth_by_ip, remote_ip) else {
-			log::warn!(
-				"⛏️ Rejecting miner connection from {}: {} unauthenticated handshakes from this IP already in flight",
-				remote_ip, MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP
-			);
-			connecting.refuse();
+		// An `Incoming` is built from a single client Initial, whose source
+		// address is unproven and trivially spoofable. Charge no pre-auth slot
+		// to it until a stateless Retry round-trip proves the peer can receive
+		// at that address; otherwise forged Initials could fill the global
+		// budget or pin a real miner's IP at the per-IP cap. `may_retry()` is
+		// guaranteed true while the address is unvalidated.
+		if !connecting.remote_address_validated() {
+			if let Err(err) = connecting.retry() {
+				err.into_incoming().refuse();
+			}
 			continue;
-		};
+		}
 
-		// Refuse early when the pre-auth budget is exhausted so we do not spawn
-		// unbounded tasks for silent connect-and-stall peers.
-		let Ok(unauth_permit) = server.unauth_slots.clone().try_acquire_owned() else {
-			log::warn!(
-				"⛏️ Rejecting miner connection: {} unauthenticated handshakes already in flight",
-				MAX_UNAUTHENTICATED_CONNECTIONS
-			);
-			connecting.refuse();
-			continue;
+		// Refuse early when either pre-auth budget is exhausted so we do not
+		// spawn unbounded tasks for connect-and-stall peers.
+		let remote = connecting.remote_address();
+		let slot = match try_acquire_preauth_slot(&server, remote.ip()) {
+			Ok(slot) => slot,
+			Err(PreAuthReject::GlobalFull) => {
+				log::warn!(
+					"⛏️ Rejecting miner connection: {} unauthenticated handshakes already in flight",
+					MAX_UNAUTHENTICATED_CONNECTIONS
+				);
+				connecting.refuse();
+				continue;
+			},
+			Err(PreAuthReject::PerIp) => {
+				log::warn!(
+					"⛏️ Rejecting miner connection from {}: {} unauthenticated handshakes from this IP already in flight",
+					remote, MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP
+				);
+				connecting.refuse();
+				continue;
+			},
 		};
 		tokio::spawn(async move {
-			// The QUIC/TLS handshake must be bounded too: a peer that sends an
-			// Initial and then stalls would otherwise pin this pre-auth permit
-			// until max_idle_timeout (60s), letting ~32 cheap half-open
-			// handshakes lock every legitimate miner out. Dropping the
-			// `Connecting` future on timeout abandons the handshake.
-			let remote = connecting.remote_address();
-			match tokio::time::timeout(AUTH_HANDSHAKE_TIMEOUT, connecting).await {
+			// One deadline bounds the whole pre-auth path (QUIC/TLS handshake,
+			// stream accept, and `Ready`), so a slot is held for at most
+			// AUTH_HANDSHAKE_TIMEOUT rather than two back-to-back timeouts. A
+			// peer that sends an Initial and then stalls would otherwise pin
+			// the slot until max_idle_timeout (60s). Dropping the `Connecting`
+			// future on timeout abandons the handshake.
+			let deadline = tokio::time::Instant::now() + AUTH_HANDSHAKE_TIMEOUT;
+			match tokio::time::timeout_at(deadline, connecting).await {
 				Ok(Ok(connection)) => {
 					log::debug!("New QUIC connection from {:?}", connection.remote_address());
-					match authenticate_miner_connection(&connection, &server).await {
+					match authenticate_miner_connection(&connection, &server, deadline).await {
 						Some((send, recv)) => {
 							// Auth succeeded — free the pre-auth slot before the
 							// long-lived miner session so authenticated miners do
 							// not consume the unauth budget. The streams keep the
 							// quinn connection alive; no handle needs to be held.
-							drop(unauth_permit);
-							drop(ip_guard);
+							drop(slot);
 							drop(connection);
 							serve_authenticated_miner(server, send, recv).await;
 							return;
@@ -714,20 +743,22 @@ async fn acceptor_task(endpoint: quinn::Endpoint, server: Arc<MinerServer>) {
 					);
 				},
 			}
-			drop(unauth_permit);
-			drop(ip_guard);
+			drop(slot);
 		});
 	}
 
 	log::info!("Acceptor task stopped");
 }
 
-/// Run the stream accept + `Ready` auth handshake under a timeout.
+/// Run the stream accept + `Ready` auth handshake, finishing by `deadline`.
 ///
-/// Returns the bi-streams on success. On failure the connection is closed.
+/// `deadline` is shared with the preceding QUIC handshake so the whole pre-auth
+/// path is bounded by a single `AUTH_HANDSHAKE_TIMEOUT`. Returns the bi-streams
+/// on success. On failure the connection is closed.
 async fn authenticate_miner_connection(
 	connection: &quinn::Connection,
 	server: &MinerServer,
+	deadline: tokio::time::Instant,
 ) -> Option<(quinn::SendStream, quinn::RecvStream)> {
 	let addr = connection.remote_address();
 	log::info!("⛏️ New miner connection from {}", addr);
@@ -757,7 +788,7 @@ async fn authenticate_miner_connection(
 		}
 	};
 
-	match tokio::time::timeout(AUTH_HANDSHAKE_TIMEOUT, handshake).await {
+	match tokio::time::timeout_at(deadline, handshake).await {
 		Ok(Ok(streams)) => Some(streams),
 		Ok(Err(e)) => {
 			log::warn!("⛏️ {}", e);
@@ -1084,30 +1115,64 @@ mod tests {
 	}
 
 	#[test]
-	fn per_ip_preauth_cap_bounds_one_ip_and_releases_on_drop() {
-		let counts = Arc::new(Mutex::new(HashMap::new()));
+	fn preauth_slot_enforces_per_ip_cap_and_releases_on_drop() {
+		let server = test_server();
 		let ip: IpAddr = "203.0.113.7".parse().unwrap();
 
 		// One IP can hold at most MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP slots.
-		let mut guards: Vec<IpSlotGuard> = (0..MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP)
-			.map(|_| try_acquire_ip_slot(&counts, ip).expect("slot within cap"))
+		let mut slots: Vec<PreAuthSlot> = (0..MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP)
+			.map(|_| try_acquire_preauth_slot(&server, ip).ok().expect("slot within cap"))
 			.collect();
-		assert!(try_acquire_ip_slot(&counts, ip).is_none(), "cap must refuse the next slot");
+		assert!(
+			matches!(try_acquire_preauth_slot(&server, ip), Err(PreAuthReject::PerIp)),
+			"per-IP cap must refuse the next slot from the same IP"
+		);
+		// A per-IP refusal must not leak the global permit it briefly took.
+		assert_eq!(
+			server.unauth_slots.available_permits(),
+			MAX_UNAUTHENTICATED_CONNECTIONS - MAX_UNAUTHENTICATED_CONNECTIONS_PER_IP
+		);
 
-		// A different IP is unaffected by the first IP's usage.
+		// A different IP has its own budget.
 		let other: IpAddr = "203.0.113.8".parse().unwrap();
-		let other_guard =
-			try_acquire_ip_slot(&counts, other).expect("distinct IP has its own budget");
+		let other_slot = try_acquire_preauth_slot(&server, other)
+			.ok()
+			.expect("distinct IP has its own budget");
 
-		// Freeing a slot lets the same IP reconnect.
-		guards.pop();
-		let reused = try_acquire_ip_slot(&counts, ip).expect("released slot is reusable");
+		// Releasing a slot lets the same IP reconnect.
+		slots.pop();
+		let reused = try_acquire_preauth_slot(&server, ip).ok().expect("released slot is reusable");
 
-		// Dropping every guard clears the per-IP entry entirely.
-		drop(guards);
+		// Dropping every slot returns both the global permits and the per-IP entries.
+		drop(slots);
 		drop(reused);
-		drop(other_guard);
-		assert!(counts.lock().unwrap().is_empty(), "fully released IPs leave no entries");
+		drop(other_slot);
+		assert!(server.unauth_by_ip.lock().unwrap().is_empty(), "released IPs leave no entries");
+		assert_eq!(server.unauth_slots.available_permits(), MAX_UNAUTHENTICATED_CONNECTIONS);
+	}
+
+	#[test]
+	fn preauth_slot_enforces_global_budget() {
+		let server = test_server();
+		// Distinct IPs so only the global budget can trip.
+		let slots: Vec<PreAuthSlot> = (0..MAX_UNAUTHENTICATED_CONNECTIONS)
+			.map(|i| {
+				let ip: IpAddr = format!("198.51.100.{i}").parse().unwrap();
+				try_acquire_preauth_slot(&server, ip).ok().expect("slot within global budget")
+			})
+			.collect();
+
+		let fresh: IpAddr = "198.51.100.200".parse().unwrap();
+		assert!(
+			matches!(try_acquire_preauth_slot(&server, fresh), Err(PreAuthReject::GlobalFull)),
+			"an exhausted global budget must be reported even for a fresh IP"
+		);
+
+		drop(slots);
+		assert!(
+			try_acquire_preauth_slot(&server, fresh).is_ok(),
+			"a freed global budget is reusable"
+		);
 	}
 
 	fn dummy_job(job_id: &str) -> MiningRequest {
