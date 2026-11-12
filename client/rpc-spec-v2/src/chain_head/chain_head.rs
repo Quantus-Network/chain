@@ -32,7 +32,9 @@ use crate::{
 		FollowEventSendError, FollowEventSender,
 	},
 	common::{events::StorageQuery, storage::QueryResult},
-	hex_string, SubscriptionTaskExecutor,
+	hex_string,
+	runtime_call_policy::is_runtime_call_allowed,
+	SubscriptionTaskExecutor,
 };
 use codec::Encode;
 use futures::{channel::oneshot, future::FutureExt, SinkExt};
@@ -503,6 +505,20 @@ where
 			return ResponsePayload::error(ChainHeadRpcError::InvalidRuntimeCall(
 				"The runtime updates flag must be set".to_string(),
 			));
+		}
+
+		// Fail-closed runtime-API policy. Like `state_call` / `archive_v1_call`,
+		// this reaches `executor().call(.., Offchain)` with a caller-chosen
+		// method and no `check_if_safe`, so without this gate an untrusted
+		// (public) caller could run heavy, unmetered runtime APIs fee-free
+		// (e.g. `GenesisBuilder_build_state`, `BlockBuilder_apply_extrinsic`).
+		// Trust follows the per-connection `DenyUnsafe` extension; a trusted
+		// caller (local / `--rpc-methods unsafe`) keeps full access.
+		if !is_runtime_call_allowed(ext, &function) {
+			return ResponsePayload::error(ChainHeadRpcError::InvalidRuntimeCall(format!(
+				"runtime API `{function}` is not available to untrusted callers; \
+				 use a trusted connection (local, or --rpc-methods unsafe)"
+			)));
 		}
 
 		let operation_id = block_guard.operation().operation_id();
