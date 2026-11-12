@@ -569,7 +569,15 @@ The node delegates the mining task (finding a valid nonce) to external miner ser
 - **Miners** act as QUIC clients, connecting to the node
 - Single bidirectional stream per miner connection
 - Connection persists across multiple mining jobs
-- Multiple miners can connect simultaneously
+- Multiple miners can connect simultaneously. Only the *pre-auth* window is
+  rate-limited: the node holds at most 32 handshakes that have not yet sent a
+  valid `Ready`, and at most 4 of those from any one source IP, each for at
+  most 10 seconds. Already-authenticated miners do not count against either
+  limit. Every connect also costs one extra round-trip, because the node
+  answers the first Initial with a QUIC Retry to validate the source address
+  before it spends any pre-auth slot. Many miners behind one NAT or on one host
+  that all reconnect at the same instant may briefly be refused and should
+  retry.
 - **Miners must send QUIC keep-alives** (e.g. every 5–15 seconds). The node
   sends no keep-alives and enforces a 60-second idle timeout; job traffic is
   event-driven, so on a quiet or high-difficulty chain a mining round can
