@@ -416,9 +416,12 @@ where
 		}
 
 		trace!(target: LOG_TARGET, "Received {} transactions from {}", transactions.len(), who);
+		// Identical extrinsics share one pending import, so a cap on
+		// `pending_transactions` alone does not limit this loop. Bound the
+		// notification itself, and record each announcing peer once per hash.
 		if let Some(ref mut peer) = self.peers.get_mut(&who) {
-			for t in transactions {
-				if self.pending_transactions.len() > MAX_PENDING_TRANSACTIONS {
+			for t in transactions.into_iter().take(MAX_PENDING_TRANSACTIONS) {
+				if self.pending_transactions.len() >= MAX_PENDING_TRANSACTIONS {
 					debug!(
 						target: LOG_TARGET,
 						"Ignoring any further transactions that exceed `MAX_PENDING_TRANSACTIONS`({}) limit",
@@ -430,10 +433,9 @@ where
 				let hash = self.transaction_pool.hash_of(&t);
 				peer.known_transactions.insert(hash.clone());
 
-				self.network.report_peer(who, rep::ANY_TRANSACTION);
-
 				match self.pending_transactions_peers.entry(hash.clone()) {
 					Entry::Vacant(entry) => {
+						self.network.report_peer(who, rep::ANY_TRANSACTION);
 						self.pending_transactions.push(PendingTransaction {
 							validation: self.transaction_pool.import(t),
 							tx_hash: hash,
@@ -441,7 +443,12 @@ where
 						entry.insert(vec![who]);
 					},
 					Entry::Occupied(mut entry) => {
-						entry.get_mut().push(who);
+						let peers = entry.get_mut();
+						if peers.contains(&who) {
+							continue
+						}
+						self.network.report_peer(who, rep::ANY_TRANSACTION);
+						peers.push(who);
 					},
 				}
 			}
@@ -584,7 +591,10 @@ mod tests {
 	use sp_runtime::testing::{Block as RawBlock, MockCallU64, TestXt};
 	use std::{
 		collections::HashSet,
-		sync::{Arc, Mutex},
+		sync::{
+			atomic::{AtomicUsize, Ordering},
+			Arc, Mutex,
+		},
 	};
 
 	type Extrinsic = TestXt<MockCallU64, ()>;
@@ -669,8 +679,10 @@ mod tests {
 		}
 	}
 
-	#[derive(Debug)]
-	struct TestNetwork;
+	#[derive(Debug, Default)]
+	struct TestNetwork {
+		reports: Arc<AtomicUsize>,
+	}
 
 	#[async_trait::async_trait]
 	impl NetworkPeers for TestNetwork {
@@ -686,7 +698,9 @@ mod tests {
 			unimplemented!();
 		}
 
-		fn report_peer(&self, _peer_id: PeerId, _cost_benefit: ReputationChange) {}
+		fn report_peer(&self, _peer_id: PeerId, _cost_benefit: ReputationChange) {
+			self.reports.fetch_add(1, Ordering::Relaxed);
+		}
 
 		fn peer_reputation(&self, _peer_id: &PeerId) -> i32 {
 			unimplemented!();
@@ -836,7 +850,7 @@ mod tests {
 				.fuse(),
 			pending_transactions: FuturesUnordered::new(),
 			pending_transactions_peers: HashMap::new(),
-			network: TestNetwork,
+			network: TestNetwork::default(),
 			sync: TestSync,
 			sync_event_stream: (Box::pin(stream::pending::<SyncEvent>())
 				as Pin<Box<dyn Stream<Item = SyncEvent> + Send>>)
@@ -944,5 +958,125 @@ mod tests {
 
 		assert_eq!(scan(&mut cache, &transactions, 5).len(), 5);
 		assert!(scan(&mut cache, &transactions, 5).is_empty());
+	}
+
+	/// Pool whose hash is the extrinsic's encoded bytes, so identical extrinsics
+	/// share a hash the way a real pool does.
+	struct ContentHashPool;
+
+	impl TransactionPool<u64, Block> for ContentHashPool {
+		fn transactions(&self) -> Vec<(u64, Arc<Extrinsic>)> {
+			Vec::new()
+		}
+
+		fn hash_of(&self, transaction: &Extrinsic) -> u64 {
+			use std::hash::{Hash, Hasher};
+			let mut hasher = std::collections::hash_map::DefaultHasher::new();
+			transaction.encode().hash(&mut hasher);
+			hasher.finish()
+		}
+
+		fn import(&self, _transaction: Extrinsic) -> TransactionImportFuture {
+			Box::pin(async { TransactionImport::Bad })
+		}
+
+		fn on_broadcasted(&self, _propagations: HashMap<u64, Vec<String>>) {}
+
+		fn transaction(&self, _hash: &u64) -> Option<Arc<Extrinsic>> {
+			None
+		}
+	}
+
+	fn incoming_harness(
+	) -> (TransactionsHandler<Block, u64, TestNetwork, TestSync>, PeerId, Arc<AtomicUsize>) {
+		let reports = Arc::new(AtomicUsize::new(0));
+		let protocol_name: ProtocolName = "/test/transactions/1".into();
+		let (_to_handler, from_controller) =
+			tracing_unbounded("mpsc_test_transactions_handler_incoming", 100);
+		let max_known_transactions = NonZeroUsize::new(1024).unwrap();
+		let who = PeerId::random();
+
+		let mut handler = TransactionsHandler {
+			protocol_name: protocol_name.clone(),
+			notification_service: Box::new(BoundedChannelNotificationService {
+				protocol_name,
+				state: Arc::new(Mutex::new(SinkState::default())),
+			}),
+			propagate_timeout: (Box::pin(stream::pending::<()>())
+				as Pin<Box<dyn Stream<Item = ()> + Send>>)
+				.fuse(),
+			pending_transactions: FuturesUnordered::new(),
+			pending_transactions_peers: HashMap::new(),
+			network: TestNetwork { reports: reports.clone() },
+			sync: TestSync,
+			sync_event_stream: (Box::pin(stream::pending::<SyncEvent>())
+				as Pin<Box<dyn Stream<Item = SyncEvent> + Send>>)
+				.fuse(),
+			peers: HashMap::new(),
+			transaction_pool: Arc::new(ContentHashPool),
+			from_controller,
+			max_known_transactions,
+			metrics: None,
+		};
+		handler.peers.insert(
+			who,
+			Peer {
+				known_transactions: LruHashSet::new(max_known_transactions),
+				role: ObservedRole::Full,
+			},
+		);
+
+		(handler, who, reports)
+	}
+
+	#[test]
+	fn duplicate_transactions_share_one_pending_import() {
+		let (mut handler, who, reports) = incoming_harness();
+		let transactions: Vec<_> =
+			(0..10_000).map(|_| Extrinsic::new_bare(MockCallU64(7))).collect();
+
+		handler.on_transactions(who, transactions);
+
+		assert_eq!(handler.pending_transactions.len(), 1);
+		let peers = handler.pending_transactions_peers.values().next().expect("one hash");
+		assert_eq!(peers, &vec![who]);
+		assert_eq!(reports.load(Ordering::Relaxed), 1);
+	}
+
+	#[test]
+	fn distinct_transactions_stop_at_the_pending_limit() {
+		let (mut handler, who, _) = incoming_harness();
+		let transactions: Vec<_> = (0..MAX_PENDING_TRANSACTIONS as u64 + 10)
+			.map(|nonce| Extrinsic::new_bare(MockCallU64(nonce)))
+			.collect();
+
+		handler.on_transactions(who, transactions);
+
+		assert_eq!(handler.pending_transactions.len(), MAX_PENDING_TRANSACTIONS);
+		assert_eq!(handler.pending_transactions_peers.len(), MAX_PENDING_TRANSACTIONS);
+	}
+
+	#[test]
+	fn a_second_peer_is_recorded_once_for_the_same_transaction() {
+		let (mut handler, first, reports) = incoming_harness();
+		let second = PeerId::random();
+		handler.peers.insert(
+			second,
+			Peer {
+				known_transactions: LruHashSet::new(NonZeroUsize::new(1024).unwrap()),
+				role: ObservedRole::Full,
+			},
+		);
+		let tx = Extrinsic::new_bare(MockCallU64(7));
+
+		handler.on_transactions(first, vec![tx.clone(), tx.clone()]);
+		handler.on_transactions(second, vec![tx.clone(), tx]);
+
+		let peers = handler.pending_transactions_peers.values().next().expect("one hash");
+		assert_eq!(peers.len(), 2);
+		assert!(peers.contains(&first));
+		assert!(peers.contains(&second));
+		assert_eq!(handler.pending_transactions.len(), 1);
+		assert_eq!(reports.load(Ordering::Relaxed), 2);
 	}
 }
