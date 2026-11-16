@@ -59,6 +59,13 @@ pub struct ConnectionLimitsConfig {
 	/// established-only limits do not bound pre-handshake sockets, which hold a
 	/// file descriptor until negotiation times out.
 	max_pending_incoming_connections: Option<usize>,
+	/// Maximum number of not-yet-established incoming connections from one
+	/// source IP (IPv6 grouped by `/64`).
+	///
+	/// Separate from [`Self::max_incoming_connections_per_ip`]: that limit also
+	/// counts established connections, so it does not stop a few addresses from
+	/// filling [`Self::max_pending_incoming_connections`].
+	max_pending_incoming_connections_per_ip: Option<usize>,
 	/// Maximum number of incoming connections (pending + established) from one
 	/// source IP (IPv6 grouped by `/64`).
 	max_incoming_connections_per_ip: Option<usize>,
@@ -83,6 +90,13 @@ impl ConnectionLimitsConfig {
 		self
 	}
 
+	/// Configures the maximum number of not-yet-established incoming connections
+	/// allowed from one source IP.
+	pub fn max_pending_incoming_connections_per_ip(mut self, limit: Option<usize>) -> Self {
+		self.max_pending_incoming_connections_per_ip = limit;
+		self
+	}
+
 	/// Configures the maximum number of incoming connections (pending + established)
 	/// allowed from one source IP.
 	pub fn max_incoming_connections_per_ip(mut self, limit: Option<usize>) -> Self {
@@ -100,6 +114,8 @@ pub enum ConnectionLimitsError {
 	MaxOutgoingConnectionsExceeded,
 	/// Maximum number of incoming connections from one source IP exceeded.
 	MaxIncomingConnectionsPerIpExceeded,
+	/// Maximum number of not-yet-established incoming connections from one source IP exceeded.
+	MaxPendingIncomingConnectionsPerIpExceeded,
 }
 
 /// Connection limits.
@@ -118,6 +134,8 @@ pub struct ConnectionLimits {
 	connection_ips: HashMap<ConnectionId, IpAddr>,
 	/// Incoming connections (pending + established) per IP key.
 	incoming_per_ip: HashMap<IpAddr, usize>,
+	/// Not-yet-established incoming connections per IP key.
+	pending_per_ip: HashMap<IpAddr, usize>,
 }
 
 impl ConnectionLimits {
@@ -134,6 +152,7 @@ impl ConnectionLimits {
 			outgoing_connections: HashSet::with_capacity(max_outgoing_connections),
 			connection_ips: HashMap::new(),
 			incoming_per_ip: HashMap::new(),
+			pending_per_ip: HashMap::new(),
 		}
 	}
 
@@ -166,6 +185,13 @@ impl ConnectionLimits {
 		connection_id: ConnectionId,
 		ip: IpAddr,
 	) -> Result<(), ConnectionLimitsError> {
+		let ip_key = inbound_ip_key(ip);
+		if let Some(max_pending_per_ip) = self.config.max_pending_incoming_connections_per_ip {
+			if self.pending_per_ip.get(&ip_key).copied().unwrap_or(0) >= max_pending_per_ip {
+				return Err(ConnectionLimitsError::MaxPendingIncomingConnectionsPerIpExceeded);
+			}
+		}
+
 		if let Some(max_pending) = self.config.max_pending_incoming_connections {
 			if self.pending_incoming.len() >= max_pending {
 				return Err(ConnectionLimitsError::MaxIncomingConnectionsExceeded);
@@ -180,7 +206,6 @@ impl ConnectionLimits {
 			}
 		}
 
-		let ip_key = inbound_ip_key(ip);
 		if let Some(max_per_ip) = self.config.max_incoming_connections_per_ip {
 			if self.incoming_per_ip.get(&ip_key).copied().unwrap_or(0) >= max_per_ip {
 				return Err(ConnectionLimitsError::MaxIncomingConnectionsPerIpExceeded);
@@ -189,17 +214,39 @@ impl ConnectionLimits {
 
 		if self.config.max_pending_incoming_connections.is_some() ||
 			self.config.max_incoming_connections.is_some() ||
-			self.config.max_incoming_connections_per_ip.is_some()
+			self.config.max_incoming_connections_per_ip.is_some() ||
+			self.config.max_pending_incoming_connections_per_ip.is_some()
 		{
 			self.pending_incoming.insert(connection_id);
 		}
 
-		if self.config.max_incoming_connections_per_ip.is_some() {
+		if self.config.max_incoming_connections_per_ip.is_some() ||
+			self.config.max_pending_incoming_connections_per_ip.is_some()
+		{
 			self.connection_ips.insert(connection_id, ip_key);
+		}
+
+		if self.config.max_incoming_connections_per_ip.is_some() {
 			*self.incoming_per_ip.entry(ip_key).or_insert(0) += 1;
 		}
 
+		if self.config.max_pending_incoming_connections_per_ip.is_some() {
+			*self.pending_per_ip.entry(ip_key).or_insert(0) += 1;
+		}
+
 		Ok(())
+	}
+
+	fn release_pending_ip(&mut self, connection_id: ConnectionId) {
+		let Some(ip) = self.connection_ips.get(&connection_id).copied() else {
+			return;
+		};
+		if let Some(count) = self.pending_per_ip.get_mut(&ip) {
+			*count = count.saturating_sub(1);
+			if *count == 0 {
+				self.pending_per_ip.remove(&ip);
+			}
+		}
 	}
 
 	fn release_ip(&mut self, connection_id: ConnectionId) {
@@ -217,6 +264,7 @@ impl ConnectionLimits {
 	/// it is established.
 	pub fn on_pending_incoming_failed(&mut self, connection_id: ConnectionId) {
 		if self.pending_incoming.remove(&connection_id) {
+			self.release_pending_ip(connection_id);
 			self.release_ip(connection_id);
 		}
 	}
@@ -256,7 +304,9 @@ impl ConnectionLimits {
 		is_listener: bool,
 	) {
 		if is_listener {
-			self.pending_incoming.remove(&connection_id);
+			if self.pending_incoming.remove(&connection_id) {
+				self.release_pending_ip(connection_id);
+			}
 			if self.config.max_incoming_connections.is_some() {
 				self.incoming_connections.insert(connection_id);
 			}
@@ -267,7 +317,9 @@ impl ConnectionLimits {
 
 	/// Called when a connection is closed.
 	pub fn on_connection_closed(&mut self, connection_id: ConnectionId) {
-		self.pending_incoming.remove(&connection_id);
+		if self.pending_incoming.remove(&connection_id) {
+			self.release_pending_ip(connection_id);
+		}
 		self.incoming_connections.remove(&connection_id);
 		self.outgoing_connections.remove(&connection_id);
 		self.release_ip(connection_id);
@@ -464,5 +516,84 @@ mod tests {
 			ConnectionLimitsError::MaxIncomingConnectionsPerIpExceeded
 		);
 		assert!(limits.on_incoming(other_prefix, c).is_ok());
+	}
+
+	/// Production limits: 10_000 established, 128 pending, 16 per IP, 4 pending per IP.
+	/// Eight addresses holding their pending share must leave room for everyone else.
+	#[test]
+	fn a_few_addresses_cannot_fill_the_pending_cap() {
+		let config = ConnectionLimitsConfig::default()
+			.max_incoming_connections(Some(10_000))
+			.max_pending_incoming_connections(Some(128))
+			.max_incoming_connections_per_ip(Some(16))
+			.max_pending_incoming_connections_per_ip(Some(4));
+		let mut limits = ConnectionLimits::new(config);
+
+		for host in 1..=8u8 {
+			let ip = v4(203, 0, 113, host);
+			for _ in 0..4 {
+				assert!(limits.on_incoming(ConnectionId::random(), ip).is_ok());
+			}
+			assert_eq!(
+				limits.on_incoming(ConnectionId::random(), ip).unwrap_err(),
+				ConnectionLimitsError::MaxPendingIncomingConnectionsPerIpExceeded
+			);
+		}
+
+		assert_eq!(limits.pending_incoming.len(), 32);
+		assert!(limits.incoming_connections.is_empty());
+
+		let honest =
+			[v4(198, 51, 100, 1), v4(198, 51, 100, 2), "2001:db8:aaaa::1".parse().unwrap()];
+		for ip in honest {
+			assert!(limits.on_incoming(ConnectionId::random(), ip).is_ok());
+		}
+		assert_eq!(limits.pending_incoming.len(), 35);
+	}
+
+	#[test]
+	fn established_connection_frees_its_pending_per_ip_slot() {
+		let config = ConnectionLimitsConfig::default()
+			.max_pending_incoming_connections_per_ip(Some(1))
+			.max_incoming_connections_per_ip(Some(2));
+		let mut limits = ConnectionLimits::new(config);
+		let ip = v4(203, 0, 113, 9);
+
+		let first = ConnectionId::random();
+		assert!(limits.on_incoming(first, ip).is_ok());
+		assert_eq!(
+			limits.on_incoming(ConnectionId::random(), ip).unwrap_err(),
+			ConnectionLimitsError::MaxPendingIncomingConnectionsPerIpExceeded
+		);
+
+		limits.accept_established_connection(first, true);
+		let second = ConnectionId::random();
+		assert!(limits.on_incoming(second, ip).is_ok());
+		limits.accept_established_connection(second, true);
+		assert_eq!(
+			limits.on_incoming(ConnectionId::random(), ip).unwrap_err(),
+			ConnectionLimitsError::MaxIncomingConnectionsPerIpExceeded
+		);
+
+		limits.on_connection_closed(first);
+		assert!(limits.on_incoming(ConnectionId::random(), ip).is_ok());
+	}
+
+	#[test]
+	fn failed_pending_connection_frees_its_pending_per_ip_slot() {
+		let config =
+			ConnectionLimitsConfig::default().max_pending_incoming_connections_per_ip(Some(1));
+		let mut limits = ConnectionLimits::new(config);
+		let ip = v4(203, 0, 113, 10);
+		let pending = ConnectionId::random();
+
+		assert!(limits.on_incoming(pending, ip).is_ok());
+		assert_eq!(
+			limits.on_incoming(ConnectionId::random(), ip).unwrap_err(),
+			ConnectionLimitsError::MaxPendingIncomingConnectionsPerIpExceeded
+		);
+
+		limits.on_pending_incoming_failed(pending);
+		assert!(limits.on_incoming(ConnectionId::random(), ip).is_ok());
 	}
 }

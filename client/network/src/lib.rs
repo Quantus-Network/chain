@@ -307,6 +307,15 @@ pub const MAX_CONNECTIONS_ESTABLISHED_INCOMING: u32 = 10_000;
 /// This must stay well below a typical process `nofile` limit (often 1024).
 pub const MAX_CONNECTIONS_PENDING_INCOMING: u32 = 128;
 
+/// Maximum number of not-yet-established incoming connections from one source IP.
+///
+/// Separate from [`MAX_CONNECTIONS_INCOMING_PER_IP`], which also counts
+/// established connections. A connection that sends nothing holds a pending
+/// slot until the first-message timeout, so this share stays small enough
+/// that one handful of addresses cannot fill [`MAX_CONNECTIONS_PENDING_INCOMING`].
+/// IPv6 sources are grouped by `/64`.
+pub const MAX_CONNECTIONS_PENDING_INCOMING_PER_IP: u32 = 4;
+
 /// Maximum number of incoming connections (pending + established) from one source IP.
 ///
 /// IPv6 sources are grouped by `/64`. This prevents a single host from filling
