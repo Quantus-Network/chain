@@ -61,6 +61,27 @@ mod handshake_schema {
 /// Prefix of static key signatures for domain separation.
 pub(crate) const STATIC_KEY_DOMAIN: &str = "noise-libp2p-static-key:";
 
+/// How long a listener waits for each of a peer's opening reads.
+///
+/// Applied to the multistream-select exchange and, separately, to the first
+/// Noise frame. Later handshake messages keep the caller's timeout.
+pub(crate) const INBOUND_FIRST_MESSAGE_TIMEOUT: std::time::Duration =
+	std::time::Duration::from_secs(2);
+
+/// Timeout for the listener's wait on the peer's opening bytes.
+///
+/// Dialers keep `fallback`. A listener uses [`INBOUND_FIRST_MESSAGE_TIMEOUT`]
+/// when that is shorter than `fallback`.
+pub(crate) fn inbound_preamble_timeout(
+	role: Role,
+	fallback: std::time::Duration,
+) -> std::time::Duration {
+	match role {
+		Role::Listener => INBOUND_FIRST_MESSAGE_TIMEOUT.min(fallback),
+		Role::Dialer => fallback,
+	}
+}
+
 /// Maximum Noise message size.
 const MAX_NOISE_MSG_LEN: usize = u16::MAX as usize;
 
@@ -790,6 +811,7 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
 	timeout: std::time::Duration,
 	ty: HandshakeTransport,
 ) -> Result<(NoiseSocket<S>, PeerId), NegotiationError> {
+	let first_message_timeout = INBOUND_FIRST_MESSAGE_TIMEOUT.min(timeout);
 	let handle_handshake = async move {
 		tracing::debug!(target: LOG_TARGET, ?role, ?ty, "start noise handshake (pqXX + ML-KEM 768)");
 
@@ -835,9 +857,19 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
 				(noise, payload)
 			},
 			Role::Listener => {
-				// Read message 1 before any PQ work.
+				// Read message 1 before any PQ work. Bound this wait on its own
+				// so a peer that finished multistream-select and then goes
+				// silent cannot sit on the pending slot for the whole handshake.
 				tracing::debug!(target: LOG_TARGET, "pqXX listener: waiting for message 1");
-				let frame = read_handshake_frame(&mut io).await?;
+				let frame = match tokio::time::timeout(
+					first_message_timeout,
+					read_handshake_frame(&mut io),
+				)
+				.await
+				{
+					Err(_) => return Err(NegotiationError::Timeout),
+					Ok(result) => result?,
+				};
 
 				// pqXX message 1 carries at least the raw ML-KEM-768 ephemeral
 				// public key; a shorter frame can never decrypt, so reject it
@@ -1018,5 +1050,16 @@ mod tests {
 	#[tokio::test]
 	async fn handshake_rejects_undersized_first_message() {
 		expect_length_prefix_rejected(protocol::ML_KEM_768_PUBLIC_KEY_SIZE as u16 - 1).await;
+	}
+
+	#[test]
+	fn listener_preamble_timeout_is_shorter_than_the_substream_budget() {
+		let substream = std::time::Duration::from_secs(5);
+		assert_eq!(
+			inbound_preamble_timeout(Role::Listener, substream),
+			INBOUND_FIRST_MESSAGE_TIMEOUT
+		);
+		assert_eq!(inbound_preamble_timeout(Role::Dialer, substream), substream);
+		assert!(INBOUND_FIRST_MESSAGE_TIMEOUT < substream);
 	}
 }

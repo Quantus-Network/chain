@@ -431,9 +431,15 @@ impl TcpConnection {
 		let stream = TokioAsyncReadCompatExt::compat(stream).into_inner();
 		let stream = TokioAsyncWriteCompatExt::compat_write(stream);
 
-		// negotiate `noise`
-		let (stream, _) =
-			Self::negotiate_protocol(stream, &role, vec!["/noise"], substream_open_timeout).await?;
+		// negotiate `noise`. Listeners bound the wait for the peer's first
+		// bytes; the handshake itself still uses `substream_open_timeout`.
+		let (stream, _) = Self::negotiate_protocol(
+			stream,
+			&role,
+			vec!["/noise"],
+			noise::inbound_preamble_timeout(role, substream_open_timeout),
+		)
+		.await?;
 
 		tracing::trace!(
 			target: LOG_TARGET,
