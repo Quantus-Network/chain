@@ -67,6 +67,16 @@ reports generated solely by automated scanners without a demonstrated impact;
 low-severity or informational issues on our marketing and landing websites;
 and social-engineering or physical attacks.
 
+**Attacker-supplied keys:** we will not fix reports whose attack depends on an
+attacker having or providing a special key that the victim then uses, such as:
+
+- a key the attacker controls; or
+- a key the attacker intentionally crafts to be weak or useless (for example,
+  one anyone can forge signatures for) that the victim then uses, sends funds
+  to, or enrolls as a signer or guardian.
+
+These are not vulnerabilities in the code and will not be fixed.
+
 ## Rewards
 
 At our **sole discretion**, we may offer a reward for a valid report. To be
