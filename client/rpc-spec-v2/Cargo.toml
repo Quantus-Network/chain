@@ -93,6 +93,10 @@ version = "44.0.0"
 default-features = true
 version = "50.0.0"
 
+[dependencies.sc-rpc-api]
+default-features = true
+version = "0.54.0"
+
 [dependencies.sc-transaction-pool-api]
 default-features = true
 version = "43.0.0"

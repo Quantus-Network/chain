@@ -30,6 +30,7 @@ mod common;
 pub mod archive;
 pub mod chain_head;
 pub mod chain_spec;
+pub mod runtime_call_policy;
 pub mod transaction;
 
 /// Task executor that is being used by RPC subscriptions.

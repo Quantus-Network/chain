@@ -8,8 +8,10 @@ use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use pallet_zk_tree::{Hash256, ZkMerkleProofRpc, ZkTreeApi as ZkTreeRuntimeApi};
 use quantus_runtime::opaque::Block;
 use sc_client_api::{CallExecutor, ExecutorProvider};
-use sc_rpc_api::DenyUnsafe;
-use sc_rpc_spec_v2::archive::{error::Error as ArchiveRpcError, MethodResult};
+use sc_rpc_spec_v2::{
+	archive::{error::Error as ArchiveRpcError, MethodResult},
+	runtime_call_policy::{is_public_runtime_call_allowed, is_trusted_caller},
+};
 use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
@@ -170,31 +172,40 @@ where
 /// and `archive_v1_call`.
 pub const ZKTREE_GET_MERKLE_PROOF_RUNTIME_CALL: &str = "ZkTreeApi_get_merkle_proof";
 
-/// Resolve the block a runtime call executes at, gating deep history by trust.
+/// Resolve the block a runtime call executes at, enforcing the public
+/// runtime-API policy by trust.
 ///
 /// This is the shared gate for every RPC surface that lets the caller run a
 /// runtime API at a block of their choosing: `state_call` / `state_callAt`
 /// (execution block is the third argument) and the RPC-v2 `archive_v1_call`
-/// (first argument). For [`ZKTREE_GET_MERKLE_PROOF_RUNTIME_CALL`] that is the
-/// same caller-controlled `at_block` the node RPC already guards: without a
-/// check, a caller bypasses `zkTree_getMerkleProof` and forces cold trie reads
-/// on an archive node.
+/// (first argument).
 ///
-/// The window cannot live in the runtime API itself. `get_merkle_proof` has
-/// no block parameter (the execution block is chosen outside the call data),
-/// and historical state cannot see the live tip, so a
-/// `frame_system::BlockHash` read there cannot enforce the same window.
-/// Neither vendored handler receives `Extensions` (sc-rpc 50's `state_call`,
-/// sc-rpc-spec-v2's `archive_v1_call`), so `check_if_safe` cannot close this.
-/// The check has to happen here, before the executor loads state.
-///
-/// `is_trusted` follows the per-connection `DenyUnsafe` policy: a trusted
+/// `is_trusted` follows the per-connection `DenyUnsafe` policy. A trusted
 /// caller (local connection, or `--rpc-methods unsafe`) keeps the node's full
-/// archive functionality and may build proofs at any historical block. Every
-/// node here is forced to `ArchiveCanonical`, so history-reading operators
-/// (indexers, explorers) that run their own node still get the deep reads they
-/// run an archive node for. An untrusted (public) caller is bounded to the
-/// proof window, which closes the unauthenticated griefing vector.
+/// functionality: any runtime API at any historical block. Every node here is
+/// forced to `ArchiveCanonical`, so history-reading operators (indexers,
+/// explorers) that run their own node still get the deep reads they run an
+/// archive node for.
+///
+/// An untrusted (public) caller is fail-closed:
+/// * [`ZKTREE_GET_MERKLE_PROOF_RUNTIME_CALL`] is bounded to the proof window (see
+///   [`resolve_proof_block`]) — without it a caller bypasses `zkTree_getMerkleProof` and forces
+///   cold trie reads on an archive node. The window cannot live in the runtime API itself:
+///   `get_merkle_proof` has no block parameter (the execution block is chosen outside the call
+///   data), and historical state cannot see the live tip, so a `frame_system::BlockHash` read there
+///   cannot enforce it. Neither vendored handler receives `Extensions` (sc-rpc 50's `state_call`,
+///   sc-rpc-spec-v2's `archive_v1_call`), so `check_if_safe` cannot close this; the check has to
+///   happen here, before the executor loads state.
+/// * Other cheap read-only APIs on the shared [`is_public_runtime_call_allowed`] allowlist run at
+///   the caller's chosen block.
+/// * Every other runtime API is rejected, which closes the unauthenticated griefing/DoS vector:
+///   heavy unmetered APIs such as `GenesisBuilder_build_state` and `BlockBuilder_apply_extrinsic`
+///   are no longer reachable by the public.
+///
+/// The RPC-v2 `chainHead_v1_call` reaches the same executor surface and applies
+/// the same [`is_public_runtime_call_allowed`] allowlist inline (see
+/// `sc_rpc_spec_v2::chain_head`); it pins recent blocks, so it does not need the
+/// deep-history window.
 fn resolve_runtime_call_block<C>(
 	client: &C,
 	method: &str,
@@ -204,10 +215,26 @@ fn resolve_runtime_call_block<C>(
 where
 	C: HeaderBackend<Block>,
 {
-	if !is_trusted && method == ZKTREE_GET_MERKLE_PROOF_RUNTIME_CALL {
+	if is_trusted {
+		return Ok(at_block.unwrap_or_else(|| client.info().best_hash));
+	}
+
+	if method == ZKTREE_GET_MERKLE_PROOF_RUNTIME_CALL {
 		return resolve_proof_block(client, at_block);
 	}
-	Ok(at_block.unwrap_or_else(|| client.info().best_hash))
+
+	if is_public_runtime_call_allowed(method) {
+		return Ok(at_block.unwrap_or_else(|| client.info().best_hash));
+	}
+
+	Err(jsonrpsee::types::error::ErrorObject::owned(
+		9009,
+		format!(
+			"runtime API `{method}` is not available to untrusted callers; \
+			 use a trusted connection (local, or --rpc-methods unsafe)"
+		),
+		None::<()>,
+	))
 }
 
 /// ZK Tree RPC handler.
@@ -318,8 +345,7 @@ where
 		bytes: Bytes,
 		hash: Option<H256>,
 	) -> RpcResult<Bytes> {
-		let is_trusted = matches!(ext.get::<DenyUnsafe>(), Some(DenyUnsafe::No));
-		let at = resolve_runtime_call_block(&*self.client, &name, hash, is_trusted)?;
+		let at = resolve_runtime_call_block(&*self.client, &name, hash, is_trusted_caller(ext))?;
 		self.client
 			.executor()
 			.call(at, &name, bytes.as_ref(), CallContext::Offchain)
@@ -391,8 +417,12 @@ where
 		call_parameters: String,
 	) -> RpcResult<MethodResult> {
 		let call_parameters = parse_hex_param(call_parameters)?;
-		let is_trusted = matches!(ext.get::<DenyUnsafe>(), Some(DenyUnsafe::No));
-		let at = resolve_runtime_call_block(&*self.client, &function, Some(hash), is_trusted)?;
+		let at = resolve_runtime_call_block(
+			&*self.client,
+			&function,
+			Some(hash),
+			is_trusted_caller(ext),
+		)?;
 
 		// Same result shape as the vendored handler: execution failures are
 		// reported in-band as `MethodResult::err`, not as JSON-RPC errors.
@@ -410,6 +440,7 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use sc_rpc_api::DenyUnsafe;
 	use sp_blockchain::{BlockStatus, Info, Result as BlockchainResult};
 	use sp_core::Get;
 	use sp_runtime::traits::{Block as BlockT, NumberFor};
@@ -696,22 +727,67 @@ mod tests {
 		);
 	}
 
-	/// Cheap runtime APIs (nonce, metadata, …) may still run at historical
-	/// blocks for any caller — windowing them would break public historical
-	/// decoding (e.g. subxt fetching metadata at an old block). Only the
-	/// merkle-proof method is the DoS surface the node RPC named.
+	/// Cheap, allowlisted read-only APIs (nonce, metadata, …) may still run at
+	/// historical blocks for an untrusted caller — windowing them would break
+	/// public historical decoding (e.g. subxt fetching metadata at an old
+	/// block). They are not the DoS surface the gate guards against.
 	#[test]
-	fn state_call_other_methods_are_not_window_gated() {
+	fn state_call_allowlisted_methods_are_not_window_gated() {
+		let best = 10 * window();
+		let ancient = 1;
+		let chain = MockChain::with_blocks(best, &[best, ancient]);
+
+		for method in sc_rpc_spec_v2::runtime_call_policy::PUBLIC_RUNTIME_CALL_ALLOWLIST {
+			assert_eq!(
+				resolve_runtime_call_block(&chain, method, Some(hash_for(ancient)), false).unwrap(),
+				hash_for(ancient),
+				"allowlisted method {method} must run at the caller's chosen block"
+			);
+		}
+	}
+
+	/// The core of the fail-closed policy: an untrusted caller may not invoke a
+	/// runtime API that is neither the windowed merkle proof nor on the
+	/// allowlist. These are the heavy, unmetered APIs (genesis build, block
+	/// apply/execute, transaction validation) that make `state_call` a remote
+	/// DoS when forwarded to an unauthenticated caller.
+	#[test]
+	fn state_call_rejects_non_allowlisted_methods_for_untrusted_callers() {
+		let best = 10 * window();
+		let chain = MockChain::with_blocks(best, &[best]);
+
+		for method in [
+			"GenesisBuilder_build_state",
+			"BlockBuilder_apply_extrinsic",
+			"Core_execute_block",
+			"BlockBuilder_check_inherents",
+			"TaggedTransactionQueue_validate_transaction",
+			"OffchainWorkerApi_offchain_worker",
+		] {
+			let err = resolve_runtime_call_block(&chain, method, None, false)
+				.expect_err("untrusted caller must not reach a non-allowlisted runtime API");
+			assert_eq!(err.code(), 9009, "method {method} must be refused with 9009");
+		}
+	}
+
+	/// A trusted caller (local / `--rpc-methods unsafe`) keeps full access to
+	/// every runtime API, including the heavy ones denied to the public.
+	#[test]
+	fn state_call_allows_any_method_for_trusted_callers() {
 		let best = 10 * window();
 		let ancient = 1;
 		let chain = MockChain::with_blocks(best, &[best, ancient]);
 
 		assert_eq!(
+			resolve_runtime_call_block(&chain, "GenesisBuilder_build_state", None, true).unwrap(),
+			hash_for(best)
+		);
+		assert_eq!(
 			resolve_runtime_call_block(
 				&chain,
-				"AccountNonceApi_account_nonce",
+				"BlockBuilder_apply_extrinsic",
 				Some(hash_for(ancient)),
-				false,
+				true,
 			)
 			.unwrap(),
 			hash_for(ancient)
@@ -880,7 +956,7 @@ mod tests {
 		}
 
 		#[tokio::test]
-		async fn other_runtime_calls_stay_available_to_untrusted_callers() {
+		async fn allowlisted_runtime_calls_stay_available_to_untrusted_callers() {
 			let best = 10 * window();
 			let ancient = 1;
 			let chain = MockChain::with_blocks(best, &[best, ancient]);
@@ -892,7 +968,33 @@ mod tests {
 				"AccountNonceApi_account_nonce",
 			)
 			.await
-			.expect("non-proof runtime calls keep the archive API's deep history");
+			.expect("allowlisted runtime calls keep the archive API's deep history");
+			assert_eq!(result, MethodResult::ok("0x2a"));
+		}
+
+		#[tokio::test]
+		async fn rejects_non_allowlisted_calls_from_untrusted_callers() {
+			let best = 10 * window();
+			let chain = MockChain::with_blocks(best, &[best]);
+
+			let err =
+				archive_call(chain, DenyUnsafe::Yes, hash_for(best), "GenesisBuilder_build_state")
+					.await
+					.expect_err(
+						"untrusted archive_v1_call must not reach a non-allowlisted runtime API",
+					);
+			assert_eq!(expect_rpc_error(err).code(), 9009);
+		}
+
+		#[tokio::test]
+		async fn non_allowlisted_calls_stay_available_to_trusted_callers() {
+			let best = 10 * window();
+			let chain = MockChain::with_blocks(best, &[best]);
+
+			let result =
+				archive_call(chain, DenyUnsafe::No, hash_for(best), "GenesisBuilder_build_state")
+					.await
+					.expect("trusted callers keep full runtime-API access");
 			assert_eq!(result, MethodResult::ok("0x2a"));
 		}
 

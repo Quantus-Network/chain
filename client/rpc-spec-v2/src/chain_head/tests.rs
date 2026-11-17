@@ -34,6 +34,7 @@ use jsonrpsee::{
 use sc_block_builder::BlockBuilderBuilder;
 use sc_client_api::ChildInfo;
 use sc_rpc::testing::TokioTestExecutor;
+use sc_rpc_api::DenyUnsafe;
 use sc_service::client::new_with_backend;
 use sp_blockchain::HeaderBackend;
 use sp_consensus::BlockOrigin;
@@ -631,6 +632,68 @@ async fn call_runtime() {
 	};
 
 	// Error propagated to `chainHead_follow`.
+	assert_matches!(
+			get_next_event::<FollowEvent<String>>(&mut block_sub).await,
+			FollowEvent::OperationError(error) if error.operation_id == operation_id && error.error.contains("Execution failed")
+	);
+}
+
+#[tokio::test]
+async fn call_runtime_denied_for_untrusted_callers() {
+	let (_client, mut api, mut block_sub, sub_id, block) = setup_api().await;
+	let block_hash = format!("{:?}", block.header.hash());
+	let alice_id = Sr25519Keyring::Alice.to_account_id();
+	let call_parameters = hex_string(&alice_id.encode());
+
+	// Untrusted (public) connection.
+	api.extensions_mut().insert(DenyUnsafe::Yes);
+
+	// A heavy, non-allowlisted runtime API is refused synchronously, before the
+	// executor is spawned: no operation is started and no follow event is emitted.
+	for method in
+		["GenesisBuilder_build_state", "BlockBuilder_apply_extrinsic", "BabeApi_current_epoch"]
+	{
+		let err = api
+			.call::<_, serde_json::Value>(
+				"chainHead_v1_call",
+				[&sub_id, &block_hash, method, "0x00"],
+			)
+			.await
+			.unwrap_err();
+		assert_matches!(err,
+			Error::JsonRpc(ref err) if err.code() == super::error::rpc_spec_v2::INVALID_RUNTIME_CALL && err.message().contains("untrusted callers")
+		);
+	}
+
+	// Cheap allowlisted reads stay available to the untrusted caller.
+	let response: MethodResponse = api
+		.call(
+			"chainHead_v1_call",
+			[&sub_id, &block_hash, "AccountNonceApi_account_nonce", &call_parameters],
+		)
+		.await
+		.unwrap();
+	let operation_id = match response {
+		MethodResponse::Started(started) => started.operation_id,
+		MethodResponse::LimitReached => panic!("Expected started response"),
+	};
+	assert_matches!(
+			get_next_event::<FollowEvent<String>>(&mut block_sub).await,
+			FollowEvent::OperationCallDone(done) if done.operation_id == operation_id && done.output == "0x0000000000000000"
+	);
+
+	// A trusted connection keeps the full runtime-API surface: the heavy method
+	// passes the gate and reaches the executor (whose own result is reported via
+	// the follow stream, not as a refusal).
+	api.extensions_mut().insert(DenyUnsafe::No);
+	let response: MethodResponse = api
+		.call("chainHead_v1_call", [&sub_id, &block_hash, "BabeApi_current_epoch", "0x00"])
+		.await
+		.unwrap();
+	let operation_id = match response {
+		MethodResponse::Started(started) => started.operation_id,
+		MethodResponse::LimitReached => panic!("Expected started response"),
+	};
 	assert_matches!(
 			get_next_event::<FollowEvent<String>>(&mut block_sub).await,
 			FollowEvent::OperationError(error) if error.operation_id == operation_id && error.error.contains("Execution failed")
