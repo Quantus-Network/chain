@@ -1801,8 +1801,9 @@ where
 			BlockStatus::KnownBad => return Ok(ImportResult::KnownBad),
 		}
 
-		// The block hash commits `parent_hash` and the low 32 bits of the number. A header
-		// whose number does not follow that parent is invalid for every encoding of this hash.
+		// A header whose number does not follow its parent would only fail once the runtime
+		// starts executing it. Reject it here, before proof-of-work verification, where the
+		// import queue still names the peer that sent it.
 		if let Some(parent) = self
 			.header(parent_hash)
 			.map_err(|e| ConsensusError::ClientImport(e.to_string()))?
@@ -1823,37 +1824,28 @@ where
 	}
 }
 
-/// Execution and state-root failures will not succeed on retry. Database and backend failures
-/// stay [`ConsensusError::ClientImport`] so sync does not disconnect the sending peer.
+/// A block that fails execution, or whose state root does not match its header, is reported
+/// as [`InvalidBlock`] so sync disconnects the peer that sent it. Every other failure stays
+/// [`ConsensusError::ClientImport`] and is retried with the peer left connected.
 fn consensus_error_for_block_prepare(error: Error) -> ConsensusError {
-	if deterministic_block_invalidity(&error) {
+	if block_is_invalid(&error) {
 		ConsensusError::Other(Box::new(InvalidBlock::new(error.to_string())))
 	} else {
 		ConsensusError::ClientImport(error.to_string())
 	}
 }
 
-fn deterministic_block_invalidity(error: &Error) -> bool {
+/// `Error::Execution` is taken as the block's fault. That is not exact: a storage read that
+/// fails while the runtime is running also ends as an execution error, and the two cannot be
+/// told apart here. It needs a damaged local database, and the cost is a dropped connection.
+fn block_is_invalid(error: &Error) -> bool {
 	match error {
-		Error::Execution(_) |
-		Error::InvalidStateRoot |
-		Error::ApplyExtrinsicFailed(_) |
-		Error::ExtrinsicRootInvalid { .. } => true,
+		Error::Execution(_) | Error::InvalidStateRoot => true,
 		// `call_api_at` boxes every client error except `UnknownBlock` as
 		// `ApiError::Application`, including a parent-trie read that fails before the
-		// incoming block runs. Follow the error inside the box.
-		Error::RuntimeApiError(api_error) => deterministic_api_failure(api_error),
-		Error::Blockchain(inner) => deterministic_block_invalidity(inner),
-		_ => false,
-	}
-}
-
-fn deterministic_api_failure(error: &sp_api::ApiError) -> bool {
-	match error {
-		sp_api::ApiError::Application(inner) => match inner.downcast_ref::<Error>() {
-			Some(blockchain) => deterministic_block_invalidity(blockchain),
-			None => false,
-		},
+		// incoming block runs. Judge the error inside the box.
+		Error::RuntimeApiError(sp_api::ApiError::Application(inner)) =>
+			inner.downcast_ref::<Error>().is_some_and(block_is_invalid),
 		_ => false,
 	}
 }
@@ -2153,48 +2145,50 @@ mod prepare_error_classification {
 	use sp_consensus::Error as ConsensusError;
 	use sp_consensus_qpow::InvalidBlock;
 
-	fn is_deterministic(error: Error) -> bool {
+	fn reported_as_invalid_block(error: Error) -> bool {
 		match consensus_error_for_block_prepare(error) {
 			ConsensusError::Other(inner) => inner.is::<InvalidBlock>(),
-			ConsensusError::ClientImport(_) => false,
-			other => panic!("unexpected consensus error: {other:?}"),
+			_ => false,
 		}
 	}
 
-	/// Loading the parent trie's `:code` fails as `RuntimeCode`, and `call_api_at` then
-	/// boxes that client error as `ApiError::Application`. That read happens before the
-	/// incoming block executes, so the supplier is not sent a bad block.
+	/// The shape `prepare_block_storage_changes` gets back from `execute_block`: the client
+	/// error is converted to an `ApiError` by `call_api_at` and back by `?`.
+	fn through_runtime_api(error: Error) -> Error {
+		Error::from(sp_api::ApiError::from(error))
+	}
+
 	#[test]
-	fn parent_state_read_failure_is_not_a_bad_block() {
+	fn failed_execution_is_an_invalid_block() {
+		let trap = Error::Execution(Box::new("wasm trap: unreachable".to_string()));
+		assert!(reported_as_invalid_block(through_runtime_api(trap)));
+	}
+
+	#[test]
+	fn state_root_mismatch_is_an_invalid_block() {
+		assert!(reported_as_invalid_block(Error::InvalidStateRoot));
+	}
+
+	/// Loading the parent trie's `:code` fails as `RuntimeCode` before the incoming block
+	/// executes, so the peer that sent the block is not at fault.
+	#[test]
+	fn parent_state_read_failure_is_not_an_invalid_block() {
 		let read_failure = Error::RuntimeCode("failed to read :code");
-		let wrapped = Error::RuntimeApiError(sp_api::ApiError::Application(Box::new(read_failure)));
-		assert!(!is_deterministic(wrapped));
-		assert!(!is_deterministic(Error::RuntimeCode("failed to read :code")));
+		assert!(!reported_as_invalid_block(through_runtime_api(read_failure)));
+		assert!(!reported_as_invalid_block(Error::RuntimeCode("failed to read :code")));
 	}
 
 	#[test]
-	fn identified_block_failure_reported_through_the_api_stays_deterministic() {
-		let wrapped = Error::RuntimeApiError(sp_api::ApiError::Application(Box::new(
-			Error::InvalidStateRoot,
-		)));
-		assert!(is_deterministic(wrapped));
-		assert!(is_deterministic(Error::InvalidStateRoot));
+	fn backend_failure_is_not_an_invalid_block() {
+		let backend = Error::Backend("database read failed".into());
+		assert!(!reported_as_invalid_block(through_runtime_api(backend)));
+		assert!(!reported_as_invalid_block(Error::Storage("commit failed".into())));
 	}
 
 	#[test]
-	fn unidentified_application_error_is_not_a_bad_block() {
-		#[derive(Debug)]
-		struct HostFailure;
-
-		impl std::fmt::Display for HostFailure {
-			fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-				f.write_str("host function failed")
-			}
-		}
-
-		impl std::error::Error for HostFailure {}
-
-		let wrapped = Error::RuntimeApiError(sp_api::ApiError::Application(Box::new(HostFailure)));
-		assert!(!is_deterministic(wrapped));
+	fn application_error_of_another_type_is_not_an_invalid_block() {
+		let foreign: Box<dyn std::error::Error + Send + Sync> = "host function failed".into();
+		let wrapped = Error::RuntimeApiError(sp_api::ApiError::Application(foreign));
+		assert!(!reported_as_invalid_block(wrapped));
 	}
 }
