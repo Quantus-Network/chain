@@ -33,7 +33,7 @@ use sp_consensus_qpow::POW_ENGINE_ID;
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
 use sp_runtime::{
 	generic::{Digest, DigestItem},
-	traits::Header as HeaderT,
+	traits::{CheckedAdd, Header as HeaderT, One, Zero},
 };
 
 const LOG_TARGET: &str = "pow";
@@ -461,16 +461,64 @@ impl<C> PowVerifier<C> {
 	fn new(client: Arc<C>) -> Self {
 		Self { client }
 	}
+
+	/// Parent number when it is already imported. `None` for genesis and for a parent this
+	/// node does not have yet, which stays on the unpenalised `UnknownParent` path.
+	fn parent_number<B>(&self, header: &B::Header) -> Option<<B::Header as HeaderT>::Number>
+	where
+		B: BlockT<Hash = H256>,
+		C: ParentHeader<B>,
+	{
+		if header.number().is_zero() {
+			return None
+		}
+		self.client.parent_header(*header.parent_hash()).map(|parent| *parent.number())
+	}
+}
+
+/// Header lookup used to reject a block number that does not follow its parent.
+trait ParentHeader<B: BlockT> {
+	fn parent_header(&self, hash: B::Hash) -> Option<B::Header>;
+}
+
+impl<B, C> ParentHeader<B> for C
+where
+	B: BlockT,
+	C: HeaderBackend<B>,
+{
+	fn parent_header(&self, hash: B::Hash) -> Option<B::Header> {
+		self.header(hash).ok().flatten()
+	}
+}
+
+fn number_follows_parent<N>(number: N, parent_number: N) -> bool
+where
+	N: Copy + PartialEq + CheckedAdd + One,
+{
+	parent_number.checked_add(&One::one()) == Some(number)
 }
 
 #[async_trait::async_trait]
 impl<B, C> Verifier<B> for PowVerifier<C>
 where
 	B: BlockT<Hash = H256>,
-	C: ProvideRuntimeApi<B> + Send + Sync,
+	C: ProvideRuntimeApi<B> + ParentHeader<B> + Send + Sync,
 	C::Api: QPoWApi<B>,
 {
 	async fn verify(&self, block: BlockImportParams<B>) -> Result<BlockImportParams<B>, String> {
+		// A header whose number does not follow its parent fails execution with
+		// `BlockImportError::Other`, which does not name the sending peer. Reject
+		// it here so the import queue reports `VerificationFailed` and sync can
+		// drop that peer. Skip the check when the parent is not available yet.
+		if let Some(parent_number) = self.parent_number(&block.header) {
+			let number = *block.header.number();
+			if !number_follows_parent(number, parent_number) {
+				return Err(format!(
+					"Header number {number} does not follow parent {parent_number}"
+				));
+			}
+		}
+
 		// Pop the seal into `post_digests` and reject a digest that is not a
 		// permitted commitment-window shape. After this the header is the
 		// pre-seal header, so `hash()` yields the pre-hash the nonce was mined
@@ -516,7 +564,7 @@ pub fn import_queue<B, C>(
 ) -> Result<PowImportQueue<B>, sp_consensus::Error>
 where
 	B: BlockT<Hash = H256>,
-	C: ProvideRuntimeApi<B> + BlockBackend<B> + Send + Sync + 'static,
+	C: ProvideRuntimeApi<B> + BlockBackend<B> + HeaderBackend<B> + Send + Sync + 'static,
 	C::Api: QPoWApi<B>,
 {
 	let verifier = PowVerifier::new(client);
@@ -812,6 +860,15 @@ mod tests {
 	/// silently truncates past the window, so hashing must not be relied on —
 	/// and used to `debug_assert!` on exactly this input).
 	#[test]
+	fn block_number_must_follow_its_parent() {
+		assert!(number_follows_parent(1u32, 0));
+		assert!(number_follows_parent(8u64, 7));
+		assert!(!number_follows_parent(8u32, 1));
+		assert!(!number_follows_parent(0u32, 0));
+		assert!(!number_follows_parent(u32::MAX, u32::MAX));
+	}
+
+	#[test]
 	fn verifier_rejects_oversized_digest_cleanly() {
 		let mut digest = canonical_digest();
 		// Push the encoded digest past the window while keeping a valid seal
@@ -978,6 +1035,12 @@ mod tests {
 
 	// The mock implements the API traits on the value itself; wire up
 	// `ProvideRuntimeApi` so it can stand in for a client.
+	impl ParentHeader<TestBlock> for MockRuntimeApi {
+		fn parent_header(&self, _hash: H256) -> Option<TestHeader> {
+			None
+		}
+	}
+
 	impl ProvideRuntimeApi<Block> for MockRuntimeApi {
 		type Api = Self;
 

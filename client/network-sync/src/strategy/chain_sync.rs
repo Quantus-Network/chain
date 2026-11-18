@@ -44,6 +44,7 @@ use crate::{
 	LOG_TARGET,
 };
 
+use codec::Encode;
 use futures::{channel::oneshot, FutureExt};
 use log::{debug, error, info, trace, warn};
 use prometheus_endpoint::{register, Gauge, PrometheusError, Registry, U64};
@@ -58,9 +59,10 @@ use sc_network_types::PeerId;
 use sp_arithmetic::traits::Saturating;
 use sp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata};
 use sp_consensus::{BlockOrigin, BlockStatus};
+use sp_core::storage::StateVersion;
 use sp_runtime::{
 	traits::{
-		Block as BlockT, CheckedAdd, CheckedSub, Header as HeaderT, NumberFor, One,
+		Block as BlockT, CheckedAdd, CheckedSub, Hash as HashT, Header as HeaderT, NumberFor, One,
 		SaturatedConversion, Zero,
 	},
 	EncodedJustification, Justifications,
@@ -68,7 +70,7 @@ use sp_runtime::{
 
 use std::{
 	any::Any,
-	collections::{HashMap, HashSet},
+	collections::{HashMap, HashSet, VecDeque},
 	ops::Range,
 	sync::Arc,
 };
@@ -78,6 +80,12 @@ mod test;
 
 /// Maximum blocks to store in the import queue.
 const MAX_IMPORTING_BLOCKS: usize = 2048;
+
+/// How many hashes that failed import with `BlockImportError::Other` to remember.
+///
+/// The same hash must not be requested again. The cap keeps a peer from growing the set by
+/// announcing distinct failing blocks.
+const REJECTED_IMPORTS_LIMIT: usize = 1024;
 
 /// Maximum blocks to download ahead of any gap.
 const MAX_DOWNLOAD_AHEAD: u32 = 2048;
@@ -338,6 +346,14 @@ pub struct ChainSync<B: BlockT, Client> {
 	pending_state_sync_attempt: Option<(B::Hash, NumberFor<B>, bool)>,
 	/// Fork sync targets.
 	fork_targets: HashMap<B::Hash, ForkTarget<B>>,
+	/// Peer that supplied a block now queued for import, keyed by block hash.
+	///
+	/// `BlockImportError::Other` does not carry a peer id, so the origin is remembered until
+	/// the import result arrives.
+	import_origins: HashMap<B::Hash, PeerId>,
+	/// Hashes that failed import with `Other`, oldest first.
+	rejected_imports: VecDeque<B::Hash>,
+	rejected_import_set: HashSet<B::Hash>,
 	/// A set of peers for which there might be potential block requests
 	allowed_requests: AllowedRequests,
 	/// Maximum number of peers to ask the same blocks in parallel.
@@ -426,6 +442,11 @@ where
 	) -> Option<(B::Hash, NumberFor<B>)> {
 		let number = *announce.header.number();
 		let hash = announce.header.hash();
+		if self.rejected_import_set.contains(&hash) {
+			trace!(target: LOG_TARGET, "Rejected block announce from {peer_id}: {hash}");
+			self.actions.push(SyncingAction::DropPeer(BadPeer(peer_id, rep::BAD_BLOCK)));
+			return None;
+		}
 		let parent_status =
 			self.block_status(announce.header.parent_hash()).unwrap_or(BlockStatus::Unknown);
 		let known_parent = parent_status != BlockStatus::Unknown;
@@ -567,7 +588,7 @@ where
 			);
 		}
 
-		if self.is_known(hash) {
+		if self.is_known(hash) || self.rejected_import_set.contains(hash) {
 			debug!(target: LOG_TARGET, "Refusing to sync known hash {hash:?}");
 			return
 		}
@@ -712,11 +733,15 @@ where
 		}
 		for (result, hash) in results {
 			if has_error {
-				break
+				// The restart above drops the rest of this batch. Forget their senders so a
+				// follow-up failure is not charged to them.
+				self.import_origins.remove(&hash);
+				continue
 			}
 
 			has_error |= result.is_err();
 
+			let origin = self.import_origins.remove(&hash);
 			match result {
 				Ok(BlockImportStatus::ImportedKnown(number, peer_id)) => {
 					if let Some(peer) = peer_id {
@@ -769,7 +794,8 @@ where
 
 					self.complete_gap_if_target(number);
 				},
-				Err(BlockImportError::IncompleteHeader(peer_id)) =>
+				Err(BlockImportError::IncompleteHeader(peer_id)) => {
+					self.note_rejected_import(hash);
 					if let Some(peer) = peer_id {
 						warn!(
 							target: LOG_TARGET,
@@ -778,8 +804,10 @@ where
 						self.actions
 							.push(SyncingAction::DropPeer(BadPeer(peer, rep::INCOMPLETE_HEADER)));
 						self.restart();
-					},
+					}
+				},
 				Err(BlockImportError::VerificationFailed(peer_id, e)) => {
+					self.note_rejected_import(hash);
 					let extra_message = peer_id
 						.map_or_else(|| "".into(), |peer| format!(" received from ({peer})"));
 
@@ -796,6 +824,7 @@ where
 					self.restart();
 				},
 				Err(BlockImportError::BadBlock(peer_id)) => {
+					self.note_rejected_import(hash);
 					if let Some(peer) = peer_id {
 						warn!(
 							target: LOG_TARGET,
@@ -811,8 +840,20 @@ where
 					// Don't mark it as bad as it still may be synced if explicitly requested.
 					trace!(target: LOG_TARGET, "Obsolete block {hash:?}");
 				},
-				e @ Err(BlockImportError::UnknownParent) | e @ Err(BlockImportError::Other(_)) => {
-					warn!(target: LOG_TARGET, "💔 Error importing block {hash:?}: {}", e.unwrap_err());
+				// A missing parent is a normal race: the parent may still be in flight. Do not
+				// penalise the peer. An execution or client-import failure is not: the sender
+				// supplied a block this node will not import, and retrying it restarts sync.
+				Err(BlockImportError::UnknownParent) => {
+					warn!(target: LOG_TARGET, "💔 Error importing block {hash:?}: unknown parent");
+					self.state_sync = None;
+					self.restart();
+				},
+				Err(BlockImportError::Other(error)) => {
+					warn!(target: LOG_TARGET, "💔 Error importing block {hash:?}: {error}");
+					self.note_rejected_import(hash);
+					if let Some(peer) = origin {
+						self.actions.push(SyncingAction::DropPeer(BadPeer(peer, rep::BAD_BLOCK)));
+					}
 					self.state_sync = None;
 					self.restart();
 				},
@@ -1045,6 +1086,9 @@ where
 			queue_blocks: Default::default(),
 			pending_state_sync_attempt: None,
 			fork_targets: Default::default(),
+			import_origins: HashMap::new(),
+			rejected_imports: VecDeque::new(),
+			rejected_import_set: HashSet::new(),
 			allowed_requests: Default::default(),
 			max_parallel_downloads,
 			max_blocks_per_request,
@@ -1720,6 +1764,11 @@ where
 			new_blocks.last().map(|b| b.hash),
 			origin,
 		);
+		for block in &new_blocks {
+			if let Some(peer) = block.origin {
+				self.import_origins.insert(block.hash, peer);
+			}
+		}
 		self.queue_blocks.extend(new_blocks.iter().map(|b| b.hash));
 		if let Some(metrics) = &self.metrics {
 			metrics
@@ -1776,6 +1825,24 @@ where
 			}
 		}
 		self.allowed_requests.set_all();
+	}
+
+	/// Remember a block that failed import so it is not requested again, and drop its fork target.
+	fn note_rejected_import(&mut self, hash: B::Hash) {
+		if self.fork_targets.remove(&hash).is_some() {
+			if let Some(metrics) = &self.metrics {
+				metrics.fork_targets.dec();
+			}
+		}
+		if !self.rejected_import_set.insert(hash) {
+			return
+		}
+		self.rejected_imports.push_back(hash);
+		if self.rejected_imports.len() > REJECTED_IMPORTS_LIMIT {
+			if let Some(old) = self.rejected_imports.pop_front() {
+				self.rejected_import_set.remove(&old);
+			}
+		}
 	}
 
 	/// Restart the sync process. This will reset all pending block requests and return an iterator
@@ -2170,6 +2237,16 @@ where
 
 		match import_result {
 			ImportResult::Import(hash, header, state, body, justifications) => {
+				if let Some(extrinsics) = body.as_ref() {
+					if !extrinsics_match_header::<B>(&header, extrinsics) {
+						debug!(
+							target: LOG_TARGET,
+							"State sync body from {peer_id} does not match the header extrinsics root",
+						);
+						return Err(BadPeer(*peer_id, rep::BAD_BLOCK));
+					}
+				}
+				self.import_origins.insert(hash, *peer_id);
 				let origin = BlockOrigin::NetworkInitialSync;
 				let block = IncomingBlock {
 					hash,
@@ -2177,7 +2254,7 @@ where
 					body,
 					indexed_body: None,
 					justifications,
-					origin: None,
+					origin: Some(*peer_id),
 					allow_missing_state: true,
 					import_existing: true,
 					skip_execution: self.skip_execution(),
@@ -2525,6 +2602,23 @@ where
 	Ok(ancestor.hash == *base)
 }
 
+/// `true` when `body` is the extrinsic list committed by `header.extrinsics_root`.
+///
+/// The root uses trie layout V0. `frame_system::Pallet::finalize` takes that layout from
+/// `RuntimeVersion::extrinsics_root_state_version`, and the system pallet test locks it to V0
+/// for `system_version: 1`.
+pub(crate) fn extrinsics_match_header<Block: BlockT>(
+	header: &Block::Header,
+	body: &[Block::Extrinsic],
+) -> bool {
+	let encoded = body.iter().map(Encode::encode).collect();
+	let root = <<Block::Header as HeaderT>::Hashing as HashT>::ordered_trie_root(
+		encoded,
+		StateVersion::V0,
+	);
+	header.extrinsics_root() == &root
+}
+
 /// Validate that the given `blocks` are correct.
 /// Returns the number of the first block in the sequence.
 ///
@@ -2627,6 +2721,15 @@ pub fn validate_blocks<Block: BlockT>(
 					hash,
 				);
 				return Err(BadPeer(*peer_id, rep::BAD_BLOCK));
+			}
+			if let Some(body) = &b.body {
+				if !extrinsics_match_header::<Block>(header, body) {
+					debug!(
+						target: LOG_TARGET,
+						"Body from {peer_id} does not match the header extrinsics root of {hash:?}.",
+					);
+					return Err(BadPeer(*peer_id, rep::BAD_BLOCK));
+				}
 			}
 		}
 	}
@@ -2926,11 +3029,17 @@ mod security_tests {
 		assert_eq!(block_import_origin(true, false, false), BlockOrigin::NetworkInitialSync);
 	}
 
-	fn block_data(header: <TestBlock as BlockT>::Header) -> BlockData<TestBlock> {
+	fn block_data(mut header: <TestBlock as BlockT>::Header) -> BlockData<TestBlock> {
+		let body = Vec::new();
+		let root = <<TestBlock as BlockT>::Header as HeaderT>::Hashing::ordered_trie_root(
+			body.iter().map(Encode::encode).collect(),
+			StateVersion::V0,
+		);
+		header.set_extrinsics_root(root);
 		BlockData::<TestBlock> {
 			hash: header.hash(),
 			header: Some(header),
-			body: Some(Vec::new()),
+			body: Some(body),
 			indexed_body: None,
 			receipt: None,
 			message_queue: None,
@@ -2955,9 +3064,9 @@ mod security_tests {
 		let mut parent_hash = H256::random();
 		(top + 1 - len..=top)
 			.map(|number| {
-				let header = header(number, parent_hash);
-				parent_hash = header.hash();
-				block_data(header)
+				let data = block_data(header(number, parent_hash));
+				parent_hash = data.hash;
+				data
 			})
 			.collect()
 	}
@@ -3021,6 +3130,105 @@ mod security_tests {
 			validate_blocks::<TestBlock>(&blocks, &peer, Some(descending_request(10, 5))),
 			Err(BadPeer(peer, rep::BAD_BLOCK)),
 		);
+	}
+
+	#[test]
+	fn response_whose_body_does_not_match_extrinsics_root_is_rejected() {
+		let peer = PeerId::random();
+		let mut blocks = chained_blocks(10, 1);
+		blocks[0].body = Some(vec![TestXt::new_bare(MockCallU64(1))]);
+
+		assert_eq!(
+			validate_blocks::<TestBlock>(&blocks, &peer, Some(descending_request(10, 1))),
+			Err(BadPeer(peer, rep::BAD_BLOCK)),
+		);
+	}
+
+	#[test]
+	fn other_import_failure_drops_the_sender_and_forgets_the_fork() {
+		let client = Arc::new(GenesisClient::new());
+		let genesis = client.genesis.hash();
+		let mut sync = ChainSync::new(
+			ChainSyncMode::Full,
+			client,
+			1,
+			64,
+			ProtocolName::Static(""),
+			Arc::new(MockBlockDownloader::new()),
+			None,
+			std::iter::empty(),
+		)
+		.unwrap();
+
+		let serving = PeerId::random();
+		sync.add_peer(serving, genesis, 0);
+		let announced = header(1, genesis);
+		let target = announced.hash();
+		let _ = sync.on_validated_block_announce(
+			false,
+			serving,
+			&BlockAnnounce { header: announced, state: None, data: None },
+		);
+		assert!(sync.fork_targets.contains_key(&target));
+		sync.import_origins.insert(target, serving);
+		sync.actions.clear();
+
+		sync.on_blocks_processed(
+			0,
+			1,
+			vec![(
+				Err(BlockImportError::Other(sp_consensus::Error::ClientImport(
+					"execution failed".into(),
+				))),
+				target,
+			)],
+		);
+
+		assert!(sync.actions.iter().any(|action| matches!(
+			action,
+			SyncingAction::DropPeer(BadPeer(peer, _)) if *peer == serving
+		)));
+		assert!(!sync.fork_targets.contains_key(&target));
+		assert!(sync.rejected_import_set.contains(&target));
+
+		sync.actions.clear();
+		let _ = sync.on_validated_block_announce(
+			false,
+			serving,
+			&BlockAnnounce { header: header(1, genesis), state: None, data: None },
+		);
+		assert!(!sync.fork_targets.contains_key(&target));
+		assert!(sync.actions.iter().any(|action| matches!(
+			action,
+			SyncingAction::DropPeer(BadPeer(peer, _)) if *peer == serving
+		)));
+	}
+
+	#[test]
+	fn unknown_parent_does_not_drop_the_sender() {
+		let client = Arc::new(GenesisClient::new());
+		let genesis = client.genesis.hash();
+		let mut sync = ChainSync::new(
+			ChainSyncMode::Full,
+			client,
+			1,
+			64,
+			ProtocolName::Static(""),
+			Arc::new(MockBlockDownloader::new()),
+			None,
+			std::iter::empty(),
+		)
+		.unwrap();
+		let serving = PeerId::random();
+		sync.add_peer(serving, genesis, 0);
+		let target = header(1, genesis).hash();
+		sync.import_origins.insert(target, serving);
+		sync.actions.clear();
+
+		sync.on_blocks_processed(0, 1, vec![(Err(BlockImportError::UnknownParent), target)]);
+
+		assert!(sync.actions.iter().all(|action| !matches!(action, SyncingAction::DropPeer(_))));
+		assert!(!sync.rejected_import_set.contains(&target));
 	}
 
 	#[test]
