@@ -59,12 +59,12 @@ impl EntryPoint {
 
 			let message =
 				MessageWithBacktrace { message: trap.root_cause().to_string(), backtrace };
-			// A trap raised by the Wasm code carries a trap code. An error returned by a host
-			// function, which includes a panic caught inside one, does not.
-			if trap.downcast_ref::<wasmtime::Trap>().is_some() {
-				Error::AbortedDueToTrap(message)
-			} else {
-				Error::AbortedDueToHostError(message)
+			match trap.downcast_ref::<wasmtime::Trap>() {
+				Some(wasmtime::Trap::StackOverflow) => Error::AbortedDueToStackExhaustion(message),
+				Some(_) => Error::AbortedDueToTrap(message),
+				// An error returned by a host function, which includes a panic caught inside
+				// one, carries no trap code.
+				None => Error::AbortedDueToHostError(message),
 			}
 		})
 	}

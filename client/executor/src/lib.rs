@@ -55,9 +55,10 @@ pub use sc_executor_wasmtime::InstantiationStrategy as WasmtimeInstantiationStra
 /// `true` when `error` is a runtime call that the runtime ended itself, with a panic or a trap.
 ///
 /// `sp_blockchain::Error::Execution` also carries failures of the host: a module that could
-/// not be instantiated, or a host function that failed, for example by panicking on a storage
-/// read. Those are not counted. An error that crossed the runtime API is looked for inside
-/// `ApiError::Application`, where `call_api_at` puts it.
+/// not be instantiated, a host function that failed, for example by panicking on a storage
+/// read, or a call that ran out of this node's native stack. Those are not counted. An error
+/// that crossed the runtime API is looked for inside `ApiError::Application`, where
+/// `call_api_at` puts it.
 ///
 /// A runtime built without `sp-io`'s `improved_panic_error_reporting` feature, as the Quantus
 /// runtime is, reports a panic as an `unreachable` trap, so traps have to be counted.
@@ -192,6 +193,24 @@ mod runtime_aborted_tests {
 	#[test]
 	fn missing_export_is_not_an_abort() {
 		let error = failed_runtime_call(TRAPPING_MODULE, "missing_export");
+		assert!(!runtime_aborted(&through_runtime_api(error)));
+	}
+
+	const RECURSING_MODULE: &str = r#"
+		(module
+			(memory (export "memory") 1)
+			(global (export "__heap_base") i32 (i32.const 1024))
+			(func $recurse (result i64) (call $recurse))
+			(func (export "execute_block") (param i32 i32) (result i64) (call $recurse)))
+	"#;
+
+	/// The node limits the stack in native bytes, which the runtime's semantics do not fix:
+	/// the same call can fit on another architecture.
+	#[test]
+	fn stack_exhaustion_is_not_an_abort() {
+		let error = failed_runtime_call(RECURSING_MODULE, "execute_block");
+		assert!(error.to_string().contains("call stack exhausted"), "{error}");
+		assert!(!runtime_aborted(&error));
 		assert!(!runtime_aborted(&through_runtime_api(error)));
 	}
 
