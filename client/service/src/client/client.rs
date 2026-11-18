@@ -47,6 +47,7 @@ use sc_consensus::{
 	BlockCheckParams, BlockImportParams, ForkChoiceStrategy, ImportResult, StateAction,
 };
 use sc_executor::RuntimeVersion;
+use sc_network_sync::DeterministicBlockInvalid;
 use sc_telemetry::{telemetry, TelemetryHandle, SUBSTRATE_INFO};
 use sp_api::{
 	ApiExt, ApiRef, CallApiAt, CallApiAtParams, ConstructRuntimeApi, Core as CoreApi,
@@ -66,7 +67,7 @@ use sp_core::{
 use sp_runtime::{
 	generic::{BlockId, SignedBlock},
 	traits::{
-		Block as BlockT, BlockIdTo, HashingFor, Header as HeaderT, NumberFor, One,
+		Block as BlockT, BlockIdTo, CheckedAdd, HashingFor, Header as HeaderT, NumberFor, One,
 		SaturatedConversion, Zero,
 	},
 	Justification, Justifications, StateVersion,
@@ -1722,14 +1723,14 @@ where
 		let span = tracing::span!(tracing::Level::DEBUG, "import_block");
 		let _enter = span.enter();
 
-		let storage_changes =
-			match self.prepare_block_storage_changes(&mut import_block).map_err(|e| {
+		let storage_changes = match self.prepare_block_storage_changes(&mut import_block) {
+			Ok(PrepareStorageChangesResult::Discard(res)) => return Ok(res),
+			Ok(PrepareStorageChangesResult::Import(storage_changes)) => storage_changes,
+			Err(e) => {
 				warn!("Block prepare storage changes error: {}", e);
-				ConsensusError::ClientImport(e.to_string())
-			})? {
-				PrepareStorageChangesResult::Discard(res) => return Ok(res),
-				PrepareStorageChangesResult::Import(storage_changes) => storage_changes,
-			};
+				return Err(consensus_error_for_block_prepare(e));
+			},
+		};
 
 		self.lock_import_and_run(|operation| {
 			self.apply_block(operation, import_block, storage_changes)
@@ -1800,7 +1801,47 @@ where
 			BlockStatus::KnownBad => return Ok(ImportResult::KnownBad),
 		}
 
+		// The block hash commits `parent_hash` and the low 32 bits of the number. A header
+		// whose number does not follow that parent is invalid for every encoding of this hash.
+		if let Some(parent) = self
+			.header(parent_hash)
+			.map_err(|e| ConsensusError::ClientImport(e.to_string()))?
+		{
+			let parent_number = *parent.number();
+			if parent_number.checked_add(&One::one()) != Some(number) {
+				trace!(
+					"Rejecting block #{} {:?} because its number does not follow parent #{}",
+					number,
+					hash,
+					parent_number,
+				);
+				return Ok(ImportResult::KnownBad);
+			}
+		}
+
 		Ok(ImportResult::imported(false))
+	}
+}
+
+/// Execution and state-root failures will not succeed on retry. Database and backend failures
+/// stay [`ConsensusError::ClientImport`] so sync does not disconnect the sending peer.
+fn consensus_error_for_block_prepare(error: Error) -> ConsensusError {
+	if deterministic_block_invalidity(&error) {
+		ConsensusError::Other(Box::new(DeterministicBlockInvalid::new(error.to_string())))
+	} else {
+		ConsensusError::ClientImport(error.to_string())
+	}
+}
+
+fn deterministic_block_invalidity(error: &Error) -> bool {
+	match error {
+		Error::Execution(_) |
+		Error::InvalidStateRoot |
+		Error::ApplyExtrinsicFailed(_) |
+		Error::ExtrinsicRootInvalid { .. } => true,
+		Error::RuntimeApiError(sp_api::ApiError::Application(_)) => true,
+		Error::Blockchain(inner) => deterministic_block_invalidity(inner),
+		_ => false,
 	}
 }
 

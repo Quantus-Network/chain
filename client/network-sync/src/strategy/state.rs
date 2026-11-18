@@ -22,7 +22,6 @@ use crate::{
 	schema::v1::{StateRequest, StateResponse},
 	service::network::NetworkServiceHandle,
 	strategy::{
-		chain_sync::extrinsics_match_header,
 		disconnected_peers::DisconnectedPeers,
 		state_sync::{ImportResult, StateSync, StateSyncProvider},
 		StrategyKey, SyncingAction,
@@ -79,9 +78,6 @@ pub struct StateStrategy<B: BlockT> {
 	actions: Vec<SyncingAction<B>>,
 	protocol_name: ProtocolName,
 	succeeded: bool,
-	/// Peer that supplied the state-sync target block. Import failures of that block do not
-	/// always carry a peer id.
-	imported_from: Option<PeerId>,
 }
 
 impl<B: BlockT> StateStrategy<B> {
@@ -119,7 +115,6 @@ impl<B: BlockT> StateStrategy<B> {
 			actions: Vec::new(),
 			protocol_name,
 			succeeded: false,
-			imported_from: None,
 		}
 	}
 
@@ -143,7 +138,6 @@ impl<B: BlockT> StateStrategy<B> {
 			actions: Vec::new(),
 			protocol_name,
 			succeeded: false,
-			imported_from: None,
 		}
 	}
 
@@ -224,16 +218,9 @@ impl<B: BlockT> StateStrategy<B> {
 
 		match self.state_sync.import(response) {
 			ImportResult::Import(hash, header, state, body, justifications) => {
-				if let Some(extrinsics) = body.as_ref() {
-					if !extrinsics_match_header::<B>(&header, extrinsics) {
-						debug!(
-							target: LOG_TARGET,
-							"State sync body from {peer_id} does not match the header extrinsics root",
-						);
-						return Err(BadPeer(*peer_id, rep::BAD_STATE));
-					}
-				}
-				self.imported_from = Some(*peer_id);
+				// `body` is the target block saved before state download, not this peer's
+				// response. Leave its origin unset so a later header failure is not charged
+				// to the peer who sent the last state chunk.
 				let origin = BlockOrigin::NetworkInitialSync;
 				let block = IncomingBlock {
 					hash,
@@ -241,7 +228,7 @@ impl<B: BlockT> StateStrategy<B> {
 					body,
 					indexed_body: None,
 					justifications,
-					origin: Some(*peer_id),
+					origin: None,
 					allow_missing_state: true,
 					import_existing: true,
 					skip_execution: true,
@@ -286,27 +273,14 @@ impl<B: BlockT> StateStrategy<B> {
 			.collect::<Vec<_>>();
 
 		if !results.is_empty() {
-			// We processed the target block
-			let remembered = self.imported_from;
-			for result in &results {
-				let Err(error) = result else { continue };
+			// We processed the target block. A failure of that block is not charged to the
+			// state-chunk peer: the header and body were selected before this download.
+			results.iter().filter_map(|result| result.as_ref().err()).for_each(|e| {
 				error!(
 					target: LOG_TARGET,
-					"Failed to import target block with state: {error:?}."
+					"Failed to import target block with state: {e:?}."
 				);
-				let peer = match error {
-					BlockImportError::VerificationFailed(peer, _) |
-					BlockImportError::BadBlock(peer) |
-					BlockImportError::IncompleteHeader(peer) => peer.or(remembered),
-					BlockImportError::Other(_) => remembered,
-					BlockImportError::UnknownParent |
-					BlockImportError::MissingState |
-					BlockImportError::Cancelled => None,
-				};
-				if let Some(peer) = peer {
-					self.actions.push(SyncingAction::DropPeer(BadPeer(peer, rep::BAD_STATE)));
-				}
-			}
+			});
 			self.succeeded |= results.into_iter().any(|result| result.is_ok());
 			self.actions.push(SyncingAction::Finished);
 		}
@@ -756,7 +730,6 @@ mod test {
 		state_sync_provider.expect_import().return_once(move |_| import);
 
 		// Reference values to check against.
-		let peer_id = PeerId::random();
 		let expected_origin = BlockOrigin::NetworkInitialSync;
 		let expected_block = IncomingBlock {
 			hash,
@@ -764,7 +737,7 @@ mod test {
 			body,
 			indexed_body: None,
 			justifications,
-			origin: Some(peer_id),
+			origin: None,
 			allow_missing_state: true,
 			import_existing: true,
 			skip_execution: true,
@@ -773,6 +746,7 @@ mod test {
 		let expected_blocks = vec![expected_block];
 
 		// Prepare `StateStrategy`.
+		let peer_id = PeerId::random();
 		let initial_peers = std::iter::once((peer_id, 10));
 		let mut state_strategy = StateStrategy::new_with_provider(
 			Box::new(state_sync_provider),
