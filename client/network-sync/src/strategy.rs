@@ -24,6 +24,7 @@
 
 pub mod chain_sync;
 mod disconnected_peers;
+mod future_blocks;
 pub mod polkadot;
 pub mod state;
 pub mod state_sync;

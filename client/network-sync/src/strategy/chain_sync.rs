@@ -36,6 +36,7 @@ use crate::{
 	service::network::NetworkServiceHandle,
 	strategy::{
 		disconnected_peers::DisconnectedPeers,
+		future_blocks::FutureBlockPeers,
 		state_sync::{ImportResult, StateSync, StateSyncProvider},
 		warp::{WarpSyncPhase, WarpSyncProgress},
 		StrategyKey, SyncingAction, SyncingStrategy,
@@ -59,7 +60,7 @@ use sc_network_types::PeerId;
 use sp_arithmetic::traits::Saturating;
 use sp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata};
 use sp_consensus::{BlockOrigin, BlockStatus};
-use sp_consensus_qpow::InvalidBlock;
+use sp_consensus_qpow::{FutureBlock, InvalidBlock};
 use sp_core::storage::StateVersion;
 use sp_runtime::{
 	traits::{
@@ -74,6 +75,7 @@ use std::{
 	collections::{HashMap, HashSet},
 	ops::Range,
 	sync::Arc,
+	time::Instant,
 };
 
 #[cfg(all(test, feature = "substrate-test"))]
@@ -82,13 +84,12 @@ mod test;
 /// Maximum blocks to store in the import queue.
 const MAX_IMPORTING_BLOCKS: usize = 2048;
 
-/// `true` when block import reported the block itself as invalid, rather than a failure of
-/// this node.
-fn import_rejected_block(error: &sp_consensus::Error) -> bool {
-	match error {
-		sp_consensus::Error::Other(inner) => inner.is::<InvalidBlock>(),
-		_ => false,
-	}
+/// `true` when block import failed with the marker error `T`.
+///
+/// Block import uses [`InvalidBlock`] and [`FutureBlock`] to say that the block caused the
+/// failure. Any other error is a failure of this node.
+fn import_failed_with<T: std::error::Error + 'static>(error: &sp_consensus::Error) -> bool {
+	matches!(error, sp_consensus::Error::Other(inner) if inner.is::<T>())
 }
 
 /// Maximum blocks to download ahead of any gap.
@@ -327,6 +328,7 @@ pub struct ChainSync<B: BlockT, Client> {
 	/// The active peers that we are using to sync and their PeerSync status
 	peers: HashMap<PeerId, PeerSync<B>>,
 	disconnected_peers: DisconnectedPeers,
+	future_block_peers: FutureBlockPeers,
 	/// A `BlockCollection` of blocks that are being downloaded from peers
 	blocks: BlockCollection<B>,
 	/// The best block number in our queue of blocks to import
@@ -840,13 +842,21 @@ where
 					self.restart();
 				},
 				// `Other` carries no peer. Drop the sender only when import reported the block
-				// itself as invalid; a failure of this node is retried with the peer connected.
+				// itself as invalid. A block from the future passes later, so its sender stays
+				// connected and is asked again after a pause. A failure of this node is retried
+				// at once.
 				Err(BlockImportError::Other(error)) => {
 					warn!(target: LOG_TARGET, "💔 Error importing block {hash:?}: {error}");
-					if import_rejected_block(&error) {
-						if let Some(peer) = origin {
+					if let Some(peer) = origin {
+						if import_failed_with::<InvalidBlock>(&error) {
 							self.actions
 								.push(SyncingAction::DropPeer(BadPeer(peer, rep::BAD_BLOCK)));
+						} else if import_failed_with::<FutureBlock>(&error) {
+							let pause = self.future_block_peers.pause(peer, Instant::now());
+							debug!(
+								target: LOG_TARGET,
+								"Not requesting blocks from {peer} for {pause:?}",
+							);
 						}
 					}
 					self.state_sync = None;
@@ -1073,6 +1083,7 @@ where
 			client,
 			peers: HashMap::new(),
 			disconnected_peers: DisconnectedPeers::new(),
+			future_block_peers: FutureBlockPeers::new(),
 			blocks: BlockCollection::new(),
 			best_queued_hash: Default::default(),
 			best_queued_number: Zero::zero(),
@@ -2019,6 +2030,8 @@ where
 		let max_blocks_per_request = self.max_blocks_per_request;
 		let gap_sync = &mut self.gap_sync;
 		let disconnected_peers = &mut self.disconnected_peers;
+		let future_block_peers = &self.future_block_peers;
+		let now = Instant::now();
 		let metrics = self.metrics.as_ref();
 		let requests = self
 			.peers
@@ -2040,6 +2053,10 @@ where
 					!allowed_requests.contains(&id) ||
 					!disconnected_peers.is_peer_available(&id)
 				{
+					return None;
+				}
+				if future_block_peers.is_paused(&id, now) {
+					debug!(target: LOG_TARGET, "Skipping {:?}: it sent a block from the future", id);
 					return None;
 				}
 
@@ -3182,10 +3199,10 @@ mod security_tests {
 
 	/// A peer sends block 1. The block goes through the real import queue, whose block import
 	/// fails with `error`, and the queue's result is handed back to sync. Returns the peer and
-	/// the actions sync took.
-	fn actions_after_failed_import(
+	/// sync, which holds the actions it took.
+	fn sync_after_failed_import(
 		error: fn() -> sp_consensus::Error,
-	) -> (PeerId, Vec<SyncingAction<TestBlock>>) {
+	) -> (PeerId, ChainSync<TestBlock, GenesisClient>) {
 		let (client, mut sync) = idle_sync();
 		let serving = PeerId::random();
 		sync.add_peer(serving, client.genesis.hash(), 0);
@@ -3226,16 +3243,20 @@ mod security_tests {
 
 		sync.on_blocks_processed(imported, count, results);
 		assert!(sync.import_origins.is_empty());
-		(serving, sync.actions)
+		(serving, sync)
+	}
+
+	fn drops_a_peer(sync: &ChainSync<TestBlock, GenesisClient>) -> bool {
+		sync.actions.iter().any(|action| matches!(action, SyncingAction::DropPeer(_)))
 	}
 
 	#[test]
 	fn block_reported_invalid_by_import_drops_the_sender() {
-		let (serving, actions) = actions_after_failed_import(|| {
+		let (serving, sync) = sync_after_failed_import(|| {
 			sp_consensus::Error::Other(Box::new(InvalidBlock::new("execution failed")))
 		});
 
-		assert!(actions.iter().any(|action| matches!(
+		assert!(sync.actions.iter().any(|action| matches!(
 			action,
 			SyncingAction::DropPeer(BadPeer(peer, change))
 				if *peer == serving && *change == rep::BAD_BLOCK
@@ -3243,22 +3264,55 @@ mod security_tests {
 	}
 
 	#[test]
-	fn local_import_failure_does_not_drop_the_sender() {
-		let (_serving, actions) = actions_after_failed_import(|| {
-			sp_consensus::Error::ClientImport("database error".into())
-		});
+	fn block_from_the_future_pauses_the_sender_without_dropping_it() {
+		let before = Instant::now();
+		let (serving, sync) =
+			sync_after_failed_import(|| sp_consensus::Error::Other(Box::new(FutureBlock)));
 
-		assert!(actions.iter().all(|action| !matches!(action, SyncingAction::DropPeer(_))));
+		assert!(!drops_a_peer(&sync));
+		assert!(sync.peers.contains_key(&serving));
+		assert!(sync.future_block_peers.is_paused(&serving, before));
 	}
 
-	/// `Other` is also what `?` makes of any boxed error. Only [`InvalidBlock`] names the block.
+	#[test]
+	fn paused_peer_is_not_asked_for_blocks() {
+		let asked_for_blocks = |paused: bool| {
+			let (_client, mut sync) = idle_sync();
+			let serving = PeerId::random();
+			sync.add_peer(serving, H256::repeat_byte(9), 1);
+			if paused {
+				// Repeat until the pause is far longer than this test can take.
+				for _ in 0..6 {
+					sync.future_block_peers.pause(serving, Instant::now());
+				}
+			}
+			sync.block_requests().iter().any(|(peer, _)| *peer == serving)
+		};
+
+		assert!(asked_for_blocks(false));
+		assert!(!asked_for_blocks(true));
+	}
+
+	#[test]
+	fn local_import_failure_does_not_drop_the_sender() {
+		let before = Instant::now();
+		let (serving, sync) =
+			sync_after_failed_import(|| sp_consensus::Error::ClientImport("database error".into()));
+
+		assert!(!drops_a_peer(&sync));
+		assert!(!sync.future_block_peers.is_paused(&serving, before));
+	}
+
+	/// `Other` is also what `?` makes of any boxed error. Only the marker types name the block.
 	#[test]
 	fn unrelated_boxed_import_error_does_not_drop_the_sender() {
-		let (_serving, actions) = actions_after_failed_import(|| {
+		let before = Instant::now();
+		let (serving, sync) = sync_after_failed_import(|| {
 			sp_consensus::Error::Other("inherent data provider failed".into())
 		});
 
-		assert!(actions.iter().all(|action| !matches!(action, SyncingAction::DropPeer(_))));
+		assert!(!drops_a_peer(&sync));
+		assert!(!sync.future_block_peers.is_paused(&serving, before));
 	}
 
 	#[test]

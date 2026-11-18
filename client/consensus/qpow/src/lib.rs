@@ -9,7 +9,7 @@ pub use chain_management::{
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
 use sp_api::ProvideRuntimeApi;
-use sp_consensus_qpow::{InvalidBlock, QPoWApi, Seal as RawSeal};
+use sp_consensus_qpow::{FutureBlock, InvalidBlock, QPoWApi, Seal as RawSeal};
 use sp_runtime::traits::Block as BlockT;
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
@@ -92,11 +92,7 @@ impl<B: BlockT> From<Error<B>> for String {
 }
 
 impl<B: BlockT> Error<B> {
-	/// `true` when the error says the block is invalid, `false` when this node failed.
-	///
-	/// A failed inherent check is counted against the block even though the timestamp check
-	/// depends on the local clock. Left unpenalised, one mined block with a future timestamp
-	/// could be replayed to restart sync without end.
+	/// `true` when the error says the block is invalid and will stay invalid.
 	fn rejects_block(&self) -> bool {
 		matches!(
 			self,
@@ -124,12 +120,32 @@ fn inherent_check_call_error<B: BlockT>(error: sp_api::ApiError) -> Error<B> {
 	}
 }
 
+/// Error for an inherent the runtime refused.
+///
+/// A timestamp too far ahead is judged against this node's clock, so it is kept apart from
+/// the refusals that depend on the block alone.
+fn refused_inherent_error<B: BlockT>(error: sp_inherents::Error) -> Error<B> {
+	let ahead_of_clock = matches!(
+		&error,
+		sp_inherents::Error::Application(inner) if matches!(
+			inner.downcast_ref::<sp_timestamp::InherentError>(),
+			Some(sp_timestamp::InherentError::TooFarInFuture)
+		)
+	);
+	if ahead_of_clock {
+		Error::TooFarInFuture
+	} else {
+		Error::CheckInherents(error)
+	}
+}
+
 impl<B: BlockT> From<Error<B>> for ConsensusError {
 	fn from(error: Error<B>) -> ConsensusError {
-		if error.rejects_block() {
-			ConsensusError::Other(Box::new(InvalidBlock::new(error.to_string())))
-		} else {
-			ConsensusError::ClientImport(error.to_string())
+		match error {
+			Error::TooFarInFuture => ConsensusError::Other(Box::new(FutureBlock)),
+			error if error.rejects_block() =>
+				ConsensusError::Other(Box::new(InvalidBlock::new(error.to_string()))),
+			error => ConsensusError::ClientImport(error.to_string()),
 		}
 	}
 }
@@ -227,7 +243,7 @@ where
 		if !inherent_res.ok() {
 			for (identifier, error) in inherent_res.into_errors() {
 				match inherent_data_providers.try_handle_error(&identifier, &error).await {
-					Some(res) => res.map_err(Error::CheckInherents)?,
+					Some(res) => res.map_err(refused_inherent_error)?,
 					None => return Err(Error::CheckInherentsUnknownError(identifier)),
 				}
 			}
@@ -1080,11 +1096,16 @@ mod tests {
 		assert!(err.contains("64 bytes"), "expected the length rejection, got: {err}");
 	}
 
+	fn is_invalid_block(error: &ConsensusError) -> bool {
+		matches!(error, ConsensusError::Other(inner) if inner.is::<InvalidBlock>())
+	}
+
+	fn is_future_block(error: &ConsensusError) -> bool {
+		matches!(error, ConsensusError::Other(inner) if inner.is::<FutureBlock>())
+	}
+
 	fn reported_as_invalid_block(error: Error<TestBlock>) -> bool {
-		match ConsensusError::from(error) {
-			ConsensusError::Other(inner) => inner.is::<InvalidBlock>(),
-			_ => false,
-		}
+		is_invalid_block(&error.into())
 	}
 
 	/// `import_block` checks inherents after the verifier has passed the block, so the
@@ -1097,6 +1118,35 @@ mod tests {
 		)));
 		assert!(reported_as_invalid_block(Error::CheckInherentsUnknownError(*b"timstap0")));
 		assert!(reported_as_invalid_block(Error::InvalidSeal));
+	}
+
+	/// What `check_inherents` returns for a timestamp the runtime refused. The error goes
+	/// through the timestamp provider the node uses, as it does in `check_inherents`.
+	fn refused_timestamp(error: sp_timestamp::InherentError) -> ConsensusError {
+		let clock =
+			sp_timestamp::InherentDataProvider::new(sp_timestamp::Timestamp::new(1_000_000));
+		let handled = futures::executor::block_on(
+			clock.try_handle_error(&sp_timestamp::INHERENT_IDENTIFIER, &error.encode()),
+		)
+		.expect("the timestamp provider handles its own identifier")
+		.expect_err("the provider reports every timestamp error");
+		refused_inherent_error::<TestBlock>(handled).into()
+	}
+
+	/// The same block passes once the local clock catches up, so the sender is not blamed.
+	#[test]
+	fn timestamp_ahead_of_the_local_clock_is_reported_as_a_future_block() {
+		let error = refused_timestamp(sp_timestamp::InherentError::TooFarInFuture);
+		assert!(is_future_block(&error));
+		assert!(!is_invalid_block(&error));
+	}
+
+	/// The minimum gap to the parent's timestamp does not depend on the local clock.
+	#[test]
+	fn timestamp_too_close_to_the_parent_is_reported_as_an_invalid_block() {
+		let error = refused_timestamp(sp_timestamp::InherentError::TooEarly);
+		assert!(is_invalid_block(&error));
+		assert!(!is_future_block(&error));
 	}
 
 	/// The shape the runtime API returns for a failed call: `call_api_at` hands the client

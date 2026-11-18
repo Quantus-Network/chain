@@ -35,6 +35,25 @@ impl core::fmt::Display for InvalidBlock {
 #[cfg(feature = "std")]
 impl std::error::Error for InvalidBlock {}
 
+/// Import error for a block whose timestamp is further ahead of this node's clock than the
+/// runtime allows.
+///
+/// The block is not invalid: the same block passes once the clock catches up. Sync does not
+/// penalise the peer that supplied it and asks again later.
+#[cfg(feature = "std")]
+#[derive(Debug)]
+pub struct FutureBlock;
+
+#[cfg(feature = "std")]
+impl core::fmt::Display for FutureBlock {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		f.write_str("block timestamp is too far in the future")
+	}
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for FutureBlock {}
+
 sp_api::decl_runtime_apis! {
 	pub trait QPoWApi {
 		/// Get the max possible reorg depth

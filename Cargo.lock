@@ -8753,6 +8753,7 @@ dependencies = [
  "sp-core",
  "sp-inherents",
  "sp-runtime",
+ "sp-timestamp",
  "substrate-prometheus-endpoint",
  "thiserror 2.0.18",
  "tokio",
