@@ -91,9 +91,7 @@ mod runtime_aborted_tests {
 		H256,
 	};
 	use sp_runtime::traits::BlakeTwo256;
-	use sp_state_machine::{
-		InMemoryBackend, OverlayedChanges, StateMachine, TrieBackendBuilder,
-	};
+	use sp_state_machine::{InMemoryBackend, OverlayedChanges, StateMachine, TrieBackendBuilder};
 
 	/// The shape a caller of the runtime API gets back: `call_api_at` converts the client
 	/// error to an `ApiError`, and `?` converts it back.

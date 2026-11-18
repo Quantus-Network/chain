@@ -1088,7 +1088,10 @@ mod tests {
 	#[test]
 	fn verifier_passes_the_block_on_when_the_runtime_call_fails() {
 		let result = verify_canonical(None).expect("a failed call must not reject the block");
-		assert_eq!(result.post_digests.last(), Some(&DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64])));
+		assert_eq!(
+			result.post_digests.last(),
+			Some(&DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64]))
+		);
 	}
 
 	/// A seal that is not exactly 64 bytes is rejected before the runtime call,

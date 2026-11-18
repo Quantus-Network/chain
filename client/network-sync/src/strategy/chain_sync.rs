@@ -3133,10 +3133,8 @@ mod security_tests {
 			sp_runtime::OpaqueExtrinsic,
 		>;
 		let header_committing_to = |body: &[sp_runtime::OpaqueExtrinsic], layout| {
-			let root = BlakeTwo256::ordered_trie_root(
-				body.iter().map(Encode::encode).collect(),
-				layout,
-			);
+			let root =
+				BlakeTwo256::ordered_trie_root(body.iter().map(Encode::encode).collect(), layout);
 			<OpaqueBlock as BlockT>::Header::new(
 				1,
 				root,
