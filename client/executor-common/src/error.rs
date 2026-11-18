@@ -97,6 +97,10 @@ pub enum Error {
 	#[error("Execution aborted due to trap: {0}")]
 	AbortedDueToTrap(MessageWithBacktrace),
 
+	/// A host function returned an error or panicked while the runtime was calling it.
+	#[error("Execution aborted because a host function failed: {0}")]
+	AbortedDueToHostError(MessageWithBacktrace),
+
 	#[error("Output exceeds bounds of wasm memory")]
 	OutputExceedsBounds,
 }

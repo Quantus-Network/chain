@@ -55,9 +55,12 @@ pub use sc_executor_wasmtime::InstantiationStrategy as WasmtimeInstantiationStra
 /// `true` when `error` is a runtime call that the runtime ended itself, with a panic or a trap.
 ///
 /// `sp_blockchain::Error::Execution` also carries failures of the host: a module that could
-/// not be instantiated, or a host function that panicked on a storage read. Those are not
-/// counted. An error that crossed the runtime API is looked for inside
+/// not be instantiated, or a host function that failed, for example by panicking on a storage
+/// read. Those are not counted. An error that crossed the runtime API is looked for inside
 /// `ApiError::Application`, where `call_api_at` puts it.
+///
+/// A runtime built without `sp-io`'s `improved_panic_error_reporting` feature, as the Quantus
+/// runtime is, reports a panic as an `unreachable` trap, so traps have to be counted.
 pub fn runtime_aborted(error: &sp_blockchain::Error) -> bool {
 	match error {
 		sp_blockchain::Error::Execution(inner) => matches!(
@@ -82,13 +85,15 @@ pub trait RuntimeVersionOf {
 
 #[cfg(test)]
 mod runtime_aborted_tests {
-	use super::{
-		error::{Error as ExecutorError, MessageWithBacktrace},
-		runtime_aborted, WasmExecutor,
+	use super::{runtime_aborted, WasmExecutor};
+	use sp_core::{
+		traits::{CallContext, RuntimeCode, WrappedRuntimeCode},
+		H256,
 	};
-	use sp_core::traits::{CallContext, RuntimeCode, WrappedRuntimeCode};
 	use sp_runtime::traits::BlakeTwo256;
-	use sp_state_machine::{InMemoryBackend, OverlayedChanges, StateMachine};
+	use sp_state_machine::{
+		InMemoryBackend, OverlayedChanges, StateMachine, TrieBackendBuilder,
+	};
 
 	/// The shape a caller of the runtime API gets back: `call_api_at` converts the client
 	/// error to an `ApiError`, and `?` converts it back.
@@ -98,10 +103,13 @@ mod runtime_aborted_tests {
 
 	/// Calls `method` on a module through the state machine and the Wasm executor, the way
 	/// the client's call executor does, and returns the client error for the failure.
-	fn failed_runtime_call(module: &str, method: &str) -> sp_blockchain::Error {
+	fn failed_runtime_call_on(
+		backend: &InMemoryBackend<BlakeTwo256>,
+		module: &str,
+		method: &str,
+	) -> sp_blockchain::Error {
 		let code = wat::parse_str(module).expect("valid wat");
 		let executor: WasmExecutor = WasmExecutor::builder().build();
-		let backend = InMemoryBackend::<BlakeTwo256>::default();
 		let mut overlay = OverlayedChanges::default();
 		let mut extensions = Default::default();
 		let runtime_code = RuntimeCode {
@@ -111,7 +119,7 @@ mod runtime_aborted_tests {
 		};
 
 		let error = StateMachine::new(
-			&backend,
+			backend,
 			&mut overlay,
 			&executor,
 			method,
@@ -125,11 +133,26 @@ mod runtime_aborted_tests {
 		sp_blockchain::Error::from(error)
 	}
 
+	fn failed_runtime_call(module: &str, method: &str) -> sp_blockchain::Error {
+		failed_runtime_call_on(&InMemoryBackend::default(), module, method)
+	}
+
 	const TRAPPING_MODULE: &str = r#"
 		(module
 			(memory (export "memory") 1)
 			(global (export "__heap_base") i32 (i32.const 1024))
 			(func (export "execute_block") (param i32 i32) (result i64) unreachable))
+	"#;
+
+	const PANICKING_MODULE: &str = r#"
+		(module
+			(import "env" "ext_panic_handler_abort_on_panic_version_1" (func $abort (param i64)))
+			(memory (export "memory") 1)
+			(data (i32.const 0) "bad block")
+			(global (export "__heap_base") i32 (i32.const 1024))
+			(func (export "execute_block") (param i32 i32) (result i64)
+				(call $abort (i64.const 0x900000000))
+				unreachable))
 	"#;
 
 	/// The data segment lies far outside the memory the executor allocates, so every
@@ -142,6 +165,7 @@ mod runtime_aborted_tests {
 			(func (export "execute_block") (param i32 i32) (result i64) unreachable))
 	"#;
 
+	/// The Quantus runtime's panic handler logs the message and executes `unreachable`.
 	#[test]
 	fn trap_inside_the_runtime_is_an_abort() {
 		let error = failed_runtime_call(TRAPPING_MODULE, "execute_block");
@@ -149,13 +173,13 @@ mod runtime_aborted_tests {
 		assert!(runtime_aborted(&through_runtime_api(error)));
 	}
 
+	/// A runtime built with `improved_panic_error_reporting` hands the panic message to the
+	/// host instead.
 	#[test]
 	fn panic_inside_the_runtime_is_an_abort() {
-		let panic = ExecutorError::AbortedDueToPanic(MessageWithBacktrace {
-			message: "Storage root must match that calculated.".into(),
-			backtrace: None,
-		});
-		let error = sp_blockchain::Error::Execution(Box::new(panic));
+		let error = failed_runtime_call(PANICKING_MODULE, "execute_block");
+		assert!(error.to_string().contains("due to panic: bad block"), "{error}");
+		assert!(runtime_aborted(&error));
 		assert!(runtime_aborted(&through_runtime_api(error)));
 	}
 
@@ -173,11 +197,25 @@ mod runtime_aborted_tests {
 		assert!(!runtime_aborted(&through_runtime_api(error)));
 	}
 
-	/// A host function that panics, such as a storage read on a damaged database.
+	/// Reads the storage key held in the first byte of memory.
+	const STORAGE_READING_MODULE: &str = r#"
+		(module
+			(import "env" "ext_storage_get_version_1" (func $storage_get (param i64) (result i64)))
+			(memory (export "memory") 1)
+			(global (export "__heap_base") i32 (i32.const 1024))
+			(func (export "execute_block") (param i32 i32) (result i64)
+				(call $storage_get (i64.const 0x100000000))))
+	"#;
+
+	/// A storage read that fails on this node, as on a damaged database, panics in the host
+	/// function. The state root below names a trie node the database does not hold.
 	#[test]
-	fn host_panic_is_not_an_abort() {
-		let host_panic = ExecutorError::RuntimePanicked("Externalities not allowed to fail".into());
-		let error = sp_blockchain::Error::Execution(Box::new(host_panic));
+	fn failed_storage_read_is_not_an_abort() {
+		let backend: InMemoryBackend<BlakeTwo256> =
+			TrieBackendBuilder::new(Default::default(), H256::repeat_byte(1)).build();
+		let error = failed_runtime_call_on(&backend, STORAGE_READING_MODULE, "execute_block");
+		assert!(error.to_string().contains("Externalities not allowed to fail"), "{error}");
+		assert!(!runtime_aborted(&error));
 		assert!(!runtime_aborted(&through_runtime_api(error)));
 	}
 
