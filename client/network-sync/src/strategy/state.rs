@@ -218,9 +218,6 @@ impl<B: BlockT> StateStrategy<B> {
 
 		match self.state_sync.import(response) {
 			ImportResult::Import(hash, header, state, body, justifications) => {
-				// `body` is the target block saved before state download, not this peer's
-				// response. Leave its origin unset so a later header failure is not charged
-				// to the peer who sent the last state chunk.
 				let origin = BlockOrigin::NetworkInitialSync;
 				let block = IncomingBlock {
 					hash,
@@ -273,8 +270,7 @@ impl<B: BlockT> StateStrategy<B> {
 			.collect::<Vec<_>>();
 
 		if !results.is_empty() {
-			// We processed the target block. A failure of that block is not charged to the
-			// state-chunk peer: the header and body were selected before this download.
+			// We processed the target block
 			results.iter().filter_map(|result| result.as_ref().err()).for_each(|e| {
 				error!(
 					target: LOG_TARGET,

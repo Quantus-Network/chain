@@ -339,9 +339,12 @@ pub struct ChainSync<B: BlockT, Client> {
 	mode: ChainSyncMode,
 	/// Any extra justification requests.
 	extra_justifications: ExtraRequests<B>,
-	/// A set of hashes of blocks that are being downloaded or have been
-	/// downloaded and are queued for import.
-	queue_blocks: HashSet<B::Hash>,
+	/// Hashes of blocks that are being downloaded or have been downloaded and are queued for
+	/// import, each with the peer that supplied it.
+	///
+	/// `BlockImportError::Other` does not carry a peer id, so the sender is kept here until
+	/// the import result arrives.
+	queue_blocks: HashMap<B::Hash, Option<PeerId>>,
 	/// A pending attempt to start the state sync.
 	///
 	/// The initiation of state sync may be deferred in cases where other conditions
@@ -352,11 +355,6 @@ pub struct ChainSync<B: BlockT, Client> {
 	pending_state_sync_attempt: Option<(B::Hash, NumberFor<B>, bool)>,
 	/// Fork sync targets.
 	fork_targets: HashMap<B::Hash, ForkTarget<B>>,
-	/// Peer that supplied a block now queued for import, keyed by block hash.
-	///
-	/// `BlockImportError::Other` does not carry a peer id, so the origin is remembered until
-	/// the import result arrives.
-	import_origins: HashMap<B::Hash, PeerId>,
 	/// A set of peers for which there might be potential block requests
 	allowed_requests: AllowedRequests,
 	/// Maximum number of peers to ask the same blocks in parallel.
@@ -718,28 +716,27 @@ where
 		trace!(target: LOG_TARGET, "Imported {imported} of {count}");
 
 		let mut has_error = false;
+		let mut origins = Vec::with_capacity(results.len());
 		for (_, hash) in &results {
-			if self.queue_blocks.remove(hash) {
+			let queued = self.queue_blocks.remove(hash);
+			if queued.is_some() {
 				if let Some(metrics) = &self.metrics {
 					metrics.queued_blocks.dec();
 				}
 			}
+			origins.push(queued.flatten());
 			self.blocks.clear_queued(hash);
 			if let Some(gap_sync) = &mut self.gap_sync {
 				gap_sync.blocks.clear_queued(hash);
 			}
 		}
-		for (result, hash) in results {
+		for ((result, hash), origin) in results.into_iter().zip(origins) {
 			if has_error {
-				// The restart above drops the rest of this batch. Forget their senders so a
-				// follow-up failure is not charged to them.
-				self.import_origins.remove(&hash);
 				continue
 			}
 
 			has_error |= result.is_err();
 
-			let origin = self.import_origins.remove(&hash);
 			match result {
 				Ok(BlockImportStatus::ImportedKnown(number, peer_id)) => {
 					if let Some(peer) = peer_id {
@@ -1092,7 +1089,6 @@ where
 			queue_blocks: Default::default(),
 			pending_state_sync_attempt: None,
 			fork_targets: Default::default(),
-			import_origins: HashMap::new(),
 			allowed_requests: Default::default(),
 			max_parallel_downloads,
 			max_blocks_per_request,
@@ -1740,7 +1736,7 @@ where
 		normal_sync: bool,
 	) {
 		let orig_len = new_blocks.len();
-		new_blocks.retain(|b| !self.queue_blocks.contains(&b.hash));
+		new_blocks.retain(|b| !self.queue_blocks.contains_key(&b.hash));
 		if new_blocks.len() != orig_len {
 			debug!(
 				target: LOG_TARGET,
@@ -1768,12 +1764,7 @@ where
 			new_blocks.last().map(|b| b.hash),
 			origin,
 		);
-		for block in &new_blocks {
-			if let Some(peer) = block.origin {
-				self.import_origins.insert(block.hash, peer);
-			}
-		}
-		self.queue_blocks.extend(new_blocks.iter().map(|b| b.hash));
+		self.queue_blocks.extend(new_blocks.iter().map(|b| (b.hash, b.origin)));
 		if let Some(metrics) = &self.metrics {
 			metrics
 				.queued_blocks
@@ -1935,7 +1926,7 @@ where
 
 	/// What is the status of the block corresponding to the given hash?
 	fn block_status(&self, hash: &B::Hash) -> Result<BlockStatus, ClientError> {
-		if self.queue_blocks.contains(hash) {
+		if self.queue_blocks.contains_key(hash) {
 			return Ok(BlockStatus::Queued);
 		}
 		self.client.block_status(*hash)
@@ -2112,7 +2103,7 @@ where
 					last_finalized,
 					attrs,
 					|hash| {
-						if queue_blocks.contains(hash) {
+						if queue_blocks.contains_key(hash) {
 							BlockStatus::Queued
 						} else {
 							client.block_status(*hash).unwrap_or(BlockStatus::Unknown)
@@ -2229,8 +2220,6 @@ where
 
 		match import_result {
 			ImportResult::Import(hash, header, state, body, justifications) => {
-				// The header and body were chosen before state download. The peer on this
-				// response supplied a state chunk, so the target block is not attributed to them.
 				let origin = BlockOrigin::NetworkInitialSync;
 				let block = IncomingBlock {
 					hash,
@@ -3282,7 +3271,7 @@ mod security_tests {
 			}));
 
 		sync.on_blocks_processed(imported, count, results);
-		assert!(sync.import_origins.is_empty());
+		assert!(sync.queue_blocks.is_empty());
 		(serving, sync)
 	}
 
@@ -3362,7 +3351,7 @@ mod security_tests {
 		let serving = PeerId::random();
 		sync.add_peer(serving, genesis, 0);
 		let target = header(1, genesis).hash();
-		sync.import_origins.insert(target, serving);
+		sync.queue_blocks.insert(target, Some(serving));
 		sync.actions.clear();
 
 		sync.on_blocks_processed(0, 1, vec![(Err(BlockImportError::UnknownParent), target)]);

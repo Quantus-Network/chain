@@ -1804,11 +1804,12 @@ where
 		// A header whose number does not follow its parent would only fail once the runtime
 		// starts executing it. Reject it here, before proof-of-work verification, where the
 		// import queue still names the peer that sent it.
-		if let Some(parent) = self
-			.header(parent_hash)
+		if let Some(parent_number) = self
+			.backend
+			.blockchain()
+			.number(parent_hash)
 			.map_err(|e| ConsensusError::ClientImport(e.to_string()))?
 		{
-			let parent_number = *parent.number();
 			if parent_number.checked_add(&One::one()) != Some(number) {
 				trace!(
 					"Rejecting block #{} {:?} because its number does not follow parent #{}",
