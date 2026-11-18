@@ -541,16 +541,23 @@ where
 			.try_into()
 			.map_err(|_| Error::<B>::Runtime("Seal does not have exactly 64 bytes".to_string()))?;
 
-		let (verified, _achieved_difficulty) = self
-			.client
-			.runtime_api()
-			.verify_and_get_achieved_difficulty(parent_hash, pre_hash.0, nonce)
-			.map_err(|e| {
-				Error::<B>::Runtime(format!(
-					"API error in verify_and_get_achieved_difficulty: {:?}",
-					e
-				))
-			})?;
+		let verified = match self.client.runtime_api().verify_and_get_achieved_difficulty(
+			parent_hash,
+			pre_hash.0,
+			nonce,
+		) {
+			Ok((verified, _achieved_difficulty)) => verified,
+			// The call failed on this node, which says nothing about the seal. Every error
+			// returned from here disconnects the sender, so the block is passed on instead:
+			// `import_block` repeats the call and fails the import without blaming anyone.
+			Err(error) => {
+				log::warn!(
+					target: LOG_TARGET,
+					"Could not verify the seal of {pre_hash:?}, leaving it to import: {error}",
+				);
+				return Ok(block);
+			},
+		};
 
 		if !verified {
 			log::error!("Invalid Seal {:?} for parent hash {:?}", inner_seal, parent_hash);
@@ -1004,7 +1011,8 @@ mod tests {
 	/// verifier can be exercised without a real client or runtime.
 	#[derive(Clone)]
 	struct MockRuntimeApi {
-		seal_valid: bool,
+		/// `None` makes the call fail, as it does on a node that cannot run the runtime.
+		seal_valid: Option<bool>,
 	}
 
 	sp_api::mock_impl_runtime_apis! {
@@ -1016,17 +1024,21 @@ mod tests {
 			fn get_last_block_duration() -> u64 { 0 }
 			fn get_chain_height() -> u32 { 0 }
 			fn verify_nonce_on_import_block(&self, _block_hash: [u8; 32], _nonce: [u8; 64]) -> bool {
-				self.seal_valid
+				self.seal_valid == Some(true)
 			}
 			fn verify_nonce_local_mining(&self, _block_hash: [u8; 32], _nonce: [u8; 64]) -> bool {
-				self.seal_valid
+				self.seal_valid == Some(true)
 			}
+			#[advanced]
 			fn verify_and_get_achieved_difficulty(
 				&self,
+				_at: <Block as BlockT>::Hash,
 				_block_hash: [u8; 32],
 				_nonce: [u8; 64],
-			) -> (bool, U512) {
-				(self.seal_valid, U512::one())
+			) -> Result<(bool, U512), sp_api::ApiError> {
+				self.seal_valid
+					.map(|valid| (valid, U512::one()))
+					.ok_or_else(|| sp_api::ApiError::UnknownBlock("no state".into()))
 			}
 		}
 	}
@@ -1041,7 +1053,7 @@ mod tests {
 		}
 	}
 
-	fn verify_canonical(seal_valid: bool) -> Result<BlockImportParams<TestBlock>, String> {
+	fn verify_canonical(seal_valid: Option<bool>) -> Result<BlockImportParams<TestBlock>, String> {
 		let params = BlockImportParams::<TestBlock>::new(
 			BlockOrigin::NetworkBroadcast,
 			sealed_header(canonical_digest()),
@@ -1055,7 +1067,7 @@ mod tests {
 	/// surfaces as `VerificationFailed` and the peer can be penalised.
 	#[test]
 	fn verifier_rejects_invalid_pow() {
-		let err = verify_canonical(false).err().expect("invalid PoW must be rejected");
+		let err = verify_canonical(Some(false)).err().expect("invalid PoW must be rejected");
 		assert!(err.contains("invalid seal"), "expected the seal rejection, got: {err}");
 	}
 
@@ -1063,12 +1075,21 @@ mod tests {
 	/// moved into `post_digests` for `import_block`.
 	#[test]
 	fn verifier_accepts_valid_pow() {
-		let result = verify_canonical(true).expect("valid PoW must pass the verifier");
+		let result = verify_canonical(Some(true)).expect("valid PoW must pass the verifier");
 		assert_eq!(
 			result.post_digests.last(),
 			Some(&DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64])),
 			"seal must be moved into post_digests"
 		);
+	}
+
+	/// A failed runtime call is a failure of this node. Rejecting the block here would
+	/// disconnect the peer that sent it, so the verifier leaves the block to `import_block`,
+	/// which repeats the call.
+	#[test]
+	fn verifier_passes_the_block_on_when_the_runtime_call_fails() {
+		let result = verify_canonical(None).expect("a failed call must not reject the block");
+		assert_eq!(result.post_digests.last(), Some(&DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64])));
 	}
 
 	/// A seal that is not exactly 64 bytes is rejected before the runtime call,
@@ -1089,7 +1110,7 @@ mod tests {
 			BlockOrigin::NetworkBroadcast,
 			sealed_header(digest),
 		);
-		let verifier = PowVerifier::new(Arc::new(MockRuntimeApi { seal_valid: true }));
+		let verifier = PowVerifier::new(Arc::new(MockRuntimeApi { seal_valid: Some(true) }));
 		let err = futures::executor::block_on(verifier.verify(params))
 			.err()
 			.expect("a wrong-length seal must be rejected");
