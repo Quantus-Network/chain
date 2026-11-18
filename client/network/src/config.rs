@@ -462,7 +462,7 @@ where
 	W: Fn(&K) -> Vec<u8>,
 {
 	let file_path = file.as_ref();
-	restrict_secret_file(file_path);
+	warn_secret_file_permissions(file_path);
 	std::fs::read(file_path)
 		.and_then(|mut sk_bytes| {
 			parse(&mut sk_bytes).map_err(|e| {
@@ -486,13 +486,12 @@ where
 		})
 }
 
-/// Restricts an existing secret key file to its owner.
+/// Warns when an existing secret key file is readable by group or others.
 ///
 /// A key file written by an older release, restored from a backup or copied by hand can be
-/// readable by other users. A file whose permissions cannot be changed, such as one on a
-/// read-only mount, is still used.
+/// readable by other users. The mode is left as the operator set it.
 #[cfg(unix)]
-fn restrict_secret_file(path: &Path) {
+fn warn_secret_file_permissions(path: &Path) {
 	use std::os::unix::fs::PermissionsExt;
 
 	let Ok(metadata) = fs::metadata(path) else { return };
@@ -501,25 +500,16 @@ fn restrict_secret_file(path: &Path) {
 		return;
 	}
 
-	match fs::set_permissions(path, fs::Permissions::from_mode(0o600)) {
-		Ok(()) => log::warn!(
-			target: "sub-libp2p",
-			"Secret key file {} had mode {:04o}; restricted it to 0600",
-			path.display(),
-			mode,
-		),
-		Err(error) => log::warn!(
-			target: "sub-libp2p",
-			"Secret key file {} has mode {:04o} and could not be restricted to 0600: {}",
-			path.display(),
-			mode,
-			error,
-		),
-	}
+	log::warn!(
+		target: "sub-libp2p",
+		"Secret key file {} has mode {:04o}; it should be 0600",
+		path.display(),
+		mode,
+	);
 }
 
 #[cfg(not(unix))]
-fn restrict_secret_file(_path: &Path) {}
+fn warn_secret_file_permissions(_path: &Path) {}
 
 /// Write secret bytes to a file.
 fn write_secret_file<P>(path: P, sk_bytes: &[u8]) -> io::Result<()>
@@ -955,7 +945,7 @@ mod tests {
 
 	#[cfg(unix)]
 	#[test]
-	fn secret_file_is_restricted_to_its_owner() {
+	fn existing_secret_file_keeps_its_permissions() {
 		use std::os::unix::fs::PermissionsExt;
 
 		let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
@@ -967,7 +957,7 @@ mod tests {
 
 		fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
 		let kp2 = NodeKeyConfig::Dilithium(Secret::File(file.clone())).into_keypair().unwrap();
-		assert_eq!(mode(&file), 0o600);
+		assert_eq!(mode(&file), 0o644);
 		assert_eq!(secret_bytes(&kp1), secret_bytes(&kp2));
 	}
 
