@@ -52,6 +52,24 @@ pub use sc_executor_common::{
 };
 pub use sc_executor_wasmtime::InstantiationStrategy as WasmtimeInstantiationStrategy;
 
+/// `true` when `error` is a runtime call that the runtime ended itself, with a panic or a trap.
+///
+/// `sp_blockchain::Error::Execution` also carries failures of the host: a module that could
+/// not be instantiated, or a host function that panicked on a storage read. Those are not
+/// counted. An error that crossed the runtime API is looked for inside
+/// `ApiError::Application`, where `call_api_at` puts it.
+pub fn runtime_aborted(error: &sp_blockchain::Error) -> bool {
+	match error {
+		sp_blockchain::Error::Execution(inner) => matches!(
+			inner.downcast_ref::<error::Error>(),
+			Some(error::Error::AbortedDueToPanic(_) | error::Error::AbortedDueToTrap(_))
+		),
+		sp_blockchain::Error::RuntimeApiError(sp_api::ApiError::Application(inner)) =>
+			inner.downcast_ref::<sp_blockchain::Error>().is_some_and(runtime_aborted),
+		_ => false,
+	}
+}
+
 /// Extracts the runtime version of a given runtime code.
 pub trait RuntimeVersionOf {
 	/// Extract [`RuntimeVersion`] of the given `runtime_code`.
@@ -60,4 +78,117 @@ pub trait RuntimeVersionOf {
 		ext: &mut dyn Externalities,
 		runtime_code: &sp_core::traits::RuntimeCode,
 	) -> error::Result<RuntimeVersion>;
+}
+
+#[cfg(test)]
+mod runtime_aborted_tests {
+	use super::{
+		error::{Error as ExecutorError, MessageWithBacktrace},
+		runtime_aborted, WasmExecutor,
+	};
+	use sp_core::traits::{CallContext, RuntimeCode, WrappedRuntimeCode};
+	use sp_runtime::traits::BlakeTwo256;
+	use sp_state_machine::{InMemoryBackend, OverlayedChanges, StateMachine};
+
+	/// The shape a caller of the runtime API gets back: `call_api_at` converts the client
+	/// error to an `ApiError`, and `?` converts it back.
+	fn through_runtime_api(error: sp_blockchain::Error) -> sp_blockchain::Error {
+		sp_blockchain::Error::from(sp_api::ApiError::from(error))
+	}
+
+	/// Calls `method` on a module through the state machine and the Wasm executor, the way
+	/// the client's call executor does, and returns the client error for the failure.
+	fn failed_runtime_call(module: &str, method: &str) -> sp_blockchain::Error {
+		let code = wat::parse_str(module).expect("valid wat");
+		let executor: WasmExecutor = WasmExecutor::builder().build();
+		let backend = InMemoryBackend::<BlakeTwo256>::default();
+		let mut overlay = OverlayedChanges::default();
+		let mut extensions = Default::default();
+		let runtime_code = RuntimeCode {
+			code_fetcher: &WrappedRuntimeCode(code.into()),
+			hash: b"test module".to_vec(),
+			heap_pages: None,
+		};
+
+		let error = StateMachine::new(
+			&backend,
+			&mut overlay,
+			&executor,
+			method,
+			&[],
+			&mut extensions,
+			&runtime_code,
+			CallContext::Onchain,
+		)
+		.execute()
+		.expect_err("the call fails");
+		sp_blockchain::Error::from(error)
+	}
+
+	const TRAPPING_MODULE: &str = r#"
+		(module
+			(memory (export "memory") 1)
+			(global (export "__heap_base") i32 (i32.const 1024))
+			(func (export "execute_block") (param i32 i32) (result i64) unreachable))
+	"#;
+
+	/// The data segment lies far outside the memory the executor allocates, so every
+	/// instantiation fails before any export is called.
+	const UNINSTANTIABLE_MODULE: &str = r#"
+		(module
+			(memory (export "memory") 1)
+			(global (export "__heap_base") i32 (i32.const 1024))
+			(data (i32.const 2000000000) "x")
+			(func (export "execute_block") (param i32 i32) (result i64) unreachable))
+	"#;
+
+	#[test]
+	fn trap_inside_the_runtime_is_an_abort() {
+		let error = failed_runtime_call(TRAPPING_MODULE, "execute_block");
+		assert!(runtime_aborted(&error));
+		assert!(runtime_aborted(&through_runtime_api(error)));
+	}
+
+	#[test]
+	fn panic_inside_the_runtime_is_an_abort() {
+		let panic = ExecutorError::AbortedDueToPanic(MessageWithBacktrace {
+			message: "Storage root must match that calculated.".into(),
+			backtrace: None,
+		});
+		let error = sp_blockchain::Error::Execution(Box::new(panic));
+		assert!(runtime_aborted(&through_runtime_api(error)));
+	}
+
+	#[test]
+	fn failed_instantiation_is_not_an_abort() {
+		let error = failed_runtime_call(UNINSTANTIABLE_MODULE, "execute_block");
+		assert!(error.to_string().contains("failed to instantiate"), "{error}");
+		assert!(!runtime_aborted(&error));
+		assert!(!runtime_aborted(&through_runtime_api(error)));
+	}
+
+	#[test]
+	fn missing_export_is_not_an_abort() {
+		let error = failed_runtime_call(TRAPPING_MODULE, "missing_export");
+		assert!(!runtime_aborted(&through_runtime_api(error)));
+	}
+
+	/// A host function that panics, such as a storage read on a damaged database.
+	#[test]
+	fn host_panic_is_not_an_abort() {
+		let host_panic = ExecutorError::RuntimePanicked("Externalities not allowed to fail".into());
+		let error = sp_blockchain::Error::Execution(Box::new(host_panic));
+		assert!(!runtime_aborted(&through_runtime_api(error)));
+	}
+
+	#[test]
+	fn client_failure_is_not_an_abort() {
+		let missing_code = sp_blockchain::Error::RuntimeCode("failed to read :code");
+		assert!(!runtime_aborted(&through_runtime_api(missing_code)));
+		let backend = sp_blockchain::Error::Backend("read failed".into());
+		assert!(!runtime_aborted(&through_runtime_api(backend)));
+		assert!(!runtime_aborted(&sp_blockchain::Error::from(sp_api::ApiError::UnknownBlock(
+			"pruned".into()
+		))));
+	}
 }

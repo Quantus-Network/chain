@@ -1824,29 +1824,14 @@ where
 	}
 }
 
-/// A block that fails execution, or whose state root does not match its header, is reported
-/// as [`InvalidBlock`] so sync disconnects the peer that sent it. Every other failure stays
-/// [`ConsensusError::ClientImport`] and is retried with the peer left connected.
+/// A block that makes the runtime abort, or whose state root does not match its header, is
+/// reported as [`InvalidBlock`] so sync disconnects the peer that sent it. Every other failure
+/// stays [`ConsensusError::ClientImport`] and is retried with the peer left connected.
 fn consensus_error_for_block_prepare(error: Error) -> ConsensusError {
-	if block_is_invalid(&error) {
+	if matches!(error, Error::InvalidStateRoot) || sc_executor::runtime_aborted(&error) {
 		ConsensusError::Other(Box::new(InvalidBlock::new(error.to_string())))
 	} else {
 		ConsensusError::ClientImport(error.to_string())
-	}
-}
-
-/// `Error::Execution` is taken as the block's fault. That is not exact: a storage read that
-/// fails while the runtime is running also ends as an execution error, and the two cannot be
-/// told apart here. It needs a damaged local database, and the cost is a dropped connection.
-fn block_is_invalid(error: &Error) -> bool {
-	match error {
-		Error::Execution(_) | Error::InvalidStateRoot => true,
-		// `call_api_at` boxes every client error except `UnknownBlock` as
-		// `ApiError::Application`, including a parent-trie read that fails before the
-		// incoming block runs. Judge the error inside the box.
-		Error::RuntimeApiError(sp_api::ApiError::Application(inner)) =>
-			inner.downcast_ref::<Error>().is_some_and(block_is_invalid),
-		_ => false,
 	}
 }
 
@@ -2142,6 +2127,7 @@ where
 #[cfg(test)]
 mod prepare_error_classification {
 	use super::{consensus_error_for_block_prepare, Error};
+	use sc_executor::error::{Error as ExecutorError, MessageWithBacktrace, WasmError};
 	use sp_consensus::Error as ConsensusError;
 	use sp_consensus_qpow::InvalidBlock;
 
@@ -2154,14 +2140,25 @@ mod prepare_error_classification {
 
 	/// The shape `prepare_block_storage_changes` gets back from `execute_block`: the client
 	/// error is converted to an `ApiError` by `call_api_at` and back by `?`.
-	fn through_runtime_api(error: Error) -> Error {
-		Error::from(sp_api::ApiError::from(error))
+	fn failed_execution(error: ExecutorError) -> Error {
+		Error::from(sp_api::ApiError::from(Error::Execution(Box::new(error))))
 	}
 
 	#[test]
-	fn failed_execution_is_an_invalid_block() {
-		let trap = Error::Execution(Box::new("wasm trap: unreachable".to_string()));
-		assert!(reported_as_invalid_block(through_runtime_api(trap)));
+	fn runtime_panic_is_an_invalid_block() {
+		let panic = ExecutorError::AbortedDueToPanic(MessageWithBacktrace {
+			message: "Storage root must match that calculated.".into(),
+			backtrace: None,
+		});
+		assert!(reported_as_invalid_block(failed_execution(panic)));
+	}
+
+	#[test]
+	fn failed_instantiation_is_not_an_invalid_block() {
+		let instantiation = ExecutorError::RuntimeConstruction(WasmError::Other(
+			"failed to instantiate a new WASM module instance".into(),
+		));
+		assert!(!reported_as_invalid_block(failed_execution(instantiation)));
 	}
 
 	#[test]
@@ -2169,26 +2166,9 @@ mod prepare_error_classification {
 		assert!(reported_as_invalid_block(Error::InvalidStateRoot));
 	}
 
-	/// Loading the parent trie's `:code` fails as `RuntimeCode` before the incoming block
-	/// executes, so the peer that sent the block is not at fault.
-	#[test]
-	fn parent_state_read_failure_is_not_an_invalid_block() {
-		let read_failure = Error::RuntimeCode("failed to read :code");
-		assert!(!reported_as_invalid_block(through_runtime_api(read_failure)));
-		assert!(!reported_as_invalid_block(Error::RuntimeCode("failed to read :code")));
-	}
-
 	#[test]
 	fn backend_failure_is_not_an_invalid_block() {
-		let backend = Error::Backend("database read failed".into());
-		assert!(!reported_as_invalid_block(through_runtime_api(backend)));
+		assert!(!reported_as_invalid_block(Error::Backend("database read failed".into())));
 		assert!(!reported_as_invalid_block(Error::Storage("commit failed".into())));
-	}
-
-	#[test]
-	fn application_error_of_another_type_is_not_an_invalid_block() {
-		let foreign: Box<dyn std::error::Error + Send + Sync> = "host function failed".into();
-		let wrapped = Error::RuntimeApiError(sp_api::ApiError::Application(foreign));
-		assert!(!reported_as_invalid_block(wrapped));
 	}
 }

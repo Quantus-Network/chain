@@ -114,19 +114,10 @@ impl<B: BlockT> Error<B> {
 /// Error for a failed `check_inherents` runtime call.
 ///
 /// Block bodies are opaque bytes on the node side, and the runtime panics on an extrinsic it
-/// cannot decode. That arrives as an execution error, which is the block's fault. Anything
-/// else is a failure of this node.
+/// cannot decode. That is the block's fault. Anything else is a failure of this node.
 fn inherent_check_call_error<B: BlockT>(error: sp_api::ApiError) -> Error<B> {
 	let error = sp_blockchain::Error::from(error);
-	let trapped = matches!(
-		&error,
-		sp_blockchain::Error::RuntimeApiError(sp_api::ApiError::Application(inner))
-			if matches!(
-				inner.downcast_ref::<sp_blockchain::Error>(),
-				Some(sp_blockchain::Error::Execution(_))
-			)
-	);
-	if trapped {
+	if sc_executor::runtime_aborted(&error) {
 		Error::CheckInherentsExecution(error)
 	} else {
 		Error::Client(error)
@@ -1108,25 +1099,32 @@ mod tests {
 		assert!(reported_as_invalid_block(Error::InvalidSeal));
 	}
 
-	/// `call_api_at` hands a client error to the runtime API as `ApiError::Application`.
-	fn api_error(error: sp_blockchain::Error) -> sp_api::ApiError {
-		sp_api::ApiError::from(error)
+	/// The shape the runtime API returns for a failed call: `call_api_at` hands the client
+	/// error over as `ApiError::Application`.
+	fn failed_call(error: sc_executor::error::Error) -> sp_api::ApiError {
+		sp_api::ApiError::from(sp_blockchain::Error::Execution(Box::new(error)))
 	}
 
 	#[test]
-	fn runtime_trap_during_inherent_check_is_reported_as_an_invalid_block() {
-		let trap = sp_blockchain::Error::Execution(Box::new(
-			"check_extrinsics(): Unable to decode extrinsic".to_string(),
-		));
-		assert!(reported_as_invalid_block(inherent_check_call_error(api_error(trap))));
+	fn runtime_panic_during_inherent_check_is_reported_as_an_invalid_block() {
+		let panic = sc_executor::error::Error::AbortedDueToPanic(
+			sc_executor::error::MessageWithBacktrace {
+				message: "check_extrinsics(): Unable to decode extrinsic".into(),
+				backtrace: None,
+			},
+		);
+		assert!(reported_as_invalid_block(inherent_check_call_error(failed_call(panic))));
 	}
 
 	#[test]
 	fn local_failure_during_inherent_check_is_not_reported_as_an_invalid_block() {
+		let instantiation =
+			sc_executor::error::Error::RuntimeConstruction(sc_executor::error::WasmError::Other(
+				"failed to instantiate a new WASM module instance".into(),
+			));
+		assert!(!reported_as_invalid_block(inherent_check_call_error(failed_call(instantiation))));
 		let missing_code = sp_blockchain::Error::RuntimeCode("failed to read :code");
-		assert!(!reported_as_invalid_block(inherent_check_call_error(api_error(missing_code))));
-		let backend = sp_blockchain::Error::Backend("read failed".into());
-		assert!(!reported_as_invalid_block(inherent_check_call_error(api_error(backend))));
+		assert!(!reported_as_invalid_block(inherent_check_call_error(missing_code.into())));
 		assert!(!reported_as_invalid_block(inherent_check_call_error(
 			sp_api::ApiError::UnknownBlock("pruned".into())
 		)));
