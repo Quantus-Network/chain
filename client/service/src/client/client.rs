@@ -1839,8 +1839,21 @@ fn deterministic_block_invalidity(error: &Error) -> bool {
 		Error::InvalidStateRoot |
 		Error::ApplyExtrinsicFailed(_) |
 		Error::ExtrinsicRootInvalid { .. } => true,
-		Error::RuntimeApiError(sp_api::ApiError::Application(_)) => true,
+		// `call_api_at` boxes every client error except `UnknownBlock` as
+		// `ApiError::Application`, including a parent-trie read that fails before the
+		// incoming block runs. Follow the error inside the box.
+		Error::RuntimeApiError(api_error) => deterministic_api_failure(api_error),
 		Error::Blockchain(inner) => deterministic_block_invalidity(inner),
+		_ => false,
+	}
+}
+
+fn deterministic_api_failure(error: &sp_api::ApiError) -> bool {
+	match error {
+		sp_api::ApiError::Application(inner) => match inner.downcast_ref::<Error>() {
+			Some(blockchain) => deterministic_block_invalidity(blockchain),
+			None => false,
+		},
 		_ => false,
 	}
 }
@@ -2131,5 +2144,57 @@ where
 			.blockchain()
 			.number(hash)
 			.map_err(|e| sp_transaction_storage_proof::Error::Application(Box::new(e)))
+	}
+}
+
+#[cfg(test)]
+mod prepare_error_classification {
+	use super::{consensus_error_for_block_prepare, Error};
+	use sc_network_sync::DeterministicBlockInvalid;
+	use sp_consensus::Error as ConsensusError;
+
+	fn is_deterministic(error: Error) -> bool {
+		match consensus_error_for_block_prepare(error) {
+			ConsensusError::Other(inner) => inner.is::<DeterministicBlockInvalid>(),
+			ConsensusError::ClientImport(_) => false,
+			other => panic!("unexpected consensus error: {other:?}"),
+		}
+	}
+
+	/// Loading the parent trie's `:code` fails as `RuntimeCode`, and `call_api_at` then
+	/// boxes that client error as `ApiError::Application`. That read happens before the
+	/// incoming block executes, so the supplier is not sent a bad block.
+	#[test]
+	fn parent_state_read_failure_is_not_a_bad_block() {
+		let read_failure = Error::RuntimeCode("failed to read :code");
+		let wrapped = Error::RuntimeApiError(sp_api::ApiError::Application(Box::new(read_failure)));
+		assert!(!is_deterministic(wrapped));
+		assert!(!is_deterministic(Error::RuntimeCode("failed to read :code")));
+	}
+
+	#[test]
+	fn identified_block_failure_reported_through_the_api_stays_deterministic() {
+		let wrapped = Error::RuntimeApiError(sp_api::ApiError::Application(Box::new(
+			Error::InvalidStateRoot,
+		)));
+		assert!(is_deterministic(wrapped));
+		assert!(is_deterministic(Error::InvalidStateRoot));
+	}
+
+	#[test]
+	fn unidentified_application_error_is_not_a_bad_block() {
+		#[derive(Debug)]
+		struct HostFailure;
+
+		impl std::fmt::Display for HostFailure {
+			fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+				f.write_str("host function failed")
+			}
+		}
+
+		impl std::error::Error for HostFailure {}
+
+		let wrapped = Error::RuntimeApiError(sp_api::ApiError::Application(Box::new(HostFailure)));
+		assert!(!is_deterministic(wrapped));
 	}
 }

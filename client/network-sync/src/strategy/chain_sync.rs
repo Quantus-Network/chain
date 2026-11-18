@@ -1387,6 +1387,13 @@ where
 								max_blocks,
 								peer_id,
 							)?;
+							if contains_rejected_block::<B>(&self.rejected_import_set, &blocks) {
+								debug!(
+									target: LOG_TARGET,
+									"Response from {peer_id} contains a block that already failed import",
+								);
+								return Err(BadPeer(*peer_id, rep::BAD_BLOCK));
+							}
 							self.blocks.insert(start_block, blocks, *peer_id);
 						}
 						self.ready_blocks()
@@ -1407,6 +1414,14 @@ where
 									max_blocks,
 									peer_id,
 								)?;
+								if contains_rejected_block::<B>(&self.rejected_import_set, &blocks)
+								{
+									debug!(
+										target: LOG_TARGET,
+										"Gap response from {peer_id} contains a block that already failed import",
+									);
+									return Err(BadPeer(*peer_id, rep::BAD_BLOCK));
+								}
 								gap_sync.blocks.insert(start_block, blocks, *peer_id);
 							}
 							gap = true;
@@ -1454,6 +1469,13 @@ where
 							return Err(BadPeer(*peer_id, rep::NO_BLOCK));
 						}
 						validate_blocks::<B>(&blocks, peer_id, Some(request))?;
+						if contains_rejected_block::<B>(&self.rejected_import_set, &blocks) {
+							debug!(
+								target: LOG_TARGET,
+								"Stale response from {peer_id} contains a block that already failed import",
+							);
+							return Err(BadPeer(*peer_id, rep::BAD_BLOCK));
+						}
 						blocks
 							.into_iter()
 							.map(|b| {
@@ -1605,6 +1627,13 @@ where
 			} else {
 				// When request.is_none() this is a block announcement. Just accept blocks.
 				validate_blocks::<B>(&blocks, peer_id, None)?;
+				if contains_rejected_block::<B>(&self.rejected_import_set, &blocks) {
+					debug!(
+						target: LOG_TARGET,
+						"Announced blocks from {peer_id} contain a block that already failed import",
+					);
+					return Err(BadPeer(*peer_id, rep::BAD_BLOCK));
+				}
 				blocks
 					.into_iter()
 					.map(|b| {
@@ -1770,11 +1799,13 @@ where
 		normal_sync: bool,
 	) {
 		let orig_len = new_blocks.len();
-		new_blocks.retain(|b| !self.queue_blocks.contains(&b.hash));
+		new_blocks.retain(|b| {
+			!self.queue_blocks.contains(&b.hash) && !self.rejected_import_set.contains(&b.hash)
+		});
 		if new_blocks.len() != orig_len {
 			debug!(
 				target: LOG_TARGET,
-				"Ignoring {} blocks that are already queued",
+				"Ignoring {} blocks that are already queued or already failed import",
 				orig_len - new_blocks.len(),
 			);
 		}
@@ -2137,6 +2168,7 @@ where
 					max_blocks_per_request,
 					last_finalized,
 					best_queued,
+					rejected_imports,
 				) {
 					peer.state = PeerSyncState::DownloadingNew(range.start);
 					debug!(
@@ -2466,6 +2498,7 @@ fn peer_block_request<B: BlockT>(
 	max_blocks_per_request: u32,
 	finalized: NumberFor<B>,
 	best_num: NumberFor<B>,
+	rejected_imports: &HashSet<B::Hash>,
 ) -> Option<(Range<NumberFor<B>>, BlockRequest<B>)> {
 	if best_num >= peer.best_number {
 		// Will be downloaded as alternative fork instead.
@@ -2488,6 +2521,18 @@ fn peer_block_request<B: BlockT>(
 
 	// The end is not part of the range.
 	let last = range.end.saturating_sub(One::one());
+
+	// The tip is requested by the hash the peer advertised. That hash may already
+	// have failed import; fetching it again imports it again and restarts sync.
+	if peer.best_number == last && rejected_imports.contains(&peer.best_hash) {
+		trace!(
+			target: LOG_TARGET,
+			"Not requesting known bad tip {:?} from {:?}",
+			peer.best_hash,
+			id,
+		);
+		return None;
+	}
 
 	let from = if peer.best_number == last {
 		FromBlock::Hash(peer.best_hash)
@@ -2773,6 +2818,13 @@ pub fn validate_blocks<Block: BlockT>(
 	}
 
 	Ok(blocks.first().and_then(|b| b.header.as_ref()).map(|h| *h.number()))
+}
+
+fn contains_rejected_block<B: BlockT>(
+	rejected: &HashSet<B::Hash>,
+	blocks: &[BlockData<B>],
+) -> bool {
+	blocks.iter().any(|block| rejected.contains(&block.hash))
 }
 
 /// Ensure a validated response is filed inside the block range that was requested from the peer.
@@ -3310,15 +3362,6 @@ mod security_tests {
 		let serving = PeerId::random();
 		let rejected = H256::repeat_byte(7);
 		sync.add_peer(serving, rejected, 5);
-		{
-			let peer = sync.peers.get_mut(&serving).unwrap();
-			peer.common_number = 0;
-			peer.state = PeerSyncState::AncestorSearch {
-				current: 0,
-				start: 10,
-				state: AncestorSearchState::ExponentialBackoff(1),
-			};
-		}
 		sync.fork_targets.insert(
 			rejected,
 			ForkTarget { number: 5, parent_hash: None, peers: [serving].into_iter().collect() },
@@ -3333,13 +3376,129 @@ mod security_tests {
 
 		assert!(sync.rejected_import_set.contains(&rejected));
 		assert!(!sync.fork_targets.contains_key(&rejected));
+		// `BadBlock` restarts sync, rewinds the queued height to the client's genesis, and
+		// puts the peer back as `Available`. The ancestry reply has to be set up after that.
+		assert_eq!(sync.best_queued_number, 0);
+		assert!(matches!(
+			sync.peers.get(&serving).map(|peer| &peer.state),
+			Some(PeerSyncState::Available)
+		));
 
-		let mut block = block_data(genesis);
+		sync.best_queued_number = 10;
+		sync.best_queued_hash = H256::repeat_byte(10);
+		{
+			let peer = sync.peers.get_mut(&serving).unwrap();
+			peer.best_hash = rejected;
+			peer.best_number = 5;
+			peer.common_number = 0;
+			peer.state = PeerSyncState::AncestorSearch {
+				current: 0,
+				start: 10,
+				state: AncestorSearchState::ExponentialBackoff(1),
+			};
+		}
+		sync.actions.clear();
+
+		let mut block = block_data(genesis.clone());
 		block.hash = genesis_hash;
 		let response = BlockResponse::<TestBlock> { id: 0, blocks: vec![block] };
 		sync.on_block_data(&serving, Some(ancestry_request::<TestBlock>(0)), response)
 			.unwrap();
+
+		assert!(
+			matches!(
+				sync.peers.get(&serving).map(|peer| &peer.state),
+				Some(PeerSyncState::Available)
+			),
+			"the genesis reply completes the search",
+		);
+		assert!(sync
+			.actions
+			.iter()
+			.all(|action| !matches!(action, SyncingAction::StartRequest { .. })));
 		assert!(!sync.fork_targets.contains_key(&rejected));
+
+		// The same completed search still records a stale fork that has not failed import.
+		let honest = PeerId::random();
+		let honest_best = H256::repeat_byte(8);
+		sync.add_peer(honest, honest_best, 5);
+		{
+			let peer = sync.peers.get_mut(&honest).unwrap();
+			peer.common_number = 0;
+			peer.state = PeerSyncState::AncestorSearch {
+				current: 0,
+				start: 10,
+				state: AncestorSearchState::ExponentialBackoff(1),
+			};
+		}
+		let mut block = block_data(genesis);
+		block.hash = genesis_hash;
+		let response = BlockResponse::<TestBlock> { id: 0, blocks: vec![block] };
+		sync.on_block_data(&honest, Some(ancestry_request::<TestBlock>(0)), response)
+			.unwrap();
+		assert!(sync.fork_targets.contains_key(&honest_best));
+		assert!(!sync.fork_targets.contains_key(&rejected));
+	}
+
+	#[test]
+	fn known_bad_tip_is_not_requested() {
+		let tip = H256::repeat_byte(9);
+		let (_client, mut sync) = idle_sync_with_fork(0);
+		let serving = PeerId::random();
+		sync.add_peer(serving, tip, 1);
+		let requests = sync.block_requests();
+		assert!(requests.iter().any(|(peer, request)| {
+			*peer == serving && matches!(request.from, FromBlock::Hash(hash) if hash == tip)
+		}));
+
+		let (_client, mut sync) = idle_sync_with_fork(0);
+		let serving = PeerId::random();
+		sync.add_peer(serving, tip, 1);
+		sync.note_rejected_import(tip);
+		let requests = sync.block_requests();
+		assert!(requests.iter().all(|(peer, _)| *peer != serving));
+	}
+
+	fn rejected_response(sync: &mut ChainSync<TestBlock, GenesisClient>, gap: bool) {
+		let serving = PeerId::random();
+		sync.add_peer(serving, H256::repeat_byte(3), 5);
+		// Wire order for a descending response is highest first. `on_block_data` reverses it
+		// before validation.
+		let mut blocks = chained_blocks(5, 5);
+		let rejected = blocks[2].hash;
+		blocks.reverse();
+		sync.note_rejected_import(rejected);
+		if gap {
+			sync.gap_sync =
+				Some(GapSync { blocks: BlockCollection::new(), best_queued_number: 0, target: 5 });
+			sync.peers.get_mut(&serving).unwrap().state = PeerSyncState::DownloadingGap(1);
+		} else {
+			sync.peers.get_mut(&serving).unwrap().state = PeerSyncState::DownloadingNew(1);
+		}
+		sync.actions.clear();
+
+		let response = BlockResponse::<TestBlock> { id: 0, blocks };
+		assert_eq!(
+			sync.on_block_data(&serving, Some(descending_request(5, 5)), response),
+			Err(BadPeer(serving, rep::BAD_BLOCK)),
+		);
+		assert!(sync.queue_blocks.is_empty());
+		assert!(sync
+			.actions
+			.iter()
+			.all(|action| !matches!(action, SyncingAction::ImportBlocks { .. })));
+	}
+
+	#[test]
+	fn normal_response_containing_a_rejected_hash_is_not_buffered() {
+		let (_client, mut sync) = idle_sync_with_fork(0);
+		rejected_response(&mut sync, false);
+	}
+
+	#[test]
+	fn gap_response_containing_a_rejected_hash_is_not_buffered() {
+		let (_client, mut sync) = idle_sync_with_fork(0);
+		rejected_response(&mut sync, true);
 	}
 
 	#[test]
