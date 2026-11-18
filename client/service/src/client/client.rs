@@ -1728,7 +1728,10 @@ where
 			Ok(PrepareStorageChangesResult::Import(storage_changes)) => storage_changes,
 			Err(e) => {
 				warn!("Block prepare storage changes error: {}", e);
-				return Err(consensus_error_for_block_prepare(e));
+				return Err(consensus_error_for_block_prepare(
+					e,
+					self.config.wasm_runtime_overrides.is_some(),
+				));
 			},
 		};
 
@@ -1828,8 +1831,13 @@ where
 /// A block that makes the runtime abort, or whose state root does not match its header, is
 /// reported as [`InvalidBlock`] so sync disconnects the peer that sent it. Every other failure
 /// stays [`ConsensusError::ClientImport`] and is retried with the peer left connected.
-fn consensus_error_for_block_prepare(error: Error) -> ConsensusError {
-	if matches!(error, Error::InvalidStateRoot) || sc_executor::runtime_aborted(&error) {
+///
+/// A node started with local Wasm overrides may run code the chain does not, so what its
+/// runtime makes of a block is never reported as [`InvalidBlock`].
+fn consensus_error_for_block_prepare(error: Error, local_wasm_overrides: bool) -> ConsensusError {
+	let rejected_by_runtime =
+		matches!(error, Error::InvalidStateRoot) || sc_executor::runtime_aborted(&error);
+	if rejected_by_runtime && !local_wasm_overrides {
 		ConsensusError::Other(Box::new(InvalidBlock::new(error.to_string())))
 	} else {
 		ConsensusError::ClientImport(error.to_string())
@@ -2132,11 +2140,19 @@ mod prepare_error_classification {
 	use sp_consensus::Error as ConsensusError;
 	use sp_consensus_qpow::InvalidBlock;
 
+	fn is_invalid_block(error: ConsensusError) -> bool {
+		matches!(error, ConsensusError::Other(inner) if inner.is::<InvalidBlock>())
+	}
+
 	fn reported_as_invalid_block(error: Error) -> bool {
-		match consensus_error_for_block_prepare(error) {
-			ConsensusError::Other(inner) => inner.is::<InvalidBlock>(),
-			_ => false,
-		}
+		is_invalid_block(consensus_error_for_block_prepare(error, false))
+	}
+
+	fn runtime_panic() -> Error {
+		failed_execution(ExecutorError::AbortedDueToPanic(MessageWithBacktrace {
+			message: "Storage root must match that calculated.".into(),
+			backtrace: None,
+		}))
 	}
 
 	/// The shape `prepare_block_storage_changes` gets back from `execute_block`: the client
@@ -2147,11 +2163,17 @@ mod prepare_error_classification {
 
 	#[test]
 	fn runtime_panic_is_an_invalid_block() {
-		let panic = ExecutorError::AbortedDueToPanic(MessageWithBacktrace {
-			message: "Storage root must match that calculated.".into(),
-			backtrace: None,
-		});
-		assert!(reported_as_invalid_block(failed_execution(panic)));
+		assert!(reported_as_invalid_block(runtime_panic()));
+	}
+
+	/// The on-chain runtime may accept a block that a local override rejects.
+	#[test]
+	fn rejection_by_a_runtime_that_may_be_a_local_override_is_not_an_invalid_block() {
+		assert!(!is_invalid_block(consensus_error_for_block_prepare(runtime_panic(), true)));
+		assert!(!is_invalid_block(consensus_error_for_block_prepare(
+			Error::InvalidStateRoot,
+			true
+		)));
 	}
 
 	#[test]

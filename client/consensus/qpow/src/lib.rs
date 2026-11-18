@@ -149,12 +149,25 @@ impl<B: BlockT> From<Error<B>> for ConsensusError {
 	}
 }
 
+/// Converts an error that rests on what the runtime made of the block.
+///
+/// A node started with local Wasm overrides may run code the chain does not, so its runtime
+/// rejecting a block does not show that the block is invalid.
+fn runtime_verdict<B: BlockT>(error: Error<B>, local_wasm_overrides: bool) -> ConsensusError {
+	if local_wasm_overrides && error.rejects_block() {
+		ConsensusError::ClientImport(error.to_string())
+	} else {
+		error.into()
+	}
+}
+
 /// A block importer for PoW.
 pub struct PowBlockImport<B: BlockT<Hash = H256>, I, C, CIDP, BE, const LOGGING_FREQUENCY: u64> {
 	inner: I,
 	client: Arc<C>,
 	create_inherent_data_providers: Arc<CIDP>,
 	check_inherents_after: <<B as BlockT>::Header as HeaderT>::Number,
+	local_wasm_overrides: bool,
 	// Serializes the best-work read, fork-choice decision and inner import so
 	// concurrent imports cannot race on a stale best. Shared across clones.
 	import_lock: Arc<futures::lock::Mutex<()>>,
@@ -176,6 +189,7 @@ impl<
 			client: self.client.clone(),
 			create_inherent_data_providers: self.create_inherent_data_providers.clone(),
 			check_inherents_after: self.check_inherents_after,
+			local_wasm_overrides: self.local_wasm_overrides,
 			import_lock: self.import_lock.clone(),
 			_backend: PhantomData,
 		}
@@ -201,17 +215,21 @@ where
 	CIDP: CreateInherentDataProviders<B, ()>,
 	BE: sc_client_api::Backend<B>,
 {
-	/// Create a new block import suitable to be used in PoW
+	/// Create a new block import suitable to be used in PoW.
+	///
+	/// `local_wasm_overrides` says whether the node was started with local Wasm overrides.
 	pub fn new(
 		inner: I,
 		client: Arc<C>,
 		check_inherents_after: <<B as BlockT>::Header as HeaderT>::Number,
 		create_inherent_data_providers: CIDP,
+		local_wasm_overrides: bool,
 	) -> Self {
 		Self {
 			inner,
 			client,
 			check_inherents_after,
+			local_wasm_overrides,
 			create_inherent_data_providers: Arc::new(create_inherent_data_providers),
 			import_lock: Arc::new(futures::lock::Mutex::new(())),
 			_backend: PhantomData,
@@ -316,7 +334,8 @@ where
 						.create_inherent_data_providers(parent_hash, ())
 						.await?,
 				)
-				.await?;
+				.await
+				.map_err(|error| runtime_verdict(error, self.local_wasm_overrides))?;
 			}
 
 			block_import_params.body = Some(check_block.deconstruct().1);
@@ -351,7 +370,7 @@ where
 
 		if !verified {
 			log::error!("Invalid Seal {:?} for parent hash {:?}", inner_seal, parent_hash);
-			return Err(Error::<B>::InvalidSeal.into());
+			return Err(runtime_verdict(Error::<B>::InvalidSeal, self.local_wasm_overrides));
 		}
 
 		// Get parent's cumulative achieved work from aux storage. A backend/decode
@@ -1140,6 +1159,19 @@ mod tests {
 			sp_inherents::Error::FatalErrorReported
 		)));
 		assert!(reported_as_invalid_block(Error::InvalidSeal));
+	}
+
+	/// The on-chain runtime may accept a block that a local override rejects.
+	#[test]
+	fn rejection_by_a_runtime_that_may_be_a_local_override_is_not_an_invalid_block() {
+		let too_early = || {
+			Error::<TestBlock>::CheckInherents(sp_inherents::Error::Application(Box::new(
+				sp_timestamp::InherentError::TooEarly,
+			)))
+		};
+		assert!(is_invalid_block(&runtime_verdict(too_early(), false)));
+		assert!(!is_invalid_block(&runtime_verdict(too_early(), true)));
+		assert!(!is_invalid_block(&runtime_verdict(Error::<TestBlock>::InvalidSeal, true)));
 	}
 
 	/// What `check_inherents` returns for a timestamp the runtime refused. The error goes

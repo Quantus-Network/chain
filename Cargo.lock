@@ -9264,7 +9264,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-futures",
- "wat",
 ]
 
 [[package]]

@@ -108,9 +108,6 @@ tokio = { features = ["parking_lot", "rt-multi-thread", "time"], workspace = tru
 tracing = { workspace = true, default-features = true }
 tracing-futures = { workspace = true }
 
-[dev-dependencies]
-wat = "1.0.0"
-
 [features]
 default = ["rocksdb"]
 jemalloc-allocator = ["sc-client-db/jemalloc-allocator"]

@@ -95,14 +95,13 @@ where
 
 	/// Maybe override the given `onchain_code`.
 	///
-	/// This takes into account potential overrides/substitutes. The last value is `true`
-	/// when the code is a local override, which only this node runs.
+	/// This takes into account potential overrides/substitutes.
 	pub fn maybe_override_code<'a>(
 		&'a self,
 		onchain_code: RuntimeCode<'a>,
 		state: &Backend::State,
 		hash: Block::Hash,
-	) -> sp_blockchain::Result<(RuntimeCode<'a>, RuntimeVersion, bool)> {
+	) -> sp_blockchain::Result<(RuntimeCode<'a>, RuntimeVersion)> {
 		self.maybe_override_code_internal(onchain_code, state, hash, false)
 	}
 
@@ -115,7 +114,7 @@ where
 		state: &Backend::State,
 		hash: Block::Hash,
 		ignore_overrides: bool,
-	) -> sp_blockchain::Result<(RuntimeCode<'a>, RuntimeVersion, bool)> {
+	) -> sp_blockchain::Result<(RuntimeCode<'a>, RuntimeVersion)> {
 		let on_chain_version = self.on_chain_runtime_version(&onchain_code, state)?;
 		let code_and_version = if let Some(d) = self.wasm_override.as_ref().as_ref().and_then(|o| {
 			if ignore_overrides {
@@ -129,20 +128,20 @@ where
 			)
 		}) {
 			tracing::debug!(target: "code-provider::overrides", block = ?hash, "using WASM override");
-			(d.0, d.1, true)
+			d
 		} else if let Some(s) =
 			self.wasm_substitutes
 				.get(on_chain_version.spec_version, onchain_code.heap_pages, hash)
 		{
 			tracing::debug!(target: "code-provider::substitutes", block = ?hash, "Using WASM substitute");
-			(s.0, s.1, false)
+			s
 		} else {
 			tracing::debug!(
 				target: "code-provider",
 				block = ?hash,
 				"Neither WASM override nor substitute available, using onchain code",
 			);
-			(onchain_code, on_chain_version, false)
+			(onchain_code, on_chain_version)
 		};
 
 		Ok(code_and_version)
