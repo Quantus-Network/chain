@@ -47,7 +47,6 @@ use sc_consensus::{
 	BlockCheckParams, BlockImportParams, ForkChoiceStrategy, ImportResult, StateAction,
 };
 use sc_executor::RuntimeVersion;
-use sc_network_sync::DeterministicBlockInvalid;
 use sc_telemetry::{telemetry, TelemetryHandle, SUBSTRATE_INFO};
 use sp_api::{
 	ApiExt, ApiRef, CallApiAt, CallApiAtParams, ConstructRuntimeApi, Core as CoreApi,
@@ -58,6 +57,7 @@ use sp_blockchain::{
 	HeaderBackend as ChainHeaderBackend, HeaderMetadata, Info as BlockchainInfo,
 };
 use sp_consensus::{BlockOrigin, BlockStatus, Error as ConsensusError};
+use sp_consensus_qpow::InvalidBlock;
 
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedSender};
 use sp_core::{
@@ -1827,7 +1827,7 @@ where
 /// stay [`ConsensusError::ClientImport`] so sync does not disconnect the sending peer.
 fn consensus_error_for_block_prepare(error: Error) -> ConsensusError {
 	if deterministic_block_invalidity(&error) {
-		ConsensusError::Other(Box::new(DeterministicBlockInvalid::new(error.to_string())))
+		ConsensusError::Other(Box::new(InvalidBlock::new(error.to_string())))
 	} else {
 		ConsensusError::ClientImport(error.to_string())
 	}
@@ -2150,12 +2150,12 @@ where
 #[cfg(test)]
 mod prepare_error_classification {
 	use super::{consensus_error_for_block_prepare, Error};
-	use sc_network_sync::DeterministicBlockInvalid;
 	use sp_consensus::Error as ConsensusError;
+	use sp_consensus_qpow::InvalidBlock;
 
 	fn is_deterministic(error: Error) -> bool {
 		match consensus_error_for_block_prepare(error) {
-			ConsensusError::Other(inner) => inner.is::<DeterministicBlockInvalid>(),
+			ConsensusError::Other(inner) => inner.is::<InvalidBlock>(),
 			ConsensusError::ClientImport(_) => false,
 			other => panic!("unexpected consensus error: {other:?}"),
 		}

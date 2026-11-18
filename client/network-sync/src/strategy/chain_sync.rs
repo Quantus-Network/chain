@@ -59,6 +59,7 @@ use sc_network_types::PeerId;
 use sp_arithmetic::traits::Saturating;
 use sp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata};
 use sp_consensus::{BlockOrigin, BlockStatus};
+use sp_consensus_qpow::InvalidBlock;
 use sp_core::storage::StateVersion;
 use sp_runtime::{
 	traits::{
@@ -88,26 +89,11 @@ const MAX_IMPORTING_BLOCKS: usize = 2048;
 /// commit every header byte. The cap keeps the set bounded.
 const REJECTED_IMPORTS_LIMIT: usize = 1024;
 
-/// A block failed execution or state-root checks in a way that will not succeed on retry.
-///
-/// Distinct from [`sp_consensus::Error::ClientImport`], which includes backend and database
-/// failures and stays retryable.
-#[derive(Debug, thiserror::Error)]
-#[error("{message}")]
-pub struct DeterministicBlockInvalid {
-	message: String,
-}
-
-impl DeterministicBlockInvalid {
-	/// `message` is the client error text.
-	pub fn new(message: impl Into<String>) -> Self {
-		Self { message: message.into() }
-	}
-}
-
-fn peer_block_is_deterministically_invalid(error: &sp_consensus::Error) -> bool {
+/// `true` when block import reported the block itself as invalid, rather than a failure of
+/// this node.
+fn import_rejected_block(error: &sp_consensus::Error) -> bool {
 	match error {
-		sp_consensus::Error::Other(inner) => inner.is::<DeterministicBlockInvalid>(),
+		sp_consensus::Error::Other(inner) => inner.is::<InvalidBlock>(),
 		_ => false,
 	}
 }
@@ -873,7 +859,7 @@ where
 				},
 				Err(BlockImportError::Other(error)) => {
 					warn!(target: LOG_TARGET, "💔 Error importing block {hash:?}: {error}");
-					if peer_block_is_deterministically_invalid(&error) {
+					if import_rejected_block(&error) {
 						if let Some(peer) = origin {
 							self.actions
 								.push(SyncingAction::DropPeer(BadPeer(peer, rep::BAD_BLOCK)));
@@ -3274,7 +3260,7 @@ mod security_tests {
 			1,
 			vec![(
 				Err(BlockImportError::Other(sp_consensus::Error::Other(Box::new(
-					DeterministicBlockInvalid::new("execution failed"),
+					InvalidBlock::new("execution failed"),
 				)))),
 				target,
 			)],

@@ -115,6 +115,10 @@ version = "43.0.0"
 default-features = true
 version = "0.46.0"
 
+[dependencies.sp-consensus-qpow]
+default-features = true
+path = "../../primitives/consensus/qpow"
+
 [dependencies.sp-core]
 default-features = true
 version = "39.0.0"

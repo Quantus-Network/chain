@@ -9,7 +9,7 @@ pub use chain_management::{
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
 use sp_api::ProvideRuntimeApi;
-use sp_consensus_qpow::{QPoWApi, Seal as RawSeal};
+use sp_consensus_qpow::{InvalidBlock, QPoWApi, Seal as RawSeal};
 use sp_runtime::traits::Block as BlockT;
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
@@ -67,6 +67,8 @@ pub enum Error<B: BlockT> {
 		String::from_utf8_lossy(.0)
 	)]
 	CheckInherentsUnknownError(sp_inherents::InherentIdentifier),
+	#[error("Runtime failed while checking inherents: {0}")]
+	CheckInherentsExecution(sp_blockchain::Error),
 	#[error("Multiple pre-runtime digests")]
 	MultiplePreRuntimeDigests,
 	#[error("Header has an encoded digest of {0} bytes; expected {1}-byte commitment window")]
@@ -89,9 +91,55 @@ impl<B: BlockT> From<Error<B>> for String {
 	}
 }
 
+impl<B: BlockT> Error<B> {
+	/// `true` when the error says the block is invalid, `false` when this node failed.
+	///
+	/// A failed inherent check is counted against the block even though the timestamp check
+	/// depends on the local clock. Left unpenalised, one mined block with a future timestamp
+	/// could be replayed to restart sync without end.
+	fn rejects_block(&self) -> bool {
+		matches!(
+			self,
+			Self::WrongEngine(_) |
+				Self::HeaderUnsealed(_) |
+				Self::InvalidSeal |
+				Self::CheckInherents(_) |
+				Self::CheckInherentsUnknownError(_) |
+				Self::CheckInherentsExecution(_) |
+				Self::DigestWindowMismatch(..)
+		)
+	}
+}
+
+/// Error for a failed `check_inherents` runtime call.
+///
+/// Block bodies are opaque bytes on the node side, and the runtime panics on an extrinsic it
+/// cannot decode. That arrives as an execution error, which is the block's fault. Anything
+/// else is a failure of this node.
+fn inherent_check_call_error<B: BlockT>(error: sp_api::ApiError) -> Error<B> {
+	let error = sp_blockchain::Error::from(error);
+	let trapped = matches!(
+		&error,
+		sp_blockchain::Error::RuntimeApiError(sp_api::ApiError::Application(inner))
+			if matches!(
+				inner.downcast_ref::<sp_blockchain::Error>(),
+				Some(sp_blockchain::Error::Execution(_))
+			)
+	);
+	if trapped {
+		Error::CheckInherentsExecution(error)
+	} else {
+		Error::Client(error)
+	}
+}
+
 impl<B: BlockT> From<Error<B>> for ConsensusError {
 	fn from(error: Error<B>) -> ConsensusError {
-		ConsensusError::ClientImport(error.to_string())
+		if error.rejects_block() {
+			ConsensusError::Other(Box::new(InvalidBlock::new(error.to_string())))
+		} else {
+			ConsensusError::ClientImport(error.to_string())
+		}
 	}
 }
 
@@ -183,7 +231,7 @@ where
 			.client
 			.runtime_api()
 			.check_inherents(at_hash, block.into(), inherent_data)
-			.map_err(|e| Error::Client(e.into()))?;
+			.map_err(inherent_check_call_error)?;
 
 		if !inherent_res.ok() {
 			for (identifier, error) in inherent_res.into_errors() {
@@ -1039,5 +1087,59 @@ mod tests {
 			.err()
 			.expect("a wrong-length seal must be rejected");
 		assert!(err.contains("64 bytes"), "expected the length rejection, got: {err}");
+	}
+
+	fn reported_as_invalid_block(error: Error<TestBlock>) -> bool {
+		match ConsensusError::from(error) {
+			ConsensusError::Other(inner) => inner.is::<InvalidBlock>(),
+			_ => false,
+		}
+	}
+
+	/// `import_block` checks inherents after the verifier has passed the block, so the
+	/// failure reaches sync as an import error. It must name the block as the cause, or sync
+	/// restarts with the sender still connected.
+	#[test]
+	fn failed_inherent_check_is_reported_as_an_invalid_block() {
+		assert!(reported_as_invalid_block(Error::CheckInherents(
+			sp_inherents::Error::FatalErrorReported
+		)));
+		assert!(reported_as_invalid_block(Error::CheckInherentsUnknownError(*b"timstap0")));
+		assert!(reported_as_invalid_block(Error::InvalidSeal));
+	}
+
+	/// `call_api_at` hands a client error to the runtime API as `ApiError::Application`.
+	fn api_error(error: sp_blockchain::Error) -> sp_api::ApiError {
+		sp_api::ApiError::from(error)
+	}
+
+	#[test]
+	fn runtime_trap_during_inherent_check_is_reported_as_an_invalid_block() {
+		let trap = sp_blockchain::Error::Execution(Box::new(
+			"check_extrinsics(): Unable to decode extrinsic".to_string(),
+		));
+		assert!(reported_as_invalid_block(inherent_check_call_error(api_error(trap))));
+	}
+
+	#[test]
+	fn local_failure_during_inherent_check_is_not_reported_as_an_invalid_block() {
+		let missing_code = sp_blockchain::Error::RuntimeCode("failed to read :code");
+		assert!(!reported_as_invalid_block(inherent_check_call_error(api_error(missing_code))));
+		let backend = sp_blockchain::Error::Backend("read failed".into());
+		assert!(!reported_as_invalid_block(inherent_check_call_error(api_error(backend))));
+		assert!(!reported_as_invalid_block(inherent_check_call_error(
+			sp_api::ApiError::UnknownBlock("pruned".into())
+		)));
+	}
+
+	#[test]
+	fn local_failure_is_not_reported_as_an_invalid_block() {
+		assert!(!reported_as_invalid_block(Error::Client(sp_blockchain::Error::Backend(
+			"read failed".into()
+		))));
+		assert!(!reported_as_invalid_block(Error::CreateInherents(
+			sp_inherents::Error::FatalErrorReported
+		)));
+		assert!(!reported_as_invalid_block(Error::Runtime("runtime API call failed".into())));
 	}
 }

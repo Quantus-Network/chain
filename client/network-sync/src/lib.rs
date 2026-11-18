@@ -20,10 +20,7 @@
 
 pub use schema::v1::*;
 pub use service::syncing_service::SyncingService;
-pub use strategy::{
-	chain_sync::DeterministicBlockInvalid,
-	warp::{WarpSyncConfig, WarpSyncPhase, WarpSyncProgress},
-};
+pub use strategy::warp::{WarpSyncConfig, WarpSyncPhase, WarpSyncProgress};
 pub use types::{SyncEvent, SyncEventStream, SyncState, SyncStatus, SyncStatusProvider};
 
 mod block_announce_validator;

@@ -8,6 +8,33 @@ pub const POW_ENGINE_ID: ConsensusEngineId = [b'p', b'o', b'w', b'_'];
 
 pub type Seal = Vec<u8>;
 
+/// Import error for a block the node judged invalid, as opposed to a failure of the node itself.
+///
+/// Block import wraps this in `sp_consensus::Error::Other`. The import queue reports that
+/// variant without a peer, so sync looks for this type to decide whether to disconnect the
+/// peer that supplied the block.
+#[cfg(feature = "std")]
+#[derive(Debug)]
+pub struct InvalidBlock(alloc::string::String);
+
+#[cfg(feature = "std")]
+impl InvalidBlock {
+	/// `reason` is the text of the error that rejected the block.
+	pub fn new(reason: impl Into<alloc::string::String>) -> Self {
+		Self(reason.into())
+	}
+}
+
+#[cfg(feature = "std")]
+impl core::fmt::Display for InvalidBlock {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		f.write_str(&self.0)
+	}
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for InvalidBlock {}
+
 sp_api::decl_runtime_apis! {
 	pub trait QPoWApi {
 		/// Get the max possible reorg depth
