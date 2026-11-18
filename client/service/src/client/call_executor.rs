@@ -32,6 +32,31 @@ use sp_runtime::{
 use sp_state_machine::{backend::AsTrieBackend, OverlayedChanges, StateMachine, StorageProof};
 use std::{cell::RefCell, sync::Arc};
 
+/// A runtime call that failed under a local Wasm override.
+///
+/// The on-chain runtime might have completed the same call, so the failure says nothing about
+/// the block being imported. Wrapping the executor's error keeps
+/// `sc_executor::runtime_aborted` from reading it as an abort of the on-chain runtime.
+#[derive(Debug)]
+struct FailedUnderLocalOverride(Box<dyn sp_state_machine::Error>);
+
+impl std::fmt::Display for FailedUnderLocalOverride {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{} (the runtime is a local Wasm override)", self.0)
+	}
+}
+
+fn execution_error(
+	error: Box<dyn sp_state_machine::Error>,
+	local_override: bool,
+) -> sp_blockchain::Error {
+	if local_override {
+		sp_blockchain::Error::Execution(Box::new(FailedUnderLocalOverride(error)))
+	} else {
+		error.into()
+	}
+}
+
 /// Call executor that executes methods locally, querying all required
 /// data from local backend.
 pub struct LocalCallExecutor<Block: BlockT, B, E> {
@@ -108,7 +133,8 @@ where
 		let runtime_code =
 			state_runtime_code.runtime_code().map_err(sp_blockchain::Error::RuntimeCode)?;
 
-		let runtime_code = self.code_provider.maybe_override_code(runtime_code, &state, at_hash)?.0;
+		let (runtime_code, _, local_override) =
+			self.code_provider.maybe_override_code(runtime_code, &state, at_hash)?;
 
 		let mut extensions = self.execution_extensions.extensions(at_hash, at_number);
 
@@ -124,7 +150,7 @@ where
 		)
 		.set_parent_hash(at_hash);
 
-		sm.execute().map_err(Into::into)
+		sm.execute().map_err(|error| execution_error(error, local_override))
 	}
 
 	fn contextual_call(
@@ -148,7 +174,8 @@ where
 
 		let runtime_code =
 			state_runtime_code.runtime_code().map_err(sp_blockchain::Error::RuntimeCode)?;
-		let runtime_code = self.code_provider.maybe_override_code(runtime_code, &state, at_hash)?.0;
+		let (runtime_code, _, local_override) =
+			self.code_provider.maybe_override_code(runtime_code, &state, at_hash)?;
 		let mut extensions = extensions.borrow_mut();
 
 		match recorder {
@@ -187,7 +214,7 @@ where
 				state_machine.execute()
 			},
 		}
-		.map_err(Into::into)
+		.map_err(|error| execution_error(error, local_override))
 	}
 
 	fn runtime_version(&self, at_hash: Block::Hash) -> sp_blockchain::Result<RuntimeVersion> {
@@ -198,7 +225,7 @@ where
 			state_runtime_code.runtime_code().map_err(sp_blockchain::Error::RuntimeCode)?;
 		self.code_provider
 			.maybe_override_code(runtime_code, &state, at_hash)
-			.map(|(_, v)| v)
+			.map(|(_, version, _)| version)
 	}
 
 	fn prove_execution(
@@ -264,5 +291,107 @@ where
 {
 	fn native_version(&self) -> &sp_version::NativeVersion {
 		self.executor.native_version()
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use codec::Encode;
+	use sc_client_api::{
+		backend::{Backend, BlockImportOperation, NewBlockState},
+		in_mem,
+	};
+	use sc_executor::{runtime_aborted, WasmExecutor};
+	use sp_core::storage::{well_known_keys, Storage};
+	use sp_runtime::{
+		generic,
+		traits::{BlakeTwo256, Header as _},
+		OpaqueExtrinsic, StateVersion,
+	};
+	use std::path::Path;
+
+	type Block = generic::Block<generic::Header<u64, BlakeTwo256>, OpaqueExtrinsic>;
+
+	/// A runtime with spec version 1 whose `execute_block` is `body`.
+	fn runtime(body: &str) -> Vec<u8> {
+		// `RuntimeVersion` as the executor reads it from the custom section, ending with an
+		// empty list of APIs.
+		let version = ("test", "test", 1u32, 1u32, 1u32, Vec::<([u8; 8], u32)>::new()).encode();
+		let version: String = version.iter().map(|byte| format!("\\{byte:02x}")).collect();
+		let module = format!(
+			r#"
+			(module
+				(@custom "runtime_version" "{version}")
+				(memory (export "memory") 1)
+				(global (export "__heap_base") i32 (i32.const 1024))
+				(func (export "execute_block") (param i32 i32) (result i64) {body}))
+			"#
+		);
+		wat::parse_str(module).expect("valid wat")
+	}
+
+	/// Calls `execute_block` at a genesis block whose `:code` is `onchain_code`.
+	fn execute_block(
+		onchain_code: Vec<u8>,
+		overrides: Option<&Path>,
+	) -> sp_blockchain::Result<Vec<u8>> {
+		let backend = Arc::new(in_mem::Backend::<Block>::new());
+		let mut operation = backend.begin_operation().unwrap();
+		let storage = Storage {
+			top: [(well_known_keys::CODE.to_vec(), onchain_code)].into(),
+			children_default: Default::default(),
+		};
+		let state_root = operation.set_genesis_state(storage, true, StateVersion::V1).unwrap();
+		let genesis = <Block as BlockT>::Header::new(
+			0,
+			Default::default(),
+			state_root,
+			Default::default(),
+			Default::default(),
+		);
+		let genesis_hash = genesis.hash();
+		operation
+			.set_block_data(genesis, Some(Vec::new()), None, None, NewBlockState::Final)
+			.unwrap();
+		backend.commit_operation(operation).unwrap();
+
+		let executor = WasmExecutor::default();
+		let config = ClientConfig::<Block> {
+			wasm_runtime_overrides: overrides.map(Path::to_path_buf),
+			..Default::default()
+		};
+		let extensions = ExecutionExtensions::new(None, Arc::new(executor.clone()));
+		LocalCallExecutor::new(backend, executor, config, extensions).unwrap().call(
+			genesis_hash,
+			"execute_block",
+			&[],
+			CallContext::Onchain,
+		)
+	}
+
+	const ACCEPTS: &str = "(i64.const 0)";
+	const ABORTS: &str = "unreachable";
+
+	#[test]
+	fn abort_of_the_onchain_runtime_is_a_runtime_abort() {
+		let error = execute_block(runtime(ABORTS), None).expect_err("the runtime aborts");
+		assert!(runtime_aborted(&error), "{error}");
+	}
+
+	/// An override is this node's own choice of code. That it aborts does not show that the
+	/// runtime the rest of the network runs would.
+	#[test]
+	fn abort_of_a_local_override_is_not_a_runtime_abort() {
+		let overrides = tempfile::tempdir().unwrap();
+		std::fs::write(overrides.path().join("test.wasm"), runtime(ABORTS)).unwrap();
+
+		let error = execute_block(runtime(ACCEPTS), Some(overrides.path()))
+			.expect_err("the override aborts");
+		assert!(error.to_string().contains("local Wasm override"), "{error}");
+		assert!(!runtime_aborted(&error));
+		assert!(!runtime_aborted(&sp_blockchain::Error::from(sp_api::ApiError::from(error))));
+
+		assert!(execute_block(runtime(ACCEPTS), None).is_ok());
 	}
 }
