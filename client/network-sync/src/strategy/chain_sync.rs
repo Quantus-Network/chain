@@ -2588,19 +2588,22 @@ where
 
 /// `true` when `body` is the extrinsic list committed by `header.extrinsics_root`.
 ///
-/// The root uses trie layout V0. `frame_system::Pallet::finalize` takes that layout from
-/// `RuntimeVersion::extrinsics_root_state_version`, and the system pallet test locks it to V0
-/// for `system_version: 1`.
+/// The runtime that built the block chose the trie layout of the root from its
+/// `system_version` (`RuntimeVersion::extrinsics_root_state_version`), which sync does not
+/// know. A body is accepted under either layout, so a runtime upgrade that changes the layout
+/// does not make every node refuse every block. A body that matches only under the layout the
+/// runtime does not use fails when the block is executed.
 pub(crate) fn extrinsics_match_header<Block: BlockT>(
 	header: &Block::Header,
 	body: &[Block::Extrinsic],
 ) -> bool {
-	let encoded = body.iter().map(Encode::encode).collect();
-	let root = <<Block::Header as HeaderT>::Hashing as HashT>::ordered_trie_root(
-		encoded,
-		StateVersion::V0,
-	);
-	header.extrinsics_root() == &root
+	[StateVersion::V0, StateVersion::V1].into_iter().any(|layout| {
+		let root = <<Block::Header as HeaderT>::Hashing as HashT>::ordered_trie_root(
+			body.iter().map(Encode::encode).collect(),
+			layout,
+		);
+		header.extrinsics_root() == &root
+	})
 }
 
 /// Validate that the given `blocks` are correct.
@@ -2765,7 +2768,10 @@ mod security_tests {
 	};
 	use sp_blockchain::{CachedHeaderMetadata, Info};
 	use sp_core::H256;
-	use sp_runtime::testing::{Block as RawBlock, MockCallU64, TestXt};
+	use sp_runtime::{
+		testing::{Block as RawBlock, MockCallU64, TestXt},
+		traits::BlakeTwo256,
+	};
 	use sp_state_machine::{KeyValueStates, KeyValueStorageLevel};
 
 	type TestBlock = RawBlock<TestXt<MockCallU64, ()>>;
@@ -3017,17 +3023,14 @@ mod security_tests {
 		assert_eq!(block_import_origin(true, false, false), BlockOrigin::NetworkInitialSync);
 	}
 
+	/// A block with an empty body. The default extrinsics root of the header is not the
+	/// root of an empty list, so it is set here.
 	fn block_data(mut header: <TestBlock as BlockT>::Header) -> BlockData<TestBlock> {
-		let body = Vec::new();
-		let root = <<TestBlock as BlockT>::Header as HeaderT>::Hashing::ordered_trie_root(
-			body.iter().map(Encode::encode).collect(),
-			StateVersion::V0,
-		);
-		header.set_extrinsics_root(root);
+		header.set_extrinsics_root(BlakeTwo256::ordered_trie_root(Vec::new(), StateVersion::V0));
 		BlockData::<TestBlock> {
 			hash: header.hash(),
 			header: Some(header),
-			body: Some(body),
+			body: Some(Vec::new()),
 			indexed_body: None,
 			receipt: None,
 			message_queue: None,
@@ -3130,6 +3133,43 @@ mod security_tests {
 			validate_blocks::<TestBlock>(&blocks, &peer, Some(descending_request(10, 1))),
 			Err(BadPeer(peer, rep::BAD_BLOCK)),
 		);
+	}
+
+	/// The runtime chooses the trie layout of the extrinsics root, and a runtime upgrade can
+	/// change it. Sync must keep accepting honest bodies across that change.
+	#[test]
+	fn body_is_matched_against_the_header_under_either_trie_layout() {
+		type OpaqueBlock = sp_runtime::generic::Block<
+			sp_runtime::generic::Header<u64, BlakeTwo256>,
+			sp_runtime::OpaqueExtrinsic,
+		>;
+		let header_committing_to = |body: &[sp_runtime::OpaqueExtrinsic], layout| {
+			let root = BlakeTwo256::ordered_trie_root(
+				body.iter().map(Encode::encode).collect(),
+				layout,
+			);
+			<OpaqueBlock as BlockT>::Header::new(
+				1,
+				root,
+				Default::default(),
+				Default::default(),
+				Default::default(),
+			)
+		};
+
+		// The layouts only produce different roots for values of 33 bytes or more, the size
+		// of any signed extrinsic.
+		let body = vec![sp_runtime::OpaqueExtrinsic::from_blob(vec![7; 64])];
+		let v0_header = header_committing_to(&body, StateVersion::V0);
+		let v1_header = header_committing_to(&body, StateVersion::V1);
+		assert_ne!(v0_header.extrinsics_root(), v1_header.extrinsics_root());
+
+		assert!(extrinsics_match_header::<OpaqueBlock>(&v0_header, &body));
+		assert!(extrinsics_match_header::<OpaqueBlock>(&v1_header, &body));
+
+		let other_body = vec![sp_runtime::OpaqueExtrinsic::from_blob(vec![8; 64])];
+		assert!(!extrinsics_match_header::<OpaqueBlock>(&v0_header, &other_body));
+		assert!(!extrinsics_match_header::<OpaqueBlock>(&v1_header, &other_body));
 	}
 
 	fn idle_sync() -> (Arc<GenesisClient>, ChainSync<TestBlock, GenesisClient>) {
