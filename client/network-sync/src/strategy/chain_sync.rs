@@ -290,6 +290,15 @@ struct ForkTarget<B: BlockT> {
 	peers: HashSet<PeerId>,
 }
 
+/// What sync keeps about a block while the import queue has it.
+struct QueuedBlock<B: BlockT> {
+	/// The peer that supplied the block. `BlockImportError::Other` does not carry a peer id.
+	origin: Option<PeerId>,
+	/// The fork target that queueing the block completed. It is the only record that the
+	/// block was wanted, so it is put back when the block has to be requested again.
+	fork_target: Option<ForkTarget<B>>,
+}
+
 /// The state of syncing between a Peer and ourselves.
 ///
 /// Generally two categories, "busy" or `Available`. If busy, the enum
@@ -339,12 +348,8 @@ pub struct ChainSync<B: BlockT, Client> {
 	mode: ChainSyncMode,
 	/// Any extra justification requests.
 	extra_justifications: ExtraRequests<B>,
-	/// Hashes of blocks that are being downloaded or have been downloaded and are queued for
-	/// import, each with the peer that supplied it.
-	///
-	/// `BlockImportError::Other` does not carry a peer id, so the sender is kept here until
-	/// the import result arrives.
-	queue_blocks: HashMap<B::Hash, Option<PeerId>>,
+	/// Blocks that have been downloaded and are queued for import, by hash.
+	queue_blocks: HashMap<B::Hash, QueuedBlock<B>>,
 	/// A pending attempt to start the state sync.
 	///
 	/// The initiation of state sync may be deferred in cases where other conditions
@@ -716,7 +721,8 @@ where
 		trace!(target: LOG_TARGET, "Imported {imported} of {count}");
 
 		let mut has_error = false;
-		let mut origins = Vec::with_capacity(results.len());
+		let mut from_the_future = false;
+		let mut queued_blocks = Vec::with_capacity(results.len());
 		for (_, hash) in &results {
 			let queued = self.queue_blocks.remove(hash);
 			if queued.is_some() {
@@ -724,13 +730,33 @@ where
 					metrics.queued_blocks.dec();
 				}
 			}
-			origins.push(queued.flatten());
+			queued_blocks.push(queued);
 			self.blocks.clear_queued(hash);
 			if let Some(gap_sync) = &mut self.gap_sync {
 				gap_sync.blocks.clear_queued(hash);
 			}
 		}
-		for ((result, hash), origin) in results.into_iter().zip(origins) {
+		for ((result, hash), queued) in results.into_iter().zip(queued_blocks) {
+			let (origin, fork_target) =
+				queued.map_or((None, None), |queued| (queued.origin, queued.fork_target));
+
+			// A block from the future passes later, and the queue does not try the blocks
+			// behind it. Sync restarts from what the peers advertise as their best block,
+			// which does not lead back to a block on another fork.
+			if !has_error {
+				from_the_future = matches!(
+					&result,
+					Err(BlockImportError::Other(error)) if import_failed_with::<FutureBlock>(error)
+				);
+			}
+			if let Some(fork_target) = fork_target.filter(|_| from_the_future) {
+				if self.fork_targets.insert(hash, fork_target).is_none() {
+					if let Some(metrics) = &self.metrics {
+						metrics.fork_targets.inc();
+					}
+				}
+			}
+
 			if has_error {
 				continue
 			}
@@ -1745,12 +1771,10 @@ where
 			);
 		}
 
-		if let Some((h, n)) = new_blocks
-			.last()
-			.and_then(|b| b.header.as_ref().map(|h| (&b.hash, *h.number())))
-		{
-			self.on_block_queued(h, n)
-		}
+		let last = new_blocks.last().and_then(|b| b.header.as_ref().map(|h| (b.hash, *h.number())));
+		let fork_target = last.and_then(|(hash, number)| {
+			self.on_block_queued(&hash, number).map(|target| (hash, target))
+		});
 
 		// Computed after `on_block_queued` so the batch itself counts toward
 		// the import backlog; otherwise every batch of a smooth catch-up
@@ -1764,7 +1788,16 @@ where
 			new_blocks.last().map(|b| b.hash),
 			origin,
 		);
-		self.queue_blocks.extend(new_blocks.iter().map(|b| (b.hash, b.origin)));
+		self.queue_blocks.extend(
+			new_blocks
+				.iter()
+				.map(|b| (b.hash, QueuedBlock { origin: b.origin, fork_target: None })),
+		);
+		if let Some((hash, target)) = fork_target {
+			if let Some(queued) = self.queue_blocks.get_mut(&hash) {
+				queued.fork_target = Some(target);
+			}
+		}
 		if let Some(metrics) = &self.metrics {
 			metrics
 				.queued_blocks
@@ -1784,8 +1817,11 @@ where
 	///
 	/// Updates our internal state for best queued block and then goes
 	/// through all peers to update our view of their state as well.
-	fn on_block_queued(&mut self, hash: &B::Hash, number: NumberFor<B>) {
-		if self.fork_targets.remove(hash).is_some() {
+	///
+	/// Returns the fork target the block completed, if it was one.
+	fn on_block_queued(&mut self, hash: &B::Hash, number: NumberFor<B>) -> Option<ForkTarget<B>> {
+		let fork_target = self.fork_targets.remove(hash);
+		if fork_target.is_some() {
 			if let Some(metrics) = &self.metrics {
 				metrics.fork_targets.dec();
 			}
@@ -1820,6 +1856,7 @@ where
 			}
 		}
 		self.allowed_requests.set_all();
+		fork_target
 	}
 
 	/// Restart the sync process. This will reset all pending block requests and return an iterator
@@ -3349,12 +3386,88 @@ mod security_tests {
 		let serving = PeerId::random();
 		sync.add_peer(serving, genesis, 0);
 		let target = header(1, genesis).hash();
-		sync.queue_blocks.insert(target, Some(serving));
+		sync.queue_blocks
+			.insert(target, QueuedBlock { origin: Some(serving), fork_target: None });
 		sync.actions.clear();
 
 		sync.on_blocks_processed(0, 1, vec![(Err(BlockImportError::UnknownParent), target)]);
 
 		assert!(sync.actions.iter().all(|action| !matches!(action, SyncingAction::DropPeer(_))));
+	}
+
+	/// A block the peer announces without making it its best block is requested through a
+	/// fork target, which is dropped once the block is queued. When the peer's best block is
+	/// already known here, nothing else leads back to the announced block.
+	#[test]
+	fn future_block_on_a_side_fork_is_requested_again_after_the_pause() {
+		let (client, mut sync) = idle_sync();
+		let genesis = client.genesis.hash();
+		let announcing = PeerId::random();
+		sync.add_peer(announcing, genesis, 0);
+
+		let block = block_data(header(1, genesis));
+		let hash = block.hash;
+		let header = block.header.clone().expect("the block has a header");
+		let announce = BlockAnnounce { header, state: None, data: None };
+		let _ = sync.on_validated_block_announce(false, announcing, &announce);
+
+		let request_for_the_block = |sync: &mut ChainSync<TestBlock, GenesisClient>| {
+			sync.block_requests()
+				.into_iter()
+				.find(|(peer, request)| {
+					*peer == announcing && request.from == FromBlock::Hash(hash)
+				})
+				.map(|(_, request)| request)
+		};
+		let request = request_for_the_block(&mut sync).expect("the announced block is requested");
+		sync.on_block_data(
+			&announcing,
+			Some(request),
+			BlockResponse::<TestBlock> { id: 0, blocks: vec![block] },
+		)
+		.unwrap();
+		assert!(sync.queue_blocks.contains_key(&hash));
+
+		let future_block = sp_consensus::Error::Other(Box::new(FutureBlock));
+		sync.on_blocks_processed(0, 1, vec![(Err(BlockImportError::Other(future_block)), hash)]);
+		assert!(request_for_the_block(&mut sync).is_none(), "the peer is paused");
+
+		// The pause ends. No second announcement arrives.
+		sync.future_block_peers = FutureBlockPeers::new();
+		assert!(request_for_the_block(&mut sync).is_some());
+	}
+
+	/// A fork target is the last block of its batch, and the queue does not try the blocks
+	/// behind a failed one.
+	#[test]
+	fn fork_target_behind_a_future_block_is_kept() {
+		let kept_after = |error: fn() -> sp_consensus::Error| {
+			let (client, mut sync) = idle_sync();
+			let peer = PeerId::random();
+			sync.add_peer(peer, client.genesis.hash(), 0);
+			let (parent, target) = (H256::repeat_byte(1), H256::repeat_byte(2));
+			let fork_target =
+				ForkTarget { number: 2, parent_hash: Some(parent), peers: [peer].into() };
+			sync.queue_blocks
+				.insert(parent, QueuedBlock { origin: Some(peer), fork_target: None });
+			sync.queue_blocks
+				.insert(target, QueuedBlock { origin: Some(peer), fork_target: Some(fork_target) });
+
+			sync.on_blocks_processed(
+				0,
+				2,
+				vec![
+					(Err(BlockImportError::Other(error())), parent),
+					(Err(BlockImportError::Cancelled), target),
+				],
+			);
+			sync.fork_targets.contains_key(&target)
+		};
+
+		assert!(kept_after(|| sp_consensus::Error::Other(Box::new(FutureBlock))));
+		assert!(!kept_after(|| {
+			sp_consensus::Error::Other(Box::new(InvalidBlock::new("execution failed")))
+		}));
 	}
 
 	#[test]
