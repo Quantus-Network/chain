@@ -478,7 +478,10 @@ where
 	fn storage_root(&mut self, state_version: StateVersion) -> Vec<u8> {
 		let _guard = guard();
 
-		let (root, _cached) = self.overlay.storage_root(self.backend, state_version);
+		let (root, _cached) = self
+			.overlay
+			.storage_root(self.backend, state_version)
+			.expect(EXT_NOT_ALLOWED_TO_FAIL);
 
 		trace!(
 			target: "state",

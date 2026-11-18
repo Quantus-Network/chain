@@ -275,6 +275,23 @@ impl<B: BlockT> StateBackend<HashingFor<B>> for RefTrackingState<B> {
 		self.state.child_storage_root(child_info, delta, state_version)
 	}
 
+	fn try_storage_root<'a>(
+		&self,
+		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
+		state_version: StateVersion,
+	) -> Result<(B::Hash, BackendTransaction<HashingFor<B>>), Self::Error> {
+		self.state.try_storage_root(delta, state_version)
+	}
+
+	fn try_child_storage_root<'a>(
+		&self,
+		child_info: &ChildInfo,
+		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
+		state_version: StateVersion,
+	) -> Result<(B::Hash, bool, BackendTransaction<HashingFor<B>>), Self::Error> {
+		self.state.try_child_storage_root(child_info, delta, state_version)
+	}
+
 	fn raw_iter(&self, args: IterArgs) -> Result<Self::RawIter, Self::Error> {
 		self.state.raw_iter(args).map(|inner| RawIter { inner })
 	}
@@ -2825,6 +2842,34 @@ pub(crate) mod tests {
 		backend.commit_operation(op).unwrap();
 
 		header.hash()
+	}
+
+	/// The state that block execution runs on is a trie backend behind two wrappers. A root
+	/// it cannot calculate must come out of them as an error.
+	#[test]
+	fn state_reports_a_storage_root_it_cannot_calculate() {
+		let backend = Backend::<Block>::new_test(10, 10);
+		// The database holds no trie node for this root, as when the node went missing.
+		let root = H256::repeat_byte(1);
+		let db_state = DbStateBuilder::<BlakeTwo256>::new(backend.storage.clone(), root).build();
+		let state = RecordStatsState::<_, Block>::new(
+			RefTrackingState::new(db_state, backend.storage.clone(), None),
+			None,
+			backend.state_usage.clone(),
+		);
+		let write = || std::iter::once((&b"key"[..], Some(&b"value"[..])));
+
+		assert_eq!(state.storage_root(write(), StateVersion::V1).0, root);
+		assert!(state.try_storage_root(write(), StateVersion::V1).is_err());
+		assert!(state
+			.try_full_storage_root(
+				write(),
+				std::iter::empty::<(&ChildInfo, std::iter::Empty<_>)>(),
+				StateVersion::V1
+			)
+			.is_err());
+		let child = ChildInfo::new_default(b"child");
+		assert!(state.try_child_storage_root(&child, write(), StateVersion::V1).is_err());
 	}
 
 	pub fn insert_header_no_head(

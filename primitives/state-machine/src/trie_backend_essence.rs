@@ -626,15 +626,44 @@ where
 	}
 
 	/// Return the storage root after applying the given `delta`.
+	///
+	/// A trie that cannot be updated is logged, and the current root is returned in place of
+	/// the new one. [`Self::try_storage_root`] returns the failure.
 	pub fn storage_root<'a>(
 		&self,
 		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
 		state_version: StateVersion,
 	) -> (H::Out, PrefixedMemoryDB<H>) {
 		let mut write_overlay = PrefixedMemoryDB::with_hasher(RandomState::default());
+		let root = self.delta_root(delta, state_version, &mut write_overlay).unwrap_or_else(|e| {
+			warn!(target: "trie", "{}", e);
+			self.root
+		});
 
-		let root = self.with_recorder_and_cache_for_storage_root(None, |recorder, cache| {
-			let mut eph = Ephemeral::new(self.backend_storage(), &mut write_overlay);
+		(root, write_overlay)
+	}
+
+	/// Return the storage root after applying the given `delta`, or the reason the trie
+	/// could not be updated.
+	pub fn try_storage_root<'a>(
+		&self,
+		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
+		state_version: StateVersion,
+	) -> Result<(H::Out, PrefixedMemoryDB<H>)> {
+		let mut write_overlay = PrefixedMemoryDB::with_hasher(RandomState::default());
+		let root = self.delta_root(delta, state_version, &mut write_overlay)?;
+
+		Ok((root, write_overlay))
+	}
+
+	fn delta_root<'a>(
+		&self,
+		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
+		state_version: StateVersion,
+		write_overlay: &mut PrefixedMemoryDB<H>,
+	) -> Result<H::Out> {
+		self.with_recorder_and_cache_for_storage_root(None, |recorder, cache| {
+			let mut eph = Ephemeral::new(self.backend_storage(), write_overlay);
 			let res = match state_version {
 				StateVersion::V0 => delta_trie_root::<sp_trie::LayoutV0<H>, _, _, _, _, _>(
 					&mut eph, self.root, delta, recorder, cache,
@@ -645,19 +674,17 @@ where
 			};
 
 			match res {
-				Ok(ret) => (Some(ret), ret),
-				Err(e) => {
-					warn!(target: "trie", "Failed to write to trie: {}", e);
-					(None, self.root)
-				},
+				Ok(ret) => (Some(ret), Ok(ret)),
+				Err(e) => (None, Err(format!("Failed to write to trie: {}", e))),
 			}
-		});
-
-		(root, write_overlay)
+		})
 	}
 
 	/// Returns the child storage root for the child trie `child_info` after applying the given
 	/// `delta`.
+	///
+	/// A trie that cannot be read or updated is logged, and a root that does not include
+	/// `delta` is returned. [`Self::try_child_storage_root`] returns the failure.
 	pub fn child_storage_root<'a>(
 		&self,
 		child_info: &ChildInfo,
@@ -677,40 +704,76 @@ where
 			},
 		};
 
-		let new_child_root =
-			self.with_recorder_and_cache_for_storage_root(Some(child_root), |recorder, cache| {
-				let mut eph = Ephemeral::new(self.backend_storage(), &mut write_overlay);
-				match match state_version {
-					StateVersion::V0 =>
-						child_delta_trie_root::<sp_trie::LayoutV0<H>, _, _, _, _, _, _>(
-							child_info.keyspace(),
-							&mut eph,
-							child_root,
-							delta,
-							recorder,
-							cache,
-						),
-					StateVersion::V1 =>
-						child_delta_trie_root::<sp_trie::LayoutV1<H>, _, _, _, _, _, _>(
-							child_info.keyspace(),
-							&mut eph,
-							child_root,
-							delta,
-							recorder,
-							cache,
-						),
-				} {
-					Ok(ret) => (Some(ret), ret),
-					Err(e) => {
-						warn!(target: "trie", "Failed to write to trie: {}", e);
-						(None, child_root)
-					},
-				}
+		let new_child_root = self
+			.child_delta_root(child_info, child_root, delta, state_version, &mut write_overlay)
+			.unwrap_or_else(|e| {
+				warn!(target: "trie", "{}", e);
+				child_root
 			});
 
 		let is_default = new_child_root == default_root;
 
 		(new_child_root, is_default, write_overlay)
+	}
+
+	/// Returns the child storage root for the child trie `child_info` after applying the given
+	/// `delta`, or the reason the trie could not be read or updated.
+	pub fn try_child_storage_root<'a>(
+		&self,
+		child_info: &ChildInfo,
+		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
+		state_version: StateVersion,
+	) -> Result<(H::Out, bool, PrefixedMemoryDB<H>)> {
+		let default_root = match child_info.child_type() {
+			ChildType::ParentKeyId => empty_child_trie_root::<sp_trie::LayoutV1<H>>(),
+		};
+		let mut write_overlay = PrefixedMemoryDB::with_hasher(RandomState::default());
+		let child_root = self.child_root(child_info)?.unwrap_or(default_root);
+		let new_child_root = self.child_delta_root(
+			child_info,
+			child_root,
+			delta,
+			state_version,
+			&mut write_overlay,
+		)?;
+
+		Ok((new_child_root, new_child_root == default_root, write_overlay))
+	}
+
+	fn child_delta_root<'a>(
+		&self,
+		child_info: &ChildInfo,
+		child_root: H::Out,
+		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
+		state_version: StateVersion,
+		write_overlay: &mut PrefixedMemoryDB<H>,
+	) -> Result<H::Out> {
+		self.with_recorder_and_cache_for_storage_root(Some(child_root), |recorder, cache| {
+			let mut eph = Ephemeral::new(self.backend_storage(), write_overlay);
+			match match state_version {
+				StateVersion::V0 =>
+					child_delta_trie_root::<sp_trie::LayoutV0<H>, _, _, _, _, _, _>(
+						child_info.keyspace(),
+						&mut eph,
+						child_root,
+						delta,
+						recorder,
+						cache,
+					),
+				StateVersion::V1 =>
+					child_delta_trie_root::<sp_trie::LayoutV1<H>, _, _, _, _, _, _>(
+						child_info.keyspace(),
+						&mut eph,
+						child_root,
+						delta,
+						recorder,
+						cache,
+					),
+			} {
+				Ok(ret) => (Some(ret), Ok(ret)),
+				Err(e) => (None, Err(format!("Failed to write to trie: {}", e))),
+			}
+		})
 	}
 }
 

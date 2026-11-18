@@ -236,6 +236,36 @@ mod runtime_aborted_tests {
 		assert!(!runtime_aborted(&through_runtime_api(error)));
 	}
 
+	/// Writes the storage key held in the first byte of memory, computes the storage root and
+	/// traps, as the runtime does when the root differs from the one in the header.
+	const STORAGE_ROOT_CHECKING_MODULE: &str = r#"
+		(module
+			(import "env" "ext_storage_set_version_1" (func $storage_set (param i64 i64)))
+			(import "env" "ext_storage_root_version_1" (func $storage_root (result i64)))
+			(memory (export "memory") 1)
+			(global (export "__heap_base") i32 (i32.const 1024))
+			(func (export "execute_block") (param i32 i32) (result i64)
+				(call $storage_set (i64.const 0x100000000) (i64.const 0x100000000))
+				(drop (call $storage_root))
+				unreachable))
+	"#;
+
+	/// A storage root that this node cannot compute, as on a damaged database, must not reach
+	/// the runtime as a root that differs from the header's. The block writes without
+	/// reading, so no storage read fails first.
+	#[test]
+	fn failed_storage_root_is_not_an_abort() {
+		let error = failed_runtime_call(STORAGE_ROOT_CHECKING_MODULE, "execute_block");
+		assert!(runtime_aborted(&error), "{error}");
+
+		let backend: InMemoryBackend<BlakeTwo256> =
+			TrieBackendBuilder::new(Default::default(), H256::repeat_byte(1)).build();
+		let error = failed_runtime_call_on(&backend, STORAGE_ROOT_CHECKING_MODULE, "execute_block");
+		assert!(error.to_string().contains("Externalities not allowed to fail"), "{error}");
+		assert!(!runtime_aborted(&error));
+		assert!(!runtime_aborted(&through_runtime_api(error)));
+	}
+
 	#[test]
 	fn client_failure_is_not_an_abort() {
 		let missing_code = sp_blockchain::Error::RuntimeCode("failed to read :code");
