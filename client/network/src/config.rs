@@ -462,6 +462,7 @@ where
 	W: Fn(&K) -> Vec<u8>,
 {
 	let file_path = file.as_ref();
+	restrict_secret_file(file_path);
 	std::fs::read(file_path)
 		.and_then(|mut sk_bytes| {
 			parse(&mut sk_bytes).map_err(|e| {
@@ -484,6 +485,41 @@ where
 			}
 		})
 }
+
+/// Restricts an existing secret key file to its owner.
+///
+/// A key file written by an older release, restored from a backup or copied by hand can be
+/// readable by other users. A file whose permissions cannot be changed, such as one on a
+/// read-only mount, is still used.
+#[cfg(unix)]
+fn restrict_secret_file(path: &Path) {
+	use std::os::unix::fs::PermissionsExt;
+
+	let Ok(metadata) = fs::metadata(path) else { return };
+	let mode = metadata.permissions().mode() & 0o777;
+	if !metadata.is_file() || mode & 0o077 == 0 {
+		return;
+	}
+
+	match fs::set_permissions(path, fs::Permissions::from_mode(0o600)) {
+		Ok(()) => log::warn!(
+			target: "sub-libp2p",
+			"Secret key file {} had mode {:04o}; restricted it to 0600",
+			path.display(),
+			mode,
+		),
+		Err(error) => log::warn!(
+			target: "sub-libp2p",
+			"Secret key file {} has mode {:04o} and could not be restricted to 0600: {}",
+			path.display(),
+			mode,
+			error,
+		),
+	}
+}
+
+#[cfg(not(unix))]
+fn restrict_secret_file(_path: &Path) {}
 
 /// Write secret bytes to a file.
 fn write_secret_file<P>(path: P, sk_bytes: &[u8]) -> io::Result<()>
@@ -915,6 +951,24 @@ mod tests {
 		let kp1 = NodeKeyConfig::Dilithium(Secret::File(file.clone())).into_keypair().unwrap();
 		let kp2 = NodeKeyConfig::Dilithium(Secret::File(file.clone())).into_keypair().unwrap();
 		assert!(file.is_file() && secret_bytes(&kp1) == secret_bytes(&kp2))
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn secret_file_is_restricted_to_its_owner() {
+		use std::os::unix::fs::PermissionsExt;
+
+		let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+		let tmp = tempdir_with_prefix("x");
+		let file = tmp.path().join("x");
+
+		let kp1 = NodeKeyConfig::Dilithium(Secret::File(file.clone())).into_keypair().unwrap();
+		assert_eq!(mode(&file), 0o600);
+
+		fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+		let kp2 = NodeKeyConfig::Dilithium(Secret::File(file.clone())).into_keypair().unwrap();
+		assert_eq!(mode(&file), 0o600);
+		assert_eq!(secret_bytes(&kp1), secret_bytes(&kp2));
 	}
 
 	#[test]
