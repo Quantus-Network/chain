@@ -100,7 +100,6 @@ impl<B: BlockT> Error<B> {
 				Self::HeaderUnsealed(_) |
 				Self::InvalidSeal |
 				Self::CheckInherents(_) |
-				Self::CheckInherentsUnknownError(_) |
 				Self::CheckInherentsExecution(_) |
 				Self::DigestWindowMismatch(..)
 		)
@@ -1137,7 +1136,6 @@ mod tests {
 		assert!(reported_as_invalid_block(Error::CheckInherents(
 			sp_inherents::Error::FatalErrorReported
 		)));
-		assert!(reported_as_invalid_block(Error::CheckInherentsUnknownError(*b"timstap0")));
 		assert!(reported_as_invalid_block(Error::InvalidSeal));
 	}
 
@@ -1210,5 +1208,12 @@ mod tests {
 			sp_inherents::Error::FatalErrorReported
 		)));
 		assert!(!reported_as_invalid_block(Error::Runtime("runtime API call failed".into())));
+	}
+
+	/// The runtime refused an inherent this node has no provider for, which happens when the
+	/// node is older than the runtime. The node cannot tell what was refused or why.
+	#[test]
+	fn inherent_error_the_node_cannot_read_is_not_reported_as_an_invalid_block() {
+		assert!(!reported_as_invalid_block(Error::CheckInherentsUnknownError(*b"newinhr0")));
 	}
 }
