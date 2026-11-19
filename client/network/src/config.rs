@@ -462,6 +462,7 @@ where
 	W: Fn(&K) -> Vec<u8>,
 {
 	let file_path = file.as_ref();
+	warn_secret_file_permissions(file_path);
 	std::fs::read(file_path)
 		.and_then(|mut sk_bytes| {
 			parse(&mut sk_bytes).map_err(|e| {
@@ -484,6 +485,31 @@ where
 			}
 		})
 }
+
+/// Warns when an existing secret key file is readable by group or others.
+///
+/// A key file written by an older release, restored from a backup or copied by hand can be
+/// readable by other users. The mode is left as the operator set it.
+#[cfg(unix)]
+fn warn_secret_file_permissions(path: &Path) {
+	use std::os::unix::fs::PermissionsExt;
+
+	let Ok(metadata) = fs::metadata(path) else { return };
+	let mode = metadata.permissions().mode() & 0o777;
+	if !metadata.is_file() || mode & 0o077 == 0 {
+		return;
+	}
+
+	log::warn!(
+		target: "sub-libp2p",
+		"Secret key file {} has mode {:04o}; it should be 0600",
+		path.display(),
+		mode,
+	);
+}
+
+#[cfg(not(unix))]
+fn warn_secret_file_permissions(_path: &Path) {}
 
 /// Write secret bytes to a file.
 fn write_secret_file<P>(path: P, sk_bytes: &[u8]) -> io::Result<()>
@@ -915,6 +941,24 @@ mod tests {
 		let kp1 = NodeKeyConfig::Dilithium(Secret::File(file.clone())).into_keypair().unwrap();
 		let kp2 = NodeKeyConfig::Dilithium(Secret::File(file.clone())).into_keypair().unwrap();
 		assert!(file.is_file() && secret_bytes(&kp1) == secret_bytes(&kp2))
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn existing_secret_file_keeps_its_permissions() {
+		use std::os::unix::fs::PermissionsExt;
+
+		let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+		let tmp = tempdir_with_prefix("x");
+		let file = tmp.path().join("x");
+
+		let kp1 = NodeKeyConfig::Dilithium(Secret::File(file.clone())).into_keypair().unwrap();
+		assert_eq!(mode(&file), 0o600);
+
+		fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+		let kp2 = NodeKeyConfig::Dilithium(Secret::File(file.clone())).into_keypair().unwrap();
+		assert_eq!(mode(&file), 0o644);
+		assert_eq!(secret_bytes(&kp1), secret_bytes(&kp2));
 	}
 
 	#[test]

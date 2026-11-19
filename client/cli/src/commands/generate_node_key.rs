@@ -25,7 +25,7 @@ use sc_service::BasePath;
 use std::{
 	fs,
 	io::{self, Write},
-	path::PathBuf,
+	path::{Path, PathBuf},
 };
 
 /// Common arguments accross all generate key commands, subkey and node.
@@ -109,7 +109,7 @@ fn generate_key(
 	};
 
 	match (file, base_path, default_base_path) {
-		(Some(file), None, false) => fs::write(file, file_data)?,
+		(Some(file), None, false) => write_secret_file(file, &file_data)?,
 		(None, Some(_), false) | (None, None, true) => {
 			let network_path = build_network_key_dir_or_default(
 				base_path.clone().map(BasePath::new),
@@ -125,7 +125,7 @@ fn generate_key(
 				return Err(Error::KeyAlreadyExistsInPath(key_path));
 			} else {
 				eprintln!("Generating key in {:?}", key_path);
-				fs::write(key_path, file_data)?
+				write_secret_file(&key_path, &file_data)?
 			}
 		},
 		(None, None, false) => io::stdout().lock().write_all(&file_data)?,
@@ -141,6 +141,29 @@ fn generate_key(
 	eprintln!("{}", peer_id);
 
 	Ok(())
+}
+
+/// Writes `data` to `path`. A file created here is owner-only; an existing file keeps its mode.
+///
+/// `mode` applies only when the file is created. A umask can clear bits from that mode, so
+/// `0o600` stays owner-only. Replacing the contents of a file that already exists does not
+/// change the mode the operator set.
+fn write_secret_file(path: &Path, data: &[u8]) -> io::Result<()> {
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::OpenOptionsExt;
+		let mut file = fs::OpenOptions::new().write(true).create(true).mode(0o600).open(path)?;
+		// A non-regular target, such as a pipe, is written as a stream.
+		if file.metadata()?.is_file() {
+			file.set_len(0)?;
+		}
+		file.write_all(data)
+	}
+	#[cfg(not(unix))]
+	{
+		let mut file = fs::OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
+		file.write_all(data)
+	}
 }
 
 #[cfg(test)]
@@ -188,5 +211,57 @@ pub mod tests {
 			array_bytes::hex2bytes(&new_buf).unwrap(),
 			array_bytes::hex2bytes(&buf).unwrap()
 		);
+	}
+
+	#[cfg(unix)]
+	fn mode(path: &Path) -> u32 {
+		use std::os::unix::fs::PermissionsExt;
+		fs::metadata(path).unwrap().permissions().mode() & 0o777
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn generated_key_file_is_owner_only() {
+		use std::os::unix::fs::PermissionsExt;
+
+		let dir = Builder::new().prefix("keyfile").tempdir().unwrap();
+
+		let new_file = dir.path().join("new");
+		let generate = GenerateNodeKeyCmd::parse_from(&[
+			"generate-node-key",
+			"--file",
+			&new_file.display().to_string(),
+		]);
+		generate.run("test", &String::from("test")).unwrap();
+		assert_eq!(mode(&new_file), 0o600);
+
+		let existing_file = dir.path().join("existing");
+		fs::write(&existing_file, "old key").unwrap();
+		fs::set_permissions(&existing_file, fs::Permissions::from_mode(0o644)).unwrap();
+		let generate = GenerateNodeKeyCmd::parse_from(&[
+			"generate-node-key",
+			"--file",
+			&existing_file.display().to_string(),
+		]);
+		generate.run("test", &String::from("test")).unwrap();
+		assert_eq!(mode(&existing_file), 0o644);
+		assert_eq!(fs::read(&existing_file).unwrap().len(), 64);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn generated_key_file_in_base_path_is_owner_only() {
+		let base_dir = Builder::new().prefix("keyfile").tempdir().unwrap();
+		let base_path = base_dir.path().display().to_string();
+		let generate =
+			GenerateNodeKeyCmd::parse_from(&["generate-node-key", "--base-path", &base_path]);
+		generate.run("test_id", &String::from("test")).unwrap();
+
+		let key_path = base_dir
+			.path()
+			.join("chains/test_id/")
+			.join(DEFAULT_NETWORK_CONFIG_PATH)
+			.join(NODE_KEY_DILITHIUM_FILE);
+		assert_eq!(mode(&key_path), 0o600);
 	}
 }
