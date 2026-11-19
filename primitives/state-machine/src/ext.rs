@@ -654,30 +654,24 @@ where
 		maybe_limit: Option<u32>,
 		start_at: Option<&[u8]>,
 	) -> (Option<Vec<u8>>, u32, u32) {
-		let iter = match self.backend.keys(IterArgs {
-			child_info: child_info.cloned(),
-			prefix,
-			start_at,
-			..IterArgs::default()
-		}) {
-			Ok(iter) => iter,
-			Err(error) => {
-				log::debug!(target: "trie", "Error while iterating the storage: {}", error);
-				return (None, 0, 0)
-			},
-		};
+		// A read that fails here is this node's database, not the block. Reporting an empty
+		// range leaves the keys in place, and the runtime's root check then treats the block
+		// as invalid.
+		let iter = self
+			.backend
+			.keys(IterArgs {
+				child_info: child_info.cloned(),
+				prefix,
+				start_at,
+				..IterArgs::default()
+			})
+			.expect(EXT_NOT_ALLOWED_TO_FAIL);
 
 		let mut delete_count: u32 = 0;
 		let mut loop_count: u32 = 0;
 		let mut maybe_next_key = None;
 		for key in iter {
-			let key = match key {
-				Ok(key) => key,
-				Err(error) => {
-					log::debug!(target: "trie", "Error while iterating the storage: {}", error);
-					break
-				},
-			};
+			let key = key.expect(EXT_NOT_ALLOWED_TO_FAIL);
 
 			if maybe_limit.map_or(false, |limit| loop_count == limit) {
 				maybe_next_key = Some(key);
@@ -835,11 +829,11 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::InMemoryBackend;
+	use crate::{InMemoryBackend, TrieBackendBuilder};
 	use codec::{Decode, Encode};
 	use sp_core::{
 		map,
-		storage::{Storage, StorageChild},
+		storage::{Storage, StorageChild, StorageMap},
 		Blake2Hasher,
 	};
 
@@ -1067,5 +1061,87 @@ mod tests {
 		drop(append);
 
 		assert_eq!(Vec::<u32>::decode(&mut &data[..]).unwrap(), vec![1, 2]);
+	}
+
+	/// Keys under `ab` long enough that each leaf is a separate trie node rather than inlined
+	/// in the root, so iterating them reads the database beyond the root.
+	fn prefixed_key(tag: u8) -> Vec<u8> {
+		let mut key = b"ab".to_vec();
+		key.extend(std::iter::repeat(tag).take(64));
+		key
+	}
+
+	fn two_key_backend() -> TestBackend {
+		let top: StorageMap = map![
+			prefixed_key(1) => b"1".to_vec(),
+			prefixed_key(2) => b"2".to_vec()
+		];
+		(Storage { top, children_default: map![] }, StateVersion::default()).into()
+	}
+
+	/// The same trie with every node but the root missing from the database.
+	fn root_only_backend() -> TestBackend {
+		let backend = two_key_backend();
+		let root = *backend.root();
+		let root_node =
+			hash_db::HashDB::get(backend.backend_storage(), &root, hash_db::EMPTY_PREFIX)
+				.expect("the root node is stored");
+		let mut db = sp_trie::PrefixedMemoryDB::default();
+		hash_db::HashDB::emplace(&mut db, root, hash_db::EMPTY_PREFIX, root_node);
+		TrieBackendBuilder::new(db, root).build()
+	}
+
+	fn clear_prefix_panic(backend: &TestBackend, clear: impl FnOnce(&mut TestExt<'_>)) -> String {
+		let _guard = sp_panic_handler::AbortGuard::never_abort();
+		let mut overlay = OverlayedChanges::default();
+		let mut ext = TestExt::new(&mut overlay, backend, None);
+		let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| clear(&mut ext)))
+			.expect_err("an unreadable trie must not be reported as an empty range");
+		for key in [prefixed_key(1), prefixed_key(2)] {
+			assert!(overlay.storage(&key).is_none(), "nothing is deleted from an unreadable trie");
+			let child_info = ChildInfo::new_default(b"Child1");
+			assert!(overlay.child_storage(&child_info, &key).is_none());
+		}
+		payload
+			.downcast_ref::<String>()
+			.cloned()
+			.or_else(|| payload.downcast_ref::<&str>().map(|message| (*message).to_string()))
+			.expect("panic payload is a string")
+	}
+
+	#[test]
+	fn prefix_removal_fails_closed_when_the_trie_cannot_be_read() {
+		let child_info = ChildInfo::new_default(b"Child1");
+
+		// The root node is missing, so the iterator cannot be constructed.
+		let missing_root: TestBackend =
+			TrieBackendBuilder::new(Default::default(), sp_core::H256::repeat_byte(1)).build();
+		for clear in [
+			Box::new(|ext: &mut TestExt<'_>| {
+				let _ = ext.clear_prefix(b"ab", None, None);
+			}) as Box<dyn FnOnce(&mut TestExt<'_>)>,
+			Box::new(|ext| {
+				let _ = ext.clear_child_prefix(&child_info, b"ab", None, None);
+			}),
+			Box::new(|ext| {
+				let _ = ext.kill_child_storage(&child_info, None, None);
+			}),
+		] {
+			let message = clear_prefix_panic(&missing_root, clear);
+			assert!(message.contains(EXT_NOT_ALLOWED_TO_FAIL), "{message}");
+		}
+
+		// The root is readable, so the iterator is constructed, and the first leaf is not.
+		let root_only = root_only_backend();
+		assert!(root_only.keys(IterArgs { prefix: Some(b"ab"), ..Default::default() }).is_ok());
+		let message = clear_prefix_panic(&root_only, |ext| {
+			let _ = ext.clear_prefix(b"ab", None, None);
+		});
+		assert!(message.contains(EXT_NOT_ALLOWED_TO_FAIL), "{message}");
+
+		let backend = two_key_backend();
+		let mut overlay = OverlayedChanges::default();
+		let mut ext = TestExt::new(&mut overlay, &backend, None);
+		assert_eq!(ext.clear_prefix(b"ab", None, None).backend, 2);
 	}
 }

@@ -250,6 +250,32 @@ mod runtime_aborted_tests {
 				unreachable))
 	"#;
 
+	/// Clears the prefix held in the first byte of memory, as block initialization does for
+	/// event topics. The prefix must not be empty: an empty prefix covers the child storage
+	/// keys and is refused without touching the trie.
+	const CLEAR_PREFIX_MODULE: &str = r#"
+		(module
+			(import "env" "ext_storage_clear_prefix_version_1" (func $clear_prefix (param i64)))
+			(memory (export "memory") 1)
+			(data (i32.const 0) "a")
+			(global (export "__heap_base") i32 (i32.const 1024))
+			(func (export "execute_block") (param i32 i32) (result i64)
+				(call $clear_prefix (i64.const 0x100000000))
+				(i64.const 0)))
+	"#;
+
+	/// A prefix clear that cannot read the trie, as on a damaged database, panics in the host
+	/// function. It must not complete and leave the runtime to disagree with the header root.
+	#[test]
+	fn failed_prefix_clear_is_not_an_abort() {
+		let backend: InMemoryBackend<BlakeTwo256> =
+			TrieBackendBuilder::new(Default::default(), H256::repeat_byte(1)).build();
+		let error = failed_runtime_call_on(&backend, CLEAR_PREFIX_MODULE, "execute_block");
+		assert!(error.to_string().contains("Externalities not allowed to fail"), "{error}");
+		assert!(!runtime_aborted(&error));
+		assert!(!runtime_aborted(&through_runtime_api(error)));
+	}
+
 	/// A storage root that this node cannot compute, as on a damaged database, must not reach
 	/// the runtime as a root that differs from the header's. The block writes without
 	/// reading, so no storage read fails first.
