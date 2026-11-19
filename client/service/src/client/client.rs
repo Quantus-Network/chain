@@ -57,6 +57,7 @@ use sp_blockchain::{
 	HeaderBackend as ChainHeaderBackend, HeaderMetadata, Info as BlockchainInfo,
 };
 use sp_consensus::{BlockOrigin, BlockStatus, Error as ConsensusError};
+use sp_consensus_qpow::InvalidBlock;
 
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedSender};
 use sp_core::{
@@ -66,7 +67,7 @@ use sp_core::{
 use sp_runtime::{
 	generic::{BlockId, SignedBlock},
 	traits::{
-		Block as BlockT, BlockIdTo, HashingFor, Header as HeaderT, NumberFor, One,
+		Block as BlockT, BlockIdTo, CheckedAdd, HashingFor, Header as HeaderT, NumberFor, One,
 		SaturatedConversion, Zero,
 	},
 	Justification, Justifications, StateVersion,
@@ -1722,14 +1723,17 @@ where
 		let span = tracing::span!(tracing::Level::DEBUG, "import_block");
 		let _enter = span.enter();
 
-		let storage_changes =
-			match self.prepare_block_storage_changes(&mut import_block).map_err(|e| {
+		let storage_changes = match self.prepare_block_storage_changes(&mut import_block) {
+			Ok(PrepareStorageChangesResult::Discard(res)) => return Ok(res),
+			Ok(PrepareStorageChangesResult::Import(storage_changes)) => storage_changes,
+			Err(e) => {
 				warn!("Block prepare storage changes error: {}", e);
-				ConsensusError::ClientImport(e.to_string())
-			})? {
-				PrepareStorageChangesResult::Discard(res) => return Ok(res),
-				PrepareStorageChangesResult::Import(storage_changes) => storage_changes,
-			};
+				return Err(consensus_error_for_block_prepare(
+					e,
+					self.config.wasm_runtime_overrides.is_some(),
+				));
+			},
+		};
 
 		self.lock_import_and_run(|operation| {
 			self.apply_block(operation, import_block, storage_changes)
@@ -1800,7 +1804,43 @@ where
 			BlockStatus::KnownBad => return Ok(ImportResult::KnownBad),
 		}
 
+		// A header whose number does not follow its parent would only fail once the runtime
+		// starts executing it. Reject it here, before proof-of-work verification, where the
+		// import queue still names the peer that sent it.
+		if let Some(parent_number) = self
+			.backend
+			.blockchain()
+			.number(parent_hash)
+			.map_err(|e| ConsensusError::ClientImport(e.to_string()))?
+		{
+			if parent_number.checked_add(&One::one()) != Some(number) {
+				trace!(
+					"Rejecting block #{} {:?} because its number does not follow parent #{}",
+					number,
+					hash,
+					parent_number,
+				);
+				return Ok(ImportResult::KnownBad);
+			}
+		}
+
 		Ok(ImportResult::imported(false))
+	}
+}
+
+/// A block that makes the runtime abort, or whose state root does not match its header, is
+/// reported as [`InvalidBlock`] so sync disconnects the peer that sent it. Every other failure
+/// stays [`ConsensusError::ClientImport`] and is retried with the peer left connected.
+///
+/// A node started with local Wasm overrides may run code the chain does not, so what its
+/// runtime makes of a block is never reported as [`InvalidBlock`].
+fn consensus_error_for_block_prepare(error: Error, local_wasm_overrides: bool) -> ConsensusError {
+	let rejected_by_runtime =
+		matches!(error, Error::InvalidStateRoot) || sc_executor::runtime_aborted(&error);
+	if rejected_by_runtime && !local_wasm_overrides {
+		ConsensusError::Other(Box::new(InvalidBlock::new(error.to_string())))
+	} else {
+		ConsensusError::ClientImport(error.to_string())
 	}
 }
 
@@ -2090,5 +2130,68 @@ where
 			.blockchain()
 			.number(hash)
 			.map_err(|e| sp_transaction_storage_proof::Error::Application(Box::new(e)))
+	}
+}
+
+#[cfg(test)]
+mod prepare_error_classification {
+	use super::{consensus_error_for_block_prepare, Error};
+	use sc_executor::error::{Error as ExecutorError, MessageWithBacktrace, WasmError};
+	use sp_consensus::Error as ConsensusError;
+	use sp_consensus_qpow::InvalidBlock;
+
+	fn is_invalid_block(error: ConsensusError) -> bool {
+		matches!(error, ConsensusError::Other(inner) if inner.is::<InvalidBlock>())
+	}
+
+	fn reported_as_invalid_block(error: Error) -> bool {
+		is_invalid_block(consensus_error_for_block_prepare(error, false))
+	}
+
+	fn runtime_panic() -> Error {
+		failed_execution(ExecutorError::AbortedDueToPanic(MessageWithBacktrace {
+			message: "Storage root must match that calculated.".into(),
+			backtrace: None,
+		}))
+	}
+
+	/// The shape `prepare_block_storage_changes` gets back from `execute_block`: the client
+	/// error is converted to an `ApiError` by `call_api_at` and back by `?`.
+	fn failed_execution(error: ExecutorError) -> Error {
+		Error::from(sp_api::ApiError::from(Error::Execution(Box::new(error))))
+	}
+
+	#[test]
+	fn runtime_panic_is_an_invalid_block() {
+		assert!(reported_as_invalid_block(runtime_panic()));
+	}
+
+	/// The on-chain runtime may accept a block that a local override rejects.
+	#[test]
+	fn rejection_by_a_runtime_that_may_be_a_local_override_is_not_an_invalid_block() {
+		assert!(!is_invalid_block(consensus_error_for_block_prepare(runtime_panic(), true)));
+		assert!(!is_invalid_block(consensus_error_for_block_prepare(
+			Error::InvalidStateRoot,
+			true
+		)));
+	}
+
+	#[test]
+	fn failed_instantiation_is_not_an_invalid_block() {
+		let instantiation = ExecutorError::RuntimeConstruction(WasmError::Other(
+			"failed to instantiate a new WASM module instance".into(),
+		));
+		assert!(!reported_as_invalid_block(failed_execution(instantiation)));
+	}
+
+	#[test]
+	fn state_root_mismatch_is_an_invalid_block() {
+		assert!(reported_as_invalid_block(Error::InvalidStateRoot));
+	}
+
+	#[test]
+	fn backend_failure_is_not_an_invalid_block() {
+		assert!(!reported_as_invalid_block(Error::Backend("database read failed".into())));
+		assert!(!reported_as_invalid_block(Error::Storage("commit failed".into())));
 	}
 }

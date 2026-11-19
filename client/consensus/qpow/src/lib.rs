@@ -9,7 +9,7 @@ pub use chain_management::{
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
 use sp_api::ProvideRuntimeApi;
-use sp_consensus_qpow::{QPoWApi, Seal as RawSeal};
+use sp_consensus_qpow::{FutureBlock, InvalidBlock, QPoWApi, Seal as RawSeal};
 use sp_runtime::traits::Block as BlockT;
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
@@ -67,6 +67,8 @@ pub enum Error<B: BlockT> {
 		String::from_utf8_lossy(.0)
 	)]
 	CheckInherentsUnknownError(sp_inherents::InherentIdentifier),
+	#[error("Runtime failed while checking inherents: {0}")]
+	CheckInherentsExecution(sp_blockchain::Error),
 	#[error("Multiple pre-runtime digests")]
 	MultiplePreRuntimeDigests,
 	#[error("Header has an encoded digest of {0} bytes; expected {1}-byte commitment window")]
@@ -89,9 +91,73 @@ impl<B: BlockT> From<Error<B>> for String {
 	}
 }
 
+impl<B: BlockT> Error<B> {
+	/// `true` when the error says the block is invalid and will stay invalid.
+	fn rejects_block(&self) -> bool {
+		matches!(
+			self,
+			Self::WrongEngine(_) |
+				Self::HeaderUnsealed(_) |
+				Self::InvalidSeal |
+				Self::CheckInherents(_) |
+				Self::CheckInherentsExecution(_) |
+				Self::DigestWindowMismatch(..)
+		)
+	}
+}
+
+/// Error for a failed `check_inherents` runtime call.
+///
+/// Block bodies are opaque bytes on the node side, and the runtime panics on an extrinsic it
+/// cannot decode. That is the block's fault. Anything else is a failure of this node.
+fn inherent_check_call_error<B: BlockT>(error: sp_api::ApiError) -> Error<B> {
+	let error = sp_blockchain::Error::from(error);
+	if sc_executor::runtime_aborted(&error) {
+		Error::CheckInherentsExecution(error)
+	} else {
+		Error::Client(error)
+	}
+}
+
+/// Error for an inherent the runtime refused.
+///
+/// A timestamp too far ahead is judged against this node's clock, so it is kept apart from
+/// the refusals that depend on the block alone.
+fn refused_inherent_error<B: BlockT>(error: sp_inherents::Error) -> Error<B> {
+	let ahead_of_clock = matches!(
+		&error,
+		sp_inherents::Error::Application(inner) if matches!(
+			inner.downcast_ref::<sp_timestamp::InherentError>(),
+			Some(sp_timestamp::InherentError::TooFarInFuture)
+		)
+	);
+	if ahead_of_clock {
+		Error::TooFarInFuture
+	} else {
+		Error::CheckInherents(error)
+	}
+}
+
 impl<B: BlockT> From<Error<B>> for ConsensusError {
 	fn from(error: Error<B>) -> ConsensusError {
+		match error {
+			Error::TooFarInFuture => ConsensusError::Other(Box::new(FutureBlock)),
+			error if error.rejects_block() =>
+				ConsensusError::Other(Box::new(InvalidBlock::new(error.to_string()))),
+			error => ConsensusError::ClientImport(error.to_string()),
+		}
+	}
+}
+
+/// Converts an error that rests on what the runtime made of the block.
+///
+/// A node started with local Wasm overrides may run code the chain does not, so its runtime
+/// rejecting a block does not show that the block is invalid.
+fn runtime_verdict<B: BlockT>(error: Error<B>, local_wasm_overrides: bool) -> ConsensusError {
+	if local_wasm_overrides && error.rejects_block() {
 		ConsensusError::ClientImport(error.to_string())
+	} else {
+		error.into()
 	}
 }
 
@@ -101,6 +167,7 @@ pub struct PowBlockImport<B: BlockT<Hash = H256>, I, C, CIDP, BE, const LOGGING_
 	client: Arc<C>,
 	create_inherent_data_providers: Arc<CIDP>,
 	check_inherents_after: <<B as BlockT>::Header as HeaderT>::Number,
+	local_wasm_overrides: bool,
 	// Serializes the best-work read, fork-choice decision and inner import so
 	// concurrent imports cannot race on a stale best. Shared across clones.
 	import_lock: Arc<futures::lock::Mutex<()>>,
@@ -122,6 +189,7 @@ impl<
 			client: self.client.clone(),
 			create_inherent_data_providers: self.create_inherent_data_providers.clone(),
 			check_inherents_after: self.check_inherents_after,
+			local_wasm_overrides: self.local_wasm_overrides,
 			import_lock: self.import_lock.clone(),
 			_backend: PhantomData,
 		}
@@ -147,17 +215,21 @@ where
 	CIDP: CreateInherentDataProviders<B, ()>,
 	BE: sc_client_api::Backend<B>,
 {
-	/// Create a new block import suitable to be used in PoW
+	/// Create a new block import suitable to be used in PoW.
+	///
+	/// `local_wasm_overrides` says whether the node was started with local Wasm overrides.
 	pub fn new(
 		inner: I,
 		client: Arc<C>,
 		check_inherents_after: <<B as BlockT>::Header as HeaderT>::Number,
 		create_inherent_data_providers: CIDP,
+		local_wasm_overrides: bool,
 	) -> Self {
 		Self {
 			inner,
 			client,
 			check_inherents_after,
+			local_wasm_overrides,
 			create_inherent_data_providers: Arc::new(create_inherent_data_providers),
 			import_lock: Arc::new(futures::lock::Mutex::new(())),
 			_backend: PhantomData,
@@ -183,12 +255,12 @@ where
 			.client
 			.runtime_api()
 			.check_inherents(at_hash, block.into(), inherent_data)
-			.map_err(|e| Error::Client(e.into()))?;
+			.map_err(inherent_check_call_error)?;
 
 		if !inherent_res.ok() {
 			for (identifier, error) in inherent_res.into_errors() {
 				match inherent_data_providers.try_handle_error(&identifier, &error).await {
-					Some(res) => res.map_err(Error::CheckInherents)?,
+					Some(res) => res.map_err(refused_inherent_error)?,
 					None => return Err(Error::CheckInherentsUnknownError(identifier)),
 				}
 			}
@@ -262,7 +334,8 @@ where
 						.create_inherent_data_providers(parent_hash, ())
 						.await?,
 				)
-				.await?;
+				.await
+				.map_err(|error| runtime_verdict(error, self.local_wasm_overrides))?;
 			}
 
 			block_import_params.body = Some(check_block.deconstruct().1);
@@ -297,7 +370,7 @@ where
 
 		if !verified {
 			log::error!("Invalid Seal {:?} for parent hash {:?}", inner_seal, parent_hash);
-			return Err(Error::<B>::InvalidSeal.into());
+			return Err(runtime_verdict(Error::<B>::InvalidSeal, self.local_wasm_overrides));
 		}
 
 		// Get parent's cumulative achieved work from aux storage. A backend/decode
@@ -486,16 +559,23 @@ where
 			.try_into()
 			.map_err(|_| Error::<B>::Runtime("Seal does not have exactly 64 bytes".to_string()))?;
 
-		let (verified, _achieved_difficulty) = self
-			.client
-			.runtime_api()
-			.verify_and_get_achieved_difficulty(parent_hash, pre_hash.0, nonce)
-			.map_err(|e| {
-				Error::<B>::Runtime(format!(
-					"API error in verify_and_get_achieved_difficulty: {:?}",
-					e
-				))
-			})?;
+		let verified = match self.client.runtime_api().verify_and_get_achieved_difficulty(
+			parent_hash,
+			pre_hash.0,
+			nonce,
+		) {
+			Ok((verified, _achieved_difficulty)) => verified,
+			// The call failed on this node, which says nothing about the seal. Every error
+			// returned from here disconnects the sender, so the block is passed on instead:
+			// `import_block` repeats the call and fails the import without blaming anyone.
+			Err(error) => {
+				log::warn!(
+					target: LOG_TARGET,
+					"Could not verify the seal of {pre_hash:?}, leaving it to import: {error}",
+				);
+				return Ok(block);
+			},
+		};
 
 		if !verified {
 			log::error!("Invalid Seal {:?} for parent hash {:?}", inner_seal, parent_hash);
@@ -949,7 +1029,8 @@ mod tests {
 	/// verifier can be exercised without a real client or runtime.
 	#[derive(Clone)]
 	struct MockRuntimeApi {
-		seal_valid: bool,
+		/// `None` makes the call fail, as it does on a node that cannot run the runtime.
+		seal_valid: Option<bool>,
 	}
 
 	sp_api::mock_impl_runtime_apis! {
@@ -961,17 +1042,21 @@ mod tests {
 			fn get_last_block_duration() -> u64 { 0 }
 			fn get_chain_height() -> u32 { 0 }
 			fn verify_nonce_on_import_block(&self, _block_hash: [u8; 32], _nonce: [u8; 64]) -> bool {
-				self.seal_valid
+				self.seal_valid == Some(true)
 			}
 			fn verify_nonce_local_mining(&self, _block_hash: [u8; 32], _nonce: [u8; 64]) -> bool {
-				self.seal_valid
+				self.seal_valid == Some(true)
 			}
+			#[advanced]
 			fn verify_and_get_achieved_difficulty(
 				&self,
+				_at: <Block as BlockT>::Hash,
 				_block_hash: [u8; 32],
 				_nonce: [u8; 64],
-			) -> (bool, U512) {
-				(self.seal_valid, U512::one())
+			) -> Result<(bool, U512), sp_api::ApiError> {
+				self.seal_valid
+					.map(|valid| (valid, U512::one()))
+					.ok_or_else(|| sp_api::ApiError::UnknownBlock("no state".into()))
 			}
 		}
 	}
@@ -986,7 +1071,7 @@ mod tests {
 		}
 	}
 
-	fn verify_canonical(seal_valid: bool) -> Result<BlockImportParams<TestBlock>, String> {
+	fn verify_canonical(seal_valid: Option<bool>) -> Result<BlockImportParams<TestBlock>, String> {
 		let params = BlockImportParams::<TestBlock>::new(
 			BlockOrigin::NetworkBroadcast,
 			sealed_header(canonical_digest()),
@@ -1000,7 +1085,7 @@ mod tests {
 	/// surfaces as `VerificationFailed` and the peer can be penalised.
 	#[test]
 	fn verifier_rejects_invalid_pow() {
-		let err = verify_canonical(false).err().expect("invalid PoW must be rejected");
+		let err = verify_canonical(Some(false)).err().expect("invalid PoW must be rejected");
 		assert!(err.contains("invalid seal"), "expected the seal rejection, got: {err}");
 	}
 
@@ -1008,11 +1093,23 @@ mod tests {
 	/// moved into `post_digests` for `import_block`.
 	#[test]
 	fn verifier_accepts_valid_pow() {
-		let result = verify_canonical(true).expect("valid PoW must pass the verifier");
+		let result = verify_canonical(Some(true)).expect("valid PoW must pass the verifier");
 		assert_eq!(
 			result.post_digests.last(),
 			Some(&DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64])),
 			"seal must be moved into post_digests"
+		);
+	}
+
+	/// A failed runtime call is a failure of this node. Rejecting the block here would
+	/// disconnect the peer that sent it, so the verifier leaves the block to `import_block`,
+	/// which repeats the call.
+	#[test]
+	fn verifier_passes_the_block_on_when_the_runtime_call_fails() {
+		let result = verify_canonical(None).expect("a failed call must not reject the block");
+		assert_eq!(
+			result.post_digests.last(),
+			Some(&DigestItem::Seal(POW_ENGINE_ID, vec![2u8; 64]))
 		);
 	}
 
@@ -1034,10 +1131,124 @@ mod tests {
 			BlockOrigin::NetworkBroadcast,
 			sealed_header(digest),
 		);
-		let verifier = PowVerifier::new(Arc::new(MockRuntimeApi { seal_valid: true }));
+		let verifier = PowVerifier::new(Arc::new(MockRuntimeApi { seal_valid: Some(true) }));
 		let err = futures::executor::block_on(verifier.verify(params))
 			.err()
 			.expect("a wrong-length seal must be rejected");
 		assert!(err.contains("64 bytes"), "expected the length rejection, got: {err}");
+	}
+
+	fn is_invalid_block(error: &ConsensusError) -> bool {
+		matches!(error, ConsensusError::Other(inner) if inner.is::<InvalidBlock>())
+	}
+
+	fn is_future_block(error: &ConsensusError) -> bool {
+		matches!(error, ConsensusError::Other(inner) if inner.is::<FutureBlock>())
+	}
+
+	fn reported_as_invalid_block(error: Error<TestBlock>) -> bool {
+		is_invalid_block(&error.into())
+	}
+
+	/// `import_block` checks inherents after the verifier has passed the block, so the
+	/// failure reaches sync as an import error. It must name the block as the cause, or sync
+	/// restarts with the sender still connected.
+	#[test]
+	fn failed_inherent_check_is_reported_as_an_invalid_block() {
+		assert!(reported_as_invalid_block(Error::CheckInherents(
+			sp_inherents::Error::FatalErrorReported
+		)));
+		assert!(reported_as_invalid_block(Error::InvalidSeal));
+	}
+
+	/// The on-chain runtime may accept a block that a local override rejects.
+	#[test]
+	fn rejection_by_a_runtime_that_may_be_a_local_override_is_not_an_invalid_block() {
+		let too_early = || {
+			Error::<TestBlock>::CheckInherents(sp_inherents::Error::Application(Box::new(
+				sp_timestamp::InherentError::TooEarly,
+			)))
+		};
+		assert!(is_invalid_block(&runtime_verdict(too_early(), false)));
+		assert!(!is_invalid_block(&runtime_verdict(too_early(), true)));
+		assert!(!is_invalid_block(&runtime_verdict(Error::<TestBlock>::InvalidSeal, true)));
+	}
+
+	/// What `check_inherents` returns for a timestamp the runtime refused. The error goes
+	/// through the timestamp provider the node uses, as it does in `check_inherents`.
+	fn refused_timestamp(error: sp_timestamp::InherentError) -> ConsensusError {
+		let clock =
+			sp_timestamp::InherentDataProvider::new(sp_timestamp::Timestamp::new(1_000_000));
+		let handled = futures::executor::block_on(
+			clock.try_handle_error(&sp_timestamp::INHERENT_IDENTIFIER, &error.encode()),
+		)
+		.expect("the timestamp provider handles its own identifier")
+		.expect_err("the provider reports every timestamp error");
+		refused_inherent_error::<TestBlock>(handled).into()
+	}
+
+	/// The same block passes once the local clock catches up, so the sender is not blamed.
+	#[test]
+	fn timestamp_ahead_of_the_local_clock_is_reported_as_a_future_block() {
+		let error = refused_timestamp(sp_timestamp::InherentError::TooFarInFuture);
+		assert!(is_future_block(&error));
+		assert!(!is_invalid_block(&error));
+	}
+
+	/// The minimum gap to the parent's timestamp does not depend on the local clock.
+	#[test]
+	fn timestamp_too_close_to_the_parent_is_reported_as_an_invalid_block() {
+		let error = refused_timestamp(sp_timestamp::InherentError::TooEarly);
+		assert!(is_invalid_block(&error));
+		assert!(!is_future_block(&error));
+	}
+
+	/// The shape the runtime API returns for a failed call: `call_api_at` hands the client
+	/// error over as `ApiError::Application`.
+	fn failed_call(error: sc_executor::error::Error) -> sp_api::ApiError {
+		sp_api::ApiError::from(sp_blockchain::Error::Execution(Box::new(error)))
+	}
+
+	#[test]
+	fn runtime_panic_during_inherent_check_is_reported_as_an_invalid_block() {
+		let panic = sc_executor::error::Error::AbortedDueToPanic(
+			sc_executor::error::MessageWithBacktrace {
+				message: "check_extrinsics(): Unable to decode extrinsic".into(),
+				backtrace: None,
+			},
+		);
+		assert!(reported_as_invalid_block(inherent_check_call_error(failed_call(panic))));
+	}
+
+	#[test]
+	fn local_failure_during_inherent_check_is_not_reported_as_an_invalid_block() {
+		let instantiation =
+			sc_executor::error::Error::RuntimeConstruction(sc_executor::error::WasmError::Other(
+				"failed to instantiate a new WASM module instance".into(),
+			));
+		assert!(!reported_as_invalid_block(inherent_check_call_error(failed_call(instantiation))));
+		let missing_code = sp_blockchain::Error::RuntimeCode("failed to read :code");
+		assert!(!reported_as_invalid_block(inherent_check_call_error(missing_code.into())));
+		assert!(!reported_as_invalid_block(inherent_check_call_error(
+			sp_api::ApiError::UnknownBlock("pruned".into())
+		)));
+	}
+
+	#[test]
+	fn local_failure_is_not_reported_as_an_invalid_block() {
+		assert!(!reported_as_invalid_block(Error::Client(sp_blockchain::Error::Backend(
+			"read failed".into()
+		))));
+		assert!(!reported_as_invalid_block(Error::CreateInherents(
+			sp_inherents::Error::FatalErrorReported
+		)));
+		assert!(!reported_as_invalid_block(Error::Runtime("runtime API call failed".into())));
+	}
+
+	/// The runtime refused an inherent this node has no provider for, which happens when the
+	/// node is older than the runtime. The node cannot tell what was refused or why.
+	#[test]
+	fn inherent_error_the_node_cannot_read_is_not_reported_as_an_invalid_block() {
+		assert!(!reported_as_invalid_block(Error::CheckInherentsUnknownError(*b"newinhr0")));
 	}
 }

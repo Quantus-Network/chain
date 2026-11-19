@@ -326,6 +326,72 @@ pub trait Backend<H: Hasher>: core::fmt::Debug {
 		(root, txs)
 	}
 
+	/// Calculate the storage root like [`Self::storage_root`], or return the reason it could
+	/// not be calculated.
+	///
+	/// [`Self::storage_root`] has no way to report a failure. A backend that reads a trie from
+	/// a database returns the root it started from when a node is missing, which the caller
+	/// cannot tell from a correct root. Such a backend overrides this method.
+	fn try_storage_root<'a>(
+		&self,
+		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
+		state_version: StateVersion,
+	) -> Result<(H::Out, BackendTransaction<H>), Self::Error>
+	where
+		H::Out: Ord,
+	{
+		Ok(self.storage_root(delta, state_version))
+	}
+
+	/// Calculate the child storage root like [`Self::child_storage_root`], or return the
+	/// reason it could not be calculated. See [`Self::try_storage_root`].
+	fn try_child_storage_root<'a>(
+		&self,
+		child_info: &ChildInfo,
+		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
+		state_version: StateVersion,
+	) -> Result<(H::Out, bool, BackendTransaction<H>), Self::Error>
+	where
+		H::Out: Ord,
+	{
+		Ok(self.child_storage_root(child_info, delta, state_version))
+	}
+
+	/// Calculate the storage root like [`Self::full_storage_root`], or return the reason it
+	/// could not be calculated. See [`Self::try_storage_root`].
+	fn try_full_storage_root<'a>(
+		&self,
+		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
+		child_deltas: impl Iterator<
+			Item = (&'a ChildInfo, impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>),
+		>,
+		state_version: StateVersion,
+	) -> Result<(H::Out, BackendTransaction<H>), Self::Error>
+	where
+		H::Out: Ord + Encode,
+	{
+		let mut txs = BackendTransaction::with_hasher(RandomState::default());
+		let mut child_roots: Vec<_> = Default::default();
+		for (child_info, child_delta) in child_deltas {
+			let (child_root, empty, child_txs) =
+				self.try_child_storage_root(child_info, child_delta, state_version)?;
+			txs.consolidate(child_txs);
+			child_roots.push((
+				child_info.prefixed_storage_key().into_inner(),
+				(!empty).then(|| child_root.encode()),
+			));
+		}
+		let (root, parent_txs) = self.try_storage_root(
+			delta
+				.map(|(k, v)| (k, v.as_ref().map(|v| &v[..])))
+				.chain(child_roots.iter().map(|(k, v)| (&k[..], v.as_ref().map(|v| &v[..])))),
+			state_version,
+		)?;
+		txs.consolidate(parent_txs);
+
+		Ok((root, txs))
+	}
+
 	/// Register stats from overlay of state machine.
 	///
 	/// By default nothing is registered.

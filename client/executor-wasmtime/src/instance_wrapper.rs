@@ -54,10 +54,17 @@ impl EntryPoint {
 			});
 
 			if let Some(message) = host_state.take_panic_message() {
-				Error::AbortedDueToPanic(MessageWithBacktrace { message, backtrace })
-			} else {
-				let message = trap.root_cause().to_string();
-				Error::AbortedDueToTrap(MessageWithBacktrace { message, backtrace })
+				return Error::AbortedDueToPanic(MessageWithBacktrace { message, backtrace });
+			}
+
+			let message =
+				MessageWithBacktrace { message: trap.root_cause().to_string(), backtrace };
+			match trap.downcast_ref::<wasmtime::Trap>() {
+				Some(wasmtime::Trap::StackOverflow) => Error::AbortedDueToStackExhaustion(message),
+				Some(_) => Error::AbortedDueToTrap(message),
+				// An error returned by a host function, which includes a panic caught inside
+				// one, carries no trap code.
+				None => Error::AbortedDueToHostError(message),
 			}
 		})
 	}

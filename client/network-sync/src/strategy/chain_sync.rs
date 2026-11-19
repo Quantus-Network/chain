@@ -36,6 +36,7 @@ use crate::{
 	service::network::NetworkServiceHandle,
 	strategy::{
 		disconnected_peers::DisconnectedPeers,
+		future_blocks::FutureBlockPeers,
 		state_sync::{ImportResult, StateSync, StateSyncProvider},
 		warp::{WarpSyncPhase, WarpSyncProgress},
 		StrategyKey, SyncingAction, SyncingStrategy,
@@ -44,6 +45,7 @@ use crate::{
 	LOG_TARGET,
 };
 
+use codec::Encode;
 use futures::{channel::oneshot, FutureExt};
 use log::{debug, error, info, trace, warn};
 use prometheus_endpoint::{register, Gauge, PrometheusError, Registry, U64};
@@ -58,9 +60,11 @@ use sc_network_types::PeerId;
 use sp_arithmetic::traits::Saturating;
 use sp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata};
 use sp_consensus::{BlockOrigin, BlockStatus};
+use sp_consensus_qpow::{FutureBlock, InvalidBlock};
+use sp_core::storage::StateVersion;
 use sp_runtime::{
 	traits::{
-		Block as BlockT, CheckedAdd, CheckedSub, Header as HeaderT, NumberFor, One,
+		Block as BlockT, CheckedAdd, CheckedSub, Hash as HashT, Header as HeaderT, NumberFor, One,
 		SaturatedConversion, Zero,
 	},
 	EncodedJustification, Justifications,
@@ -71,6 +75,7 @@ use std::{
 	collections::{HashMap, HashSet},
 	ops::Range,
 	sync::Arc,
+	time::Instant,
 };
 
 #[cfg(all(test, feature = "substrate-test"))]
@@ -78,6 +83,14 @@ mod test;
 
 /// Maximum blocks to store in the import queue.
 const MAX_IMPORTING_BLOCKS: usize = 2048;
+
+/// `true` when block import failed with the marker error `T`.
+///
+/// Block import uses [`InvalidBlock`] and [`FutureBlock`] to say that the block caused the
+/// failure. Any other error is a failure of this node.
+fn import_failed_with<T: std::error::Error + 'static>(error: &sp_consensus::Error) -> bool {
+	matches!(error, sp_consensus::Error::Other(inner) if inner.is::<T>())
+}
 
 /// Maximum blocks to download ahead of any gap.
 const MAX_DOWNLOAD_AHEAD: u32 = 2048;
@@ -277,6 +290,15 @@ struct ForkTarget<B: BlockT> {
 	peers: HashSet<PeerId>,
 }
 
+/// What sync keeps about a block while the import queue has it.
+struct QueuedBlock<B: BlockT> {
+	/// The peer that supplied the block. `BlockImportError::Other` does not carry a peer id.
+	origin: Option<PeerId>,
+	/// The fork target that queueing the block completed. It is the only record that the
+	/// block was wanted, so it is put back when the block has to be requested again.
+	fork_target: Option<ForkTarget<B>>,
+}
+
 /// The state of syncing between a Peer and ourselves.
 ///
 /// Generally two categories, "busy" or `Available`. If busy, the enum
@@ -315,6 +337,7 @@ pub struct ChainSync<B: BlockT, Client> {
 	/// The active peers that we are using to sync and their PeerSync status
 	peers: HashMap<PeerId, PeerSync<B>>,
 	disconnected_peers: DisconnectedPeers,
+	future_block_peers: FutureBlockPeers,
 	/// A `BlockCollection` of blocks that are being downloaded from peers
 	blocks: BlockCollection<B>,
 	/// The best block number in our queue of blocks to import
@@ -325,9 +348,8 @@ pub struct ChainSync<B: BlockT, Client> {
 	mode: ChainSyncMode,
 	/// Any extra justification requests.
 	extra_justifications: ExtraRequests<B>,
-	/// A set of hashes of blocks that are being downloaded or have been
-	/// downloaded and are queued for import.
-	queue_blocks: HashSet<B::Hash>,
+	/// Blocks that have been downloaded and are queued for import, by hash.
+	queue_blocks: HashMap<B::Hash, QueuedBlock<B>>,
 	/// A pending attempt to start the state sync.
 	///
 	/// The initiation of state sync may be deferred in cases where other conditions
@@ -699,20 +721,44 @@ where
 		trace!(target: LOG_TARGET, "Imported {imported} of {count}");
 
 		let mut has_error = false;
+		let mut from_the_future = false;
+		let mut queued_blocks = Vec::with_capacity(results.len());
 		for (_, hash) in &results {
-			if self.queue_blocks.remove(hash) {
+			let queued = self.queue_blocks.remove(hash);
+			if queued.is_some() {
 				if let Some(metrics) = &self.metrics {
 					metrics.queued_blocks.dec();
 				}
 			}
+			queued_blocks.push(queued);
 			self.blocks.clear_queued(hash);
 			if let Some(gap_sync) = &mut self.gap_sync {
 				gap_sync.blocks.clear_queued(hash);
 			}
 		}
-		for (result, hash) in results {
+		for ((result, hash), queued) in results.into_iter().zip(queued_blocks) {
+			let (origin, fork_target) =
+				queued.map_or((None, None), |queued| (queued.origin, queued.fork_target));
+
+			// A block from the future passes later, and the queue does not try the blocks
+			// behind it. Sync restarts from what the peers advertise as their best block,
+			// which does not lead back to a block on another fork.
+			if !has_error {
+				from_the_future = matches!(
+					&result,
+					Err(BlockImportError::Other(error)) if import_failed_with::<FutureBlock>(error)
+				);
+			}
+			if let Some(fork_target) = fork_target.filter(|_| from_the_future) {
+				if self.fork_targets.insert(hash, fork_target).is_none() {
+					if let Some(metrics) = &self.metrics {
+						metrics.fork_targets.inc();
+					}
+				}
+			}
+
 			if has_error {
-				break
+				continue
 			}
 
 			has_error |= result.is_err();
@@ -811,8 +857,31 @@ where
 					// Don't mark it as bad as it still may be synced if explicitly requested.
 					trace!(target: LOG_TARGET, "Obsolete block {hash:?}");
 				},
-				e @ Err(BlockImportError::UnknownParent) | e @ Err(BlockImportError::Other(_)) => {
-					warn!(target: LOG_TARGET, "💔 Error importing block {hash:?}: {}", e.unwrap_err());
+				// A missing parent is a normal race: the parent may still be in flight. Do not
+				// penalise the peer.
+				Err(BlockImportError::UnknownParent) => {
+					warn!(target: LOG_TARGET, "💔 Error importing block {hash:?}: unknown parent");
+					self.state_sync = None;
+					self.restart();
+				},
+				// `Other` carries no peer. Drop the sender only when import reported the block
+				// itself as invalid. A block from the future passes later, so its sender stays
+				// connected and is asked again after a pause. A failure of this node is retried
+				// at once.
+				Err(BlockImportError::Other(error)) => {
+					warn!(target: LOG_TARGET, "💔 Error importing block {hash:?}: {error}");
+					if let Some(peer) = origin {
+						if import_failed_with::<InvalidBlock>(&error) {
+							self.actions
+								.push(SyncingAction::DropPeer(BadPeer(peer, rep::BAD_BLOCK)));
+						} else if import_failed_with::<FutureBlock>(&error) {
+							let pause = self.future_block_peers.pause(peer, Instant::now());
+							debug!(
+								target: LOG_TARGET,
+								"Not requesting blocks from {peer} for {pause:?}",
+							);
+						}
+					}
 					self.state_sync = None;
 					self.restart();
 				},
@@ -1037,6 +1106,7 @@ where
 			client,
 			peers: HashMap::new(),
 			disconnected_peers: DisconnectedPeers::new(),
+			future_block_peers: FutureBlockPeers::new(),
 			blocks: BlockCollection::new(),
 			best_queued_hash: Default::default(),
 			best_queued_number: Zero::zero(),
@@ -1692,7 +1762,7 @@ where
 		normal_sync: bool,
 	) {
 		let orig_len = new_blocks.len();
-		new_blocks.retain(|b| !self.queue_blocks.contains(&b.hash));
+		new_blocks.retain(|b| !self.queue_blocks.contains_key(&b.hash));
 		if new_blocks.len() != orig_len {
 			debug!(
 				target: LOG_TARGET,
@@ -1701,12 +1771,10 @@ where
 			);
 		}
 
-		if let Some((h, n)) = new_blocks
-			.last()
-			.and_then(|b| b.header.as_ref().map(|h| (&b.hash, *h.number())))
-		{
-			self.on_block_queued(h, n)
-		}
+		let last = new_blocks.last().and_then(|b| b.header.as_ref().map(|h| (b.hash, *h.number())));
+		let fork_target = last.and_then(|(hash, number)| {
+			self.on_block_queued(&hash, number).map(|target| (hash, target))
+		});
 
 		// Computed after `on_block_queued` so the batch itself counts toward
 		// the import backlog; otherwise every batch of a smooth catch-up
@@ -1720,7 +1788,16 @@ where
 			new_blocks.last().map(|b| b.hash),
 			origin,
 		);
-		self.queue_blocks.extend(new_blocks.iter().map(|b| b.hash));
+		self.queue_blocks.extend(
+			new_blocks
+				.iter()
+				.map(|b| (b.hash, QueuedBlock { origin: b.origin, fork_target: None })),
+		);
+		if let Some((hash, target)) = fork_target {
+			if let Some(queued) = self.queue_blocks.get_mut(&hash) {
+				queued.fork_target = Some(target);
+			}
+		}
 		if let Some(metrics) = &self.metrics {
 			metrics
 				.queued_blocks
@@ -1740,8 +1817,11 @@ where
 	///
 	/// Updates our internal state for best queued block and then goes
 	/// through all peers to update our view of their state as well.
-	fn on_block_queued(&mut self, hash: &B::Hash, number: NumberFor<B>) {
-		if self.fork_targets.remove(hash).is_some() {
+	///
+	/// Returns the fork target the block completed, if it was one.
+	fn on_block_queued(&mut self, hash: &B::Hash, number: NumberFor<B>) -> Option<ForkTarget<B>> {
+		let fork_target = self.fork_targets.remove(hash);
+		if fork_target.is_some() {
 			if let Some(metrics) = &self.metrics {
 				metrics.fork_targets.dec();
 			}
@@ -1776,6 +1856,7 @@ where
 			}
 		}
 		self.allowed_requests.set_all();
+		fork_target
 	}
 
 	/// Restart the sync process. This will reset all pending block requests and return an iterator
@@ -1882,7 +1963,7 @@ where
 
 	/// What is the status of the block corresponding to the given hash?
 	fn block_status(&self, hash: &B::Hash) -> Result<BlockStatus, ClientError> {
-		if self.queue_blocks.contains(hash) {
+		if self.queue_blocks.contains_key(hash) {
 			return Ok(BlockStatus::Queued);
 		}
 		self.client.block_status(*hash)
@@ -1977,6 +2058,8 @@ where
 		let max_blocks_per_request = self.max_blocks_per_request;
 		let gap_sync = &mut self.gap_sync;
 		let disconnected_peers = &mut self.disconnected_peers;
+		let future_block_peers = &self.future_block_peers;
+		let now = Instant::now();
 		let metrics = self.metrics.as_ref();
 		let requests = self
 			.peers
@@ -1998,6 +2081,10 @@ where
 					!allowed_requests.contains(&id) ||
 					!disconnected_peers.is_peer_available(&id)
 				{
+					return None;
+				}
+				if future_block_peers.is_paused(&id, now) {
+					debug!(target: LOG_TARGET, "Skipping {:?}: it sent a block from the future", id);
 					return None;
 				}
 
@@ -2053,7 +2140,7 @@ where
 					last_finalized,
 					attrs,
 					|hash| {
-						if queue_blocks.contains(hash) {
+						if queue_blocks.contains_key(hash) {
 							BlockStatus::Queued
 						} else {
 							client.block_status(*hash).unwrap_or(BlockStatus::Unknown)
@@ -2525,6 +2612,26 @@ where
 	Ok(ancestor.hash == *base)
 }
 
+/// `true` when `body` is the extrinsic list committed by `header.extrinsics_root`.
+///
+/// The runtime that built the block chose the trie layout of the root from its
+/// `system_version` (`RuntimeVersion::extrinsics_root_state_version`), which sync does not
+/// know. A body is accepted under either layout, so a runtime upgrade that changes the layout
+/// does not make every node refuse every block. A body that matches only under the layout the
+/// runtime does not use fails when the block is executed.
+pub(crate) fn extrinsics_match_header<Block: BlockT>(
+	header: &Block::Header,
+	body: &[Block::Extrinsic],
+) -> bool {
+	[StateVersion::V0, StateVersion::V1].into_iter().any(|layout| {
+		let root = <<Block::Header as HeaderT>::Hashing as HashT>::ordered_trie_root(
+			body.iter().map(Encode::encode).collect(),
+			layout,
+		);
+		header.extrinsics_root() == &root
+	})
+}
+
 /// Validate that the given `blocks` are correct.
 /// Returns the number of the first block in the sequence.
 ///
@@ -2628,6 +2735,15 @@ pub fn validate_blocks<Block: BlockT>(
 				);
 				return Err(BadPeer(*peer_id, rep::BAD_BLOCK));
 			}
+			if let Some(body) = &b.body {
+				if !extrinsics_match_header::<Block>(header, body) {
+					debug!(
+						target: LOG_TARGET,
+						"Body from {peer_id} does not match the header extrinsics root of {hash:?}.",
+					);
+					return Err(BadPeer(*peer_id, rep::BAD_BLOCK));
+				}
+			}
 		}
 	}
 
@@ -2672,9 +2788,16 @@ mod security_tests {
 	use super::*;
 	use crate::mock::MockBlockDownloader;
 	use sc_client_api::{ChildInfo, CompactProof, StorageProof};
+	use sc_consensus::{
+		BasicQueue, BlockCheckParams, BlockImport, BlockImportParams, ImportQueue, ImportResult,
+		Link, Verifier,
+	};
 	use sp_blockchain::{CachedHeaderMetadata, Info};
 	use sp_core::H256;
-	use sp_runtime::testing::{Block as RawBlock, MockCallU64, TestXt};
+	use sp_runtime::{
+		testing::{Block as RawBlock, MockCallU64, TestXt},
+		traits::BlakeTwo256,
+	};
 	use sp_state_machine::{KeyValueStates, KeyValueStorageLevel};
 
 	type TestBlock = RawBlock<TestXt<MockCallU64, ()>>;
@@ -2926,7 +3049,10 @@ mod security_tests {
 		assert_eq!(block_import_origin(true, false, false), BlockOrigin::NetworkInitialSync);
 	}
 
-	fn block_data(header: <TestBlock as BlockT>::Header) -> BlockData<TestBlock> {
+	/// A block with an empty body. The default extrinsics root of the header is not the
+	/// root of an empty list, so it is set here.
+	fn block_data(mut header: <TestBlock as BlockT>::Header) -> BlockData<TestBlock> {
+		header.set_extrinsics_root(BlakeTwo256::ordered_trie_root(Vec::new(), StateVersion::V0));
 		BlockData::<TestBlock> {
 			hash: header.hash(),
 			header: Some(header),
@@ -2955,9 +3081,9 @@ mod security_tests {
 		let mut parent_hash = H256::random();
 		(top + 1 - len..=top)
 			.map(|number| {
-				let header = header(number, parent_hash);
-				parent_hash = header.hash();
-				block_data(header)
+				let data = block_data(header(number, parent_hash));
+				parent_hash = data.hash;
+				data
 			})
 			.collect()
 	}
@@ -3021,6 +3147,327 @@ mod security_tests {
 			validate_blocks::<TestBlock>(&blocks, &peer, Some(descending_request(10, 5))),
 			Err(BadPeer(peer, rep::BAD_BLOCK)),
 		);
+	}
+
+	#[test]
+	fn response_whose_body_does_not_match_extrinsics_root_is_rejected() {
+		let peer = PeerId::random();
+		let mut blocks = chained_blocks(10, 1);
+		blocks[0].body = Some(vec![TestXt::new_bare(MockCallU64(1))]);
+
+		assert_eq!(
+			validate_blocks::<TestBlock>(&blocks, &peer, Some(descending_request(10, 1))),
+			Err(BadPeer(peer, rep::BAD_BLOCK)),
+		);
+	}
+
+	/// The runtime chooses the trie layout of the extrinsics root, and a runtime upgrade can
+	/// change it. Sync must keep accepting honest bodies across that change.
+	#[test]
+	fn body_is_matched_against_the_header_under_either_trie_layout() {
+		type OpaqueBlock = sp_runtime::generic::Block<
+			sp_runtime::generic::Header<u64, BlakeTwo256>,
+			sp_runtime::OpaqueExtrinsic,
+		>;
+		let header_committing_to = |body: &[sp_runtime::OpaqueExtrinsic], layout| {
+			let root =
+				BlakeTwo256::ordered_trie_root(body.iter().map(Encode::encode).collect(), layout);
+			<OpaqueBlock as BlockT>::Header::new(
+				1,
+				root,
+				Default::default(),
+				Default::default(),
+				Default::default(),
+			)
+		};
+
+		// The layouts only produce different roots for values of 33 bytes or more, the size
+		// of any signed extrinsic.
+		let body = vec![sp_runtime::OpaqueExtrinsic::from_blob(vec![7; 64])];
+		let v0_header = header_committing_to(&body, StateVersion::V0);
+		let v1_header = header_committing_to(&body, StateVersion::V1);
+		assert_ne!(v0_header.extrinsics_root(), v1_header.extrinsics_root());
+
+		assert!(extrinsics_match_header::<OpaqueBlock>(&v0_header, &body));
+		assert!(extrinsics_match_header::<OpaqueBlock>(&v1_header, &body));
+
+		let other_body = vec![sp_runtime::OpaqueExtrinsic::from_blob(vec![8; 64])];
+		assert!(!extrinsics_match_header::<OpaqueBlock>(&v0_header, &other_body));
+		assert!(!extrinsics_match_header::<OpaqueBlock>(&v1_header, &other_body));
+	}
+
+	fn idle_sync() -> (Arc<GenesisClient>, ChainSync<TestBlock, GenesisClient>) {
+		let client = Arc::new(GenesisClient::new());
+		let sync = ChainSync::new(
+			ChainSyncMode::Full,
+			client.clone(),
+			1,
+			64,
+			ProtocolName::Static(""),
+			Arc::new(MockBlockDownloader::new()),
+			None,
+			std::iter::empty(),
+		)
+		.unwrap();
+		(client, sync)
+	}
+
+	struct AcceptingVerifier;
+
+	#[async_trait::async_trait]
+	impl Verifier<TestBlock> for AcceptingVerifier {
+		async fn verify(
+			&self,
+			block: BlockImportParams<TestBlock>,
+		) -> Result<BlockImportParams<TestBlock>, String> {
+			Ok(block)
+		}
+	}
+
+	/// Block import that passes `check_block` and fails every `import_block` with `error`.
+	struct FailingImport {
+		error: fn() -> sp_consensus::Error,
+	}
+
+	#[async_trait::async_trait]
+	impl BlockImport<TestBlock> for FailingImport {
+		type Error = sp_consensus::Error;
+
+		async fn check_block(
+			&self,
+			_block: BlockCheckParams<TestBlock>,
+		) -> Result<ImportResult, Self::Error> {
+			Ok(ImportResult::imported(false))
+		}
+
+		async fn import_block(
+			&self,
+			_block: BlockImportParams<TestBlock>,
+		) -> Result<ImportResult, Self::Error> {
+			Err((self.error)())
+		}
+	}
+
+	type ImportResults = Vec<(Result<BlockImportStatus<u64>, BlockImportError>, H256)>;
+
+	#[derive(Default)]
+	struct RecordingLink {
+		processed: std::sync::Mutex<Option<(usize, usize, ImportResults)>>,
+	}
+
+	impl Link<TestBlock> for RecordingLink {
+		fn blocks_processed(&self, imported: usize, count: usize, results: ImportResults) {
+			*self.processed.lock().unwrap() = Some((imported, count, results));
+		}
+	}
+
+	/// A peer sends block 1. The block goes through the real import queue, whose block import
+	/// fails with `error`, and the queue's result is handed back to sync. Returns the peer and
+	/// sync, which holds the actions it took.
+	fn sync_after_failed_import(
+		error: fn() -> sp_consensus::Error,
+	) -> (PeerId, ChainSync<TestBlock, GenesisClient>) {
+		let (client, mut sync) = idle_sync();
+		let serving = PeerId::random();
+		sync.add_peer(serving, client.genesis.hash(), 0);
+		sync.actions.clear();
+
+		let block = block_data(header(1, client.genesis.hash()));
+		sync.on_block_data(
+			&serving,
+			None,
+			BlockResponse::<TestBlock> { id: 0, blocks: vec![block] },
+		)
+		.unwrap();
+		let (origin, blocks) = std::mem::take(&mut sync.actions)
+			.into_iter()
+			.find_map(|action| match action {
+				SyncingAction::ImportBlocks { origin, blocks } => Some((origin, blocks)),
+				_ => None,
+			})
+			.expect("the block is queued for import");
+
+		let mut queue = BasicQueue::new(
+			AcceptingVerifier,
+			Box::new(FailingImport { error }),
+			None,
+			&sp_core::testing::TaskExecutor::new(),
+			None,
+		);
+		queue.service().import_blocks(origin, blocks);
+		let link = RecordingLink::default();
+		let (imported, count, results) =
+			futures::executor::block_on(futures::future::poll_fn(|cx| {
+				queue.poll_actions(cx, &link);
+				match link.processed.lock().unwrap().take() {
+					Some(processed) => std::task::Poll::Ready(processed),
+					None => std::task::Poll::Pending,
+				}
+			}));
+
+		sync.on_blocks_processed(imported, count, results);
+		assert!(sync.queue_blocks.is_empty());
+		(serving, sync)
+	}
+
+	fn drops_a_peer(sync: &ChainSync<TestBlock, GenesisClient>) -> bool {
+		sync.actions.iter().any(|action| matches!(action, SyncingAction::DropPeer(_)))
+	}
+
+	#[test]
+	fn block_reported_invalid_by_import_drops_the_sender() {
+		let (serving, sync) = sync_after_failed_import(|| {
+			sp_consensus::Error::Other(Box::new(InvalidBlock::new("execution failed")))
+		});
+
+		assert!(sync.actions.iter().any(|action| matches!(
+			action,
+			SyncingAction::DropPeer(BadPeer(peer, change))
+				if *peer == serving && *change == rep::BAD_BLOCK
+		)));
+	}
+
+	#[test]
+	fn block_from_the_future_pauses_the_sender_without_dropping_it() {
+		let before = Instant::now();
+		let (serving, sync) =
+			sync_after_failed_import(|| sp_consensus::Error::Other(Box::new(FutureBlock)));
+
+		assert!(!drops_a_peer(&sync));
+		assert!(sync.peers.contains_key(&serving));
+		assert!(sync.future_block_peers.is_paused(&serving, before));
+	}
+
+	#[test]
+	fn paused_peer_is_not_asked_for_blocks() {
+		let asked_for_blocks = |paused: bool| {
+			let (_client, mut sync) = idle_sync();
+			let serving = PeerId::random();
+			sync.add_peer(serving, H256::repeat_byte(9), 1);
+			if paused {
+				// Repeat until the pause is far longer than this test can take.
+				for _ in 0..6 {
+					sync.future_block_peers.pause(serving, Instant::now());
+				}
+			}
+			sync.block_requests().iter().any(|(peer, _)| *peer == serving)
+		};
+
+		assert!(asked_for_blocks(false));
+		assert!(!asked_for_blocks(true));
+	}
+
+	#[test]
+	fn local_import_failure_does_not_drop_the_sender() {
+		let before = Instant::now();
+		let (serving, sync) =
+			sync_after_failed_import(|| sp_consensus::Error::ClientImport("database error".into()));
+
+		assert!(!drops_a_peer(&sync));
+		assert!(!sync.future_block_peers.is_paused(&serving, before));
+	}
+
+	/// `Other` is also what `?` makes of any boxed error. Only the marker types name the block.
+	#[test]
+	fn unrelated_boxed_import_error_does_not_drop_the_sender() {
+		let before = Instant::now();
+		let (serving, sync) = sync_after_failed_import(|| {
+			sp_consensus::Error::Other("inherent data provider failed".into())
+		});
+
+		assert!(!drops_a_peer(&sync));
+		assert!(!sync.future_block_peers.is_paused(&serving, before));
+	}
+
+	#[test]
+	fn unknown_parent_does_not_drop_the_sender() {
+		let (client, mut sync) = idle_sync();
+		let genesis = client.genesis.hash();
+		let serving = PeerId::random();
+		sync.add_peer(serving, genesis, 0);
+		let target = header(1, genesis).hash();
+		sync.queue_blocks
+			.insert(target, QueuedBlock { origin: Some(serving), fork_target: None });
+		sync.actions.clear();
+
+		sync.on_blocks_processed(0, 1, vec![(Err(BlockImportError::UnknownParent), target)]);
+
+		assert!(sync.actions.iter().all(|action| !matches!(action, SyncingAction::DropPeer(_))));
+	}
+
+	/// A block the peer announces without making it its best block is requested through a
+	/// fork target, which is dropped once the block is queued. When the peer's best block is
+	/// already known here, nothing else leads back to the announced block.
+	#[test]
+	fn future_block_on_a_side_fork_is_requested_again_after_the_pause() {
+		let (client, mut sync) = idle_sync();
+		let genesis = client.genesis.hash();
+		let announcing = PeerId::random();
+		sync.add_peer(announcing, genesis, 0);
+
+		let block = block_data(header(1, genesis));
+		let hash = block.hash;
+		let header = block.header.clone().expect("the block has a header");
+		let announce = BlockAnnounce { header, state: None, data: None };
+		let _ = sync.on_validated_block_announce(false, announcing, &announce);
+
+		let request_for_the_block = |sync: &mut ChainSync<TestBlock, GenesisClient>| {
+			sync.block_requests()
+				.into_iter()
+				.find(|(peer, request)| {
+					*peer == announcing && request.from == FromBlock::Hash(hash)
+				})
+				.map(|(_, request)| request)
+		};
+		let request = request_for_the_block(&mut sync).expect("the announced block is requested");
+		sync.on_block_data(
+			&announcing,
+			Some(request),
+			BlockResponse::<TestBlock> { id: 0, blocks: vec![block] },
+		)
+		.unwrap();
+		assert!(sync.queue_blocks.contains_key(&hash));
+
+		let future_block = sp_consensus::Error::Other(Box::new(FutureBlock));
+		sync.on_blocks_processed(0, 1, vec![(Err(BlockImportError::Other(future_block)), hash)]);
+		assert!(request_for_the_block(&mut sync).is_none(), "the peer is paused");
+
+		// The pause ends. No second announcement arrives.
+		sync.future_block_peers = FutureBlockPeers::new();
+		assert!(request_for_the_block(&mut sync).is_some());
+	}
+
+	/// A fork target is the last block of its batch, and the queue does not try the blocks
+	/// behind a failed one.
+	#[test]
+	fn fork_target_behind_a_future_block_is_kept() {
+		let kept_after = |error: fn() -> sp_consensus::Error| {
+			let (client, mut sync) = idle_sync();
+			let peer = PeerId::random();
+			sync.add_peer(peer, client.genesis.hash(), 0);
+			let (parent, target) = (H256::repeat_byte(1), H256::repeat_byte(2));
+			let fork_target =
+				ForkTarget { number: 2, parent_hash: Some(parent), peers: [peer].into() };
+			sync.queue_blocks
+				.insert(parent, QueuedBlock { origin: Some(peer), fork_target: None });
+			sync.queue_blocks
+				.insert(target, QueuedBlock { origin: Some(peer), fork_target: Some(fork_target) });
+
+			sync.on_blocks_processed(
+				0,
+				2,
+				vec![
+					(Err(BlockImportError::Other(error())), parent),
+					(Err(BlockImportError::Cancelled), target),
+				],
+			);
+			sync.fork_targets.contains_key(&target)
+		};
+
+		assert!(kept_after(|| sp_consensus::Error::Other(Box::new(FutureBlock))));
+		assert!(!kept_after(|| {
+			sp_consensus::Error::Other(Box::new(InvalidBlock::new("execution failed")))
+		}));
 	}
 
 	#[test]

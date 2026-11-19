@@ -16,14 +16,23 @@
 // limitations under the License.
 
 /// State Machine Errors
-use core::fmt;
+use core::{any::Any, fmt};
 
 /// State Machine Error bound.
 ///
 /// This should reflect Wasm error type bound for future compatibility.
-pub trait Error: 'static + fmt::Debug + fmt::Display + Send + Sync {}
+pub trait Error: Any + fmt::Debug + fmt::Display + Send + Sync {}
 
 impl<T: 'static + fmt::Debug + fmt::Display + Send + Sync> Error for T {}
+
+impl dyn Error {
+	/// The error as its concrete type, when that type is `T`.
+	///
+	/// This is how a caller finds out which executor error is behind a failed runtime call.
+	pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
+		(self as &dyn Any).downcast_ref()
+	}
+}
 
 /// Externalities Error.
 ///

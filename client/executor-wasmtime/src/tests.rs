@@ -244,7 +244,7 @@ fn test_consume_over_1mb_of_stack_does_trap(instantiation_strategy: Instantiatio
 	let runtime = builder.build();
 	let mut instance = runtime.new_instance().expect("failed to instantiate a runtime");
 	match instance.call_export("main", &[]).unwrap_err() {
-		Error::AbortedDueToTrap(error) => {
+		Error::AbortedDueToStackExhaustion(error) => {
 			let expected = "wasm trap: call stack exhausted";
 			assert_eq!(error.message, expected);
 		},

@@ -585,7 +585,12 @@ impl<H: Hasher> OverlayedChanges<H> {
 		H::Out: Ord + Encode + 'static,
 	{
 		// Reuses the cached transaction only if it was built for `state_version`.
-		self.storage_root(backend, state_version);
+		self.storage_root(backend, state_version).map_err(|_e| {
+			#[cfg(feature = "std")]
+			return _e.to_string();
+			#[cfg(not(feature = "std"))]
+			DefaultError
+		})?;
 		let (transaction, transaction_storage_root) = self
 			.storage_transaction_cache
 			.take()
@@ -640,18 +645,19 @@ impl<H: Hasher> OverlayedChanges<H> {
 	/// Generate the storage root using `backend` and all changes
 	/// as seen by the current transaction.
 	///
-	/// Returns the storage root and whether it was already cached.
+	/// Returns the storage root and whether it was already cached, or the reason the backend
+	/// could not calculate it.
 	pub fn storage_root<B: Backend<H>>(
 		&mut self,
 		backend: &B,
 		state_version: StateVersion,
-	) -> (H::Out, bool)
+	) -> Result<(H::Out, bool), B::Error>
 	where
 		H::Out: Ord + Encode,
 	{
 		if let Some(cache) = &self.storage_transaction_cache {
 			if cache.state_version == state_version {
-				return (cache.transaction_storage_root, true);
+				return Ok((cache.transaction_storage_root, true));
 			}
 		}
 
@@ -662,7 +668,8 @@ impl<H: Hasher> OverlayedChanges<H> {
 			.values_mut()
 			.map(|v| (&v.1, v.0.changes_mut().map(|(k, v)| (&k[..], v.value().map(|v| &v[..])))));
 
-		let (root, transaction) = backend.full_storage_root(delta, child_delta, state_version);
+		let (root, transaction) =
+			backend.try_full_storage_root(delta, child_delta, state_version)?;
 
 		self.storage_transaction_cache = Some(StorageTransactionCache {
 			transaction,
@@ -670,7 +677,7 @@ impl<H: Hasher> OverlayedChanges<H> {
 			state_version,
 		});
 
-		(root, false)
+		Ok((root, false))
 	}
 
 	/// Generate the child storage root using `backend` and all child changes
@@ -709,7 +716,7 @@ impl<H: Hasher> OverlayedChanges<H> {
 
 		let root = if let Some((changes, info)) = self.child_changes_mut(storage_key) {
 			let delta = changes.map(|(k, v)| (k.as_ref(), v.value().map(AsRef::as_ref)));
-			Some(backend.child_storage_root(info, delta, state_version))
+			Some(backend.try_child_storage_root(info, delta, state_version)?)
 		} else {
 			None
 		};
@@ -1084,14 +1091,14 @@ mod tests {
 		let backend = InMemoryBackend::<Blake2Hasher>::default();
 		let mut overlay = large_value_overlay();
 
-		let (root_v0_first, cached) = overlay.storage_root(&backend, StateVersion::V0);
+		let (root_v0_first, cached) = overlay.storage_root(&backend, StateVersion::V0).unwrap();
 		assert!(!cached);
-		let (root_v0_second, cached) = overlay.storage_root(&backend, StateVersion::V0);
+		let (root_v0_second, cached) = overlay.storage_root(&backend, StateVersion::V0).unwrap();
 		assert!(cached);
 		assert_eq!(root_v0_first, root_v0_second);
 
 		// A request for a different state version must NOT return the cached V0 root.
-		let (root_v1, cached) = overlay.storage_root(&backend, StateVersion::V1);
+		let (root_v1, cached) = overlay.storage_root(&backend, StateVersion::V1).unwrap();
 		assert!(!cached, "cache must be invalidated when state version changes");
 		assert_ne!(
 			root_v0_first, root_v1,
@@ -1099,7 +1106,7 @@ mod tests {
 		);
 
 		// And switching back to V0 must again recompute, not reuse the V1 cache.
-		let (root_v0_third, cached) = overlay.storage_root(&backend, StateVersion::V0);
+		let (root_v0_third, cached) = overlay.storage_root(&backend, StateVersion::V0).unwrap();
 		assert!(!cached);
 		assert_eq!(root_v0_first, root_v0_third);
 	}
@@ -1108,7 +1115,7 @@ mod tests {
 	fn drain_storage_changes_recomputes_on_state_version_change() {
 		let backend = InMemoryBackend::<Blake2Hasher>::default();
 		let mut overlay = large_value_overlay();
-		let (root_v0, _) = overlay.storage_root(&backend, StateVersion::V0);
+		let (root_v0, _) = overlay.storage_root(&backend, StateVersion::V0).unwrap();
 
 		let (expected_root, expected_transaction) =
 			backend.storage_root(large_value_delta(), StateVersion::V1);
@@ -1129,7 +1136,7 @@ mod tests {
 		let (root_v0, cached) =
 			overlay.child_storage_root(child_info, &backend, StateVersion::V0).unwrap();
 		assert!(!cached);
-		overlay.storage_root(&backend, StateVersion::V0);
+		overlay.storage_root(&backend, StateVersion::V0).unwrap();
 		let (root, cached) =
 			overlay.child_storage_root(child_info, &backend, StateVersion::V0).unwrap();
 		assert!(cached);

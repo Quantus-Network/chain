@@ -798,6 +798,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		Arc::clone(&client),
 		0, // check inherents starting at block 0
 		inherent_data_providers,
+		config.wasm_runtime_overrides.is_some(),
 	);
 
 	let import_queue = sc_consensus_qpow::import_queue::<Block, FullClient>(
