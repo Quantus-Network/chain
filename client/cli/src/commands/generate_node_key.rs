@@ -143,29 +143,50 @@ fn generate_key(
 	Ok(())
 }
 
-/// Writes `data` to `path`, leaving the file accessible to its owner only.
+/// Writes `data` to `path`, leaving a regular file accessible to its owner only.
 fn write_secret_file(path: &Path, data: &[u8]) -> io::Result<()> {
-	let mut options = fs::OpenOptions::new();
-	options.write(true).create(true).truncate(true);
 	#[cfg(unix)]
 	{
-		use std::os::unix::fs::OpenOptionsExt;
-		options.mode(0o600);
+		write_secret_file_with(path, data, restrict_permissions)
 	}
-	let mut file = options.open(path)?;
-
-	// The mode above only applies to a file this call creates. A file that is being overwritten
-	// keeps the permissions it had.
-	#[cfg(unix)]
+	#[cfg(not(unix))]
 	{
-		use std::os::unix::fs::PermissionsExt;
-		let metadata = file.metadata()?;
-		if metadata.is_file() && metadata.permissions().mode() & 0o077 != 0 {
-			file.set_permissions(fs::Permissions::from_mode(0o600))?;
-		}
+		let mut file = fs::OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
+		file.write_all(data)
 	}
+}
 
+/// Opens `path` without truncating it, runs `restrict`, and only then replaces the contents.
+///
+/// A regular file that is being overwritten keeps its mode, so `restrict` tightens it. That
+/// happens before the contents are discarded: when the mode cannot be changed, the existing
+/// key is still there.
+#[cfg(unix)]
+fn write_secret_file_with(
+	path: &Path,
+	data: &[u8],
+	restrict: impl FnOnce(&fs::File) -> io::Result<()>,
+) -> io::Result<()> {
+	use std::os::unix::fs::OpenOptionsExt;
+
+	let mut file = fs::OpenOptions::new().write(true).create(true).mode(0o600).open(path)?;
+	let metadata = file.metadata()?;
+	if metadata.is_file() {
+		restrict(&file)?;
+		file.set_len(0)?;
+	}
 	file.write_all(data)
+}
+
+/// Removes group and other access from a regular file that has it.
+#[cfg(unix)]
+fn restrict_permissions(file: &fs::File) -> io::Result<()> {
+	use std::os::unix::fs::PermissionsExt;
+
+	if file.metadata()?.permissions().mode() & 0o077 != 0 {
+		file.set_permissions(fs::Permissions::from_mode(0o600))?;
+	}
+	Ok(())
 }
 
 #[cfg(test)]
@@ -248,6 +269,28 @@ pub mod tests {
 		generate.run("test", &String::from("test")).unwrap();
 		assert_eq!(mode(&existing_file), 0o600);
 		assert_eq!(fs::read(&existing_file).unwrap().len(), 64);
+	}
+
+	/// The mode is tightened before the existing contents are discarded. A mode change that
+	/// fails must leave the key that was already there.
+	#[cfg(unix)]
+	#[test]
+	fn failed_permission_change_keeps_the_existing_key() {
+		use std::os::unix::fs::PermissionsExt;
+
+		let dir = Builder::new().prefix("keyfile").tempdir().unwrap();
+		let path = dir.path().join("existing");
+		fs::write(&path, "old key").unwrap();
+		fs::set_permissions(&path, fs::Permissions::from_mode(0o666)).unwrap();
+
+		let error = write_secret_file_with(&path, b"new key", |_| {
+			Err(io::Error::new(io::ErrorKind::PermissionDenied, "chmod denied"))
+		})
+		.expect_err("a refused mode change must fail the write");
+
+		assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+		assert_eq!(fs::read(&path).unwrap(), b"old key");
+		assert_eq!(mode(&path), 0o666);
 	}
 
 	#[cfg(unix)]
