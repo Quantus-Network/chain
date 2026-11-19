@@ -1113,22 +1113,22 @@ pub mod pallet {
 		type Call = Call<T>;
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			// Pool admission runs on every gossiped transaction, so it deliberately performs
-			// only the cheap structural pre-validation (deserialize, canonical framing,
-			// parse, stateless bundle checks, stateless mintability) and NOT the expensive
-			// ZK verification, nor the per-nullifier `UsedNullifiers` reads. The full verify
-			// and the stateful nullifier check are the block-inclusion gate's job in
-			// `pre_dispatch` (and are recomputed at settlement). Deferring both prevents
-			// unsigned, fee-free traffic from forcing unbounded verification and
-			// per-nullifier storage-read work per gossiped byte-variant of a proof — a junk
-			// flood of structurally valid proofs with fresh nullifiers would otherwise cost
-			// every node up to `NUM_PRIVATE_BATCH_PROOFS * NUM_LEAF_PROOFS` DB reads per
-			// blob, on each revalidation, while filtering nothing (fresh nullifiers are
-			// never used yet).
+			// Pool admission runs on every gossiped transaction. Structural checks and
+			// the stateless bundle checks stay cheap, and `UsedNullifiers` stays unread:
+			// those reads scale with the batch and filter nothing when the nullifiers are
+			// fresh. The ZK proof is verified here as well.
+			//
+			// The pool tag is the bundle's nullifiers and the priority is the constant
+			// [`UNSIGNED_EXIT_PRIORITY`]. The pool keeps the first transaction for a tag
+			// when the priorities are equal, so an unverified byte-variant of a real exit
+			// would hold that tag and the real proof would be rejected. Verifying before
+			// admission rejects the variant. `pre_dispatch` verifies again, which is what
+			// makes a block containing a bad proof invalid.
 			match call {
 				Call::verify_private_batch { proof_bytes } => {
-					let (_, _, bundle) = Self::pre_validate_private_batch_structural(proof_bytes)
-						.map_err(|_| InvalidTransaction::Call)?;
+					let (verifier, proof, bundle) =
+						Self::pre_validate_private_batch_structural(proof_bytes)
+							.map_err(|_| InvalidTransaction::Call)?;
 					// Stateless bundle checks (asset, fee, block binding, any mintable
 					// slot) only — no per-nullifier reads. Cheap to reject
 					// wrong-chain/asset/fee junk and bundles that could never mint.
@@ -1136,6 +1136,7 @@ pub mod pallet {
 						.map_err(|_| InvalidTransaction::Call)?;
 					Self::ensure_any_segment_mintable(&bundle)
 						.map_err(|_| InvalidTransaction::Call)?;
+					verifier.verify(proof).map_err(|_| InvalidTransaction::Call)?;
 
 					ValidTransaction::with_tag_prefix("WormholePrivateBatch")
 						.and_provides(Self::exit_bundle_provides_tag(&bundle))
@@ -1145,13 +1146,14 @@ pub mod pallet {
 						.build()
 				},
 				Call::verify_public_batch { proof_bytes } => {
-					// Same as the private-batch path: structural + stateless checks only.
-					let (_, _, bundle) = Self::pre_validate_public_batch_structural(proof_bytes)
-						.map_err(|_| InvalidTransaction::Call)?;
+					let (verifier, proof, bundle) =
+						Self::pre_validate_public_batch_structural(proof_bytes)
+							.map_err(|_| InvalidTransaction::Call)?;
 					Self::validate_exit_bundle_stateless(&bundle)
 						.map_err(|_| InvalidTransaction::Call)?;
 					Self::ensure_any_segment_mintable(&bundle)
 						.map_err(|_| InvalidTransaction::Call)?;
+					verifier.verify(proof).map_err(|_| InvalidTransaction::Call)?;
 
 					ValidTransaction::with_tag_prefix("WormholePublicBatch")
 						.and_provides(Self::exit_bundle_provides_tag(&bundle))
@@ -1165,11 +1167,8 @@ pub mod pallet {
 		}
 
 		fn pre_dispatch(call: &Self::Call) -> Result<(), TransactionValidityError> {
-			// Block-inclusion gate. Unlike `validate_unsigned` (pool admission), this runs
-			// the FULL validation including ZK verification, and returning `Err` here
-			// excludes the transaction from the block being built (and makes a block that
-			// includes an unverifiable proof invalid on import). This is what keeps
-			// unverified/junk proofs out of blocks now that pool admission is verify-free.
+			// Block-inclusion gate. Admission already rejected an unverifiable proof;
+			// verifying again here makes a block that includes one invalid on import.
 			//
 			// On success it leaves a `VerifiedProofHash` marker that the dispatchable
 			// consumes in the same `apply_extrinsic`; without it the dispatchable refuses
