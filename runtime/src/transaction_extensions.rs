@@ -202,8 +202,8 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 					who,
 					call,
 					when,
-					pallet_scheduler::Pallet::<Runtime>::free_slots_in(
-						when,
+					pallet_scheduler::Pallet::<Runtime>::occupied_slots(when),
+					pallet_scheduler::Pallet::<Runtime>::agenda_capacity(
 						frame_support::traits::schedule::LOWEST_PRIORITY,
 					),
 				)
@@ -1715,10 +1715,36 @@ mod tests {
 				agenda_full
 			);
 
+			// A higher-priority task in the reserve above the low-priority cap counts
+			// towards occupancy: one freed transfer only brings the agenda back to
+			// the cap, two make a single slot.
+			let qp_scheduler::DispatchTime::At(block) = when else {
+				panic!("block-based delay: {when:?}");
+			};
+			assert_ok!(pallet_scheduler::Pallet::<Runtime>::schedule(
+				RuntimeOrigin::root(),
+				block,
+				63,
+				alloc::boxed::Box::new(RuntimeCall::System(frame_system::Call::remark {
+					remark: vec![],
+				})),
+			));
+			assert_eq!(pallet_scheduler::Pallet::<Runtime>::free_slots(when, LOWEST_PRIORITY), 0);
+			assert_eq!(
+				check_call(batch(vec![cancel(dave_txs[0]), schedule.clone()])).unwrap_err(),
+				agenda_full
+			);
+			assert_eq!(
+				check_call(batch(vec![recover(dave()), schedule.clone(), schedule.clone()]))
+					.unwrap_err(),
+				agenda_full
+			);
+			assert_ok!(check_call(batch(vec![recover(dave()), schedule.clone()])));
+
 			// Only the admitted shapes spent quota.
 			assert_eq!(
 				pallet_reversible_transfers::HighSecurityTxQuota::<Runtime>::get(charlie()).len(),
-				3
+				4
 			);
 		});
 	}

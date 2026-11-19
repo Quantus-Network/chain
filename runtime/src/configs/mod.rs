@@ -808,15 +808,22 @@ impl HighSecurityConfig {
 	}
 
 	/// Whether every `schedule_transfer` in `call` finds a `LOWEST_PRIORITY` slot in
-	/// the scheduler agenda `when`, starting from `free` open slots and walking the
-	/// leaves in dispatch order: a `schedule_transfer` takes one slot, and a `cancel`
-	/// or `recover_funds` that `who` is entitled to dispatch gives back each pending
-	/// transfer it removes from that same agenda. A guardian's atomic
-	/// `batch_all([cancel, schedule_transfer])` at capacity is therefore admitted,
-	/// while `[schedule_transfer, cancel]` is not: in that order the schedule really
-	/// would fail at dispatch. A pending transfer is credited once however often the
-	/// batch names it. Always true for a call that schedules nothing, which is then
-	/// not walked at all.
+	/// the scheduler agenda `when`, replaying the leaves in dispatch order against
+	/// the agenda's `occupied` task count exactly as `push_to_agenda` will see it: a
+	/// `schedule_transfer` is refused once `occupied` has reached `capacity` and
+	/// otherwise adds one, and a `cancel` or `recover_funds` that `who` is entitled
+	/// to dispatch subtracts each pending transfer it removes from that same agenda.
+	/// A guardian's atomic `batch_all([cancel, schedule_transfer])` at capacity is
+	/// therefore admitted, while `[schedule_transfer, cancel]` is not: in that order
+	/// the schedule really would fail at dispatch. A pending transfer is credited
+	/// once however often the batch names it. Always true for a call that schedules
+	/// nothing, which is then not walked at all.
+	///
+	/// The walk works on occupancy rather than on free slots because occupancy may
+	/// exceed the `LOWEST_PRIORITY` capacity: higher-priority tasks may sit in the
+	/// reserve above it, and every one of them must be cancelled away before a
+	/// freed low-priority slot is really free. A saturated free-slot count would
+	/// forget them and admit a batch the scheduler then rejects.
 	///
 	/// A credit is a prediction of what the dispatch will remove; a credit that does
 	/// not materialise (a hold release fails inside `recover_funds`) only means the
@@ -825,7 +832,8 @@ impl HighSecurityConfig {
 		who: &AccountId,
 		call: &RuntimeCall,
 		when: pallet_scheduler::BlockNumberOrTimestampOf<Runtime>,
-		mut free: u32,
+		mut occupied: u32,
+		capacity: u32,
 	) -> bool {
 		if !Self::schedules_transfers(call) {
 			return true;
@@ -835,19 +843,25 @@ impl HighSecurityConfig {
 			match leaf {
 				RuntimeCall::ReversibleTransfers(
 					pallet_reversible_transfers::Call::schedule_transfer { .. },
-				) => match free.checked_sub(1) {
-					Some(left) => free = left,
-					None => return false,
+				) => {
+					if occupied >= capacity {
+						return false;
+					}
+					occupied = occupied.saturating_add(1);
 				},
 				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
 					tx_id,
 				}) =>
-					free =
-						free.saturating_add(Self::freed_by_cancel(who, tx_id, when, &mut credited)),
+					occupied = occupied.saturating_sub(Self::freed_by_cancel(
+						who,
+						tx_id,
+						when,
+						&mut credited,
+					)),
 				RuntimeCall::ReversibleTransfers(
 					pallet_reversible_transfers::Call::recover_funds { account },
 				) =>
-					free = free.saturating_add(Self::freed_by_recovery(
+					occupied = occupied.saturating_sub(Self::freed_by_recovery(
 						who,
 						account,
 						when,

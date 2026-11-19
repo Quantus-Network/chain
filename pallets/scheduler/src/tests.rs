@@ -2289,12 +2289,62 @@ fn agenda_of_follows_a_named_task_until_it_is_cancelled() {
 		));
 		assert_eq!(Scheduler::agenda_of(&[1u8; 32]), Some(when));
 		assert_eq!(Scheduler::agenda_of(&[2u8; 32]), Some(BlockNumberOrTimestamp::BlockNumber(9)));
+		assert_eq!(Scheduler::occupied_slots(when), 1);
 		assert_eq!(Scheduler::free_slots_in(when, LOWEST_PRIORITY), max - reserved - 1);
 
 		assert_ok!(Scheduler::do_cancel_named(None, [1u8; 32]));
 		assert_eq!(Scheduler::agenda_of(&[1u8; 32]), None);
+		assert_eq!(Scheduler::occupied_slots(when), 0);
 		assert_eq!(Scheduler::free_slots_in(when, LOWEST_PRIORITY), max - reserved);
 		assert_eq!(Scheduler::free_slots_in(BlockNumberOrTimestamp::BlockNumber(9), 63), max - 1);
+	});
+}
+
+/// Occupancy counts every task whatever its priority, so it can exceed the
+/// `LOWEST_PRIORITY` capacity while the saturated free-slot count reads zero.
+/// Cancelling a low-priority task from such an agenda does not free a
+/// low-priority slot until the excess is gone.
+#[test]
+fn occupancy_above_the_low_priority_cap_is_not_lost() {
+	use frame_support::traits::schedule::LOWEST_PRIORITY;
+
+	let max: u32 = <Test as Config>::MaxScheduledPerBlock::get();
+	let low_cap = Scheduler::agenda_capacity(LOWEST_PRIORITY);
+	assert!(low_cap < max);
+
+	new_test_ext().execute_with(|| {
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		let bound = Preimage::bound(call).unwrap();
+		let when = BlockNumberOrTimestamp::BlockNumber(4);
+
+		for i in 0..low_cap {
+			assert_ok!(Scheduler::do_schedule_named(
+				[i as u8; 32],
+				DispatchTime::At(4),
+				LOWEST_PRIORITY,
+				root(),
+				bound.clone(),
+			));
+		}
+		assert_ok!(Scheduler::do_schedule(DispatchTime::At(4), 63, root(), bound.clone()));
+		assert_eq!(Scheduler::occupied_slots(when), low_cap + 1);
+		assert_eq!(Scheduler::free_slots_in(when, LOWEST_PRIORITY), 0);
+
+		// One low-priority cancel leaves occupancy at the cap: still full for
+		// `LOWEST_PRIORITY`, exactly as `push_to_agenda` judges it.
+		assert_ok!(Scheduler::do_cancel_named(None, [0u8; 32]));
+		assert_eq!(Scheduler::occupied_slots(when), low_cap);
+		assert_eq!(Scheduler::free_slots_in(when, LOWEST_PRIORITY), 0);
+		assert_noop!(
+			Scheduler::do_schedule(DispatchTime::At(4), LOWEST_PRIORITY, root(), bound.clone()),
+			DispatchError::Exhausted
+		);
+
+		assert_ok!(Scheduler::do_cancel_named(None, [1u8; 32]));
+		assert_eq!(Scheduler::occupied_slots(when), low_cap - 1);
+		assert_eq!(Scheduler::free_slots_in(when, LOWEST_PRIORITY), 1);
+		assert_ok!(Scheduler::do_schedule(DispatchTime::At(4), LOWEST_PRIORITY, root(), bound));
 	});
 }
 
