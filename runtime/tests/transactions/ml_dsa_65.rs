@@ -11,8 +11,9 @@ use frame_support::{
 };
 use qp_dilithium_crypto::Dilithium65Pair;
 use quantus_runtime::{
-	transaction_extensions::WormholeProofRecorderExtension, Balances, BalancesCall, Executive,
-	Runtime, RuntimeCall, RuntimeEvent, System, UncheckedExtrinsic, UNIT,
+	transaction_extensions::{ReversibleTransactionExtension, WormholeProofRecorderExtension},
+	Balances, BalancesCall, Executive, Runtime, RuntimeCall, RuntimeEvent, System,
+	UncheckedExtrinsic, UNIT,
 };
 use sp_core::Pair;
 use sp_runtime::{
@@ -118,8 +119,13 @@ fn wormhole_overcharge_is_refunded_from_the_transaction_fee() {
 			&call,
 		);
 		assert_ne!(wormhole_reservation, Weight::zero());
-		let non_hs_quota_refund =
-			<Runtime as frame_system::Config>::DbWeight::get().reads_writes(3, 1);
+		let non_hs_quota_refund = <ReversibleTransactionExtension<Runtime> as TransactionExtension<
+			RuntimeCall,
+		>>::post_dispatch_details(
+			false, &info, &Default::default(), len as usize, &Ok(())
+		)
+		.expect("the reversible extension refunds non-high-security traffic");
+		assert_ne!(non_hs_quota_refund, Weight::zero());
 
 		let expected_fee = pallet_transaction_payment::Pallet::<Runtime>::compute_actual_fee(
 			len,

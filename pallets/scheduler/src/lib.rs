@@ -735,22 +735,45 @@ impl<T: Config> Pallet<T> {
 		Ok(address)
 	}
 
+	/// How many tasks of `priority` an agenda may hold.
+	///
+	/// `LOWEST_PRIORITY` tasks (a best-effort, potentially permissionless surface such
+	/// as reversible transfers) may not consume the last ~20% of an agenda, so
+	/// higher-priority tasks such as governance enactment always retain headroom and
+	/// cannot be censored by pre-filling their target block. At least one slot is
+	/// reserved even when `MaxScheduledPerBlock < 5` (where `max / 5` would be 0).
+	fn agenda_capacity(priority: schedule::Priority) -> u32 {
+		let max = T::MaxScheduledPerBlock::get();
+		if priority == schedule::LOWEST_PRIORITY {
+			let reserved = (max / 5).max(1).min(max.saturating_sub(1));
+			max.saturating_sub(reserved)
+		} else {
+			max
+		}
+	}
+
+	/// The number of tasks of `priority` that can still be scheduled for `when`.
+	///
+	/// Lets a caller find out before dispatch whether a schedule would fail with
+	/// `Exhausted`, so a doomed extrinsic can be kept out of the block instead of
+	/// being included, charged, and failed. Zero when `when` cannot be resolved.
+	pub fn free_slots(
+		when: DispatchTime<BlockNumberFor<T>, T::Moment>,
+		priority: schedule::Priority,
+	) -> u32 {
+		let Ok(when) = Self::resolve_time(when) else { return 0 };
+		let occupied = Agenda::<T>::get(when).iter().filter(|slot| slot.is_some()).count() as u32;
+		Self::agenda_capacity(priority).saturating_sub(occupied)
+	}
+
 	fn push_to_agenda(
 		when: BlockNumberOrTimestampOf<T>,
 		what: ScheduledOf<T>,
 	) -> Result<u32, (DispatchError, ScheduledOf<T>)> {
 		let mut agenda = Agenda::<T>::get(when);
-		// `LOWEST_PRIORITY` tasks (a best-effort, potentially permissionless surface such
-		// as reversible transfers) may not consume the last ~20% of an agenda, so
-		// higher-priority tasks such as governance enactment always retain headroom and
-		// cannot be censored by pre-filling their target block. Reserve at least one
-		// slot even when `MaxScheduledPerBlock < 5` (where `max / 5` would be 0).
 		if what.priority == schedule::LOWEST_PRIORITY {
 			let occupied = agenda.iter().filter(|slot| slot.is_some()).count() as u32;
-			let max = T::MaxScheduledPerBlock::get();
-			let reserved = (max / 5).max(1).min(max.saturating_sub(1));
-			let cap = max.saturating_sub(reserved);
-			if occupied >= cap {
+			if occupied >= Self::agenda_capacity(what.priority) {
 				return Err((DispatchError::Exhausted, what));
 			}
 		}

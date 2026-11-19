@@ -2207,6 +2207,51 @@ fn lowest_priority_tasks_cannot_crowd_out_high_priority_tasks() {
 	});
 }
 
+/// `free_slots` answers exactly the question `do_schedule` would answer with
+/// `Exhausted`, for both priority tiers, so a caller can keep a doomed schedule out
+/// of a block.
+#[test]
+fn free_slots_tracks_agenda_admission() {
+	use frame_support::traits::schedule::LOWEST_PRIORITY;
+
+	let max: u32 = <Test as Config>::MaxScheduledPerBlock::get();
+	let reserved: u32 = (max / 5).max(1).min(max.saturating_sub(1));
+
+	new_test_ext().execute_with(|| {
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		let bound = Preimage::bound(call).unwrap();
+
+		assert_eq!(Scheduler::free_slots(DispatchTime::At(4), LOWEST_PRIORITY), max - reserved);
+		assert_eq!(Scheduler::free_slots(DispatchTime::At(4), 63), max);
+
+		for remaining in (0..max - reserved).rev() {
+			assert_ok!(Scheduler::do_schedule(
+				DispatchTime::At(4),
+				LOWEST_PRIORITY,
+				root(),
+				bound.clone()
+			));
+			assert_eq!(Scheduler::free_slots(DispatchTime::At(4), LOWEST_PRIORITY), remaining);
+		}
+		assert_noop!(
+			Scheduler::do_schedule(DispatchTime::At(4), LOWEST_PRIORITY, root(), bound.clone()),
+			DispatchError::Exhausted
+		);
+		// The reserve is still open to higher priorities, and the two tiers agree
+		// with `push_to_agenda` as the reserve fills.
+		assert_eq!(Scheduler::free_slots(DispatchTime::At(4), 63), reserved);
+		assert_ok!(Scheduler::do_schedule(DispatchTime::At(4), 63, root(), bound.clone()));
+		assert_eq!(Scheduler::free_slots(DispatchTime::At(4), 63), reserved - 1);
+		assert_eq!(Scheduler::free_slots(DispatchTime::At(4), LOWEST_PRIORITY), 0);
+
+		// Another block is untouched, a block in the past can never be scheduled.
+		assert_eq!(Scheduler::free_slots(DispatchTime::At(5), LOWEST_PRIORITY), max - reserved);
+		run_to_block(4);
+		assert_eq!(Scheduler::free_slots(DispatchTime::At(4), 63), 0);
+	});
+}
+
 /// Cancelling and scheduling does not overflow the agenda but fills holes.
 #[test]
 fn scheduler_v3_anon_cancel_and_schedule_fills_holes() {

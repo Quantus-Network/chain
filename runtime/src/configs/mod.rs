@@ -784,6 +784,20 @@ impl HighSecurityConfig {
 			_ => false,
 		}
 	}
+
+	/// How many scheduler agenda slots `call` needs: one per `schedule_transfer`,
+	/// summed over a `batch_all`. `cancel` and `recover_funds` need none. Only
+	/// meaningful for a call that passed `is_whitelisted`, so no deeper nesting.
+	pub fn scheduled_transfers(call: &RuntimeCall) -> u32 {
+		match call {
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) =>
+				calls.iter().map(Self::scheduled_transfers).sum(),
+			RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_transfer { .. },
+			) => 1,
+			_ => 0,
+		}
+	}
 }
 
 impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSecurityConfig {

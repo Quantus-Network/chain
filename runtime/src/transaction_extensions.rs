@@ -33,6 +33,11 @@ pub const HIGH_SECURITY_EXTRINSIC_TOO_LARGE: u8 = 4;
 /// would cost more than `MAX_HIGH_SECURITY_INCLUSION_FEE` at zero tip.
 pub const HIGH_SECURITY_FEE_LIMIT_EXCEEDED: u8 = 5;
 
+/// `InvalidTransaction::Custom` code when a high-security signer's
+/// `schedule_transfer` would fail because the scheduler agenda at
+/// `now + delay` has no `LOWEST_PRIORITY` slot left for it.
+pub const HIGH_SECURITY_AGENDA_FULL: u8 = 6;
+
 /// Transaction extension for reversible accounts
 ///
 /// This extension is used to intercept delayed transactions for users that opted in
@@ -63,10 +68,13 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 	const IDENTIFIER: &'static str = "ReversibleTransactionExtension";
 
 	fn weight(&self, _call: &RuntimeCall) -> Weight {
-		// Worst case — a high-security signer, four reads and one write:
+		// Worst case — a high-security signer scheduling a transfer, seven reads
+		// and one write:
 		//   1r `HighSecurityAccounts` classification        (validate)
 		//   1r `NextFeeMultiplier` for the fee ceiling      (validate)
 		//   1r `HighSecurityTxQuota` ring, admission check  (validate)
+		//   1r `System::Number`, 1r `Timestamp::Now`, 1r `Scheduler::Agenda`
+		//      for the agenda-room check                    (validate)
 		//   1r+1w `HighSecurityTxQuota` ring, recording     (prepare)
 		// The pallet helpers (`hs_quota_has_room` / `record_hs_quota`) do
 		// not re-read `HighSecurityAccounts`, so it is read exactly once.
@@ -76,7 +84,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 		// `is_whitelisted` is in-memory only. Proof size is deliberately not
 		// modeled: this is a solo PoW chain (no PoV), matching `DbWeight`
 		// usage across the runtime.
-		T::DbWeight::get().reads_writes(4, 1)
+		T::DbWeight::get().reads_writes(7, 1)
 	}
 
 	fn prepare(
@@ -88,8 +96,9 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 		_len: usize,
 	) -> Result<Self::Pre, TransactionValidityError> {
 		// `val` is fresh: during block execution `validate` runs immediately
-		// before `prepare` on the same state, so the whitelist and length
-		// gates in `validate` are consensus-enforced without a re-check here.
+		// before `prepare` on the same state, so the whitelist, length, fee and
+		// agenda-room gates in `validate` are consensus-enforced without a
+		// re-check here.
 		if !val {
 			return Ok(false);
 		}
@@ -123,10 +132,11 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 			return Err(TransactionValidityError::Invalid(InvalidTransaction::BadSigner));
 		};
 
-		// The one `HighSecurityAccounts` classification read, shared by the
-		// whitelist check below, the quota check, the recording in `prepare`
-		// and the weight refund in `post_dispatch_details`.
-		let is_high_security = crate::configs::HighSecurityConfig::is_high_security(who);
+		// The one `HighSecurityAccounts` read, shared by the whitelist check
+		// below, the quota check, the agenda-room check, the recording in
+		// `prepare` and the weight refund in `post_dispatch_details`.
+		let high_security = pallet_reversible_transfers::Pallet::<Runtime>::is_high_security(who);
+		let is_high_security = high_security.is_some();
 
 		// Enforce the high-security whitelist on the top-level signer.
 		// `is_whitelisted` walks `batch_all` children so a mixed batch is rejected here.
@@ -168,6 +178,27 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 			)));
 		}
 
+		// A high-security transfer can only land in the agenda at `now + delay`,
+		// whose `LOWEST_PRIORITY` slots anyone can fill in advance with one-time
+		// transfers. Included, a transfer that cannot be scheduled pays its fee
+		// and spends a quota slot for nothing, and sixteen such attempts lock
+		// the account out for a day. Rejected here it costs the signer nothing,
+		// and the quota keeps bounding fee drain from a stolen key because no
+		// fee is paid. `cancel` and `recover_funds` take no agenda slot.
+		if let Some(data) = high_security {
+			let transfers = crate::configs::HighSecurityConfig::scheduled_transfers(call);
+			if transfers > 0 &&
+				pallet_scheduler::Pallet::<Runtime>::free_slots(
+					pallet_reversible_transfers::Pallet::<Runtime>::dispatch_time_for(&data.delay),
+					frame_support::traits::schedule::LOWEST_PRIORITY,
+				) < transfers
+			{
+				return Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(
+					HIGH_SECURITY_AGENDA_FULL,
+				)));
+			}
+		}
+
 		Ok((ValidTransaction::default(), is_high_security, origin))
 	}
 
@@ -183,11 +214,11 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 			return Ok(Weight::zero());
 		}
 		// Everyone else only did the classification read; return the fee
-		// ceiling's multiplier read and the quota ring reads/write reserved
-		// by `weight()`. This extension precedes the payment extension in
-		// `TxExtension`, so the refund reaches the payer's fee, not just
-		// block capacity.
-		Ok(T::DbWeight::get().reads_writes(3, 1))
+		// ceiling's multiplier read, the agenda-room reads and the quota ring
+		// reads/write reserved by `weight()`. This extension precedes the
+		// payment extension in `TxExtension`, so the refund reaches the
+		// payer's fee, not just block capacity.
+		Ok(T::DbWeight::get().reads_writes(6, 1))
 	}
 }
 
@@ -1295,14 +1326,15 @@ mod tests {
 		let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
 
 		// High-security worst case: classification + `NextFeeMultiplier` +
-		// quota-ring admission read in `validate`, ring read/write in
-		// `prepare`. The quota helpers do not re-read
-		// `HighSecurityAccounts`, so it is read exactly once.
+		// quota-ring admission read + the three agenda-room reads
+		// (`System::Number`, `Timestamp::Now`, `Scheduler::Agenda`) in
+		// `validate`, ring read/write in `prepare`. The quota helpers do not
+		// re-read `HighSecurityAccounts`, so it is read exactly once.
 		assert_eq!(
 			<ReversibleTransactionExtension<Runtime> as TransactionExtension<RuntimeCall>>::weight(
 				&ext, &call
 			),
-			db.reads_writes(4, 1)
+			db.reads_writes(7, 1)
 		);
 
 		// Non-high-security traffic executes only the classification read;
@@ -1313,7 +1345,7 @@ mod tests {
 			false, &Default::default(), &Default::default(), 0, &Ok(())
 		)
 		.unwrap();
-		assert_eq!(refund, db.reads_writes(3, 1));
+		assert_eq!(refund, db.reads_writes(6, 1));
 
 		// A tipped transaction additionally reads `HighSecurityAccounts` in
 		// both `can_withdraw_fee` and `withdraw_fee` of the fee adapter.
@@ -1325,6 +1357,105 @@ mod tests {
 				.saturating_add(db.reads(2))
 				.saturating_add(db.reads_writes(1, 1))
 		);
+	}
+
+	/// A high-security `schedule_transfer` whose target agenda has no
+	/// `LOWEST_PRIORITY` slot left is rejected before `prepare` records the
+	/// quota. Anyone can fill that agenda with one-unit one-time transfers, so an
+	/// included-and-failed attempt would otherwise cost the owner a fee and one of
+	/// sixteen daily quota slots per try.
+	#[test]
+	fn test_high_security_unschedulable_transfer_is_rejected_without_quota() {
+		use frame_support::traits::schedule::LOWEST_PRIORITY;
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let delay = ReversibleTransfers::is_high_security(&charlie()).unwrap().delay;
+			let when = ReversibleTransfers::dispatch_time_for(&delay);
+			let schedule = RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_transfer {
+					dest: MultiAddress::Id(bob()),
+					amount: EXISTENTIAL_DEPOSIT,
+				},
+			);
+			let cancel =
+				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+					tx_id: sp_core::H256::default(),
+				});
+
+			// Ordinary accounts fill the agenda Charlie's transfers must use, sixteen
+			// one-unit self-transfers each.
+			let filler = |seed: u8| {
+				let who = AccountId32::from([seed; 32]);
+				<Balances as frame_support::traits::Currency<AccountId>>::make_free_balance_be(
+					&who,
+					EXISTENTIAL_DEPOSIT * 100,
+				);
+				who
+			};
+			let mut seed = 100u8;
+			while pallet_scheduler::Pallet::<Runtime>::free_slots(when, LOWEST_PRIORITY) > 1 {
+				let who = filler(seed);
+				seed += 1;
+				for _ in
+					0..<Runtime as pallet_reversible_transfers::Config>::MaxPendingPerAccount::get()
+				{
+					if pallet_scheduler::Pallet::<Runtime>::free_slots(when, LOWEST_PRIORITY) == 1 {
+						break;
+					}
+					assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+						RuntimeOrigin::signed(who.clone()),
+						MultiAddress::Id(who.clone()),
+						1,
+						delay,
+					));
+				}
+			}
+			// One slot left: a single transfer fits, a batch of two does not.
+			assert_ok!(check_call(schedule.clone()));
+			assert_eq!(
+				check_call(RuntimeCall::Utility(pallet_utility::Call::batch_all {
+					calls: vec![schedule.clone(), schedule.clone()],
+				}))
+				.unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(
+					HIGH_SECURITY_AGENDA_FULL
+				))
+			);
+			assert_eq!(
+				pallet_reversible_transfers::HighSecurityTxQuota::<Runtime>::get(charlie()).len(),
+				1
+			);
+
+			let last = filler(seed);
+			assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+				RuntimeOrigin::signed(last.clone()),
+				MultiAddress::Id(last),
+				1,
+				delay,
+			));
+			assert_eq!(pallet_scheduler::Pallet::<Runtime>::free_slots(when, LOWEST_PRIORITY), 0);
+
+			// Full: the transfer is refused and no quota slot is spent.
+			assert_eq!(
+				check_call(schedule.clone()).unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(
+					HIGH_SECURITY_AGENDA_FULL
+				))
+			);
+			assert_eq!(
+				pallet_reversible_transfers::HighSecurityTxQuota::<Runtime>::get(charlie()).len(),
+				1
+			);
+
+			// Calls that take no agenda slot pass, and the gate is not applied to
+			// ordinary signers, whose one-time transfers pick their own agenda.
+			assert_ok!(check_call(cancel));
+			assert_ok!(validate_with_len(alice(), &schedule, 0));
+
+			// The next block's agenda has room again.
+			System::set_block_number(2);
+			assert_ok!(check_call(schedule));
+		});
 	}
 
 	// The zero-tip policy lives in the fee adapter, so it fires on every fee
