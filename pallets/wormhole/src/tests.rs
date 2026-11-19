@@ -1302,13 +1302,11 @@ mod private_batch_proof_tests {
 		});
 	}
 
-	/// The core of the anti-DoS change: pool admission (`validate_unsigned`) must NOT run
-	/// the expensive ZK verification, while the block-inclusion gate (`pre_dispatch`)
-	/// must. A proof whose public inputs are intact (so the cheap bundle checks pass) but
-	/// whose proof data is corrupted (so ZK verification fails) is therefore *admitted*
-	/// by `validate_unsigned` yet *rejected* by `pre_dispatch`.
+	/// Corrupting the proof bytes leaves the public inputs, and therefore the nullifier
+	/// pool tag, intact. Cheap pre-validation still accepts that blob. Admission and
+	/// inclusion both reject it, so the variant cannot occupy the real exit's tag.
 	#[test]
-	fn validate_unsigned_skips_verify_but_pre_dispatch_enforces_it() {
+	fn validate_unsigned_rejects_unverifiable_proof() {
 		use sp_runtime::{traits::ValidateUnsigned, transaction_validity::TransactionSource};
 
 		new_test_ext().execute_with(|| {
@@ -1322,13 +1320,18 @@ mod private_batch_proof_tests {
 			}
 			let call = crate::Call::<Test>::verify_private_batch { proof_bytes: tampered.clone() };
 
-			// Pool admission is verify-free, so it still admits the tampered proof.
-			assert_ok!(<Wormhole as ValidateUnsigned>::validate_unsigned(
-				TransactionSource::External,
-				&call,
-			));
-
-			// The block-inclusion gate runs the ZK verify and rejects it.
+			assert!(
+				Wormhole::pre_validate_private_batch_proof(&tampered).is_ok(),
+				"cheap pre-validation does not run the verifier"
+			);
+			assert!(
+				<Wormhole as ValidateUnsigned>::validate_unsigned(
+					TransactionSource::External,
+					&call,
+				)
+				.is_err(),
+				"admission must reject a proof that fails ZK verification"
+			);
 			assert!(
 				<Wormhole as ValidateUnsigned>::pre_dispatch(&call).is_err(),
 				"pre_dispatch must reject a proof that fails ZK verification"
@@ -1369,16 +1372,11 @@ mod private_batch_proof_tests {
 		});
 	}
 
-	/// Pool admission must not derive `priority` from unverified public-input amounts.
-	///
-	/// With verification deferred to `pre_dispatch`, an attacker who sees a victim's
-	/// gossiped exit can mutate the PI amounts (keeping the nullifiers so the semantic
-	/// `provides` tag collides) and submit a higher-priority junk tx that usurps the
-	/// victim's pool slot — the pool replaces same-tag txs only when the newcomer has
-	/// strictly higher priority. A constant priority makes first-seen win and closes
-	/// that free censorship path.
+	/// Mutating public-input amounts keeps the nullifier tag, so a priority derived from
+	/// those amounts could outrank the real exit. Admission rejects the mutated proof
+	/// because it does not verify, and a valid proof keeps the constant priority.
 	#[test]
-	fn validate_unsigned_priority_ignores_unverified_amounts() {
+	fn validate_unsigned_rejects_amount_mutation_and_pins_priority() {
 		use qp_plonky2_verifier::field::types::Field;
 		use sp_runtime::{traits::ValidateUnsigned, transaction_validity::TransactionSource};
 
@@ -1406,21 +1404,29 @@ mod private_batch_proof_tests {
 			let tampered_bytes = tampered_proof.to_bytes();
 			assert_ne!(tampered_bytes, original, "mutation must change the encoded proof");
 
-			let tampered_call =
-				crate::Call::<Test>::verify_private_batch { proof_bytes: tampered_bytes };
-			let tampered_valid = <Wormhole as ValidateUnsigned>::validate_unsigned(
-				TransactionSource::External,
-				&tampered_call,
-			)
-			.expect("amount-inflated junk still passes cheap pool checks");
-
+			let tampered_inputs =
+				parse_private_batch_public_inputs(&tampered_proof).expect("mutated PIs parse");
+			let original_inputs =
+				parse_private_batch_public_inputs(&deserialize_test_proof()).expect("PIs parse");
 			assert_eq!(
-				tampered_valid.provides, original_valid.provides,
+				Wormhole::exit_bundle_provides_tag(&crate::pallet::ExitBundle::from(
+					tampered_inputs
+				)),
+				Wormhole::exit_bundle_provides_tag(&crate::pallet::ExitBundle::from(
+					original_inputs
+				)),
 				"same nullifiers must yield the same provides tag"
 			);
-			assert_eq!(
-				tampered_valid.priority, original_valid.priority,
-				"priority must not track unverified PI amounts (else junk can usurp a real exit)"
+
+			let tampered_call =
+				crate::Call::<Test>::verify_private_batch { proof_bytes: tampered_bytes };
+			assert!(
+				<Wormhole as ValidateUnsigned>::validate_unsigned(
+					TransactionSource::External,
+					&tampered_call,
+				)
+				.is_err(),
+				"an amount-mutated proof does not verify and must not take the exit's tag"
 			);
 			assert_eq!(
 				original_valid.priority,
