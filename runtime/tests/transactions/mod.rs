@@ -1,3 +1,4 @@
+pub mod high_security_agenda_full;
 pub mod high_security_quota;
 pub mod high_security_tip;
 pub mod integration;

@@ -2207,6 +2207,147 @@ fn lowest_priority_tasks_cannot_crowd_out_high_priority_tasks() {
 	});
 }
 
+/// `free_slots` answers exactly the question `do_schedule` would answer with
+/// `Exhausted`, for both priority tiers, so a caller can keep a doomed schedule out
+/// of a block.
+#[test]
+fn free_slots_tracks_agenda_admission() {
+	use frame_support::traits::schedule::LOWEST_PRIORITY;
+
+	let max: u32 = <Test as Config>::MaxScheduledPerBlock::get();
+	let reserved: u32 = (max / 5).max(1).min(max.saturating_sub(1));
+
+	new_test_ext().execute_with(|| {
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		let bound = Preimage::bound(call).unwrap();
+
+		assert_eq!(Scheduler::free_slots(DispatchTime::At(4), LOWEST_PRIORITY), max - reserved);
+		assert_eq!(Scheduler::free_slots(DispatchTime::At(4), 63), max);
+
+		for remaining in (0..max - reserved).rev() {
+			assert_ok!(Scheduler::do_schedule(
+				DispatchTime::At(4),
+				LOWEST_PRIORITY,
+				root(),
+				bound.clone()
+			));
+			assert_eq!(Scheduler::free_slots(DispatchTime::At(4), LOWEST_PRIORITY), remaining);
+		}
+		assert_noop!(
+			Scheduler::do_schedule(DispatchTime::At(4), LOWEST_PRIORITY, root(), bound.clone()),
+			DispatchError::Exhausted
+		);
+		// The reserve is still open to higher priorities, and the two tiers agree
+		// with `push_to_agenda` as the reserve fills.
+		assert_eq!(Scheduler::free_slots(DispatchTime::At(4), 63), reserved);
+		assert_ok!(Scheduler::do_schedule(DispatchTime::At(4), 63, root(), bound.clone()));
+		assert_eq!(Scheduler::free_slots(DispatchTime::At(4), 63), reserved - 1);
+		assert_eq!(Scheduler::free_slots(DispatchTime::At(4), LOWEST_PRIORITY), 0);
+
+		// Another block is untouched, a block in the past can never be scheduled.
+		assert_eq!(Scheduler::free_slots(DispatchTime::At(5), LOWEST_PRIORITY), max - reserved);
+		run_to_block(4);
+		assert_eq!(Scheduler::free_slots(DispatchTime::At(4), 63), 0);
+		assert_eq!(Scheduler::agenda_for(DispatchTime::At(4)), None);
+	});
+}
+
+/// A named task is reported in the agenda `agenda_for` resolves its schedule time
+/// to, and cancelling it gives that agenda one slot back, so a caller can credit
+/// a cancel it is about to dispatch against a schedule in the same agenda.
+#[test]
+fn agenda_of_follows_a_named_task_until_it_is_cancelled() {
+	use frame_support::traits::schedule::LOWEST_PRIORITY;
+
+	let max: u32 = <Test as Config>::MaxScheduledPerBlock::get();
+	let reserved: u32 = (max / 5).max(1).min(max.saturating_sub(1));
+
+	new_test_ext().execute_with(|| {
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		let bound = Preimage::bound(call).unwrap();
+		let when =
+			Scheduler::agenda_for(DispatchTime::After(BlockNumberOrTimestamp::BlockNumber(3)))
+				.unwrap();
+		assert_eq!(when, BlockNumberOrTimestamp::BlockNumber(4));
+
+		assert_eq!(Scheduler::agenda_of(&[1u8; 32]), None);
+		assert_ok!(Scheduler::do_schedule_named(
+			[1u8; 32],
+			DispatchTime::After(BlockNumberOrTimestamp::BlockNumber(3)),
+			LOWEST_PRIORITY,
+			root(),
+			bound.clone(),
+		));
+		assert_ok!(Scheduler::do_schedule_named(
+			[2u8; 32],
+			DispatchTime::At(9),
+			LOWEST_PRIORITY,
+			root(),
+			bound,
+		));
+		assert_eq!(Scheduler::agenda_of(&[1u8; 32]), Some(when));
+		assert_eq!(Scheduler::agenda_of(&[2u8; 32]), Some(BlockNumberOrTimestamp::BlockNumber(9)));
+		assert_eq!(Scheduler::occupied_slots(when), 1);
+		assert_eq!(Scheduler::free_slots_in(when, LOWEST_PRIORITY), max - reserved - 1);
+
+		assert_ok!(Scheduler::do_cancel_named(None, [1u8; 32]));
+		assert_eq!(Scheduler::agenda_of(&[1u8; 32]), None);
+		assert_eq!(Scheduler::occupied_slots(when), 0);
+		assert_eq!(Scheduler::free_slots_in(when, LOWEST_PRIORITY), max - reserved);
+		assert_eq!(Scheduler::free_slots_in(BlockNumberOrTimestamp::BlockNumber(9), 63), max - 1);
+	});
+}
+
+/// Occupancy counts every task whatever its priority, so it can exceed the
+/// `LOWEST_PRIORITY` capacity while the saturated free-slot count reads zero.
+/// Cancelling a low-priority task from such an agenda does not free a
+/// low-priority slot until the excess is gone.
+#[test]
+fn occupancy_above_the_low_priority_cap_is_not_lost() {
+	use frame_support::traits::schedule::LOWEST_PRIORITY;
+
+	let max: u32 = <Test as Config>::MaxScheduledPerBlock::get();
+	let low_cap = Scheduler::agenda_capacity(LOWEST_PRIORITY);
+	assert!(low_cap < max);
+
+	new_test_ext().execute_with(|| {
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		let bound = Preimage::bound(call).unwrap();
+		let when = BlockNumberOrTimestamp::BlockNumber(4);
+
+		for i in 0..low_cap {
+			assert_ok!(Scheduler::do_schedule_named(
+				[i as u8; 32],
+				DispatchTime::At(4),
+				LOWEST_PRIORITY,
+				root(),
+				bound.clone(),
+			));
+		}
+		assert_ok!(Scheduler::do_schedule(DispatchTime::At(4), 63, root(), bound.clone()));
+		assert_eq!(Scheduler::occupied_slots(when), low_cap + 1);
+		assert_eq!(Scheduler::free_slots_in(when, LOWEST_PRIORITY), 0);
+
+		// One low-priority cancel leaves occupancy at the cap: still full for
+		// `LOWEST_PRIORITY`, exactly as `push_to_agenda` judges it.
+		assert_ok!(Scheduler::do_cancel_named(None, [0u8; 32]));
+		assert_eq!(Scheduler::occupied_slots(when), low_cap);
+		assert_eq!(Scheduler::free_slots_in(when, LOWEST_PRIORITY), 0);
+		assert_noop!(
+			Scheduler::do_schedule(DispatchTime::At(4), LOWEST_PRIORITY, root(), bound.clone()),
+			DispatchError::Exhausted
+		);
+
+		assert_ok!(Scheduler::do_cancel_named(None, [1u8; 32]));
+		assert_eq!(Scheduler::occupied_slots(when), low_cap - 1);
+		assert_eq!(Scheduler::free_slots_in(when, LOWEST_PRIORITY), 1);
+		assert_ok!(Scheduler::do_schedule(DispatchTime::At(4), LOWEST_PRIORITY, root(), bound));
+	});
+}
+
 /// Cancelling and scheduling does not overflow the agenda but fills holes.
 #[test]
 fn scheduler_v3_anon_cancel_and_schedule_fills_holes() {

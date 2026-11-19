@@ -867,6 +867,25 @@ pub mod pallet {
 			Ok(task_name)
 		}
 
+		/// When a transfer scheduled now with `delay` is handed to the scheduler.
+		///
+		/// Public so the runtime's transaction extension can ask the scheduler, before an
+		/// extrinsic is included, whether the agenda it would land in has room.
+		pub fn dispatch_time_for(
+			delay: &BlockNumberOrTimestampOf<T>,
+		) -> DispatchTime<BlockNumberFor<T>, T::Moment> {
+			match delay {
+				BlockNumberOrTimestamp::BlockNumber(blocks) => DispatchTime::At(
+					<T as pallet::Config>::BlockNumberProvider::current_block_number()
+						.saturating_add(*blocks),
+				),
+				BlockNumberOrTimestamp::Timestamp(millis) =>
+					DispatchTime::After(BlockNumberOrTimestamp::Timestamp(
+						T::TimeProvider::now().saturating_add(*millis),
+					)),
+			}
+		}
+
 		/// Internal logic to schedule a transfer with a given delay.
 		fn do_schedule_transfer_inner(
 			from: T::AccountId,
@@ -895,16 +914,7 @@ pub mod pallet {
 			log::debug!(target: "reversible-transfers", "Reversible transfer scheduled with delay: {delay:?}");
 			log::debug!(target: "reversible-transfers", "Reversible transfer tx_id: {tx_id:?}");
 
-			let dispatch_time = match delay {
-				BlockNumberOrTimestamp::BlockNumber(blocks) => DispatchTime::At(
-					<T as pallet::Config>::BlockNumberProvider::current_block_number()
-						.saturating_add(blocks),
-				),
-				BlockNumberOrTimestamp::Timestamp(millis) =>
-					DispatchTime::After(BlockNumberOrTimestamp::Timestamp(
-						T::TimeProvider::now().saturating_add(millis),
-					)),
-			};
+			let dispatch_time = Self::dispatch_time_for(&delay);
 			log::debug!(target: "reversible-transfers", "Now time: {:?}", T::TimeProvider::now());
 			log::debug!(target: "reversible-transfers", "dispatch_time: {dispatch_time:?}");
 

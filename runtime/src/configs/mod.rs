@@ -34,6 +34,7 @@ use crate::{
 	},
 	pallet_custom_origins, MILLI_UNIT,
 };
+use alloc::vec::Vec;
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
@@ -783,6 +784,182 @@ impl HighSecurityConfig {
 			) => true,
 			_ => false,
 		}
+	}
+
+	/// The leaf calls of `call` in dispatch order: the children of a `batch_all`,
+	/// or the call itself. Only meaningful for a call that passed `is_whitelisted`,
+	/// so a nested `batch_all` is never descended into.
+	fn leaves(call: &RuntimeCall) -> &[RuntimeCall] {
+		match call {
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) => calls.as_slice(),
+			leaf => core::slice::from_ref(leaf),
+		}
+	}
+
+	fn schedules_transfers(call: &RuntimeCall) -> bool {
+		Self::leaves(call).iter().any(|leaf| {
+			matches!(
+				leaf,
+				RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::schedule_transfer { .. }
+				)
+			)
+		})
+	}
+
+	/// Whether every `schedule_transfer` in `call` finds a `LOWEST_PRIORITY` slot in
+	/// the scheduler agenda `when`, replaying the leaves in dispatch order against
+	/// the agenda's `occupied` task count exactly as `push_to_agenda` will see it: a
+	/// `schedule_transfer` is refused once `occupied` has reached `capacity` and
+	/// otherwise adds one, and a `cancel` or `recover_funds` that `who` is entitled
+	/// to dispatch subtracts each pending transfer it removes from that same agenda.
+	/// A guardian's atomic `batch_all([cancel, schedule_transfer])` at capacity is
+	/// therefore admitted, while `[schedule_transfer, cancel]` is not: in that order
+	/// the schedule really would fail at dispatch. A pending transfer is credited
+	/// once however often the batch names it. Always true for a call that schedules
+	/// nothing, which is then not walked at all.
+	///
+	/// The walk works on occupancy rather than on free slots because occupancy may
+	/// exceed the `LOWEST_PRIORITY` capacity: higher-priority tasks may sit in the
+	/// reserve above it, and every one of them must be cancelled away before a
+	/// freed low-priority slot is really free. A saturated free-slot count would
+	/// forget them and admit a batch the scheduler then rejects.
+	///
+	/// A credit is a prediction of what the dispatch will remove; a credit that does
+	/// not materialise (a hold release fails inside `recover_funds`) only means the
+	/// signer's own extrinsic is included and fails as it would have before.
+	pub fn agenda_fits(
+		who: &AccountId,
+		call: &RuntimeCall,
+		when: pallet_scheduler::BlockNumberOrTimestampOf<Runtime>,
+		mut occupied: u32,
+		capacity: u32,
+	) -> bool {
+		if !Self::schedules_transfers(call) {
+			return true;
+		}
+		let mut credited: Vec<Hash> = Vec::new();
+		for leaf in Self::leaves(call) {
+			match leaf {
+				RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::schedule_transfer { .. },
+				) => {
+					if occupied >= capacity {
+						return false;
+					}
+					occupied = occupied.saturating_add(1);
+				},
+				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+					tx_id,
+				}) =>
+					occupied = occupied.saturating_sub(Self::freed_by_cancel(
+						who,
+						tx_id,
+						when,
+						&mut credited,
+					)),
+				RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::recover_funds { account },
+				) =>
+					occupied = occupied.saturating_sub(Self::freed_by_recovery(
+						who,
+						account,
+						when,
+						&mut credited,
+					)),
+				_ => {},
+			}
+		}
+		true
+	}
+
+	/// Database reads [`Self::agenda_fits`] performs for `call` on top of resolving
+	/// and reading the target agenda: two per `cancel` (`PendingTransfers`,
+	/// `Scheduler::Lookup`), two plus `MaxPendingPerAccount` per `recover_funds`
+	/// (`HighSecurityAccounts`, `PendingTransfersBySender`, one `Lookup` per pending
+	/// transfer), and none when `call` schedules nothing.
+	pub fn agenda_fits_reads(call: &RuntimeCall) -> u64 {
+		if !Self::schedules_transfers(call) {
+			return 0;
+		}
+		Self::leaves(call)
+			.iter()
+			.map(|leaf| match leaf {
+				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+					..
+				}) => 2,
+				RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::recover_funds { .. },
+				) => 2 + u64::from(MaxPendingPerAccount::get()),
+				_ => 0,
+			})
+			.sum()
+	}
+
+	/// Slots `who`'s `cancel(tx_id)` gives back to the agenda `when`: one when the
+	/// pending transfer exists, sits in that agenda, and `who` holds the authority
+	/// `cancel_transfer` checks (the stored guardian of a high-security schedule, the
+	/// sender of a one-time one). Two reads.
+	fn freed_by_cancel(
+		who: &AccountId,
+		tx_id: &Hash,
+		when: pallet_scheduler::BlockNumberOrTimestampOf<Runtime>,
+		credited: &mut Vec<Hash>,
+	) -> u32 {
+		let Some(pending) = pallet_reversible_transfers::PendingTransfers::<Runtime>::get(tx_id)
+		else {
+			return 0;
+		};
+		let entitled = if pending.guardian != pending.from {
+			*who == pending.guardian
+		} else {
+			*who == pending.from
+		};
+		if !entitled {
+			return 0;
+		}
+		Self::credit_if_in_agenda(tx_id, when, credited)
+	}
+
+	/// Slots `who`'s `recover_funds(account)` gives back to the agenda `when`: one
+	/// per pending transfer of `account` scheduled there, when `who` is `account`'s
+	/// guardian. Two reads plus one per pending transfer.
+	fn freed_by_recovery(
+		who: &AccountId,
+		account: &AccountId,
+		when: pallet_scheduler::BlockNumberOrTimestampOf<Runtime>,
+		credited: &mut Vec<Hash>,
+	) -> u32 {
+		if pallet_reversible_transfers::Pallet::<Runtime>::get_guardian(account).as_ref() !=
+			Some(who)
+		{
+			return 0;
+		}
+		pallet_reversible_transfers::PendingTransfersBySender::<Runtime>::get(account)
+			.iter()
+			.map(|tx_id| Self::credit_if_in_agenda(tx_id, when, credited))
+			.sum()
+	}
+
+	/// One if the task of pending transfer `tx_id` sits in the agenda `when` and has
+	/// not been credited yet, else zero. One `Lookup` read.
+	fn credit_if_in_agenda(
+		tx_id: &Hash,
+		when: pallet_scheduler::BlockNumberOrTimestampOf<Runtime>,
+		credited: &mut Vec<Hash>,
+	) -> u32 {
+		if credited.contains(tx_id) {
+			return 0;
+		}
+		let Ok(task) = pallet_reversible_transfers::Pallet::<Runtime>::make_schedule_id(tx_id)
+		else {
+			return 0;
+		};
+		if pallet_scheduler::Pallet::<Runtime>::agenda_of(&task) != Some(when) {
+			return 0;
+		}
+		credited.push(*tx_id);
+		1
 	}
 }
 
