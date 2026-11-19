@@ -57,17 +57,18 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync> ReversibleTransaction
 impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 	TransactionExtension<RuntimeCall> for ReversibleTransactionExtension<T>
 {
-	/// Whether the signer is high-security, decided once in `validate` and
-	/// carried forward: `prepare` records the quota only on the high-security
-	/// path, and `post_dispatch_details` refunds the unused quota weight on
-	/// every other path.
-	type Pre = bool;
+	/// The part of `weight()` this extrinsic did not use, returned by
+	/// `post_dispatch_details`: zero on the high-security path, which
+	/// `prepare` records the quota for, and everything but the classification
+	/// read on every other path.
+	type Pre = Weight;
+	/// Whether the signer is high-security, decided once in `validate`.
 	type Val = bool;
 	type Implicit = ();
 
 	const IDENTIFIER: &'static str = "ReversibleTransactionExtension";
 
-	fn weight(&self, _call: &RuntimeCall) -> Weight {
+	fn weight(&self, call: &RuntimeCall) -> Weight {
 		// Worst case — a high-security signer scheduling a transfer, seven reads
 		// and one write:
 		//   1r `HighSecurityAccounts` classification        (validate)
@@ -76,6 +77,9 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 		//   1r `System::Number`, 1r `Timestamp::Now`, 1r `Scheduler::Agenda`
 		//      for the agenda-room check                    (validate)
 		//   1r+1w `HighSecurityTxQuota` ring, recording     (prepare)
+		// plus, for a batch that schedules a transfer after a `cancel` or
+		// `recover_funds`, the reads that credit the slots those give back
+		// (`agenda_fits_reads`, zero for every other call shape).
 		// The pallet helpers (`hs_quota_has_room` / `record_hs_quota`) do
 		// not re-read `HighSecurityAccounts`, so it is read exactly once.
 		// All other traffic
@@ -84,14 +88,16 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 		// `is_whitelisted` is in-memory only. Proof size is deliberately not
 		// modeled: this is a solo PoW chain (no PoV), matching `DbWeight`
 		// usage across the runtime.
-		T::DbWeight::get().reads_writes(7, 1)
+		T::DbWeight::get()
+			.reads_writes(7, 1)
+			.saturating_add(T::DbWeight::get().reads(Self::agenda_fits_reads(call)))
 	}
 
 	fn prepare(
 		self,
 		val: Self::Val,
 		origin: &sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
-		_call: &RuntimeCall,
+		call: &RuntimeCall,
 		_info: &sp_runtime::traits::DispatchInfoOf<RuntimeCall>,
 		_len: usize,
 	) -> Result<Self::Pre, TransactionValidityError> {
@@ -100,7 +106,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 		// agenda-room gates in `validate` are consensus-enforced without a
 		// re-check here.
 		if !val {
-			return Ok(false);
+			return Ok(Self::non_high_security_refund(call));
 		}
 		let who = origin
 			.as_system_origin_signer()
@@ -115,7 +121,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 				HIGH_SECURITY_TX_QUOTA_EXCEEDED,
 			))
 		})?;
-		Ok(true)
+		Ok(Weight::zero())
 	}
 
 	fn validate(
@@ -184,15 +190,25 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 		// and spends a quota slot for nothing, and sixteen such attempts lock
 		// the account out for a day. Rejected here it costs the signer nothing,
 		// and the quota keeps bounding fee drain from a stolen key because no
-		// fee is paid. `cancel` and `recover_funds` take no agenda slot.
+		// fee is paid. `cancel` and `recover_funds` take no agenda slot; walked
+		// in dispatch order, each pending transfer they remove from that same
+		// agenda is a slot a later `schedule_transfer` in the batch may take.
 		if let Some(data) = high_security {
-			let transfers = crate::configs::HighSecurityConfig::scheduled_transfers(call);
-			if transfers > 0 &&
-				pallet_scheduler::Pallet::<Runtime>::free_slots(
-					pallet_reversible_transfers::Pallet::<Runtime>::dispatch_time_for(&data.delay),
-					frame_support::traits::schedule::LOWEST_PRIORITY,
-				) < transfers
-			{
+			let when = pallet_scheduler::Pallet::<Runtime>::agenda_for(
+				pallet_reversible_transfers::Pallet::<Runtime>::dispatch_time_for(&data.delay),
+			);
+			let fits = when.is_some_and(|when| {
+				crate::configs::HighSecurityConfig::agenda_fits(
+					who,
+					call,
+					when,
+					pallet_scheduler::Pallet::<Runtime>::free_slots_in(
+						when,
+						frame_support::traits::schedule::LOWEST_PRIORITY,
+					),
+				)
+			});
+			if !fits {
 				return Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(
 					HIGH_SECURITY_AGENDA_FULL,
 				)));
@@ -209,16 +225,31 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 		_len: usize,
 		_result: &DispatchResult,
 	) -> Result<Weight, TransactionValidityError> {
-		if pre {
-			// High-security path: the full declared weight was used.
-			return Ok(Weight::zero());
-		}
-		// Everyone else only did the classification read; return the fee
-		// ceiling's multiplier read, the agenda-room reads and the quota ring
-		// reads/write reserved by `weight()`. This extension precedes the
+		// Zero on the high-security path, which used the full declared weight.
+		// Everyone else only did the classification read; `prepare` computed
+		// the surplus reserved by `weight()`. This extension precedes the
 		// payment extension in `TxExtension`, so the refund reaches the
 		// payer's fee, not just block capacity.
-		Ok(T::DbWeight::get().reads_writes(6, 1))
+		Ok(pre)
+	}
+}
+
+impl<T: pallet_reversible_transfers::Config + Send + Sync> ReversibleTransactionExtension<T> {
+	/// Reads `validate` performs for `call` beyond the fixed seven of `weight()`:
+	/// crediting the agenda slots a `cancel` or `recover_funds` frees ahead of a
+	/// `schedule_transfer` in the same batch.
+	fn agenda_fits_reads(call: &RuntimeCall) -> u64 {
+		crate::configs::HighSecurityConfig::agenda_fits_reads(call)
+	}
+
+	/// What a non-high-security signer gets back from `weight()`: the fee
+	/// ceiling's multiplier read, the agenda-room reads, the quota ring
+	/// reads/write and any agenda-credit reads, all of which only a high-security
+	/// signer performs.
+	pub fn non_high_security_refund(call: &RuntimeCall) -> Weight {
+		T::DbWeight::get()
+			.reads_writes(6, 1)
+			.saturating_add(T::DbWeight::get().reads(Self::agenda_fits_reads(call)))
 	}
 }
 
@@ -1036,7 +1067,10 @@ mod tests {
 				.expect("alice is not high-security");
 			assert!(!val, "alice must be classified as non-high-security");
 			let pre = ext.prepare(val, &origin, &call, &Default::default(), 0).unwrap();
-			assert!(!pre);
+			assert_eq!(
+				pre,
+				ReversibleTransactionExtension::<Runtime>::non_high_security_refund(&call)
+			);
 
 			// Charlie is already configured as high-security from genesis
 			// Verify Charlie is high-security
@@ -1339,13 +1373,55 @@ mod tests {
 
 		// Non-high-security traffic executes only the classification read;
 		// everything else is refunded.
-		let refund = <ReversibleTransactionExtension<Runtime> as TransactionExtension<
-			RuntimeCall,
-		>>::post_dispatch_details(
-			false, &Default::default(), &Default::default(), 0, &Ok(())
-		)
-		.unwrap();
+		let refund = ReversibleTransactionExtension::<Runtime>::non_high_security_refund(&call);
 		assert_eq!(refund, db.reads_writes(6, 1));
+		assert_eq!(
+			<ReversibleTransactionExtension<Runtime> as TransactionExtension<RuntimeCall>>::post_dispatch_details(
+				refund, &Default::default(), &Default::default(), 0, &Ok(())
+			)
+			.unwrap(),
+			refund
+		);
+
+		// A batch that schedules after a `cancel` or `recover_funds` also pays
+		// for the reads that credit the slots those free: two per `cancel`, two
+		// plus `MaxPendingPerAccount` per `recover_funds`. A batch that schedules
+		// nothing is not walked and pays nothing extra.
+		let schedule = RuntimeCall::ReversibleTransfers(
+			pallet_reversible_transfers::Call::schedule_transfer {
+				dest: MultiAddress::Id(bob()),
+				amount: EXISTENTIAL_DEPOSIT,
+			},
+		);
+		let cancel = RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+			tx_id: sp_core::H256::default(),
+		});
+		let recover =
+			RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::recover_funds {
+				account: bob(),
+			});
+		let batch = |calls: Vec<RuntimeCall>| {
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls })
+		};
+		let weight_of = |call: &RuntimeCall| {
+			<ReversibleTransactionExtension<Runtime> as TransactionExtension<RuntimeCall>>::weight(
+				&ext, call,
+			)
+		};
+		let per_recover = 2 + u64::from(
+			<Runtime as pallet_reversible_transfers::Config>::MaxPendingPerAccount::get(),
+		);
+		assert_eq!(weight_of(&schedule), db.reads_writes(7, 1));
+		assert_eq!(weight_of(&batch(vec![cancel.clone(), recover.clone()])), db.reads_writes(7, 1));
+		let mixed = batch(vec![cancel.clone(), recover.clone(), schedule.clone(), cancel.clone()]);
+		assert_eq!(
+			weight_of(&mixed),
+			db.reads_writes(7, 1).saturating_add(db.reads(4 + per_recover))
+		);
+		assert_eq!(
+			ReversibleTransactionExtension::<Runtime>::non_high_security_refund(&mixed),
+			db.reads_writes(6, 1).saturating_add(db.reads(4 + per_recover))
+		);
 
 		// A tipped transaction additionally reads `HighSecurityAccounts` in
 		// both `can_withdraw_fee` and `withdraw_fee` of the fee adapter.
@@ -1455,6 +1531,195 @@ mod tests {
 			// The next block's agenda has room again.
 			System::set_block_number(2);
 			assert_ok!(check_call(schedule));
+		});
+	}
+
+	/// The agenda gate walks a batch in dispatch order: a `cancel` or
+	/// `recover_funds` the signer is entitled to frees the slots of the pending
+	/// transfers it removes from the target agenda for a `schedule_transfer` that
+	/// follows it, and nothing else does. Charlie is high-security and guardian of
+	/// Dave and Eve; Dave's transfers land in Charlie's target agenda, Eve's in
+	/// the next one. `check_call` runs `validate` and `prepare` only, so the state
+	/// is the same for every shape checked.
+	#[test]
+	fn test_high_security_batch_credits_slots_freed_earlier_in_the_batch() {
+		use frame_support::traits::schedule::LOWEST_PRIORITY;
+		let agenda_full = TransactionValidityError::Invalid(InvalidTransaction::Custom(
+			HIGH_SECURITY_AGENDA_FULL,
+		));
+		let fund = |who: &AccountId| {
+			<Balances as frame_support::traits::Currency<AccountId>>::make_free_balance_be(
+				who,
+				EXISTENTIAL_DEPOSIT * 100,
+			);
+		};
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let delay = ReversibleTransfers::is_high_security(&charlie()).unwrap().delay;
+			let when = ReversibleTransfers::dispatch_time_for(&delay);
+			let schedule = RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_transfer {
+					dest: MultiAddress::Id(bob()),
+					amount: EXISTENTIAL_DEPOSIT,
+				},
+			);
+			let cancel = |tx_id: sp_core::H256| {
+				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+					tx_id,
+				})
+			};
+			let recover = |account: AccountId| {
+				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::recover_funds {
+					account,
+				})
+			};
+			let batch = |calls: Vec<RuntimeCall>| {
+				RuntimeCall::Utility(pallet_utility::Call::batch_all { calls })
+			};
+			let pending_of = |who: &AccountId| -> Vec<sp_core::H256> {
+				pallet_reversible_transfers::PendingTransfersBySender::<Runtime>::get(who)
+					.into_iter()
+					.collect()
+			};
+
+			// Dave: two transfers in Charlie's target agenda. Eve: one in the next.
+			let eve = AccountId32::from([5; 32]);
+			fund(&dave());
+			fund(&eve);
+			assert_ok!(ReversibleTransfers::set_high_security(
+				RuntimeOrigin::signed(dave()),
+				delay,
+				charlie(),
+			));
+			let next_delay = match delay {
+				qp_scheduler::BlockNumberOrTimestamp::BlockNumber(blocks) =>
+					qp_scheduler::BlockNumberOrTimestamp::BlockNumber(blocks + 1),
+				other => panic!("genesis high-security delay is block-based: {other:?}"),
+			};
+			assert_ok!(ReversibleTransfers::set_high_security(
+				RuntimeOrigin::signed(eve.clone()),
+				next_delay,
+				charlie(),
+			));
+			for who in [dave(), dave(), eve.clone()] {
+				assert_ok!(ReversibleTransfers::schedule_transfer(
+					RuntimeOrigin::signed(who),
+					MultiAddress::Id(bob()),
+					EXISTENTIAL_DEPOSIT,
+				));
+			}
+			let dave_txs = pending_of(&dave());
+			let eve_tx = pending_of(&eve)[0];
+			assert_eq!(dave_txs.len(), 2);
+
+			// Ordinary accounts fill the rest of Charlie's target agenda.
+			let mut seed = 100u8;
+			let mut filler_tx = None;
+			while pallet_scheduler::Pallet::<Runtime>::free_slots(when, LOWEST_PRIORITY) > 0 {
+				let who = AccountId32::from([seed; 32]);
+				seed += 1;
+				fund(&who);
+				for _ in
+					0..<Runtime as pallet_reversible_transfers::Config>::MaxPendingPerAccount::get()
+				{
+					if pallet_scheduler::Pallet::<Runtime>::free_slots(when, LOWEST_PRIORITY) == 0 {
+						break;
+					}
+					assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+						RuntimeOrigin::signed(who.clone()),
+						MultiAddress::Id(who.clone()),
+						1,
+						delay,
+					));
+					filler_tx = Some(pending_of(&who)[0]);
+				}
+			}
+			let filler_tx = filler_tx.expect("the agenda needed filling");
+
+			// A slot freed earlier in the batch is taken by a later schedule; the
+			// other way round the schedule would fail at dispatch, so it is refused.
+			assert_eq!(check_call(schedule.clone()).unwrap_err(), agenda_full);
+			assert_ok!(check_call(batch(vec![cancel(dave_txs[0]), schedule.clone()])));
+			assert_eq!(
+				check_call(batch(vec![schedule.clone(), cancel(dave_txs[0])])).unwrap_err(),
+				agenda_full
+			);
+			assert_eq!(
+				check_call(batch(vec![cancel(dave_txs[0]), schedule.clone(), schedule.clone()]))
+					.unwrap_err(),
+				agenda_full
+			);
+			assert_ok!(check_call(batch(vec![
+				cancel(dave_txs[0]),
+				schedule.clone(),
+				cancel(dave_txs[1]),
+				schedule.clone(),
+			])));
+
+			// A pending transfer is credited once however often it is named, only
+			// when the signer may cancel it, and only when it sits in this agenda.
+			assert_eq!(
+				check_call(batch(vec![
+					cancel(dave_txs[0]),
+					cancel(dave_txs[0]),
+					schedule.clone(),
+					schedule.clone(),
+				]))
+				.unwrap_err(),
+				agenda_full
+			);
+			assert_eq!(
+				check_call(batch(vec![cancel(filler_tx), schedule.clone()])).unwrap_err(),
+				agenda_full
+			);
+			assert_eq!(
+				check_call(batch(vec![cancel(eve_tx), schedule.clone()])).unwrap_err(),
+				agenda_full
+			);
+
+			// Recovery frees every pending transfer of the ward in this agenda, and
+			// nothing for an account the signer does not guard or has already
+			// recovered in the same batch.
+			assert_ok!(check_call(batch(vec![
+				recover(dave()),
+				schedule.clone(),
+				schedule.clone()
+			])));
+			assert_eq!(
+				check_call(batch(vec![
+					recover(dave()),
+					schedule.clone(),
+					schedule.clone(),
+					schedule.clone(),
+				]))
+				.unwrap_err(),
+				agenda_full
+			);
+			assert_eq!(
+				check_call(batch(vec![
+					recover(dave()),
+					cancel(dave_txs[0]),
+					schedule.clone(),
+					schedule.clone(),
+					schedule.clone(),
+				]))
+				.unwrap_err(),
+				agenda_full
+			);
+			assert_eq!(
+				check_call(batch(vec![recover(eve.clone()), schedule.clone()])).unwrap_err(),
+				agenda_full
+			);
+			assert_eq!(
+				check_call(batch(vec![recover(alice()), schedule.clone()])).unwrap_err(),
+				agenda_full
+			);
+
+			// Only the admitted shapes spent quota.
+			assert_eq!(
+				pallet_reversible_transfers::HighSecurityTxQuota::<Runtime>::get(charlie()).len(),
+				3
+			);
 		});
 	}
 

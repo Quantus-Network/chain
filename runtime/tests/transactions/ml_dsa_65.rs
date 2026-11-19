@@ -122,7 +122,11 @@ fn wormhole_overcharge_is_refunded_from_the_transaction_fee() {
 		let non_hs_quota_refund = <ReversibleTransactionExtension<Runtime> as TransactionExtension<
 			RuntimeCall,
 		>>::post_dispatch_details(
-			false, &info, &Default::default(), len as usize, &Ok(())
+			ReversibleTransactionExtension::<Runtime>::non_high_security_refund(&call),
+			&info,
+			&Default::default(),
+			len as usize,
+			&Ok(()),
 		)
 		.expect("the reversible extension refunds non-high-security traffic");
 		assert_ne!(non_hs_quota_refund, Weight::zero());

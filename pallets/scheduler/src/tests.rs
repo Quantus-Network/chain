@@ -2249,6 +2249,52 @@ fn free_slots_tracks_agenda_admission() {
 		assert_eq!(Scheduler::free_slots(DispatchTime::At(5), LOWEST_PRIORITY), max - reserved);
 		run_to_block(4);
 		assert_eq!(Scheduler::free_slots(DispatchTime::At(4), 63), 0);
+		assert_eq!(Scheduler::agenda_for(DispatchTime::At(4)), None);
+	});
+}
+
+/// A named task is reported in the agenda `agenda_for` resolves its schedule time
+/// to, and cancelling it gives that agenda one slot back, so a caller can credit
+/// a cancel it is about to dispatch against a schedule in the same agenda.
+#[test]
+fn agenda_of_follows_a_named_task_until_it_is_cancelled() {
+	use frame_support::traits::schedule::LOWEST_PRIORITY;
+
+	let max: u32 = <Test as Config>::MaxScheduledPerBlock::get();
+	let reserved: u32 = (max / 5).max(1).min(max.saturating_sub(1));
+
+	new_test_ext().execute_with(|| {
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		let bound = Preimage::bound(call).unwrap();
+		let when =
+			Scheduler::agenda_for(DispatchTime::After(BlockNumberOrTimestamp::BlockNumber(3)))
+				.unwrap();
+		assert_eq!(when, BlockNumberOrTimestamp::BlockNumber(4));
+
+		assert_eq!(Scheduler::agenda_of(&[1u8; 32]), None);
+		assert_ok!(Scheduler::do_schedule_named(
+			[1u8; 32],
+			DispatchTime::After(BlockNumberOrTimestamp::BlockNumber(3)),
+			LOWEST_PRIORITY,
+			root(),
+			bound.clone(),
+		));
+		assert_ok!(Scheduler::do_schedule_named(
+			[2u8; 32],
+			DispatchTime::At(9),
+			LOWEST_PRIORITY,
+			root(),
+			bound,
+		));
+		assert_eq!(Scheduler::agenda_of(&[1u8; 32]), Some(when));
+		assert_eq!(Scheduler::agenda_of(&[2u8; 32]), Some(BlockNumberOrTimestamp::BlockNumber(9)));
+		assert_eq!(Scheduler::free_slots_in(when, LOWEST_PRIORITY), max - reserved - 1);
+
+		assert_ok!(Scheduler::do_cancel_named(None, [1u8; 32]));
+		assert_eq!(Scheduler::agenda_of(&[1u8; 32]), None);
+		assert_eq!(Scheduler::free_slots_in(when, LOWEST_PRIORITY), max - reserved);
+		assert_eq!(Scheduler::free_slots_in(BlockNumberOrTimestamp::BlockNumber(9), 63), max - 1);
 	});
 }
 

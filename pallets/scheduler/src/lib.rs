@@ -752,6 +752,29 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
+	/// The agenda a task scheduled for `when` would be placed in, resolved exactly
+	/// as `schedule` resolves it. `None` when `when` is already in the past.
+	/// Reads `System::Number` and `Timestamp::Now`.
+	pub fn agenda_for(
+		when: DispatchTime<BlockNumberFor<T>, T::Moment>,
+	) -> Option<BlockNumberOrTimestampOf<T>> {
+		Self::resolve_time(when).ok()
+	}
+
+	/// The agenda the named task `id` currently sits in, if it is scheduled. One
+	/// `Lookup` read.
+	pub fn agenda_of(id: &TaskName) -> Option<BlockNumberOrTimestampOf<T>> {
+		Lookup::<T>::get(id).map(|(when, _)| when)
+	}
+
+	/// The number of tasks of `priority` that can still be scheduled into the
+	/// agenda `when`, one `Agenda` read. Cancelling a task in that agenda frees
+	/// one slot regardless of the task's own priority.
+	pub fn free_slots_in(when: BlockNumberOrTimestampOf<T>, priority: schedule::Priority) -> u32 {
+		let occupied = Agenda::<T>::get(when).iter().filter(|slot| slot.is_some()).count() as u32;
+		Self::agenda_capacity(priority).saturating_sub(occupied)
+	}
+
 	/// The number of tasks of `priority` that can still be scheduled for `when`.
 	///
 	/// Lets a caller find out before dispatch whether a schedule would fail with
@@ -761,9 +784,7 @@ impl<T: Config> Pallet<T> {
 		when: DispatchTime<BlockNumberFor<T>, T::Moment>,
 		priority: schedule::Priority,
 	) -> u32 {
-		let Ok(when) = Self::resolve_time(when) else { return 0 };
-		let occupied = Agenda::<T>::get(when).iter().filter(|slot| slot.is_some()).count() as u32;
-		Self::agenda_capacity(priority).saturating_sub(occupied)
+		Self::agenda_for(when).map_or(0, |when| Self::free_slots_in(when, priority))
 	}
 
 	fn push_to_agenda(
