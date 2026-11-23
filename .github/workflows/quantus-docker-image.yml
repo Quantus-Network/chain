@@ -25,10 +25,11 @@ jobs:
 
       - name: Get version information
         id: version_info
+        env:
+          SPECIFIC_VERSION: ${{ github.event.inputs.specific_version }}
         run: |
           set -ex
           TARGET_VERSION=""
-          SPECIFIC_VERSION="${{ github.event.inputs.specific_version }}"
 
           if [[ -n "$SPECIFIC_VERSION" ]]; then
             if [[ ! "$SPECIFIC_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
@@ -81,7 +82,7 @@ jobs:
         id: check_image
         run: |
           set -ex
-          IMAGE_TO_CHECK="${{ env.GHCR_IMAGE_PATH }}:${{ env.TARGET_VERSION_WITH_V }}"
+          IMAGE_TO_CHECK="$GHCR_IMAGE_PATH:$TARGET_VERSION_WITH_V"
           echo "Checking for image: $IMAGE_TO_CHECK"
           
           if docker manifest inspect "$IMAGE_TO_CHECK" > /dev/null 2>&1; then
@@ -127,4 +128,4 @@ jobs:
 
       - name: Print completion message
         run: |
-          echo "Successfully built and pushed ${{ env.GHCR_IMAGE_PATH }}:${{ env.TARGET_VERSION_WITH_V }}" 
+          echo "Successfully built and pushed $GHCR_IMAGE_PATH:$TARGET_VERSION_WITH_V" 

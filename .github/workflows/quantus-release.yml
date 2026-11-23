@@ -26,11 +26,13 @@ jobs:
 
       - name: Extract version from PR title
         id: extract_version
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           # Extract version from PR title (format: "ci: Automate version bump to vX.Y.Z")
-          VERSION=$(echo "${{ github.event.pull_request.title }}" | grep -o 'v[0-9]\+\.[0-9]\+\.[0-9]\+\(-[a-zA-Z0-9]\+\)*')
+          VERSION=$(echo "$PR_TITLE" | grep -o 'v[0-9]\+\.[0-9]\+\.[0-9]\+\(-[a-zA-Z0-9]\+\)*')
           if [ -z "$VERSION" ]; then
-            echo "Error: Could not extract version from PR title: ${{ github.event.pull_request.title }}"
+            echo "Error: Could not extract version from PR title: $PR_TITLE"
             exit 1
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT

@@ -180,6 +180,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.ADMIN_PAT }}
           SOURCE_BRANCH: ${{ needs.calculate-next-miner-api-version.outputs.source_branch }}
           TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
+          IS_DRAFT: ${{ github.event.inputs.is_draft }}
         run: |
           set -ex
           # Remove 'quantus-miner-api-v' prefix for cargo version
@@ -240,7 +241,7 @@ jobs:
           git push origin "$branch_name"
 
           # Prepare PR title and labels
-          if [[ "${{ github.event.inputs.is_draft }}" == "true" ]]; then
+          if [[ "$IS_DRAFT" == "true" ]]; then
             PR_TITLE="ci: Miner API version bump to $NEW_VERSION (DRAFT)"
             PR_LABELS="automated,miner-api-release-proposal,draft-release"
           else

@@ -49,11 +49,14 @@ jobs:
 
       - name: Resolve version and commit
         id: resolve
+        env:
+          RAW: ${{ github.event.inputs.version }}
+          IS_DRAFT: ${{ github.event.inputs.is_draft }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            RAW="${{ github.event.inputs.version }}"
             case "$RAW" in
               quantus-miner-api-v*) VERSION="$RAW" ;;
               *) VERSION="quantus-miner-api-v$RAW" ;;
@@ -62,7 +65,7 @@ jobs:
               echo "Error: invalid version '$RAW' (want X.Y.Z or quantus-miner-api-vX.Y.Z)"
               exit 1
             fi
-            if [ "${{ github.event.inputs.is_draft }}" = "true" ]; then
+            if [ "$IS_DRAFT" = "true" ]; then
               echo "is_draft=true" >> "$GITHUB_OUTPUT"
             else
               echo "is_draft=false" >> "$GITHUB_OUTPUT"
@@ -70,11 +73,11 @@ jobs:
           else
             # Take only the first match so a title with two version strings cannot
             # write a multi-line value into GITHUB_OUTPUT.
-            VERSION=$(echo "${{ github.event.pull_request.title }}" \
+            VERSION=$(echo "$PR_TITLE" \
               | grep -o 'quantus-miner-api-v[0-9]\+\.[0-9]\+\.[0-9]\+' \
               | head -n1 || true)
             if [ -z "$VERSION" ]; then
-              echo "Error: Could not extract miner-api version from PR title: ${{ github.event.pull_request.title }}"
+              echo "Error: Could not extract miner-api version from PR title: $PR_TITLE"
               exit 1
             fi
             if [[ "${{ contains(github.event.pull_request.labels.*.name, 'draft-release') }}" == "true" ]]; then

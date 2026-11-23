@@ -153,6 +153,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.ADMIN_PAT }}
           SOURCE_BRANCH: ${{ needs.calculate-next-version.outputs.source_branch }}
           TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
+          IS_DRAFT: ${{ github.event.inputs.is_draft }}
+          IS_RUNTIME_UPGRADE: ${{ github.event.inputs.is_runtime_upgrade }}
+          VERSION_TYPE: ${{ github.event.inputs.version_type }}
         run: |
           set -ex
           new_cargo_version=${NEW_VERSION#v}
@@ -167,7 +170,7 @@ jobs:
           sed -i -E "s/^version\s*=\s*\"[0-9a-zA-Z.-]+\"/version = \"$new_cargo_version\"/" node/Cargo.toml
           
           # For runtime upgrade, also update runtime version and increment spec_version
-          if [[ "${{ github.event.inputs.is_runtime_upgrade }}" == "true" ]]; then
+          if [[ "$IS_RUNTIME_UPGRADE" == "true" ]]; then
             echo "Runtime upgrade detected. Updating runtime/Cargo.toml and incrementing spec_version..."
             sed -i -E "s/^version\s*=\s*\"[0-9a-zA-Z.-]+\"/version = \"$new_cargo_version\"/" runtime/Cargo.toml
           
@@ -179,7 +182,7 @@ jobs:
           
           # Update Cargo.lock
           cargo update -p quantus-node --precise "$new_cargo_version" || echo "cargo update -p quantus-node tried, proceeding."
-          if [[ "${{ github.event.inputs.is_runtime_upgrade }}" == "true" ]]; then
+          if [[ "$IS_RUNTIME_UPGRADE" == "true" ]]; then
             cargo update -p quantus-runtime --precise "$new_cargo_version" || echo "cargo update -p quantus-runtime tried, proceeding."
           fi
 
@@ -188,7 +191,7 @@ jobs:
           git config user.email "${{ github.actor }}@users.noreply.github.com"
           
           git add node/Cargo.toml Cargo.lock
-          if [[ "${{ github.event.inputs.is_runtime_upgrade }}" == "true" ]]; then
+          if [[ "$IS_RUNTIME_UPGRADE" == "true" ]]; then
             git add runtime/Cargo.toml runtime/src/lib.rs
           fi
           
@@ -199,13 +202,13 @@ jobs:
 
           # Prepare labels
           PR_LABELS="automated,release-proposal"
-          if [[ "${{ github.event.inputs.is_draft }}" == "true" ]]; then
+          if [[ "$IS_DRAFT" == "true" ]]; then
             PR_LABELS="$PR_LABELS,draft-release"
           fi
 
           gh pr create \
             --title "$PR_TITLE" \
-            --body "$(printf "Automated version bump for release %s.\\n\\n%s\\n\\nTriggered by workflow run: %s\\n\\nType: %s" "$NEW_VERSION" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" "${{ github.event.inputs.version_type }}")" \
+            --body "$(printf "Automated version bump for release %s.\\n\\n%s\\n\\nTriggered by workflow run: %s\\n\\nType: %s" "$NEW_VERSION" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" "$VERSION_TYPE")" \
             --base "$TARGET_BRANCH" \
             --head "$branch_name" \
             --label "$PR_LABELS" 

@@ -42,18 +42,21 @@ jobs:
 
       - name: Create version and branch info
         id: create_version
+        env:
+          HOTFIX_NAME: ${{ github.event.inputs.hotfix_name }}
         run: |
-          HOTFIX_NAME="${{ github.event.inputs.hotfix_name }}"
           # Clean up the hotfix name to ensure it's a valid version format
           VERSION=$(echo "$HOTFIX_NAME" | sed 's/[^a-zA-Z0-9._-]//g' | sed 's/^/v/')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Created hotfix version: $VERSION"
 
       - name: Create and push hotfix tag
+        env:
+          HOTFIX_NAME: ${{ github.event.inputs.hotfix_name }}
         run: |
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor }}@users.noreply.github.com"
-          git tag -a "${{ steps.create_version.outputs.version }}" -m "Hotfix release: ${{ github.event.inputs.hotfix_name }}"
+          git tag -a "${{ steps.create_version.outputs.version }}" -m "Hotfix release: $HOTFIX_NAME"
           git push origin "${{ steps.create_version.outputs.version }}"
 
   build-and-release:
@@ -234,9 +237,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEW_VERSION: ${{ needs.create-hotfix-tag.outputs.version }}
+          HOTFIX_NAME: ${{ github.event.inputs.hotfix_name }}
+          SOURCE_BRANCH: ${{ github.event.inputs.source_branch || github.ref_name }}
+          IS_RUNTIME_UPGRADE: ${{ github.event.inputs.is_runtime_upgrade }}
+          IS_DRAFT: ${{ github.event.inputs.is_draft }}
         run: |
-          HOTFIX_NAME="${{ github.event.inputs.hotfix_name }}"
-          release_notes="Hotfix release: $HOTFIX_NAME ($NEW_VERSION).\\n\\n**This is a draft release that will not be marked as the latest release automatically.**\\n\\nCreated from branch: ${{ github.event.inputs.source_branch || github.ref_name }}\\n\\nTo make this the latest release, manually publish the draft and mark it as latest in the GitHub releases page."
+          release_notes="Hotfix release: $HOTFIX_NAME ($NEW_VERSION).\\n\\n**This is a draft release that will not be marked as the latest release automatically.**\\n\\nCreated from branch: $SOURCE_BRANCH\\n\\nTo make this the latest release, manually publish the draft and mark it as latest in the GitHub releases page."
           printf "%s" "$release_notes" > release_notes.txt
 
           asset_args=()
@@ -245,7 +251,7 @@ jobs:
           done < asset_files.txt
 
           # Add runtime files if this is a runtime upgrade
-          if [[ "${{ github.event.inputs.is_runtime_upgrade }}" == "true" ]]; then
+          if [[ "$IS_RUNTIME_UPGRADE" == "true" ]]; then
             compact_wasm_path=$(find . -name "quantus-runtime-v*.compact.wasm" -type f)
             compressed_wasm_path=$(find . -name "quantus-runtime-v*.compact.compressed.wasm" -type f)
             srtool_json_path=$(find . -name "quantus-runtime-srtool-output-v*.json" -type f)
@@ -257,7 +263,7 @@ jobs:
           fi
 
           # Add draft flag if this is a draft release
-          if [[ "${{ github.event.inputs.is_draft }}" == "true" ]]; then
+          if [[ "$IS_DRAFT" == "true" ]]; then
             DRAFT_FLAG="--draft"
           else
             DRAFT_FLAG=""
@@ -289,6 +295,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEW_VERSION: ${{ needs.create-hotfix-tag.outputs.version }}
+          HOTFIX_NAME: ${{ github.event.inputs.hotfix_name }}
           ISSUE_BODY: |
             A new hotfix runtime upgrade has been released: [${{ needs.create-hotfix-tag.outputs.version }}](https://github.com/${{ github.repository }}/releases/tag/${{ needs.create-hotfix-tag.outputs.version }})
 
@@ -301,7 +308,6 @@ jobs:
             ## Next Steps
             Please review and coordinate the hotfix upgrade process.
         run: |
-          HOTFIX_NAME="${{ github.event.inputs.hotfix_name }}"
           issue_title="Hotfix runtime upgrade released: $HOTFIX_NAME ($NEW_VERSION)"
           gh issue create \
             --title "$issue_title" \

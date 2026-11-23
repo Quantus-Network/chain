@@ -57,9 +57,10 @@ jobs:
 
       - name: Check if crate should run
         id: should-run
+        env:
+          FILTER: ${{ github.event.inputs.crates_filter }}
         run: |
           CRATE_PATH="${{ matrix.crate }}"
-          FILTER="${{ github.event.inputs.crates_filter }}"
           
           if [[ -z "$FILTER" ]]; then
             echo "run=true" >> $GITHUB_OUTPUT
