@@ -234,7 +234,6 @@ impl Default for AllowedRequests {
 struct GapSync<B: BlockT> {
 	blocks: BlockCollection<B>,
 	best_queued_number: NumberFor<B>,
-	best_queued_hash: B::Hash,
 	target: NumberFor<B>,
 }
 
@@ -434,10 +433,10 @@ where
 			metrics.fork_targets.set(self.fork_targets.len().try_into().unwrap_or(u64::MAX));
 		}
 
-		match self.ready_blocks() {
-			Ok(blocks) if !blocks.is_empty() => self.validate_and_queue_blocks(blocks, false, true),
-			Ok(_) => {},
-			Err(bad_peer) => self.actions.push(SyncingAction::DropPeer(bad_peer)),
+		let blocks = self.ready_blocks();
+
+		if !blocks.is_empty() {
+			self.validate_and_queue_blocks(blocks, false, true);
 		}
 	}
 
@@ -493,22 +492,7 @@ where
 			}
 
 			if !continues_known_fork && !is_major_syncing {
-				let current = number.min(best_queued_number);
-				peer.common_number = peer.common_number.min(self.client.info().finalized_number);
-				let old_state = std::mem::replace(
-					&mut peer.state,
-					PeerSyncState::AncestorSearch {
-						current,
-						start: best_queued_number,
-						state: AncestorSearchState::ExponentialBackoff(One::one()),
-					},
-				);
-				self.cancel_peer_request(peer_id, old_state);
-
-				let request = ancestry_request::<B>(current);
-				let action = self.create_block_request_action(peer_id, request);
-				self.actions.push(action);
-
+				self.start_ancestor_search(peer_id);
 				return peer_info;
 			}
 		}
@@ -1391,7 +1375,7 @@ where
 							)?;
 							self.blocks.insert(start_block, blocks, *peer_id);
 						}
-						self.ready_blocks()?
+						self.ready_blocks()
 					},
 					PeerSyncState::DownloadingGap(range_start) => {
 						let range_start = *range_start;
@@ -1412,13 +1396,12 @@ where
 								gap_sync.blocks.insert(start_block, blocks, *peer_id);
 							}
 							gap = true;
-							let blocks: Vec<_> = gap_sync
+							let (ready, disconnected_peer) = gap_sync
 								.blocks
-								.ready_blocks(
-									gap_sync.best_queued_number + One::one(),
-									gap_sync.best_queued_hash,
-								)
-								.map_err(|peer| BadPeer(peer, rep::BAD_BLOCK))?
+								.ready_blocks(gap_sync.best_queued_number + One::one(), |hash| {
+									is_known(&*self.client, &self.queue_blocks, hash)
+								});
+							let blocks: Vec<_> = ready
 								.into_iter()
 								.map(|block_data| {
 									let justifications =
@@ -1447,6 +1430,9 @@ where
 								blocks.len(),
 								gap_sync.best_queued_number,
 							);
+							if let Some(peer_id) = disconnected_peer {
+								self.start_ancestor_search(peer_id);
+							}
 							blocks
 						} else {
 							debug!(target: LOG_TARGET, "Unexpected gap block response from {peer_id}");
@@ -1863,7 +1849,6 @@ where
 		if let Some(gap_sync) = &mut self.gap_sync {
 			if number > gap_sync.best_queued_number && number <= gap_sync.target {
 				gap_sync.best_queued_number = number;
-				gap_sync.best_queued_hash = *hash;
 			}
 		}
 		if number > self.best_queued_number {
@@ -1972,7 +1957,7 @@ where
 				self.best_queued_number = number;
 			} else {
 				debug!(target: LOG_TARGET, "Restarting from genesis");
-				self.best_queued_hash = info.genesis_hash;
+				self.best_queued_hash = Default::default();
 				self.best_queued_number = Zero::zero();
 			}
 		}
@@ -1980,13 +1965,8 @@ where
 		let old_gap = self.gap_sync.take().map(|g| (g.best_queued_number, g.target));
 		if let Some(BlockGap { start, end, .. }) = info.block_gap {
 			debug!(target: LOG_TARGET, "Starting gap sync #{start} - #{end} (old gap best and target: {old_gap:?})");
-			let before_gap = start - One::one();
 			self.gap_sync = Some(GapSync {
-				best_queued_number: before_gap,
-				best_queued_hash: self
-					.client
-					.hash(before_gap)?
-					.ok_or_else(|| ClientError::UnknownBlock(format!("#{before_gap}")))?,
+				best_queued_number: start - One::one(),
 				target: end,
 				blocks: BlockCollection::new(),
 			});
@@ -2010,7 +1990,7 @@ where
 
 	/// Is the block corresponding to the given hash known?
 	fn is_known(&self, hash: &B::Hash) -> bool {
-		self.block_status(hash).ok().map_or(false, |s| s != BlockStatus::Unknown)
+		is_known(&*self.client, &self.queue_blocks, hash)
 	}
 
 	/// Is any peer downloading the given hash?
@@ -2021,14 +2001,17 @@ where
 	}
 
 	/// Get the set of downloaded blocks that are ready to be queued for import.
-	/// The downloaded blocks that extend our best queued block, or the peer whose blocks
-	/// claim to and do not.
-	fn ready_blocks(&mut self) -> Result<Vec<IncomingBlock<B>>, BadPeer> {
-		let ready = self
-			.blocks
-			.ready_blocks(self.best_queued_number + One::one(), self.best_queued_hash)
-			.map_err(|peer| BadPeer(peer, rep::BAD_BLOCK))?;
-		Ok(ready
+	/// The downloaded blocks ready for import. A peer whose blocks connect to nothing we have
+	/// is sent back to ancestor search.
+	fn ready_blocks(&mut self) -> Vec<IncomingBlock<B>> {
+		let (ready, disconnected_peer) =
+			self.blocks.ready_blocks(self.best_queued_number + One::one(), |hash| {
+				is_known(&*self.client, &self.queue_blocks, hash)
+			});
+		if let Some(peer_id) = disconnected_peer {
+			self.start_ancestor_search(peer_id);
+		}
+		ready
 			.into_iter()
 			.map(|block_data| {
 				let justifications = block_data
@@ -2048,7 +2031,26 @@ where
 					state: None,
 				}
 			})
-			.collect())
+			.collect()
+	}
+
+	/// Look again for the last block `peer_id` has in common with us, starting from its best
+	/// or ours, whichever is lower.
+	fn start_ancestor_search(&mut self, peer_id: PeerId) {
+		let Some(peer) = self.peers.get_mut(&peer_id) else { return };
+		let current = peer.best_number.min(self.best_queued_number);
+		peer.common_number = peer.common_number.min(self.client.info().finalized_number);
+		let old_state = std::mem::replace(
+			&mut peer.state,
+			PeerSyncState::AncestorSearch {
+				current,
+				start: self.best_queued_number,
+				state: AncestorSearchState::ExponentialBackoff(One::one()),
+			},
+		);
+		self.cancel_peer_request(peer_id, old_state);
+		let action = self.create_block_request_action(peer_id, ancestry_request::<B>(current));
+		self.actions.push(action);
 	}
 
 	/// Get justification requests scheduled by sync to be sent out.
@@ -2566,6 +2568,16 @@ fn peer_gap_block_request<B: BlockT>(
 }
 
 /// Get pending fork sync targets for a peer.
+/// Whether we have the block, in the chain or queued for import.
+fn is_known<B: BlockT, Client: BlockBackend<B>>(
+	client: &Client,
+	queue_blocks: &HashMap<B::Hash, QueuedBlock<B>>,
+	hash: &B::Hash,
+) -> bool {
+	queue_blocks.contains_key(hash) ||
+		client.block_status(*hash).is_ok_and(|status| status != BlockStatus::Unknown)
+}
+
 fn fork_sync_request<B: BlockT>(
 	id: &PeerId,
 	fork_targets: &mut HashMap<B::Hash, ForkTarget<B>>,
@@ -2828,7 +2840,7 @@ fn ensure_response_within_request<B: BlockT>(
 }
 
 #[cfg(test)]
-mod security_tests {
+pub(crate) mod security_tests {
 	use super::*;
 	use crate::mock::MockBlockDownloader;
 	use sc_client_api::{ChildInfo, CompactProof, StorageProof};
@@ -3121,7 +3133,11 @@ mod security_tests {
 
 	/// `len` chained blocks ending at `top`, lowest first, which is how `on_block_data` orders a
 	/// descending response before validating it. The lowest block extends `parent_hash`.
-	fn chained_blocks(parent_hash: H256, top: u64, len: u64) -> Vec<BlockData<TestBlock>> {
+	pub(crate) fn chained_blocks(
+		parent_hash: H256,
+		top: u64,
+		len: u64,
+	) -> Vec<BlockData<TestBlock>> {
 		let mut parent_hash = parent_hash;
 		(top + 1 - len..=top)
 			.map(|number| {
@@ -3602,67 +3618,95 @@ mod security_tests {
 			std::iter::empty(),
 		)
 		.unwrap();
-		sync.gap_sync = Some(GapSync {
-			blocks: BlockCollection::new(),
-			best_queued_number: 1,
-			best_queued_hash: H256::random(),
-			target: 10,
-		});
+		sync.gap_sync =
+			Some(GapSync { blocks: BlockCollection::new(), best_queued_number: 1, target: 10 });
 		sync.reset_sync_start_point().unwrap();
 		assert!(sync.gap_sync.is_none());
 	}
 
-	fn chain_sync(
-		client: GenesisClient,
-		max_parallel_downloads: u32,
-	) -> ChainSync<TestBlock, GenesisClient> {
-		ChainSync::new(
-			ChainSyncMode::Full,
-			Arc::new(client),
-			max_parallel_downloads,
-			64,
-			ProtocolName::Static(""),
-			Arc::new(MockBlockDownloader::new()),
-			None,
-			std::iter::empty(),
-		)
-		.unwrap()
-	}
-
-	fn import_actions(sync: &ChainSync<TestBlock, GenesisClient>) -> usize {
+	fn imported_blocks(sync: &ChainSync<TestBlock, GenesisClient>) -> usize {
 		sync.actions
 			.iter()
-			.filter(|action| matches!(action, SyncingAction::ImportBlocks { .. }))
-			.count()
+			.map(|action| match action {
+				SyncingAction::ImportBlocks { blocks, .. } => blocks.len(),
+				_ => 0,
+			})
+			.sum()
 	}
 
-	/// A well-formed range whose lowest block does not extend our best is caught before
-	/// import, so it costs the peer its reputation instead of restarting sync.
+	fn announce(
+		sync: &mut ChainSync<TestBlock, GenesisClient>,
+		peer: PeerId,
+		block: &BlockData<TestBlock>,
+	) {
+		let announce =
+			BlockAnnounce { header: block.header.clone().unwrap(), state: None, data: None };
+		let _ = sync.on_validated_block_announce(true, peer, &announce);
+	}
+
+	fn respond(
+		sync: &mut ChainSync<TestBlock, GenesisClient>,
+		peer: PeerId,
+		blocks: &[BlockData<TestBlock>],
+	) -> Result<(), BadPeer> {
+		let (_, request) = sync.block_requests().pop().unwrap();
+		let response =
+			BlockResponse::<TestBlock> { id: 0, blocks: blocks.iter().rev().cloned().collect() };
+		sync.on_block_data(&peer, Some(request), response)
+	}
+
+	/// A range whose lowest parent we do not have used to reach import, where `UnknownParent`
+	/// restarted sync at no cost to the sender. The range is now dropped and the sender looks
+	/// for its common block again. It is not penalised: a peer on a sibling fork sends the same.
 	#[test]
-	fn range_not_extending_our_best_is_a_bad_block() {
-		let mut sync = chain_sync(GenesisClient::new(), 1);
+	fn range_connecting_to_nothing_we_have_restarts_the_ancestor_search() {
+		let (_, mut sync) = idle_sync();
 		let chain = chained_blocks(H256::random(), 64, 64);
 		let peer = PeerId::random();
 		sync.add_peer(peer, chain[63].hash, 64);
 
-		let (_, request) = sync.block_requests().pop().unwrap();
-		let response =
-			BlockResponse::<TestBlock> { id: 0, blocks: chain.iter().rev().cloned().collect() };
-		assert_eq!(
-			sync.on_block_data(&peer, Some(request), response),
-			Err(BadPeer(peer, rep::BAD_BLOCK)),
-		);
-		assert_eq!(import_actions(&sync), 0);
+		assert_eq!(respond(&mut sync, peer, &chain), Ok(()));
+		assert_eq!(imported_blocks(&sync), 0);
+		assert!(matches!(sync.peers[&peer].state, PeerSyncState::AncestorSearch { .. }));
+		assert!(sync.actions.iter().any(
+			|action| matches!(action, SyncingAction::StartRequest { peer_id, .. } if *peer_id == peer)
+		));
 		assert_eq!(sync.blocks.needed_blocks(PeerId::random(), 64, 64, 0, 1, 200), Some(1..65));
+	}
+
+	/// Two miners find block 1. Ours is `a1`; the peer's `b1` is imported through the fork
+	/// path and wins on work, so it becomes our best while `best_queued_hash` still names
+	/// `a1`. The peer's `b2` extends a block we have and must import.
+	#[test]
+	fn block_extending_our_best_sibling_is_imported() {
+		let (client, mut sync) = idle_sync();
+		let genesis = client.genesis.hash();
+		let mut a1 = header(1, genesis);
+		a1.set_state_root(H256::repeat_byte(0xAA));
+		let a1 = block_data(a1);
+		let [b1, b2] = <[_; 2]>::try_from(chained_blocks(genesis, 2, 2)).unwrap();
+		let peer = PeerId::random();
+		sync.add_peer(peer, genesis, 0);
+		sync.update_chain_info(&a1.hash, 1);
+
+		announce(&mut sync, peer, &b1);
+		assert_eq!(respond(&mut sync, peer, std::slice::from_ref(&b1)), Ok(()));
+		assert_eq!(imported_blocks(&sync), 1);
+		sync.update_chain_info(&b1.hash, 1);
+
+		announce(&mut sync, peer, &b2);
+		assert_eq!(respond(&mut sync, peer, std::slice::from_ref(&b2)), Ok(()));
+		assert_eq!(imported_blocks(&sync), 2);
+		assert!(sync.peers[&peer].state.is_available());
 	}
 
 	/// A fork response that stops above every block we know cannot be imported; it is
 	/// dropped and the peer is no longer asked for that fork.
 	#[test]
 	fn fork_response_not_reaching_a_known_block_is_dropped() {
-		let mut sync = chain_sync(GenesisClient::new(), 1);
+		let (client, mut sync) = idle_sync();
 		let peer = PeerId::random();
-		sync.add_peer(peer, sync.client.genesis.hash(), 0);
+		sync.add_peer(peer, client.genesis.hash(), 0);
 
 		let fork = chained_blocks(H256::random(), 3, 3);
 		let announce =
@@ -3675,7 +3719,7 @@ mod security_tests {
 		let response =
 			BlockResponse::<TestBlock> { id: 0, blocks: fork.iter().rev().cloned().collect() };
 		assert_eq!(sync.on_block_data(&peer, Some(request), response), Ok(()));
-		assert_eq!(import_actions(&sync), 0);
+		assert_eq!(imported_blocks(&sync), 0);
 		assert!(sync.fork_targets.is_empty());
 		assert!(sync.peers[&peer].state.is_available());
 	}
