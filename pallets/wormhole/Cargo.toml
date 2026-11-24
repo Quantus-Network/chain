@@ -31,6 +31,7 @@ sp-runtime.workspace = true
 hex.workspace = true
 qp-poseidon-core.workspace = true
 qp-wormhole-circuit-builder.workspace = true
+qp-wormhole-inputs.workspace = true
 
 [dev-dependencies]
 hex = { workspace = true, features = ["alloc"] }

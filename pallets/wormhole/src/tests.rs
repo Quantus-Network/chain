@@ -1055,9 +1055,9 @@ mod private_batch_proof_tests {
 						// Calculate expected exit amount from public inputs
 						let mut total = 0u128;
 						for account_data in &inputs.account_data {
-							if account_data.summed_output_amount > 0 {
-								total += (account_data.summed_output_amount as u128) *
-									crate::SCALE_DOWN_FACTOR;
+							if account_data.output_amount > 0 {
+								total +=
+									(account_data.output_amount as u128) * crate::SCALE_DOWN_FACTOR;
 							}
 						}
 						total
@@ -1107,8 +1107,8 @@ mod private_batch_proof_tests {
 			let expected_exit: u128 = inputs
 				.account_data
 				.iter()
-				.filter(|a| a.summed_output_amount > 0)
-				.map(|a| (a.summed_output_amount as u128) * crate::SCALE_DOWN_FACTOR)
+				.filter(|a| a.output_amount > 0)
+				.map(|a| (a.output_amount as u128) * crate::SCALE_DOWN_FACTOR)
 				.sum();
 			assert!(expected_exit > 0, "test proof must credit at least one exit");
 
@@ -1210,7 +1210,7 @@ mod private_batch_proof_tests {
 			let exit = inputs
 				.account_data
 				.iter()
-				.find(|a| a.summed_output_amount > 0)
+				.find(|a| a.output_amount > 0)
 				.map(|a| {
 					sp_core::crypto::AccountId32::new(a.exit_account.as_ref().try_into().unwrap())
 				})
@@ -1500,7 +1500,7 @@ mod private_batch_proof_tests {
 			let mut tampered_proof = deserialize_test_proof();
 			let inputs = parse_private_batch_public_inputs(&tampered_proof).expect("Should parse");
 			assert!(
-				inputs.account_data.iter().any(|a| a.summed_output_amount > 0),
+				inputs.account_data.iter().any(|a| a.output_amount > 0),
 				"fixture must carry at least one mintable slot"
 			);
 			for slot in 0..inputs.account_data.len() {
@@ -1551,8 +1551,8 @@ mod private_batch_proof_tests {
 			let exit_quanta: u128 = inputs
 				.account_data
 				.iter()
-				.filter(|a| a.summed_output_amount > 0)
-				.map(|a| a.summed_output_amount as u128)
+				.filter(|a| a.output_amount > 0)
+				.map(|a| a.output_amount as u128)
 				.sum();
 			let fee_bps = VolumeFeeRateBps::get() as u128;
 			let total_fee = super::ceil_volume_fee(exit_quanta, fee_bps);
@@ -1622,16 +1622,11 @@ mod private_batch_proof_tests {
 		let tmp_dir = std::env::temp_dir().join("pallet-wormhole-fixture-gen");
 		std::fs::create_dir_all(&tmp_dir).expect("Failed to create temp dir");
 
-		// Generate circuit binaries with num_leaf_proofs=7 (matching DEFAULT)
-		let num_leaf_proofs = 7usize;
-		println!("Generating circuit binaries with num_leaf_proofs={}...", num_leaf_proofs);
-		qp_wormhole_circuit_builder::generate_all_circuit_binaries(
-			&tmp_dir,
-			true,
-			num_leaf_proofs,
-			None,
-		)
-		.expect("Failed to generate circuit binaries");
+		// Must match the pallet's embedded verifier.
+		let shape = crate::circuit_config::PRIVATE_BATCH_SHAPE;
+		println!("Generating circuit binaries with {shape:?}...");
+		qp_wormhole_circuit_builder::generate_all_circuit_binaries(&tmp_dir, true, shape, None)
+			.expect("Failed to generate circuit binaries");
 
 		let aggregated_proof = super::fixture_gen::build_test_private_batch_proof(&tmp_dir);
 
@@ -1666,14 +1661,16 @@ mod fixture_gen {
 	/// Build a valid private-batch proof (1 real leaf, dummy-padded) from circuit
 	/// binaries in `bins_dir`. Uses the well-known test inputs matching test-helpers.
 	pub fn build_test_private_batch_proof(bins_dir: &Path) -> Proof {
-		use qp_wormhole_aggregator::private_batch::prover::PrivateBatchProver;
+		use qp_wormhole_aggregator::private_batch::prover::{
+			PrivateBatchInputs, PrivateBatchProver,
+		};
 		use qp_wormhole_circuit::{
 			block_header::header::HeaderInputs,
 			inputs::{CircuitInputs, PrivateCircuitInputs},
 			nullifier::Nullifier,
 			unspendable_account::UnspendableAccount,
 		};
-		use qp_wormhole_inputs::{BytesDigest, PublicCircuitInputs};
+		use qp_wormhole_inputs::{BytesDigest, PublicCircuitInputs, WithdrawalOutput};
 		use qp_zk_circuits_common::utils::digest_to_bytes;
 
 		// Create test inputs with real block header validation
@@ -1726,12 +1723,7 @@ mod fixture_gen {
 		let inputs = CircuitInputs {
 			public: PublicCircuitInputs {
 				asset_id: 0u32,
-				output_amount_1: output_amount,
-				output_amount_2: 0u32,
-				volume_fee_bps: 4,
 				nullifier,
-				exit_account_1: exit_account,
-				exit_account_2: BytesDigest::default(),
 				block_hash,
 				block_number,
 				input_amount,
@@ -1767,7 +1759,13 @@ mod fixture_gen {
 		// load the hex (and in regenerate_public_batch_fixture via PublicBatchAggregator).
 		// We skip a local WormholeVerifier check here: aggregator and verifier crates
 		// currently expose distinct plonky2 ProofWithPublicInputs types in this workspace.
-		prover.aggregate(vec![leaf_proof]).expect("Failed to aggregate private batch")
+		prover
+			.aggregate(PrivateBatchInputs {
+				leaf_proofs: vec![leaf_proof],
+				outputs: vec![WithdrawalOutput { exit_account, amount: output_amount }],
+				volume_fee_bps: 4,
+			})
+			.expect("Failed to aggregate private batch")
 	}
 
 	/// Helper to compute ZK leaf hash (must match circuit computation).
@@ -1834,25 +1832,9 @@ mod verifier_profile_tests {
 	}
 
 	#[test]
-	fn batch_configs_match_circuit_crate() {
-		// The expected configs are replicated in the pallet because
-		// qp-zk-circuits-common can't be a runtime dependency (it force-enables
-		// qp-plonky2/std). Assert parity with the source of truth the build-time
-		// circuit generation actually uses.
-		assert_eq!(
-			crate::private_batch_expected_config(),
-			qp_zk_circuits_common::circuit::wormhole_private_batch_circuit_config(),
-		);
-		assert_eq!(
-			crate::public_batch_expected_config(),
-			qp_zk_circuits_common::circuit::wormhole_public_batch_circuit_config(),
-		);
-	}
-
-	#[test]
 	fn profile_check_rejects_wrong_public_input_count() {
 		let common = crate::get_private_batch_verifier().unwrap().circuit_data.common.clone();
-		let config = crate::private_batch_expected_config();
+		let config = qp_wormhole_verifier::canonical_private_batch_circuit_config();
 		let expected = crate::private_batch_expected_public_inputs();
 
 		assert!(crate::ensure_batch_verifier_profile(&common, &config, expected).is_ok());
@@ -1865,7 +1847,7 @@ mod verifier_profile_tests {
 	#[test]
 	fn profile_check_rejects_non_canonical_config() {
 		let mut common = crate::get_private_batch_verifier().unwrap().circuit_data.common.clone();
-		let config = crate::private_batch_expected_config();
+		let config = qp_wormhole_verifier::canonical_private_batch_circuit_config();
 		let expected = crate::private_batch_expected_public_inputs();
 
 		// Any deviation from the canonical batch config must be rejected, e.g. an
@@ -1893,8 +1875,14 @@ mod verifier_profile_tests {
 	fn canonical_configs_meet_security_floor() {
 		// Guards against the canonical batch configs themselves dropping below the
 		// floor in a future qp-plonky2 bump (mirrors the upstream leaf check).
-		assert!(crate::private_batch_expected_config().security_bits >= MIN_LEAF_SECURITY_BITS);
-		assert!(crate::public_batch_expected_config().security_bits >= MIN_LEAF_SECURITY_BITS);
+		assert!(
+			qp_wormhole_verifier::canonical_private_batch_circuit_config().security_bits >=
+				MIN_LEAF_SECURITY_BITS
+		);
+		assert!(
+			qp_wormhole_verifier::canonical_public_batch_circuit_config().security_bits >=
+				MIN_LEAF_SECURITY_BITS
+		);
 	}
 }
 
@@ -1952,7 +1940,7 @@ mod exit_bundle_tests {
 			account_data: exits
 				.iter()
 				.map(|(account_byte, amount)| PublicInputsByAccount {
-					summed_output_amount: *amount,
+					output_amount: *amount,
 					exit_account: digest(*account_byte),
 				})
 				.collect(),
@@ -2699,7 +2687,7 @@ mod public_batch_proof_tests {
 		parse_public_batch_public_inputs(
 			&proof,
 			crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
-			crate::circuit_config::NUM_LEAF_PROOFS,
+			crate::circuit_config::PRIVATE_BATCH_SHAPE,
 		)
 		.expect("Should parse public-batch public inputs")
 	}
@@ -2743,9 +2731,8 @@ mod public_batch_proof_tests {
 			"Aggregator address should round-trip through the proof"
 		);
 
-		let expected_slots = crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS *
-			crate::circuit_config::NUM_LEAF_PROOFS *
-			2;
+		let expected_slots =
+			crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS * crate::circuit_config::NUM_EXIT_SLOTS;
 		assert_eq!(inputs.total_exit_slots as usize, expected_slots);
 		assert_eq!(inputs.account_data.len(), expected_slots);
 		assert_eq!(
@@ -2755,7 +2742,7 @@ mod public_batch_proof_tests {
 		);
 
 		// Exactly one real leaf exit; everything else is dummy padding.
-		let real_slots = inputs.account_data.iter().filter(|a| a.summed_output_amount > 0).count();
+		let real_slots = inputs.account_data.iter().filter(|a| a.output_amount > 0).count();
 		assert_eq!(real_slots, 1, "Fixture should contain exactly one real exit");
 
 		// The one real private-batch segment carries NUM_LEAF_PROOFS non-zero nullifiers
@@ -2780,7 +2767,7 @@ mod public_batch_proof_tests {
 			setup_matching_block_state(&inputs);
 			let bundle = ExitBundle::from_public_batch(
 				inputs,
-				crate::circuit_config::NUM_LEAF_PROOFS,
+				crate::circuit_config::PRIVATE_BATCH_SHAPE,
 				crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
 			);
 			let call =
@@ -2832,8 +2819,8 @@ mod public_batch_proof_tests {
 			let exit_quanta: u128 = inputs
 				.account_data
 				.iter()
-				.filter(|a| a.summed_output_amount > 0)
-				.map(|a| a.summed_output_amount as u128)
+				.filter(|a| a.output_amount > 0)
+				.map(|a| a.output_amount as u128)
 				.sum();
 
 			assert_ok!(settle_public(get_test_proof_bytes()));
@@ -2888,7 +2875,7 @@ mod public_batch_proof_tests {
 			assert_eq!(
 				info.actual_weight,
 				Some(expected),
-				"one-exit public batch must refund the unused 742-exit tail"
+				"one-exit public batch must refund the unused exit tail"
 			);
 			assert!(
 				expected.ref_time() <
@@ -2999,7 +2986,7 @@ mod public_batch_proof_tests {
 			let tampered_inputs = parse_public_batch_public_inputs(
 				&tampered_deser,
 				crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
-				crate::circuit_config::NUM_LEAF_PROOFS,
+				crate::circuit_config::PRIVATE_BATCH_SHAPE,
 			)
 			.expect("tampered PIs still parse");
 			assert_ne!(
@@ -3037,18 +3024,16 @@ mod public_batch_proof_tests {
 		let tmp_dir = std::env::temp_dir().join("pallet-wormhole-public-batch-fixture-gen");
 		std::fs::create_dir_all(&tmp_dir).expect("Failed to create temp dir");
 
-		// Must match the pallet's embedded verifier (QP_NUM_LEAF_PROOFS /
-		// QP_NUM_PRIVATE_BATCH_PROOFS defaults in build.rs).
-		let num_leaf_proofs = crate::circuit_config::NUM_LEAF_PROOFS;
+		// Must match the pallet's embedded verifier.
+		let shape = crate::circuit_config::PRIVATE_BATCH_SHAPE;
 		let num_private_batch_proofs = crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS;
 		println!(
-			"Generating circuit binaries (num_leaf_proofs={}, num_private_batch_proofs={})...",
-			num_leaf_proofs, num_private_batch_proofs
+			"Generating circuit binaries ({shape:?}, num_private_batch_proofs={num_private_batch_proofs})..."
 		);
 		qp_wormhole_circuit_builder::generate_all_circuit_binaries(
 			&tmp_dir,
 			true,
-			num_leaf_proofs,
+			shape,
 			Some(num_private_batch_proofs),
 		)
 		.expect("Failed to generate circuit binaries");
@@ -3159,7 +3144,7 @@ mod pre_validation_timing {
 			let inputs = qp_wormhole_verifier::parse_public_batch_public_inputs(
 				&proof,
 				crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
-				crate::circuit_config::NUM_LEAF_PROOFS,
+				crate::circuit_config::PRIVATE_BATCH_SHAPE,
 			)
 			.unwrap();
 			insert_block_hash(
