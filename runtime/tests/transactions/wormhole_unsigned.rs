@@ -64,7 +64,7 @@ impl Fixture {
 		let exit_account = inputs
 			.account_data
 			.iter()
-			.find(|a| a.summed_output_amount > 0 && a.exit_account.as_ref() != [0u8; 32])
+			.find(|a| a.output_amount > 0 && a.exit_account.as_ref() != [0u8; 32])
 			.map(|a| {
 				let raw: [u8; 32] = a.exit_account.as_ref().try_into().unwrap();
 				AccountId32::new(raw)

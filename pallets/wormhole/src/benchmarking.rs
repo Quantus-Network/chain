@@ -91,7 +91,7 @@ mod benchmarks {
 		let inputs = parse_public_batch_public_inputs(
 			&proof,
 			crate::circuit_config::NUM_PRIVATE_BATCH_PROOFS,
-			crate::circuit_config::NUM_LEAF_PROOFS,
+			crate::circuit_config::PRIVATE_BATCH_SHAPE,
 		)
 		.expect("Failed to parse public-batch inputs");
 

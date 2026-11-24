@@ -1,39 +1,39 @@
 # Wormhole ZK: Leaf, Private Batch, Public Batch
 
-> Wormhole ZK: each leaf proof spends 1 nullifier and pays up to 2 exits; a
-> private batch aggregates 7 leaves, and a public batch aggregates private
-> batches. Both batch levels are verified on-chain.
+> Wormhole ZK: each leaf proof burns one deposit and reveals 1 nullifier; a
+> private batch aggregates 8 leaves and pays up to 32 exits, and a public batch
+> aggregates private batches. Both batch levels are verified on-chain.
 
 The wormhole flow has three proof levels:
 
 | Level | Produced by | Inputs | Outputs | Verified by chain? |
 |------:|-------------|--------|---------|--------------------|
-| Leaf  | Client (per transfer) | 1 nullifier (1 spend) | Up to 2 exit accounts (spend + change) | No |
-| Private batch (ZK) | Client (aggregator) | Up to `N = 7` leaves (rest = dummies) | `2·N = 14` exit slots, `N = 7` nullifiers | **Yes** |
-| Public batch (non-ZK) | Any aggregator (delegatable) | Up to `n_inner = 53` private-batch proofs (rest = dummies) | `n_inner · 2N` exit slots, `n_inner · N` nullifiers | **Yes** |
+| Leaf  | Client (per transfer) | 1 deposit | 1 nullifier and the burned amount | No |
+| Private batch (ZK) | Client | Up to `N = 8` leaves (rest = dummies) | `M = 32` exit slots, `N = 8` nullifiers | **Yes** |
+| Public batch (non-ZK) | Any aggregator (delegatable) | Up to `n_inner = 86` private-batch proofs (rest = dummies) | `n_inner · M` exit slots, `n_inner · N` nullifiers | **Yes** |
 
 ---
 
 ## 1. Individual (leaf) proof
 
-One leaf proof = one user "exit" from a wormhole address.
+One leaf proof = one proof of burn: it shows that a deposit to a wormhole
+address exists and reveals its nullifier. It names no exit.
 
 - **Inputs (private):** secret, recipient `transfer_count`, the
-  `unspendable_account = H(salt + secret)`, the block header pre‑image, the
-  4‑ary ZK Merkle path proving `(to, transfer_count, asset_id, amount)` is in
-  the tree rooted at `header.zk_tree_root`, and the raw `input_amount`.
-- **Public inputs (`PUBLIC_INPUTS_FELTS_LEN = 21` felts):**
-  `asset_id(1), output_amount_1(1), output_amount_2(1), volume_fee_bps(1),`
-  `nullifier(4), exit_account_1(4), exit_account_2(4),`
-  `block_hash(4), block_number(1)`.
+  `unspendable_account = H(salt + secret)`, the block header pre-image and the
+  4-ary ZK Merkle path proving `(to, transfer_count, asset_id, amount)` is in
+  the tree rooted at `header.zk_tree_root`.
+- **Public inputs (`PUBLIC_INPUTS_FELTS_LEN = 11` felts):**
+  `asset_id(1), nullifier(4), block_hash(4), block_number(1), input_amount(1)`.
+  `input_amount` is consumed by the private batch and is not forwarded.
 - **Constraints:** nullifier = `H(H(salt ‖ secret ‖ transfer_count))`,
   Merkle proof root = `header.zk_tree_root`, block hash =
-  `H(header pre‑image)`, and a Bitcoin‑style fee/balance check:
-  `(out_1 + out_2) · 10000 ≤ input · (10000 − fee_bps)`.
+  `H(header pre-image)`.
 
-So the unit of a leaf proof is **1 input → up to 2 outputs**, not 1‑in/1‑out.
-A "dummy" leaf is identified by `block_hash == 0` **and** both outputs `== 0`;
-the leaf circuit short‑circuits all validation in that case.
+Exits and the fee are decided one level up, in the private batch. A "dummy"
+leaf is identified by `block_hash == 0`; the leaf circuit skips all validation
+in that case and constrains `input_amount == 0`. The leaf circuit is not
+zero-knowledge, so a leaf proof never leaves the client.
 
 Source: `qp-wormhole-circuit/src/{circuit.rs,zk_merkle_proof.rs}` and
 `qp-wormhole-inputs/src/lib.rs`.
@@ -42,35 +42,36 @@ Source: `qp-wormhole-circuit/src/{circuit.rs,zk_merkle_proof.rs}` and
 
 ## 2. Private-batch proof (client → chain)
 
-`PrivateBatchAggregator` in `qp-wormhole-aggregator/src/aggregator.rs` and the
-monolithic circuit in `src/private_batch/circuit/circuit_logic.rs`. Built into the
-pallet by `pallets/wormhole/build.rs`; `N = num_leaf_proofs = 7` by default
-(override with the `QP_NUM_LEAF_PROOFS` env var at build time).
+`PrivateBatchProver` in `qp-wormhole-aggregator/src/private_batch/prover/` and
+the circuit in `src/private_batch/circuit/circuit_logic.rs`. Built into the
+pallet by `pallets/wormhole/build.rs` with the deployed shape `N = 8` leaves and
+`M = 32` exit slots (`qp_wormhole_inputs::production`; override with the
+`QP_NUM_LEAF_PROOFS` / `QP_NUM_EXIT_SLOTS` env vars at build time).
 
 What the private-batch circuit does:
 
 1. Recursively verifies `N` leaf proofs against the leaf verifier data.
-2. Enforces all **real** leaves agree on `block_hash`, `asset_id`,
-   `volume_fee_bps`. Slots with `block_hash == 0` are treated as dummies and
-   exempted from this check.
-3. Builds `2·N` exit slots `[sum(1 felt), exit(4 felts)]`. For each slot it
-   sums all amounts across all `2·N` outputs whose exit matches; if the slot's
-   exit already appeared earlier, the slot is zeroed (dedupe → identical to a
-   dummy slot).
-4. Replaces dummy nullifiers with `H(H(preimage))` from caller‑provided random
-   preimages, so dummies cannot be deduplicated or linked across batches.
+2. Enforces all **real** leaves agree on `block_hash` and `asset_id`. Leaves
+   with `block_hash == 0` are treated as dummies and exempted from this check.
+3. Takes `M` prover-chosen exit slots `[amount(1 felt), exit(4 felts)]` and the
+   batch `volume_fee_bps` as witnesses, sums the `input_amount` of every real
+   leaf and enforces the fee/balance check
+   `sum(amounts) · 10000 ≤ sum(inputs) · (10000 − fee_bps)`.
+   Slots are forwarded verbatim: unused slots are `(0, zero account)` and
+   several slots may name the same account.
+4. Replaces dummy nullifiers with `H(H(preimage))` from caller-provided random
+   preimages, so dummies cannot be linked across batches.
 
-Aggregated PI layout (`qp-wormhole-aggregator/src/private_batch/circuit/constants.rs`):
+Aggregated PI layout (`qp_wormhole_inputs::private_batch_pi`):
 
 ```text
 [ num_exit_slots(1), asset_id(1), volume_fee_bps(1),
   block_hash(4), block_number(1),
-  [sum(1), exit(4)] · (2·N),
-  nullifier(4) · N,
-  padding ]                                total = N·21 + 8 felts
+  [amount(1), exit(4)] · M,
+  nullifier(4) · N ]                       total = 8 + 5·M + 4·N felts
 ```
 
-Anywhere from 1 to 7 real leaves work; the rest are padded with dummies. A
+Anywhere from 1 to `N` real leaves work; the rest are padded with dummies. A
 single all‑dummy batch is also valid (block hash on the wrapper output will
 be zero).
 
@@ -94,9 +95,9 @@ be zero).
    forwarders) from settling an unverified proof. It then re-checks nullifiers
    against `UsedNullifiers`, since an earlier extrinsic in the same block may
    have spent them, and marks each nullifier used.
-4. Walk the `2·N` exit slots, skipping any with `exit == [0;32]` or `sum == 0`
-   (covers dummies + dedup'd slots).
-5. Mint `sum · 10^10` (circuit uses 2dp `u32`, chain uses 12dp `u128`) to each
+4. Walk the `M` exit slots, skipping any with `exit == [0;32]` or
+   `amount == 0` (unused slots).
+5. Mint `amount · 10^10` (circuit uses 2dp `u32`, chain uses 12dp `u128`) to each
    surviving exit; record each transfer in `pallet-zk-tree` so the new mint
    becomes a fresh leaf available for future wormhole exits.
 6. Fee handling: for each accepted private segment, compute
@@ -119,7 +120,7 @@ be zero).
 - All inner private-batch proofs must agree on `block_hash`, `asset_id`,
   `volume_fee_bps`.
 - Adds an `aggregator_address` (witness, 4 felts) to the PIs identifying the
-  server; otherwise just forwards exit slots and nullifiers (no extra dedupe).
+  server; otherwise just forwards exit slots and nullifiers.
 
 public-batch PI layout (`qp-wormhole-aggregator/src/public_batch/circuit/constants.rs`):
 
@@ -128,14 +129,14 @@ public-batch PI layout (`qp-wormhole-aggregator/src/public_batch/circuit/constan
   asset_id(1), volume_fee_bps(1),
   block_hash(4), block_number(1),
   total_exit_slots(1),
-  [sum(1), exit(4)] · (n_inner · 2·N),
+  [amount(1), exit(4)] · (n_inner · M),
   nullifier(4) · (n_inner · N) ]
 ```
 
 ### On-chain verification
 
 `pallets/wormhole/build.rs` generates and embeds the public-batch verifier for
-`QP_NUM_PRIVATE_BATCH_PROOFS` (53 by default). `verify_public_batch` parses the
+`QP_NUM_PRIVATE_BATCH_PROOFS` (86 by default). `verify_public_batch` parses the
 proof into one settlement segment per inner private batch. A spent nullifier
 denies only its segment; other valid segments still settle.
 
@@ -151,11 +152,11 @@ can redirect part of the burn bucket to their proof-bound aggregator address.
 
 | Item | Location |
 |---|---|
-| Leaf PI length (21) | `qp-wormhole-inputs/src/lib.rs` (`PUBLIC_INPUTS_FELTS_LEN`) |
-| Private-batch wrapper PI layout | `qp-wormhole-aggregator/src/private_batch/circuit/constants.rs` |
-| Public-batch wrapper PI layout | `qp-wormhole-aggregator/src/public_batch/circuit/constants.rs` |
-| `N = num_leaf_proofs` (default 7) | `pallets/wormhole/build.rs` (`QP_NUM_LEAF_PROOFS`) |
-| Public-batch capacity (default 53) | `pallets/wormhole/build.rs` (`QP_NUM_PRIVATE_BATCH_PROOFS`) |
+| Leaf PI length (11) | `qp-wormhole-inputs/src/lib.rs` (`PUBLIC_INPUTS_FELTS_LEN`) |
+| Private-batch wrapper PI layout | `qp-wormhole-inputs/src/lib.rs` (`private_batch_pi`) |
+| Public-batch wrapper PI layout | `qp-wormhole-inputs/src/lib.rs` (`public_batch_pi`) |
+| `N`, `M`, public-batch capacity (8, 32, 86) | `qp-wormhole-inputs/src/lib.rs` (`production`); `pallets/wormhole/build.rs` overrides them with `QP_NUM_LEAF_PROOFS`, `QP_NUM_EXIT_SLOTS`, `QP_NUM_PRIVATE_BATCH_PROOFS` |
+| Canonical batch circuit configs | `qp-wormhole-verifier/src/lib.rs` (`canonical_private_batch_circuit_config`, `canonical_public_batch_circuit_config`) |
 | Embedded verifier bytes | `pallets/wormhole/src/lib.rs` (`PRIVATE_BATCH_VERIFIER`, `PUBLIC_BATCH_VERIFIER`) |
 | On‑chain verify entrypoints | `pallet_wormhole::{verify_private_batch, verify_public_batch}` |
 | Amount scale (10^10) | `pallets/wormhole/src/lib.rs` (`SCALE_DOWN_FACTOR`) |

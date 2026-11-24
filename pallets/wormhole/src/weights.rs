@@ -23,7 +23,11 @@
 //! HOSTNAME: `Yuvis-MacBook-Air.local`, CPU: `<UNKNOWN>`
 //! WASM-EXECUTION: `Compiled`, CHAIN: `None`, DB CACHE: `1024`
 //!
-//! Measured against `NUM_LEAF_PROOFS = 7`, `NUM_PRIVATE_BATCH_PROOFS = 53`.
+//! Measured against `NUM_LEAF_PROOFS = 7`, `NUM_PRIVATE_BATCH_PROOFS = 53`. The
+//! ZK verify / pre-validate compute bases are those measurements scaled to the
+//! 8-leaf, 32-exit-slot, 86-proof circuits by the native before/after ratio
+//! (ZK verify 1.29x private, 1.56x public; pre-validate 1.3x private, 1.6x
+//! public). Re-run the benchmarks to replace them.
 //! Note: the `verify_*_batch` storage tails below are hand-augmented. Keep the
 //! scaling logic when regenerating from benchmarks (ZK verify / pre-validate
 //! compute bases only).
@@ -78,12 +82,12 @@ pub trait WeightInfo {
 /// Compute for production private-batch pre-validation at the all-valid worst
 /// case (see `bench_fixtures::worst_case_bundle`). Re-run `pre_validate_proof` to
 /// regenerate.
-const PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS: u64 = 900_000_000;
+const PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS: u64 = 1_200_000_000;
 
 /// Compute for production public-batch pre-validation at the all-valid worst
 /// case (every segment non-inert; see `bench_fixtures::worst_case_bundle`).
 /// Re-run `pre_validate_public_batch_proof` to regenerate.
-const PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS: u64 = 1_900_000_000;
+const PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS: u64 = 3_100_000_000;
 
 /// Floor so regenerated weights can't under-price the all-valid worst case.
 /// The public-batch floor tracks the cheaper post-turnstile-removal
@@ -92,10 +96,10 @@ const _: () = assert!(PRIVATE_BATCH_PRE_VALIDATE_REF_TIME_PS > 550_000_000);
 const _: () = assert!(PUBLIC_BATCH_PRE_VALIDATE_REF_TIME_PS > 1_500_000_000);
 
 /// ZK verification time for a private-batch proof.
-const PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS: u64 = 15_162_000_000;
+const PRIVATE_BATCH_ZK_VERIFY_REF_TIME_PS: u64 = 19_600_000_000;
 
 /// ZK verification time for a public-batch proof.
-const PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS: u64 = 21_077_000_000;
+const PUBLIC_BATCH_ZK_VERIFY_REF_TIME_PS: u64 = 32_900_000_000;
 
 /// Storage-tail calibration basis: 32 exit mints (16 leaves × 2 slots).
 /// The measured 170 writes included the 16 `UsedNullifiers` inserts (one per
@@ -108,12 +112,9 @@ const STORAGE_CALIBRATION_NULLIFIER_WRITES: u64 = 16;
 const STORAGE_CALIBRATION_WRITES: u64 = 170 - STORAGE_CALIBRATION_NULLIFIER_WRITES;
 const STORAGE_CALIBRATION_PROOF_SIZE: u64 = 200_000;
 
-/// Each leaf proof contributes up to two exit slots (spend + change).
-const EXITS_PER_LEAF: u64 = 2;
-
 /// Worst-case exit slots for one private-batch proof.
 fn private_batch_max_exits() -> u64 {
-	EXITS_PER_LEAF.saturating_mul(circuit_config::NUM_LEAF_PROOFS as u64)
+	circuit_config::NUM_EXIT_SLOTS as u64
 }
 
 /// Worst-case exit slots for one public-batch proof (all inner segments full).

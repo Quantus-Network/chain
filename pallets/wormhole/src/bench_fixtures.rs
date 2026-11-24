@@ -21,7 +21,6 @@ pub fn insert_decoy_nullifiers<T: Config>(count: u32) {
 /// nullifiers (disjoint from decoy keys). Needed because proof fixtures use
 /// dummy padding that `segment_validity` skips as inert.
 pub fn worst_case_bundle<T: Config>(block_data: BlockData, num_segments: usize) -> ExitBundle {
-	let slots_per_segment = circuit_config::NUM_LEAF_PROOFS * 2;
 	let mut counter: u32 = 0;
 	let segments = (0..num_segments)
 		.map(|_| {
@@ -33,9 +32,9 @@ pub fn worst_case_bundle<T: Config>(block_data: BlockData, num_segments: usize) 
 					BytesDigest::new_unchecked(bytes)
 				})
 				.collect();
-			let account_data = (0..slots_per_segment)
+			let account_data = (0..circuit_config::NUM_EXIT_SLOTS)
 				.map(|_| PublicInputsByAccount {
-					summed_output_amount: 1,
+					output_amount: 1,
 					exit_account: BytesDigest::new_unchecked([0xCDu8; 32]),
 				})
 				.collect();
