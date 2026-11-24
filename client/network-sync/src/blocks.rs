@@ -17,11 +17,11 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::LOG_TARGET;
-use log::trace;
+use log::{debug, trace};
 use sc_network_common::sync::message;
 use sc_network_types::PeerId;
 use sp_arithmetic::traits::Saturating;
-use sp_runtime::traits::{Block as BlockT, NumberFor, One};
+use sp_runtime::traits::{Block as BlockT, Header as _, NumberFor, One};
 use std::{
 	cmp,
 	collections::{BTreeMap, HashMap},
@@ -205,24 +205,55 @@ impl<B: BlockT> BlockCollection<B> {
 
 	/// Get a valid chain of blocks ordered in descending order and ready for importing into
 	/// the blockchain.
-	/// `from` is the maximum block number for the start of the range that we are interested in.
+	/// `from` is the maximum block number for the start of the range that we are interested in,
+	/// and `parent_hash` the hash of block `from - 1`.
+	///
+	/// Ranges are drained while each one extends the block before it. A range that does not
+	/// is left for a later pass, once the blocks below it have been imported and judged, unless
+	/// it starts at `from`: nothing but `parent_hash` can precede it, so it is discarded and the
+	/// peer that sent it is returned.
+	///
 	/// The function will return empty Vec if the first block ready is higher than `from`.
 	/// For each returned block hash `clear_queued` must be called at some later stage.
-	pub fn ready_blocks(&mut self, from: NumberFor<B>) -> Vec<BlockData<B>> {
+	pub fn ready_blocks(
+		&mut self,
+		from: NumberFor<B>,
+		parent_hash: B::Hash,
+	) -> Result<Vec<BlockData<B>>, PeerId> {
+		let forged = match self.blocks.get(&from) {
+			Some(BlockRangeState::Complete(blocks)) if !extends(blocks, &parent_hash) =>
+				blocks.first().and_then(|b| b.origin),
+			_ => None,
+		};
+		if let Some(peer) = forged {
+			debug!(
+				target: LOG_TARGET,
+				"Blocks from #{from} sent by {peer} do not extend {parent_hash:?}",
+			);
+			self.blocks.remove(&from);
+			return Err(peer)
+		}
+
 		let mut ready = Vec::new();
 
 		let mut prev = from;
+		let mut prev_hash = parent_hash;
 		for (&start, range_data) in &mut self.blocks {
 			if start > prev {
 				break
 			}
 			let len = match range_data {
 				BlockRangeState::Complete(blocks) => {
+					if start == prev && !extends(blocks, &prev_hash) {
+						break
+					}
 					let len = (blocks.len() as u32).into();
 					prev = start + len;
 					if let Some(BlockData { block, .. }) = blocks.first() {
-						self.queued_blocks
-							.insert(block.hash, (start, start + (blocks.len() as u32).into()));
+						self.queued_blocks.insert(block.hash, (start, prev));
+					}
+					if let Some(BlockData { block, .. }) = blocks.last() {
+						prev_hash = block.hash;
 					}
 					// Remove all elements from `blocks` and add them to `ready`
 					ready.append(blocks);
@@ -234,7 +265,7 @@ impl<B: BlockT> BlockCollection<B> {
 			*range_data = BlockRangeState::Queued { len };
 		}
 		trace!(target: LOG_TARGET, "{} blocks ready for import", ready.len());
-		ready
+		Ok(ready)
 	}
 
 	pub fn clear_queued(&mut self, hash: &B::Hash) {
@@ -267,13 +298,25 @@ impl<B: BlockT> BlockCollection<B> {
 	}
 }
 
+/// Whether the lowest of `blocks` is the child of `parent_hash`. Blocks without a header
+/// cannot be judged and are taken to be.
+fn extends<B: BlockT>(blocks: &[BlockData<B>], parent_hash: &B::Hash) -> bool {
+	blocks
+		.first()
+		.and_then(|b| b.block.header.as_ref())
+		.is_none_or(|header| header.parent_hash() == parent_hash)
+}
+
 #[cfg(test)]
 mod test {
 	use super::{BlockCollection, BlockData, BlockRangeState};
 	use sc_network_common::sync::message;
 	use sc_network_types::PeerId;
 	use sp_core::H256;
-	use sp_runtime::testing::{Block as RawBlock, MockCallU64, TestXt};
+	use sp_runtime::{
+		testing::{Block as RawBlock, MockCallU64, TestXt},
+		traits::{Block as BlockT, Header as HeaderT},
+	};
 
 	type Block = RawBlock<TestXt<MockCallU64, ()>>;
 
@@ -321,14 +364,14 @@ mod test {
 
 		bc.clear_peer_download(&peer1);
 		bc.insert(41, blocks[41..81].to_vec(), peer1);
-		assert_eq!(bc.ready_blocks(1), vec![]);
+		assert_eq!(bc.ready_blocks(1, H256::default()).unwrap(), vec![]);
 		assert_eq!(bc.needed_blocks(peer1, 40, 150, 0, 1, 200), Some(121..151));
 		bc.clear_peer_download(&peer0);
 		bc.insert(1, blocks[1..11].to_vec(), peer0);
 
 		assert_eq!(bc.needed_blocks(peer0, 40, 150, 0, 1, 200), Some(11..41));
 		assert_eq!(
-			bc.ready_blocks(1),
+			bc.ready_blocks(1, H256::default()).unwrap(),
 			blocks[1..11]
 				.iter()
 				.map(|b| BlockData { block: b.clone(), origin: Some(peer0) })
@@ -338,7 +381,7 @@ mod test {
 		bc.clear_peer_download(&peer0);
 		bc.insert(11, blocks[11..41].to_vec(), peer0);
 
-		let ready = bc.ready_blocks(12);
+		let ready = bc.ready_blocks(12, H256::default()).unwrap();
 		assert_eq!(
 			ready[..30],
 			blocks[11..41]
@@ -361,8 +404,8 @@ mod test {
 		bc.clear_peer_download(&peer1);
 		bc.insert(121, blocks[121..150].to_vec(), peer1);
 
-		assert_eq!(bc.ready_blocks(80), vec![]);
-		let ready = bc.ready_blocks(81);
+		assert_eq!(bc.ready_blocks(80, H256::default()).unwrap(), vec![]);
+		let ready = bc.ready_blocks(81, H256::default()).unwrap();
 		assert_eq!(
 			ready[..40],
 			blocks[81..121]
@@ -414,7 +457,7 @@ mod test {
 		bc.insert(40, blocks[..5].to_vec(), peer);
 
 		// our "node" started on a fork, with its current best = 47, which is > common
-		let ready = bc.ready_blocks(48);
+		let ready = bc.ready_blocks(48, H256::default()).unwrap();
 		assert_eq!(
 			ready,
 			blocks[..5]
@@ -443,7 +486,7 @@ mod test {
 		bc.insert(40, blocks.to_vec(), peer);
 
 		// request any blocks starting from 1000 or lower.
-		let ready = bc.ready_blocks(1000);
+		let ready = bc.ready_blocks(1000, H256::default()).unwrap();
 		assert_eq!(
 			ready,
 			blocks
@@ -663,5 +706,69 @@ mod test {
 		// A peer advertising the maximum possible best block number must not overflow when
 		// cropping the request range to the peer's best, nor produce an empty range.
 		assert_eq!(bc.needed_blocks(peer, 40, u64::MAX, 0, 1, 200), Some(1..41));
+	}
+
+	fn hashes(blocks: &[message::BlockData<Block>]) -> Vec<H256> {
+		blocks.iter().map(|b| b.hash).collect()
+	}
+
+	/// `len` chained blocks with headers, numbered from `start`, the first extending `parent`.
+	fn chained_blocks(parent: H256, start: u64, len: u64) -> Vec<message::BlockData<Block>> {
+		let mut parent_hash = parent;
+		(start..start + len)
+			.map(|number| {
+				let header = <<Block as BlockT>::Header as HeaderT>::new(
+					number,
+					Default::default(),
+					Default::default(),
+					parent_hash,
+					Default::default(),
+				);
+				parent_hash = header.hash();
+				message::BlockData::<Block> {
+					hash: parent_hash,
+					header: Some(header),
+					body: None,
+					indexed_body: None,
+					message_queue: None,
+					receipt: None,
+					justification: None,
+					justifications: None,
+				}
+			})
+			.collect()
+	}
+
+	#[test]
+	fn range_not_extending_our_best_is_discarded_and_blamed() {
+		let mut bc = BlockCollection::new();
+		let peer = PeerId::random();
+		let best_hash = H256::random();
+		let _ = bc.needed_blocks(peer, 10, 100, 0, 1, 200);
+		bc.clear_peer_download(&peer);
+		bc.insert(1, chained_blocks(H256::random(), 1, 10), peer);
+
+		assert_eq!(bc.ready_blocks(1, best_hash), Err(peer));
+		assert!(is_empty(&bc));
+		assert_eq!(bc.needed_blocks(peer, 10, 100, 0, 1, 200), Some(1..11));
+	}
+
+	#[test]
+	fn range_not_extending_a_lower_range_waits_for_that_range_to_be_judged() {
+		let mut bc = BlockCollection::<Block>::new();
+		let honest = PeerId::random();
+		let forger = PeerId::random();
+		let best_hash = H256::random();
+		let _ = bc.needed_blocks(honest, 10, 100, 0, 1, 200);
+		let _ = bc.needed_blocks(forger, 10, 100, 0, 1, 200);
+		bc.insert(11, chained_blocks(H256::random(), 11, 10), forger);
+		assert_eq!(bc.ready_blocks(1, best_hash), Ok(vec![]));
+
+		let lower = chained_blocks(best_hash, 1, 10);
+		bc.insert(1, lower.clone(), honest);
+		let ready: Vec<H256> =
+			bc.ready_blocks(1, best_hash).unwrap().iter().map(|b| b.block.hash).collect();
+		assert_eq!(ready, hashes(&lower));
+		assert_eq!(bc.ready_blocks(11, lower[9].hash), Err(forger));
 	}
 }
