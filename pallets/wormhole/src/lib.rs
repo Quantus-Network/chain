@@ -18,13 +18,13 @@ const PRIVATE_BATCH_PI_HEADER_FELTS: usize = 8;
 
 /// Fixed transaction-pool priority for unsigned wormhole exit submissions.
 ///
-/// Must not be derived from public-input amounts: pool admission
-/// (`validate_unsigned`) only runs cheap pre-validation, so those amounts are
-/// attacker-controlled. Combined with the nullifier-based `provides` tag, an
-/// amount-derived priority would let junk with inflated PIs usurp a victim's
-/// same-tag exit (the pool replaces on strictly higher priority). A constant
-/// makes first-seen win; amount-based ordering is not needed for `Pays::No`
-/// exit traffic.
+/// Must not be derived from public-input amounts. Admission now runs the ZK
+/// verify, so an amount-mutated proof is rejected outright; the fixed priority
+/// is defence in depth and keeps first-seen ordering among valid same-tag
+/// proofs. Combined with the nullifier-based `provides` tag, an amount-derived
+/// priority would let one valid exit usurp another's same-tag pool slot (the
+/// pool replaces on strictly higher priority). A constant makes first-seen win;
+/// amount-based ordering is not needed for `Pays::No` exit traffic.
 pub const UNSIGNED_EXIT_PRIORITY: u64 = 1;
 
 /// Hard upper bound on the serialized size of a settlement proof (the `proof_bytes`
@@ -1113,28 +1113,23 @@ pub mod pallet {
 		type Call = Call<T>;
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			// Pool admission runs on every gossiped transaction, so it deliberately performs
-			// only the cheap structural pre-validation (deserialize, canonical framing,
-			// parse, stateless bundle checks, stateless mintability) and NOT the expensive
-			// ZK verification, nor the per-nullifier `UsedNullifiers` reads. The full verify
-			// and the stateful nullifier check are the block-inclusion gate's job in
-			// `pre_dispatch` (and are recomputed at settlement). Deferring both prevents
-			// unsigned, fee-free traffic from forcing unbounded verification and
-			// per-nullifier storage-read work per gossiped byte-variant of a proof — a junk
-			// flood of structurally valid proofs with fresh nullifiers would otherwise cost
-			// every node up to `NUM_PRIVATE_BATCH_PROOFS * NUM_LEAF_PROOFS` DB reads per
-			// blob, on each revalidation, while filtering nothing (fresh nullifiers are
-			// never used yet).
+			// Pool admission runs the cheap structural + stateless bundle checks and then
+			// the full ZK verify, but NOT the per-nullifier `UsedNullifiers` reads. Running
+			// the verify here is what keeps a junk flood off the block author: a
+			// structurally valid but unverifiable proof is rejected before it enters the
+			// pool, so it is never gossiped on and never reaches the inclusion loop, and the
+			// sending peer is reputation-penalised. A failed verify therefore costs one
+			// verification on the directly connected node (bounded by peer slots and
+			// banning), not an unbounded walk of the producer's whole build budget in
+			// `pre_dispatch`. The stateful nullifier check stays off this path and remains
+			// the block-inclusion gate's job (recomputed at settlement): fresh nullifiers
+			// filter nothing at admission and the reads scale with batch size — a flood with
+			// fresh nullifiers would otherwise force up to
+			// `NUM_PRIVATE_BATCH_PROOFS * NUM_LEAF_PROOFS` DB reads per blob on every node,
+			// on each revalidation, while rejecting nothing.
 			match call {
 				Call::verify_private_batch { proof_bytes } => {
-					let (_, _, bundle) = Self::pre_validate_private_batch_structural(proof_bytes)
-						.map_err(|_| InvalidTransaction::Call)?;
-					// Stateless bundle checks (asset, fee, block binding, any mintable
-					// slot) only — no per-nullifier reads. Cheap to reject
-					// wrong-chain/asset/fee junk and bundles that could never mint.
-					Self::validate_exit_bundle_stateless(&bundle)
-						.map_err(|_| InvalidTransaction::Call)?;
-					Self::ensure_any_segment_mintable(&bundle)
+					let bundle = Self::admission_validate_private_batch(proof_bytes)
 						.map_err(|_| InvalidTransaction::Call)?;
 
 					ValidTransaction::with_tag_prefix("WormholePrivateBatch")
@@ -1145,12 +1140,7 @@ pub mod pallet {
 						.build()
 				},
 				Call::verify_public_batch { proof_bytes } => {
-					// Same as the private-batch path: structural + stateless checks only.
-					let (_, _, bundle) = Self::pre_validate_public_batch_structural(proof_bytes)
-						.map_err(|_| InvalidTransaction::Call)?;
-					Self::validate_exit_bundle_stateless(&bundle)
-						.map_err(|_| InvalidTransaction::Call)?;
-					Self::ensure_any_segment_mintable(&bundle)
+					let bundle = Self::admission_validate_public_batch(proof_bytes)
 						.map_err(|_| InvalidTransaction::Call)?;
 
 					ValidTransaction::with_tag_prefix("WormholePublicBatch")
@@ -1165,11 +1155,11 @@ pub mod pallet {
 		}
 
 		fn pre_dispatch(call: &Self::Call) -> Result<(), TransactionValidityError> {
-			// Block-inclusion gate. Unlike `validate_unsigned` (pool admission), this runs
-			// the FULL validation including ZK verification, and returning `Err` here
-			// excludes the transaction from the block being built (and makes a block that
-			// includes an unverifiable proof invalid on import). This is what keeps
-			// unverified/junk proofs out of blocks now that pool admission is verify-free.
+			// Block-inclusion gate. Like `validate_unsigned` (pool admission) it runs the
+			// ZK verify, and additionally the stateful per-nullifier check. Returning `Err`
+			// here excludes the transaction from the block being built and makes a block
+			// that includes an unverifiable proof invalid on import, so a malicious author
+			// cannot include a proof that was never admitted.
 			//
 			// On success it leaves a `VerifiedProofHash` marker that the dispatchable
 			// consumes in the same `apply_extrinsic`; without it the dispatchable refuses
@@ -1267,8 +1257,9 @@ pub mod pallet {
 		/// caller to validate further.
 		///
 		/// This is the storage-free core the pool-admission path (`validate_unsigned`)
-		/// runs for every gossiped proof, before adding only the stateless bundle checks
-		/// ([`Self::validate_exit_bundle_stateless`]). The stateful segment-validity pass
+		/// runs for every gossiped proof, before adding the stateless bundle checks
+		/// ([`Self::validate_exit_bundle_stateless`]) and the full ZK verify. The stateful
+		/// segment-validity pass
 		/// — one `UsedNullifiers` read per nullifier — is deliberately kept off that path:
 		/// it scales with batch size and, on the unsigned fee-free admission path, would
 		/// let a junk flood of structurally valid proofs with fresh nullifiers force that
@@ -1347,6 +1338,25 @@ pub mod pallet {
 			Ok((bundle, validity))
 		}
 
+		/// Pool-admission validation of a private-batch proof: the structural and stateless
+		/// bundle checks plus the full ZK verify, but WITHOUT the per-nullifier
+		/// `UsedNullifiers` reads. Rejecting an unverifiable proof here keeps it out of the
+		/// pool and off the block author's inclusion loop; the cheap checks run before the
+		/// verify so wrong-chain/asset/fee junk costs nothing. See `validate_unsigned`.
+		fn admission_validate_private_batch(proof_bytes: &[u8]) -> Result<ExitBundle, Error<T>> {
+			let (verifier, proof, bundle) =
+				Self::pre_validate_private_batch_structural(proof_bytes)?;
+			Self::validate_exit_bundle_stateless(&bundle)?;
+			Self::ensure_any_segment_mintable(&bundle)?;
+
+			verifier.verify(proof).map_err(|e| {
+				log::error!("Private-batch proof verification failed at admission: {:?}", e);
+				Error::<T>::ProofVerificationFailed
+			})?;
+
+			Ok(bundle)
+		}
+
 		/// Structural subset of [`Self::pre_validate_public_batch_proof`] that does not
 		/// touch chain state. See [`Self::pre_validate_private_batch_structural`] for why
 		/// the segment-validity pass is kept off the pool-admission path; a public batch
@@ -1410,6 +1420,23 @@ pub mod pallet {
 			})?;
 
 			Ok((bundle, validity))
+		}
+
+		/// Pool-admission validation of a public-batch proof. Public-batch analogue of
+		/// [`Self::admission_validate_private_batch`]: structural + stateless checks plus
+		/// the full ZK verify, without the per-nullifier `UsedNullifiers` reads.
+		fn admission_validate_public_batch(proof_bytes: &[u8]) -> Result<ExitBundle, Error<T>> {
+			let (verifier, proof, bundle) =
+				Self::pre_validate_public_batch_structural(proof_bytes)?;
+			Self::validate_exit_bundle_stateless(&bundle)?;
+			Self::ensure_any_segment_mintable(&bundle)?;
+
+			verifier.verify(proof).map_err(|e| {
+				log::error!("Public-batch proof verification failed at admission: {:?}", e);
+				Error::<T>::ProofVerificationFailed
+			})?;
+
+			Ok(bundle)
 		}
 
 		/// Stable, semantic transaction-pool dedup tag for an exit bundle: a hash of the

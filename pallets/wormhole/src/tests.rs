@@ -1302,13 +1302,14 @@ mod private_batch_proof_tests {
 		});
 	}
 
-	/// The core of the anti-DoS change: pool admission (`validate_unsigned`) must NOT run
-	/// the expensive ZK verification, while the block-inclusion gate (`pre_dispatch`)
-	/// must. A proof whose public inputs are intact (so the cheap bundle checks pass) but
-	/// whose proof data is corrupted (so ZK verification fails) is therefore *admitted*
-	/// by `validate_unsigned` yet *rejected* by `pre_dispatch`.
+	/// The core of the anti-DoS change: pool admission (`validate_unsigned`) runs the ZK
+	/// verify, so a proof whose public inputs are intact (the cheap bundle checks pass) but
+	/// whose proof data is corrupted (ZK verification fails) is *rejected at admission* —
+	/// it never enters the pool, is never gossiped on, and never reaches the block author's
+	/// inclusion loop. The inclusion gate (`pre_dispatch`) re-verifies, so a malicious
+	/// author still cannot include a proof that was never admitted.
 	#[test]
-	fn validate_unsigned_skips_verify_but_pre_dispatch_enforces_it() {
+	fn validate_unsigned_runs_verify_and_rejects_unverifiable_proof() {
 		use sp_runtime::{traits::ValidateUnsigned, transaction_validity::TransactionSource};
 
 		new_test_ext().execute_with(|| {
@@ -1322,13 +1323,14 @@ mod private_batch_proof_tests {
 			}
 			let call = crate::Call::<Test>::verify_private_batch { proof_bytes: tampered.clone() };
 
-			// Pool admission is verify-free, so it still admits the tampered proof.
-			assert_ok!(<Wormhole as ValidateUnsigned>::validate_unsigned(
-				TransactionSource::External,
-				&call,
-			));
-
-			// The block-inclusion gate runs the ZK verify and rejects it.
+			assert!(
+				<Wormhole as ValidateUnsigned>::validate_unsigned(
+					TransactionSource::External,
+					&call,
+				)
+				.is_err(),
+				"admission must run the ZK verify and reject an unverifiable proof"
+			);
 			assert!(
 				<Wormhole as ValidateUnsigned>::pre_dispatch(&call).is_err(),
 				"pre_dispatch must reject a proof that fails ZK verification"
@@ -1369,16 +1371,15 @@ mod private_batch_proof_tests {
 		});
 	}
 
-	/// Pool admission must not derive `priority` from unverified public-input amounts.
-	///
-	/// With verification deferred to `pre_dispatch`, an attacker who sees a victim's
-	/// gossiped exit can mutate the PI amounts (keeping the nullifiers so the semantic
-	/// `provides` tag collides) and submit a higher-priority junk tx that usurps the
-	/// victim's pool slot — the pool replaces same-tag txs only when the newcomer has
-	/// strictly higher priority. A constant priority makes first-seen win and closes
-	/// that free censorship path.
+	/// Pool admission uses a fixed `priority` (`UNSIGNED_EXIT_PRIORITY`), never one derived
+	/// from public-input amounts, and now rejects an amount-mutated proof outright because
+	/// the mutation breaks the ZK verify. Previously the constant priority was the only
+	/// thing stopping an attacker who saw a victim's gossiped exit from mutating the PI
+	/// amounts (keeping the nullifiers so the `provides` tag collides) and usurping the
+	/// victim's pool slot with a higher-priority junk tx. The fixed priority remains as
+	/// defence in depth and to keep first-seen ordering among valid same-tag proofs.
 	#[test]
-	fn validate_unsigned_priority_ignores_unverified_amounts() {
+	fn validate_unsigned_uses_fixed_priority_and_rejects_amount_mutation() {
 		use qp_plonky2_verifier::field::types::Field;
 		use sp_runtime::{traits::ValidateUnsigned, transaction_validity::TransactionSource};
 
@@ -1394,9 +1395,15 @@ mod private_batch_proof_tests {
 			)
 			.expect("valid proof must be admitted");
 
+			assert_eq!(
+				original_valid.priority,
+				crate::UNSIGNED_EXIT_PRIORITY,
+				"unsigned exits must use the fixed pool priority"
+			);
+
 			// Inflate the first exit-slot amount in the PI section (layout: header of 8
-			// felts, then [sum(1), exit(4)] · 2N). Nullifiers are left untouched so the
-			// semantic provides tag stays identical to the victim's.
+			// felts, then [sum(1), exit(4)] · 2N). The mutation breaks the ZK verify, so
+			// admission now rejects it rather than admitting amount-inflated junk.
 			let mut tampered_proof = deserialize_test_proof();
 			assert!(
 				tampered_proof.public_inputs.len() > 8,
@@ -1408,24 +1415,13 @@ mod private_batch_proof_tests {
 
 			let tampered_call =
 				crate::Call::<Test>::verify_private_batch { proof_bytes: tampered_bytes };
-			let tampered_valid = <Wormhole as ValidateUnsigned>::validate_unsigned(
-				TransactionSource::External,
-				&tampered_call,
-			)
-			.expect("amount-inflated junk still passes cheap pool checks");
-
-			assert_eq!(
-				tampered_valid.provides, original_valid.provides,
-				"same nullifiers must yield the same provides tag"
-			);
-			assert_eq!(
-				tampered_valid.priority, original_valid.priority,
-				"priority must not track unverified PI amounts (else junk can usurp a real exit)"
-			);
-			assert_eq!(
-				original_valid.priority,
-				crate::UNSIGNED_EXIT_PRIORITY,
-				"unsigned exits must use the fixed pool priority"
+			assert!(
+				<Wormhole as ValidateUnsigned>::validate_unsigned(
+					TransactionSource::External,
+					&tampered_call,
+				)
+				.is_err(),
+				"an amount-mutated proof must fail the ZK verify at admission"
 			);
 		});
 	}
