@@ -1022,6 +1022,7 @@ mod tests {
 			job_id: job_id.to_string(),
 			mining_hash: "00".repeat(32),
 			difficulty: "1".to_string(),
+			header: None,
 		}
 	}
 

@@ -179,7 +179,7 @@ async fn handle_external_mining(
 	// handle_local_mining) so a concurrent rebuild between the two reads is
 	// caught by the version comparisons below.
 	let job_version = worker_handle.template_version();
-	let metadata = match worker_handle.metadata() {
+	let (metadata, header_scale) = match worker_handle.metadata_with_header() {
 		Some(m) => m,
 		None => return ExternalMiningOutcome::Interrupted,
 	};
@@ -203,8 +203,13 @@ async fn handle_external_mining(
 		mining_hash,
 		difficulty
 	);
-	let job =
-		MiningRequest { job_id: job_id.clone(), mining_hash, difficulty: difficulty.to_string() };
+	let header = merged_mining_job_header(&header_scale, &metadata.rewards_preimage);
+	let job = MiningRequest {
+		job_id: job_id.clone(),
+		mining_hash,
+		difficulty: difficulty.to_string(),
+		header,
+	};
 
 	server.broadcast_job(job).await;
 
@@ -1044,5 +1049,40 @@ mod tests {
 	#[test]
 	fn force_authoring_bypasses_gate() {
 		assert!(!freshness_gate_applies(true, false));
+	}
+}
+
+/// Merged mining: the job's unsealed header in a fixed 164-byte layout (hex): the SCALE header
+/// up to and including `zk_tree_root` (132 bytes, block number u32 LE), then the rewards
+/// preimage. Attached only if the SCALE digest is exactly `[PreRuntime(b"pow_", preimage)]`,
+/// which is what the pre-hash commits to; otherwise the job goes out without it.
+fn merged_mining_job_header(scale: &[u8], rewards_preimage: &[u8; 32]) -> Option<String> {
+	const PREFIX: [u8; 7] = [0x04, 0x06, b'p', b'o', b'w', b'_', 0x80];
+	if scale.len() != 132 + 7 + 32 || scale[132..139] != PREFIX || scale[139..] != rewards_preimage[..] {
+		log::warn!("⛏️ merged mining: unexpected unsealed header layout ({} bytes); job sent without header", scale.len());
+		return None;
+	}
+	let mut out = scale[..132].to_vec();
+	out.extend_from_slice(rewards_preimage);
+	Some(hex::encode(out))
+}
+
+#[cfg(test)]
+mod merged_mining_header_tests {
+	use super::merged_mining_job_header;
+
+	#[test]
+	fn job_header_takes_fixed_fields_and_requires_the_pow_digest() {
+		let pre = [0x7a; 32];
+		let mut scale = vec![1u8; 132];
+		scale.extend_from_slice(&[0x04, 0x06, b'p', b'o', b'w', b'_', 0x80]);
+		scale.extend_from_slice(&pre);
+		let h = hex::decode(merged_mining_job_header(&scale, &pre).unwrap()).unwrap();
+		assert_eq!(h.len(), 164);
+		assert_eq!(&h[..132], &scale[..132]);
+		assert_eq!(&h[132..], &pre);
+		assert!(merged_mining_job_header(&scale, &[0x7b; 32]).is_none());
+		scale.push(0);
+		assert!(merged_mining_job_header(&scale, &pre).is_none());
 	}
 }

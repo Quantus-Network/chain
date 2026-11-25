@@ -109,6 +109,12 @@ pub struct MiningRequest {
 	pub mining_hash: String,
 	/// Difficulty (U512 as decimal string). Must be non-zero.
 	pub difficulty: String,
+	/// Optional, for merged-mining pools: the unsealed header behind `mining_hash` in a fixed
+	/// 164-byte layout, hex: parent_hash | number (u32 LE) | state_root | extrinsics_root |
+	/// zk_tree_root | rewards_preimage. Miners that don't need it ignore it; a pool can hash it
+	/// to check it against `mining_hash` and prove which rewards preimage the block pays.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub header: Option<String>,
 }
 
 /// Response payload for job submission (`/mine`) and cancellation (`/cancel`).

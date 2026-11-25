@@ -231,6 +231,18 @@ where
 		self.template.lock().as_ref().map(|t| t.metadata.best_hash)
 	}
 
+	/// For merged-mining pools: the current metadata together with the template's SCALE-encoded
+	/// unsealed header, read under one lock so both describe the same template.
+	pub fn metadata_with_header(&self) -> Option<(MiningMetadata<Block::Hash, U512>, Vec<u8>)> {
+		if !self.is_authoring_enabled() {
+			return None;
+		}
+		self.template
+			.lock()
+			.as_ref()
+			.map(|t| (t.metadata.clone(), codec::Encode::encode(t.proposal.block.header())))
+	}
+
 	/// Get a copy of the current mining metadata, if available.
 	pub fn metadata(&self) -> Option<MiningMetadata<Block::Hash, U512>> {
 		if !self.is_authoring_enabled() {
